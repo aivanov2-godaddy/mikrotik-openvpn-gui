@@ -17,6 +17,18 @@ Replace every value in angle brackets. Never commit the resulting commands, expo
 
 Do not use a GitHub account password, full repository token, Actions token, SSH deploy key, or administrator PAT as the router's registry credential.
 
+## Offline plan helper
+
+`deploy_routeros_canary.py` renders the canary network, mount, environment, and immutable image commands without opening a socket or changing RouterOS. Start with:
+
+```powershell
+python deploy_routeros_canary.py --help
+```
+
+Every environment-specific value is required explicitly. The helper rejects short or mutable image references, non-HTTPS URLs, a REST hostname that differs from the confirmed certificate SAN, unsafe RouterOS names and paths, inconsistent proxy trust, and a gateway outside the canary subnet. It prints a review-only plan with `start-on-boot=no` and stops before starting or exposing the container.
+
+The legacy `update_routeros_app.py` source uploader is permanently fail closed and has no override. It must not be used for deployment.
+
 ## 1. Select a release
 
 1. Open the completed **Publish container** workflow run for the desired default-branch commit.

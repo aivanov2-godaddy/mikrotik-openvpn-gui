@@ -18,6 +18,8 @@ Keep Issues enabled for authorized collaborators. Disable Wiki, Discussions, and
 
 ## Default-branch ruleset
 
+GitHub currently reports that branch protection and rulesets are not enforced for this private personal-account repository. Treat the controls below as the required target state if the repository moves to a GitHub Team or Enterprise organization; do not describe them as active before GitHub confirms enforcement.
+
 - Require a pull request before merge.
 - Require at least one approving review and dismiss stale approvals.
 - Require review from Code Owners.

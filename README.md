@@ -45,7 +45,7 @@ The project uses the Python standard library; no application dependencies need t
 
 ```powershell
 python scripts/check-secrets.py
-python -m compileall -q app.py automation.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py
+python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
 python -m unittest discover -s tests -v
 ```
 
@@ -86,6 +86,8 @@ Published image tags include:
 - a Git tag when an explicit release tag is pushed.
 
 Production should deploy the immutable full-commit `sha-` tag, never automatically follow `edge`. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; enable them only after an isolated pull test on the installed RouterOS version. GitHub Actions receive only the minimum repository and package permissions required by each job.
+
+`deploy_routeros_canary.py` is an offline plan renderer with no network or apply mode. It validates the full image commit, HTTPS origins, REST certificate SAN, RouterOS-safe names/paths, proxy sources, and an isolated canary subnet before printing commands for review. The old `update_routeros_app.py` filename remains only as a fail-closed tombstone: it exits without contacting RouterOS and explains the supported migration path.
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the canary-first RouterOS procedure and [docs/ROLLBACK.md](docs/ROLLBACK.md) before the first production update.
 

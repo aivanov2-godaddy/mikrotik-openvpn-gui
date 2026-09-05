@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import io
 import ipaddress
 import unittest
+from contextlib import redirect_stderr
+from dataclasses import replace
+from pathlib import Path
 
 from deployment import (
     CLOUDFLARE_ADDRESS_LIST,
     CLOUDFLARE_IPV4_RANGES,
     CLOUDFLARE_IPV6_RANGES,
     cloudflare_bulgaria_rule,
-    routeros_container_add_command,
-    routeros_container_script,
     routeros_origin_acl_script,
 )
+from deploy_routeros_canary import CanarySettings, render_canary_plan
 from cloudflare import (
     CONFIG_PHASE,
     CONFIG_REF,
@@ -20,6 +23,7 @@ from cloudflare import (
     plan_tls_operation,
     plan_waf_operation,
 )
+from update_routeros_app import main as retired_source_update
 
 
 TEST_ZONE_ID = "example-zone-id"
@@ -58,17 +62,70 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertIn('not ip.src.country in {"BG"}', rule["expression"])
         self.assertEqual(rule["position"], {"index": 1})
 
-    def test_container_is_bounded_and_has_no_embedded_credentials(self) -> None:
-        infrastructure = routeros_container_script()
-        add = routeros_container_add_command()
-        self.assertIn("python:3.14-alpine", add)
-        self.assertIn("memory-high=134217728", add)
-        self.assertIn("memory-max=201326592", add)
-        self.assertIn("DROP_PRIVILEGES value=true", infrastructure)
-        self.assertIn("TRUSTED_PROXY_SOURCES value=172.31.255.1", infrastructure)
-        combined = (infrastructure + add).casefold()
-        self.assertNotIn("example-password", combined)
-        self.assertNotIn("example-api-token", combined)
+    @staticmethod
+    def canary_settings() -> CanarySettings:
+        return CanarySettings(
+            owner="example-owner",
+            commit="a" * 40,
+            public_origin="https://vpn.example.com",
+            routeros_rest_url="https://router.example.internal:8443/rest",
+            routeros_rest_san="router.example.internal",
+            external_root="disk1/vpn-gui",
+            bridge="br-containers",
+            canary_address="192.0.2.6/30",
+            gateway="192.0.2.5",
+            trust_cloudflare=True,
+            trusted_proxy_sources="192.0.2.1,2001:db8::1",
+        )
+
+    def test_canary_plan_uses_an_immutable_ghcr_image_and_separate_state(self) -> None:
+        plan = render_canary_plan(self.canary_settings())
+        self.assertIn(
+            f'remote-image="example-owner/mikrotik-openvpn-gui:sha-{"a" * 40}"',
+            plan,
+        )
+        self.assertIn('mountlists="vpn-gui-canary-aaaaaaaaaaaa-mounts"', plan)
+        self.assertIn('envlists="vpn-gui-canary-aaaaaaaaaaaa-env"', plan)
+        self.assertIn('src="disk1/vpn-gui/canary/aaaaaaaaaaaa/data" dst=/data', plan)
+        self.assertIn('src="disk1/vpn-gui/config" dst=/config', plan)
+        self.assertIn("memory-high=134217728", plan)
+        self.assertIn("memory-max=201326592", plan)
+        self.assertIn('key=ROUTEROS_INSECURE_TLS value="false"', plan)
+        self.assertIn("start-on-boot=no", plan)
+        self.assertNotIn("dst=/app", plan)
+        self.assertNotIn("remote-image=python", plan)
+        self.assertNotIn("password", plan.casefold())
+
+    def test_canary_plan_rejects_unsafe_or_unverified_inputs(self) -> None:
+        settings = self.canary_settings()
+        with self.assertRaisesRegex(ValueError, "full 40-character"):
+            render_canary_plan(replace(settings, commit="abc123"))
+        with self.assertRaisesRegex(ValueError, "exactly match"):
+            render_canary_plan(replace(settings, routeros_rest_san="other.example.internal"))
+        with self.assertRaisesRegex(ValueError, "HTTPS"):
+            render_canary_plan(replace(settings, routeros_rest_url="http://router.example.internal/rest"))
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            render_canary_plan(replace(settings, bridge='bad";remove'))
+        with self.assertRaisesRegex(ValueError, "require --trust-cloudflare"):
+            render_canary_plan(
+                replace(settings, trust_cloudflare=False, trusted_proxy_sources="192.0.2.1")
+            )
+        with self.assertRaisesRegex(ValueError, "individual IP address"):
+            render_canary_plan(replace(settings, trusted_proxy_sources="192.0.2.0/24"))
+        with self.assertRaisesRegex(ValueError, "network or broadcast"):
+            render_canary_plan(replace(settings, canary_address="192.0.2.4/30"))
+
+    def test_direct_source_updater_is_retired_and_fails_closed(self) -> None:
+        output = io.StringIO()
+        with redirect_stderr(output):
+            status = retired_source_update()
+        self.assertEqual(status, 64)
+        self.assertIn("Direct source-file deployment is retired", output.getvalue())
+        self.assertIn("no changes were made", output.getvalue())
+
+    def test_image_leaves_routeros_runtime_identity_files_absent(self) -> None:
+        containerfile = (Path(__file__).resolve().parents[1] / "Containerfile").read_text(encoding="utf-8")
+        self.assertIn("rm -f /etc/hostname /etc/hosts /etc/resolv.conf", containerfile)
 
     def test_waf_plan_creates_updates_and_is_idempotent(self) -> None:
         create = plan_waf_operation(None, zone_id=TEST_ZONE_ID)

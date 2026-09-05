@@ -18,9 +18,12 @@ COPY app.py automation.py favicon.py icons.py qr.py routeros.py security.py stor
 COPY static ./static
 COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 
+# RouterOS creates these runtime identity files itself and refuses to start an
+# extracted image when they already exist in the root filesystem.
 # The application prepares database ownership as root and then drops to UID/GID 65534.
 RUN mkdir -p /data \
-    && chmod 0700 /data
+    && chmod 0700 /data \
+    && rm -f /etc/hostname /etc/hosts /etc/resolv.conf
 
 ENV APP_PORT=8080 \
     REDIRECT_PORT=8081 \

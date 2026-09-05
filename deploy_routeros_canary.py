@@ -1,262 +1,261 @@
+"""Render a fail-safe RouterOS GHCR canary plan without contacting a router.
+
+This module deliberately has no apply mode. Review the rendered commands, compare
+all addresses and paths with live RouterOS state, and follow docs/DEPLOYMENT.md.
+"""
+
 from __future__ import annotations
 
-import os
-import ssl
-import time
-from pathlib import Path
-from typing import Any
-
-PROJECT = Path(__file__).resolve().parent
-import routeros_api  # noqa: E402
+import argparse
+import ipaddress
+import re
+from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 
-ROUTER_API_PORT = 8728
-CONTAINER_COMMENT = "VPN Dashboard"
+_FULL_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_GHCR_OWNER = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$")
+_ROUTER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
+_ROUTER_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+_DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
-def first(records: list[dict[str, Any]], label: str) -> dict[str, Any]:
-    if len(records) != 1:
-        raise RuntimeError(f"Expected exactly one {label}, found {len(records)}")
-    return records[0]
+def _quoted(value: str) -> str:
+    if not value or any(character in '"\\$' or ord(character) < 32 for character in value):
+        raise ValueError(
+            "RouterOS values must be non-empty and cannot contain quotes, escapes, variables, or control characters"
+        )
+    return f'"{value}"'
 
 
-def ensure_record(resource: Any, query: dict[str, str], values: dict[str, str], label: str) -> dict[str, Any]:
-    records = resource.get(**query)
-    if not records:
-        resource.add(**values)
-        records = resource.get(**query)
-    return first(records, label)
+def _validated_name(value: str, label: str) -> str:
+    if not _ROUTER_NAME.fullmatch(value):
+        raise ValueError(f"{label} contains characters unsafe for a generated RouterOS plan")
+    return value
 
 
-def remove_records(resource: Any, **query: str) -> None:
-    for record in resource.get(**query):
-        resource.remove(id=record["id"])
+def _validated_path(value: str) -> str:
+    if not _ROUTER_PATH.fullmatch(value) or ".." in value.split("/"):
+        raise ValueError("external root must be a relative RouterOS path without spaces or parent traversal")
+    return value.rstrip("/")
 
 
-def upload_text(files: Any, local: Path, remote: str) -> None:
-    contents = local.read_text(encoding="utf-8")
-    records = files.get(name=remote)
-    if not records:
-        files.add(name=remote, type="file")
-        records = files.get(name=remote)
-    record = first(records, remote)
-    files.set(id=record["id"], contents=contents)
-    stored = first(files.get(name=remote), remote)
-    stored_size = int(stored.get("size", "-1"))
-    source_size = len(contents.encode())
-    # RouterOS file sizes include one terminating byte for text written through
-    # /file set, while /file get value-name=contents returns the original text.
-    if stored_size not in {source_size, source_size + 1}:
-        raise RuntimeError(f"Upload verification failed for {remote}")
-    print(f"uploaded {remote} ({len(contents.encode())} bytes)", flush=True)
-
-
-def wait_for_container(containers: Any, wanted: set[str], timeout: int) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout
-    previous = None
-    while time.monotonic() < deadline:
-        records = containers.get(comment=CONTAINER_COMMENT)
-        if records:
-            record = records[0]
-            status = str(record.get("status", "unknown"))
-            for flag in ("running", "stopped", "starting", "extracting", "downloading"):
-                if record.get(flag) == "true":
-                    status = flag
-                    break
-            if status != previous:
-                print(f"container status={status}", flush=True)
-                previous = status
-            if status in wanted:
-                return record
-            if (
-                status in {"error", "failed"}
-                or status.startswith("error")
-                or record.get("download/extract failed") == "true"
-            ):
-                raise RuntimeError(f"Container failed: {record}")
-        time.sleep(2)
-    raise TimeoutError(f"Container did not reach {sorted(wanted)} in {timeout}s")
-
-
-def main() -> None:
-    host = os.environ["ROUTER_API_HOST"]
-    port = int(os.environ.get("ROUTER_API_PORT", "8729"))
-    username = os.environ.get("ROUTER_USER", "admin")
-    password = os.environ["ROUTER_PASSWORD"]
-    api_ca_file = Path(os.environ["ROUTER_API_CA_FILE"]).resolve()
-    ovpn_ca_file = Path(os.environ["OVPN_CA_FILE"]).resolve()
-    if not api_ca_file.is_file():
-        raise RuntimeError(f"Router API CA file does not exist: {api_ca_file}")
-    if not ovpn_ca_file.is_file():
-        raise RuntimeError(f"OpenVPN CA file does not exist: {ovpn_ca_file}")
-    ssl_context = ssl.create_default_context(cafile=str(api_ca_file))
-
-    pool = routeros_api.RouterOsApiPool(
-        host,
-        username=username,
-        password=password,
-        port=port,
-        use_ssl=True,
-        ssl_context=ssl_context,
-        plaintext_login=True,
-    )
+def _validated_host(value: str, label: str) -> str:
+    candidate = value.rstrip(".")
     try:
-        api = pool.get_api()
-        resource = first(api.get_resource("/system/resource").get(), "system resource")
-        if resource.get("architecture-name") != "arm64":
-            raise RuntimeError(f"Unexpected architecture: {resource.get('architecture-name')}")
-        print(f"router version={resource.get('version')} architecture=arm64", flush=True)
+        return ipaddress.ip_address(candidate).compressed
+    except ValueError:
+        if (
+            not candidate
+            or len(candidate) > 253
+            or any(not _DNS_LABEL.fullmatch(part) for part in candidate.split("."))
+        ):
+            raise ValueError(f"{label} contains an invalid DNS name") from None
+        return candidate.casefold()
 
-        print("pre-vpn-dashboard-20260804.backup already created", flush=True)
 
-        bridges = api.get_resource("/interface/bridge")
-        ensure_record(
-            bridges,
-            {"name": "br-vpn-dashboard"},
-            {"name": "br-vpn-dashboard", "comment": "VPN Dashboard"},
-            "dashboard bridge",
-        )
-        veth = api.get_resource("/interface/veth")
-        ensure_record(
-            veth,
-            {"name": "veth-vpn-dashboard"},
-            {
-                "name": "veth-vpn-dashboard",
-                "address": "172.31.255.2/30",
-                "gateway": "172.31.255.1",
-            },
-            "dashboard veth",
-        )
-        bridge_ports = api.get_resource("/interface/bridge/port")
-        ensure_record(
-            bridge_ports,
-            {"interface": "veth-vpn-dashboard"},
-            {"bridge": "br-vpn-dashboard", "interface": "veth-vpn-dashboard"},
-            "dashboard bridge port",
-        )
-        addresses = api.get_resource("/ip/address")
-        ensure_record(
-            addresses,
-            {"address": "172.31.255.1/30"},
-            {
-                "address": "172.31.255.1/30",
-                "interface": "br-vpn-dashboard",
-                "comment": "VPN Dashboard",
-            },
-            "dashboard router address",
-        )
-        print("private bridge/veth ready", flush=True)
+def _https_url(value: str, label: str, *, required_path: str | None = None) -> tuple[str, str]:
+    parsed = urlsplit(value)
+    try:
+        parsed.port
+    except ValueError as error:
+        raise ValueError(f"{label} contains an invalid port") from error
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(f"{label} must be a credential-free HTTPS URL without query or fragment")
+    normalized_path = parsed.path.rstrip("/") or "/"
+    if required_path is not None and normalized_path != required_path:
+        raise ValueError(f"{label} path must be {required_path}")
+    return value.rstrip("/"), _validated_host(parsed.hostname, f"{label} hostname")
 
-        certificates = api.get_resource("/certificate")
-        rest_records = certificates.get(name="vpn-dashboard-rest")
-        if not rest_records:
-            certificates.add(
-                name="vpn-dashboard-rest",
-                common_name="172.31.255.1",
-                subject_alt_name="IP:172.31.255.1",
-                key_size="2048",
-                digest_algorithm="sha256",
-                days_valid="1825",
-                key_usage="tls-server",
+
+def _proxy_sources(value: str) -> str:
+    sources = [item.strip() for item in value.split(",") if item.strip()]
+    if not sources:
+        raise ValueError("at least one trusted proxy source is required when Cloudflare trust is enabled")
+    for source in sources:
+        try:
+            ipaddress.ip_address(source)
+        except ValueError as error:
+            raise ValueError(f"trusted proxy source must be an individual IP address: {source}") from error
+    return ",".join(ipaddress.ip_address(source).compressed for source in sources)
+
+
+@dataclass(frozen=True)
+class CanarySettings:
+    owner: str
+    commit: str
+    public_origin: str
+    routeros_rest_url: str
+    routeros_rest_san: str
+    external_root: str
+    bridge: str
+    canary_address: str
+    gateway: str
+    trust_cloudflare: bool = False
+    trusted_proxy_sources: str = ""
+
+    def validated(self) -> "ValidatedCanarySettings":
+        owner = self.owner.casefold()
+        if self.owner != owner or not _GHCR_OWNER.fullmatch(owner):
+            raise ValueError("owner must be a lowercase GitHub user or organization name")
+        if not _FULL_COMMIT.fullmatch(self.commit):
+            raise ValueError("commit must be the full 40-character lowercase Git commit SHA")
+
+        public_origin, _ = _https_url(self.public_origin, "public origin")
+        if urlsplit(public_origin).path not in {"", "/"}:
+            raise ValueError("public origin must not contain a path")
+        routeros_rest_url, rest_hostname = _https_url(
+            self.routeros_rest_url,
+            "RouterOS REST URL",
+            required_path="/rest",
+        )
+        confirmed_san = _validated_host(self.routeros_rest_san, "RouterOS REST SAN")
+        if rest_hostname != confirmed_san:
+            raise ValueError("RouterOS REST hostname must exactly match the confirmed certificate SAN")
+
+        try:
+            canary = ipaddress.ip_interface(self.canary_address)
+            gateway = ipaddress.ip_address(self.gateway)
+        except ValueError as error:
+            raise ValueError("canary address and gateway must be valid IP values") from error
+        if gateway.version != canary.version or gateway not in canary.network or gateway == canary.ip:
+            raise ValueError("gateway must be a different usable address in the canary subnet")
+        if canary.ip in {canary.network.network_address, canary.network.broadcast_address}:
+            raise ValueError("canary address cannot be the network or broadcast address")
+        if gateway in {canary.network.network_address, canary.network.broadcast_address}:
+            raise ValueError("gateway cannot be the network or broadcast address")
+
+        proxy_sources = ""
+        if self.trust_cloudflare:
+            proxy_sources = _proxy_sources(self.trusted_proxy_sources)
+        elif self.trusted_proxy_sources.strip():
+            raise ValueError("trusted proxy sources require --trust-cloudflare")
+
+        return ValidatedCanarySettings(
+            owner=owner,
+            commit=self.commit,
+            public_origin=public_origin,
+            routeros_rest_url=routeros_rest_url,
+            external_root=_validated_path(self.external_root),
+            bridge=_validated_name(self.bridge, "bridge"),
+            canary=canary,
+            gateway=gateway,
+            trust_cloudflare=self.trust_cloudflare,
+            trusted_proxy_sources=proxy_sources,
+        )
+
+
+@dataclass(frozen=True)
+class ValidatedCanarySettings:
+    owner: str
+    commit: str
+    public_origin: str
+    routeros_rest_url: str
+    external_root: str
+    bridge: str
+    canary: ipaddress.IPv4Interface | ipaddress.IPv6Interface
+    gateway: ipaddress.IPv4Address | ipaddress.IPv6Address
+    trust_cloudflare: bool
+    trusted_proxy_sources: str
+
+
+def render_canary_plan(settings: CanarySettings) -> str:
+    values = settings.validated()
+    short = values.commit[:12]
+    slug = f"vpn-gui-canary-{short}"
+    veth = _validated_name(f"veth-{slug}", "VETH name")
+    mounts = _validated_name(f"{slug}-mounts", "mount list")
+    envs = _validated_name(f"{slug}-env", "environment list")
+    comment = f"VPN GUI canary {short}"
+    root = values.external_root
+    image = f"{values.owner}/mikrotik-openvpn-gui:sha-{values.commit}"
+
+    environment = {
+        "PUBLIC_ORIGIN": values.public_origin,
+        "ROUTEROS_REST_URL": values.routeros_rest_url,
+        "ROUTEROS_CA_FILE": "/config/routeros-ca.crt",
+        "ROUTEROS_INSECURE_TLS": "false",
+        "DATABASE_PATH": "/data/dashboard.sqlite",
+        "DROP_PRIVILEGES": "true",
+        "TRUST_CLOUDFLARE": str(values.trust_cloudflare).lower(),
+    }
+    if values.trust_cloudflare:
+        environment["TRUSTED_PROXY_SOURCES"] = values.trusted_proxy_sources
+
+    commands = [
+        "# REVIEW-ONLY CANARY PLAN: this file does not contain registry credentials.",
+        "# Confirm every name, address, route, path, and free-space requirement against live RouterOS state.",
+        "# Configure registry-url=https://ghcr.io and an expiring read:packages credential in a private session.",
+        "# The image is relative to that registry. Do not use a mutable tag.",
+        f"/interface/veth/add name={_quoted(veth)} address={_quoted(str(values.canary))} gateway={_quoted(str(values.gateway))}",
+        f"/interface/bridge/port/add bridge={_quoted(values.bridge)} interface={_quoted(veth)}",
+        f"/ip/address/add address={_quoted(f'{values.gateway}/{values.canary.network.prefixlen}')} interface={_quoted(values.bridge)} comment={_quoted(comment + ' gateway')}",
+        f"/container/mounts/add list={_quoted(mounts)} src={_quoted(f'{root}/canary/{short}/data')} dst=/data",
+        f"/container/mounts/add list={_quoted(mounts)} src={_quoted(f'{root}/config')} dst=/config",
+    ]
+    commands.extend(
+        f"/container/envs/add list={_quoted(envs)} key={key} value={_quoted(value)}"
+        for key, value in environment.items()
+    )
+    commands.extend(
+        [
+            f"/container/add remote-image={_quoted(image)} interface={_quoted(veth)} root-dir={_quoted(f'{root}/containers/{slug}')} mountlists={_quoted(mounts)} envlists={_quoted(envs)} logging=yes memory-high=134217728 memory-max=201326592 start-on-boot=no comment={_quoted(comment)}",
+            "# Stop here. Inspect extraction, logs, certificate validation, and private health before manually starting or exposing the canary.",
+            f"# Manual start after review: /container/start [find where comment={_quoted(comment)}]",
+        ]
+    )
+    return "\n".join(commands) + "\n"
+
+
+def argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Render an offline RouterOS plan for an immutable private-GHCR canary."
+    )
+    parser.add_argument("--owner", required=True, help="Lowercase GitHub owner with package read access")
+    parser.add_argument("--commit", required=True, help="Full 40-character lowercase commit SHA")
+    parser.add_argument("--public-origin", required=True, help="Credential-free HTTPS dashboard origin")
+    parser.add_argument("--routeros-rest-url", required=True, help="Verified HTTPS RouterOS URL ending in /rest")
+    parser.add_argument("--routeros-rest-san", required=True, help="Confirmed DNS or IP SAN used by the REST URL")
+    parser.add_argument("--external-root", required=True, help="Relative RouterOS external-storage root")
+    parser.add_argument("--bridge", required=True, help="Existing private container bridge")
+    parser.add_argument("--canary-address", required=True, help="Unused canary address with prefix")
+    parser.add_argument("--gateway", required=True, help="Unused router gateway in the canary subnet")
+    parser.add_argument("--trust-cloudflare", action="store_true")
+    parser.add_argument("--trusted-proxy-source", action="append", default=[])
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argument_parser()
+    arguments = parser.parse_args(argv)
+    try:
+        plan = render_canary_plan(
+            CanarySettings(
+                owner=arguments.owner,
+                commit=arguments.commit,
+                public_origin=arguments.public_origin,
+                routeros_rest_url=arguments.routeros_rest_url,
+                routeros_rest_san=arguments.routeros_rest_san,
+                external_root=arguments.external_root,
+                bridge=arguments.bridge,
+                canary_address=arguments.canary_address,
+                gateway=arguments.gateway,
+                trust_cloudflare=arguments.trust_cloudflare,
+                trusted_proxy_sources=",".join(arguments.trusted_proxy_source),
             )
-            rest_record = first(certificates.get(name="vpn-dashboard-rest"), "REST certificate")
-            certificates.call("sign", {"numbers": rest_record["id"], "ca": "ovpn-ca-2026"})
-        rest_record = first(certificates.get(name="vpn-dashboard-rest"), "REST certificate")
-        signing_ca = rest_record.get("ca") or rest_record.get("issuer")
-        if signing_ca != "ovpn-ca-2026" or rest_record.get("issued") != "true":
-            raise RuntimeError(f"REST certificate was not signed by ovpn-ca-2026: {rest_record}")
-        services = api.get_resource("/ip/service")
-        www_ssl = first(services.get(name="www-ssl"), "www-ssl service")
-        services.set(id=www_ssl["id"], port="8443", certificate="vpn-dashboard-rest", disabled="no")
-        print("www-ssl REST certificate replaced on port 8443", flush=True)
-
-        files = api.get_resource("/file")
-        for directory in ("vpn-dashboard", "vpn-dashboard/app", "vpn-dashboard/app/static", "vpn-dashboard/data", "vpn-dashboard/tmp"):
-            if not files.get(name=directory):
-                files.add(name=directory, type="directory")
-
-        uploads = {
-            PROJECT / "app.py": "vpn-dashboard/app/app.py",
-            PROJECT / "routeros.py": "vpn-dashboard/app/routeros.py",
-            PROJECT / "security.py": "vpn-dashboard/app/security.py",
-            PROJECT / "store.py": "vpn-dashboard/app/store.py",
-            PROJECT / "templates.py": "vpn-dashboard/app/templates.py",
-            PROJECT / "automation.py": "vpn-dashboard/app/automation.py",
-            PROJECT / "icons.py": "vpn-dashboard/app/icons.py",
-            PROJECT / "favicon.py": "vpn-dashboard/app/favicon.py",
-            PROJECT / "qr.py": "vpn-dashboard/app/qr.py",
-            PROJECT / "static" / "app.css": "vpn-dashboard/app/static/app.css",
-            PROJECT / "static" / "app.js": "vpn-dashboard/app/static/app.js",
-            ovpn_ca_file: "vpn-dashboard/app/ovpn-ca-2026.crt",
-        }
-        for local, remote in uploads.items():
-            upload_text(files, local, remote)
-
-        mounts = api.get_resource("/container/mounts")
-        remove_records(mounts, list="vpn-dashboard-mounts")
-        mounts.add(list="vpn-dashboard-mounts", src="vpn-dashboard/app", dst="/app")
-        mounts.add(list="vpn-dashboard-mounts", src="vpn-dashboard/data", dst="/data")
-
-        envs = api.get_resource("/container/envs")
-        remove_records(envs, list="vpn-dashboard-env")
-        environment = {
-            "PUBLIC_ORIGIN": "https://vpn.wanted.sx",
-            "ROUTEROS_REST_URL": "https://172.31.255.1:8443/rest",
-            "ROUTEROS_CA_FILE": "/app/ovpn-ca-2026.crt",
-            "ROUTEROS_INSECURE_TLS": "false",
-            "DATABASE_PATH": "/data/dashboard.sqlite",
-            "TRUST_CLOUDFLARE": "true",
-            "TRUSTED_PROXY_SOURCES": "172.31.255.1",
-            "DROP_PRIVILEGES": "true",
-        }
-        for key, value in environment.items():
-            envs.add(list="vpn-dashboard-env", key=key, value=value)
-
-        config = api.get_resource("/container/config")
-        config.set(
-            registry_url="https://registry-1.docker.io",
-            layer_dir="vpn-dashboard/layers",
-            tmpdir="vpn-dashboard/tmp",
         )
-        print("application mounts and environment staged", flush=True)
-
-        containers = api.get_resource("/container")
-        existing = containers.get(comment=CONTAINER_COMMENT)
-        for failed in existing:
-            if failed.get("download/extract failed") == "true":
-                print(f"removing failed canary record id={failed['id']}", flush=True)
-                containers.remove(id=failed["id"])
-        existing = containers.get(comment=CONTAINER_COMMENT)
-        if not existing:
-            print("pulling python:3.14-alpine for arm64", flush=True)
-            containers.add(
-                remote_image="python:3.14-alpine",
-                interface="veth-vpn-dashboard",
-                root_dir="vpn-dashboard/root",
-                mountlists="vpn-dashboard-mounts",
-                envlists="vpn-dashboard-env",
-                entrypoint="python3",
-                cmd="-B /app/app.py",
-                workdir="/app",
-                logging="yes",
-                memory_high="134217728",
-                memory_max="201326592",
-                start_on_boot="yes",
-                comment=CONTAINER_COMMENT,
-            )
-        else:
-            current = existing[0]
-            if current.get("running") == "true":
-                print("stopping existing dashboard container for an idempotent update", flush=True)
-                containers.call("stop", {"numbers": current["id"]})
-        stopped = wait_for_container(containers, {"stopped"}, 480)
-        print("starting private canary container", flush=True)
-        containers.call("start", {"numbers": stopped["id"]})
-        running = wait_for_container(containers, {"running"}, 90)
-        print(f"private canary running id={running['id']}", flush=True)
-    finally:
-        pool.disconnect()
+    except ValueError as error:
+        parser.error(str(error))
+    print(plan, end="")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

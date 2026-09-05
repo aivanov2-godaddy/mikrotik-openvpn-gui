@@ -14,7 +14,7 @@ This private repository accepts changes from authorized collaborators only.
 
 ```powershell
 python scripts/check-secrets.py
-python -m compileall -q app.py automation.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py
+python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
 python -m unittest discover -s tests -v
 ```
 
@@ -27,6 +27,7 @@ python -m unittest discover -s tests -v
 - Preserve `/data` compatibility or document and test the migration and rollback boundary.
 - Keep destructive operations behind explicit confirmation and validate target identifiers against fresh RouterOS state.
 - Prefer immutable image tags/digests. Never make production follow a mutable tag automatically.
+- Do not reintroduce host-mounted `/app` updates or direct source uploads to RouterOS.
 
 ## Commit and pull-request scope
 
