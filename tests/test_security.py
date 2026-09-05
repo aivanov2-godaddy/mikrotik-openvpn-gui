@@ -81,6 +81,15 @@ class SecurityTests(unittest.TestCase):
             self.assertNotIn("forbidden", row["details"])
             self.assertNotIn("password", database.read_bytes().decode("latin-1", errors="ignore"))
 
+    def test_database_readiness_write_is_rolled_back(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            audit_before = store.recent_audit(100)
+
+            store.verify_readiness()
+
+            self.assertEqual(store.recent_audit(100), audit_before)
+
     def test_connection_history_opens_updates_and_closes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))

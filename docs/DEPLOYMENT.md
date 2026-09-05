@@ -8,7 +8,7 @@ Replace every value in angle brackets. Never commit the resulting commands, expo
 
 - RouterOS 7 with the Container package enabled and a CPU architecture matching the published `linux/arm64` image.
 - Container mode enabled through the RouterOS physical-presence procedure.
-- Sufficient external storage for image extraction, two application roots during canary, and database backups.
+- Sufficient external storage for image extraction, two application roots during canary, an immutable database checkpoint, and a separate green working copy. If the existing installation is on internal storage, treat that as a documented risk exception and verify the full capacity budget before every pull.
 - A private GHCR package linked to this repository.
 - A dedicated classic GitHub token with `read:packages` only, an owner-approved expiration, and access to this private package.
 - A configuration-only directory containing the trusted public CA certificate used to verify RouterOS REST. RouterOS container mounts are writable, so protect the source through management policy and keep secrets out of it.
@@ -59,9 +59,10 @@ Before changing `/container/config`, record its non-secret registry URL and temp
 The consistent method is a short maintenance stop:
 
 1. Stop the current dashboard container.
-2. Copy its complete persistent data directory to a timestamped directory on the same external disk.
-3. Start the current dashboard again and verify `/healthz` before continuing.
-4. Copy the backup off-router through an approved encrypted channel.
+2. Copy its complete persistent data directory to a timestamped, immutable directory on the same external disk.
+3. Create a second, distinct green working copy from that stopped snapshot. The candidate must never mount either the live blue directory or the immutable rollback checkpoint.
+4. Start the current dashboard again and verify `/readyz` before continuing.
+5. Copy the immutable checkpoint off-router through an approved encrypted channel.
 
 The copy must include `dashboard.sqlite` and any SQLite sidecar files present. Do not copy only the database while writes are active.
 
@@ -126,10 +127,11 @@ RouterOS documents `remote-image` relative to `/container/config registry-url`, 
 At minimum:
 
 - container state is running and stable;
-- `http://<canary-address>:8080/healthz` returns HTTP 200 and `{"status":"ok"}`;
+- `http://<canary-address>:8080/healthz` returns HTTP 200 and `{"status":"ok"}` for process liveness;
+- `/readyz` returns HTTP 200, `{"status":"ready"}`, successful SQLite integrity/write-rollback checks, and the exact full commit SHA selected from the workflow;
 - no TLS, database, permission, or restart errors appear in the RouterOS log;
 - the login page renders through a private operator path;
-- a dedicated test RouterOS account can authenticate;
+- a dedicated read-only test RouterOS account can authenticate through a TLS path; never send RouterOS administrator credentials to the canary over plaintext HTTP;
 - read-only pages show users and sessions;
 - the existing mock/unit CI run corresponds to the deployed commit;
 - no live user, session, certificate, firewall, reverse-proxy, or DNS change is made by the smoke test.
@@ -138,13 +140,15 @@ Only after the read-only checks pass should an approved test identity exercise a
 
 ## 8. Promote
 
-1. Copy the production SQLite data into a new production data directory while the old container is stopped, or reuse the existing `/data` mount only after canary validation and a consistent backup.
-2. Create the production container from the exact canary image, its production data mount, and the shared configuration-only mount.
-3. Stop the old container without removing its record, root directory, or data.
-4. Start the new container and verify private health.
-5. Change the reverse-proxy target to the new private address in one reviewed operation.
-6. Verify HTTP-to-HTTPS redirect, TLS, Cloudflare Access, RouterOS login, user/session reads, and one approved reversible action.
-7. Observe logs, CPU, memory, storage, login failures, and session refresh for the agreed window.
+1. Stop blue and green and verify both are stopped before copying SQLite.
+2. Copy blue's complete data directory twice: one immutable rollback checkpoint and one distinct green working directory. Verify names and sizes recursively and run SQLite integrity checks against the green copy.
+3. Rebind the already-tested green image to the green working directory and the shared configuration-only mount. Canary data is never promoted.
+4. Start green privately and require `/readyz` with the approved revision, then verify a read-only RouterOS status request through TLS.
+5. Set green `start-on-boot=yes`. Keep blue stopped but `start-on-boot=yes` until traffic commit succeeds because it owns a separate, frozen data directory.
+6. Change the stateless HTTP redirect NAT target, then change the HTTPS reverse-proxy target. Preserve SNI, certificate, ports, rule order, and source restrictions.
+7. Verify HTTP-to-HTTPS redirect, TLS, Cloudflare Access, RouterOS login, user/session reads, and one approved reversible action.
+8. Set blue `start-on-boot=no`, but do not remove its record, root directory, mount list, environment list, or frozen data during the observation window.
+9. Observe logs, CPU, memory, storage, login failures, and session refresh for the agreed window.
 
 Do not delete the old container or backup during the observation window. Follow [ROLLBACK.md](ROLLBACK.md) on any failed gate.
 

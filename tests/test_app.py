@@ -12,6 +12,7 @@ import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, resolve_client_ip
 from routeros import RouterOSClient, RouterOSCredentials
@@ -31,6 +32,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             sessions=SessionStore(),
             limiter=LoginRateLimiter(),
             public_origin="https://vpn.wanted.sx",
+            release_version="1.2.3",
+            release_revision="0123456789abcdef",
         )
         self.server = DashboardServer(("127.0.0.1", 0), context)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -105,6 +108,18 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, headers, payload = self.request("GET", "/healthz")
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload), {"status": "ok"})
+        self.assertIn("strict-transport-security", headers)
+
+        status, headers, payload = self.request("GET", "/readyz")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            json.loads(payload),
+            {
+                "status": "ready",
+                "version": "1.2.3",
+                "revision": "0123456789abcdef",
+            },
+        )
         self.assertIn("strict-transport-security", headers)
 
         status, _, _ = self.request("GET", "/api/users")
@@ -190,6 +205,18 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("wanted-vpn-change-history.csv", headers["content-disposition"])
         self.assertIn(b"operator,action,target,result", payload)
+
+    def test_readiness_failure_is_generic_and_non_successful(self) -> None:
+        with mock.patch.object(
+            self.server.context.store,
+            "verify_readiness",
+            side_effect=RuntimeError("sensitive database path"),
+        ):
+            status, _, payload = self.request("GET", "/readyz")
+
+        self.assertEqual(status, 503)
+        self.assertEqual(json.loads(payload), {"status": "unavailable"})
+        self.assertNotIn(b"sensitive", payload)
 
     def test_favicon_variants_are_public_and_linked(self) -> None:
         status, headers, svg = self.request("GET", "/favicon.svg")

@@ -129,6 +129,13 @@ class DeploymentPolicyTests(unittest.TestCase):
         for runtime_file in ("etc/hostname", "etc/hosts", "etc/resolv.conf"):
             self.assertIn(f"--exclude={runtime_file}", containerfile)
 
+    def test_image_bakes_release_identity_and_checks_readiness(self) -> None:
+        containerfile = (Path(__file__).resolve().parents[1] / "Containerfile").read_text(encoding="utf-8")
+        self.assertIn('"$VERSION" > /app/VERSION', containerfile)
+        self.assertIn('"$REVISION" > /app/REVISION', containerfile)
+        self.assertIn("http://127.0.0.1:8080/readyz", containerfile)
+        self.assertNotIn("http://127.0.0.1:8080/healthz", containerfile)
+
     def test_waf_plan_creates_updates_and_is_idempotent(self) -> None:
         create = plan_waf_operation(None, zone_id=TEST_ZONE_ID)
         self.assertEqual(create.method, "PUT")

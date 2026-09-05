@@ -3,7 +3,7 @@
 ## Daily checks
 
 - Container status is running without restart churn.
-- `/healthz` responds through the private path and the public path follows the expected Cloudflare Access flow.
+- `/healthz` reports process liveness, `/readyz` reports SQLite readiness and the deployed revision, and the public path follows the expected Cloudflare Access flow.
 - RouterOS REST certificate validation succeeds; `ROUTEROS_INSECURE_TLS` remains `false`.
 - SQLite storage, RouterOS container storage, CPU, and memory stay below local alert thresholds.
 - Dashboard users, connected sessions, and interface counters agree with WinBox for a sample identity.
@@ -24,10 +24,11 @@ Avoid a RouterOS scheduler that blindly follows `edge`. An update should not bec
 SQLite backups must be consistent:
 
 1. Stop the dashboard container during an approved maintenance window.
-2. Copy the complete `/data` source directory, including sidecar files.
-3. Start the container and verify health immediately.
-4. Export the checkpoint to encrypted off-router storage.
-5. Test restoration periodically into an isolated canary, never over production.
+2. Copy the complete `/data` source directory, including sidecar files, into an immutable checkpoint.
+3. Verify the recursive copy and SQLite integrity before restarting the writer.
+4. Start the container and verify `/readyz` immediately.
+5. Export the checkpoint to encrypted off-router storage.
+6. Test restoration periodically into an isolated canary, never over production.
 
 Apply retention appropriate to the sensitivity of email ownership, address, usage, and audit metadata. Destroy expired backups securely.
 

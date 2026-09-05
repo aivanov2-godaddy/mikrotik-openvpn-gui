@@ -159,6 +159,30 @@ class MetadataStore:
                 (("alex", now), ("null", now)),
             )
 
+    def verify_readiness(self) -> None:
+        """Raise unless the database is intact and accepts a rolled-back write."""
+        with self._lock:
+            connection = self._connect()
+            transaction_started = False
+            try:
+                integrity = connection.execute("PRAGMA integrity_check").fetchall()
+                if len(integrity) != 1 or str(integrity[0][0]).lower() != "ok":
+                    raise sqlite3.DatabaseError("SQLite integrity check failed")
+
+                connection.execute("BEGIN IMMEDIATE")
+                transaction_started = True
+                connection.execute(
+                    """
+                    INSERT INTO audit(actor, action, target, status, details, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    ("readiness", "database.probe", "local", "success", "{}", 0),
+                )
+            finally:
+                if transaction_started:
+                    connection.rollback()
+                connection.close()
+
     @staticmethod
     def _control_defaults(username: str) -> dict[str, Any]:
         return {

@@ -39,6 +39,15 @@ QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
 SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
 
 
+def baked_release_value(name: str) -> str:
+    """Read one explicit, non-secret release value baked into the image."""
+    try:
+        value = (ROOT / name).read_text(encoding="utf-8").strip()
+    except OSError:
+        return "unknown"
+    return value or "unknown"
+
+
 def resolve_client_ip(
     peer: str,
     cloudflare_header: str,
@@ -63,6 +72,8 @@ class AppContext:
     public_origin: str
     trust_cloudflare: bool = False
     trusted_proxy_sources: tuple[str, ...] = ()
+    release_version: str = "unknown"
+    release_revision: str = "unknown"
 
 
 @dataclass(slots=True)
@@ -406,6 +417,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         if path == "/healthz":
             self._json({"status": "ok"})
+            return
+        if path == "/readyz":
+            try:
+                self.server.context.store.verify_readiness()
+            except Exception as error:
+                print(f"readiness unavailable reason={type(error).__name__}")
+                self._json(
+                    {"status": "unavailable"},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            self._json(
+                {
+                    "status": "ready",
+                    "version": self.server.context.release_version,
+                    "revision": self.server.context.release_revision,
+                }
+            )
             return
         if path == "/favicon.svg":
             self._bytes(
@@ -1220,6 +1249,8 @@ def build_context() -> AppContext:
             for source in os.environ.get("TRUSTED_PROXY_SOURCES", "").split(",")
             if source.strip()
         ),
+        release_version=baked_release_value("VERSION"),
+        release_revision=baked_release_value("REVISION"),
     )
 
 

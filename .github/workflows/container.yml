@@ -92,3 +92,22 @@ jobs:
           echo "### Published container" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Smoke-test the published ARM64 runtime
+        shell: bash
+        env:
+          RELEASE_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull --platform linux/arm64 "$RELEASE_IMAGE"
+          container_id="$(docker run --platform linux/arm64 --detach "$RELEASE_IMAGE")"
+          trap 'docker logs "$container_id" || true; docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            payload="$(docker exec "$container_id" wget -q -O - http://127.0.0.1:8080/readyz 2>/dev/null || true)"
+            if printf '%s' "$payload" | grep -Fq '"status":"ready"'; then
+              break
+            fi
+            sleep 1
+          done
+          test "${payload:-}" != ""
+          printf '%s' "$payload" | grep -Fq '"revision":"${{ github.sha }}"'
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container_id")" = "${{ github.sha }}"

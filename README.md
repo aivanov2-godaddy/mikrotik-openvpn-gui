@@ -77,7 +77,7 @@ Set deployment values through the RouterOS container environment list. Never com
 
 ## Image release model
 
-Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, and an ARM64 container build. A push to the default branch publishes private GHCR images only after the workflow's test job succeeds.
+Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, an ARM64 container build, and an emulated ARM64 readiness/revision smoke test. A push to the default branch publishes private GHCR images only after the workflow's test job succeeds, then runs the same smoke test against the published digest.
 
 Published image tags include:
 
@@ -86,6 +86,8 @@ Published image tags include:
 - a Git tag when an explicit release tag is pushed.
 
 Production should deploy the immutable full-commit `sha-` tag, never automatically follow `edge`. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; enable them only after an isolated pull test on the installed RouterOS version. GitHub Actions receive only the minimum repository and package permissions required by each job.
+
+`/healthz` is a process-liveness check. `/readyz` additionally verifies SQLite integrity and a writable transaction that is rolled back, and reports the full revision baked into the image. Promotion requires the `/readyz` revision to match the selected workflow commit.
 
 `deploy_routeros_canary.py` is an offline plan renderer with no network or apply mode. It validates the full image commit, HTTPS origins, REST certificate SAN, RouterOS-safe names/paths, proxy sources, and an isolated canary subnet before printing commands for review. The old `update_routeros_app.py` filename remains only as a fail-closed tombstone: it exits without contacting RouterOS and explains the supported migration path.
 

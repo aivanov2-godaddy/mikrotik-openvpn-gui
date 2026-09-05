@@ -14,10 +14,12 @@ Read this runbook before the first GHCR promotion. A rollback is successful only
 ## Fast application rollback
 
 1. Stop new write activity and announce the maintenance state through the private operator channel.
-2. Point the reverse proxy back to the previous container's private address, or stop the new container and start the retained old container.
-3. Verify private `/healthz`, then public TLS/Access/login and read-only RouterOS views.
-4. Confirm that no canary or failed container remains publicly reachable.
-5. Preserve logs and record the failed image digest without copying secrets into GitHub.
+2. Start the retained blue container against its separate, frozen data directory and require its private `/readyz` before changing traffic.
+3. Point the HTTPS reverse proxy and HTTP redirect NAT target back to blue, preserving every other field and rule position.
+4. Verify private `/readyz`, then public TLS/Access/login and read-only RouterOS views.
+5. Set blue `start-on-boot=yes`, set green `start-on-boot=no`, and stop green only after traffic is confirmed on blue.
+6. Confirm that no canary or failed container remains publicly reachable.
+7. Preserve logs and record the failed image digest without copying secrets into GitHub.
 
 The old container record, root directory, image reference, network settings, mounts, and environment list must remain intact until this step is no longer needed.
 
@@ -25,10 +27,10 @@ The old container record, root directory, image reference, network settings, mou
 
 Do not restore a database merely because the application image was rolled back.
 
-- If the new release made no incompatible data change, keep the current production `/data` volume and use the old image against it after validation.
-- If the new release changed schema or corrupted metadata, stop every container that references the volume and restore the matching pre-deployment checkpoint as a complete directory.
+- A fast rollback uses blue's frozen, separate data directory. It is deterministic but does not include dashboard-only metadata written during the green window.
+- If the green release changed RouterOS state, reconcile those RouterOS-side actions explicitly; RouterOS remains the source of truth.
+- Restore the immutable pre-deployment checkpoint only when blue's frozen directory is unavailable or damaged, and only while every container that could reference it is stopped.
 - Never let old and new containers write the same SQLite file concurrently.
-- RouterOS remains the source of truth; reconcile any RouterOS action completed during the failed window before restoring dashboard metadata.
 
 After a restore, verify file ownership/permissions and check that the audit log reflects the last expected event.
 
