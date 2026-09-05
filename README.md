@@ -15,6 +15,17 @@ This is a private, proprietary project. Do not mirror the repository, publish it
 - Stores only dashboard metadata and sanitized audit events in SQLite; RouterOS stays the VPN source of truth.
 - Uses Cloudflare Access and an origin allowlist as an optional first authentication and perimeter layer.
 
+## Dashboard preview
+
+The live dashboard was opened through Cloudflare Access and RouterOS
+authentication to verify the navigation. These representative screenshots
+show the menu structure and the main operator views with sample values; live
+user details and addresses are intentionally omitted.
+
+![MikroTik-style dashboard navigation](docs/screenshots/dashboard-navigation.svg)
+
+![VPN dashboard sections](docs/screenshots/dashboard-sections.svg)
+
 ## Security boundaries
 
 - RouterOS management credentials are supplied at login and retained only in short-lived process memory.
