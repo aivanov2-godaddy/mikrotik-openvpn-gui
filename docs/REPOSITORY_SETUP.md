@@ -22,7 +22,7 @@ Keep Issues enabled for authorized collaborators. Disable Wiki, Discussions, and
 - Require at least one approving review and dismiss stale approvals.
 - Require review from Code Owners.
 - Require all conversations to be resolved.
-- Require the CI test matrix, ARM64 build, and CodeQL checks after their first successful run exposes the exact check names.
+- Require the CI secret-pattern scan, test matrix, and ARM64 build after their first successful run exposes the exact check names.
 - Block force pushes and branch deletion.
 - Require linear history if the team uses squash/rebase merging.
 - Limit bypass to the repository owner and reserve it for documented incidents.
@@ -45,7 +45,7 @@ Enable where available:
 - private vulnerability reporting;
 - Dependabot alerts and security updates;
 - secret scanning and push protection;
-- code scanning with CodeQL;
+- code scanning with CodeQL, when GitHub Advanced Security is enabled for the private repository;
 - automatic deletion of head branches after merge.
 
 Use a protected `production` environment if a future workflow performs deployment. Require an owner review and allow only the default branch. Image publication alone does not need RouterOS or Cloudflare credentials.
@@ -53,7 +53,7 @@ Use a protected `production` environment if a future workflow performs deploymen
 ## First-run checklist
 
 1. Push the sanitized repository.
-2. Verify CI and CodeQL complete.
+2. Verify all configured CI checks complete. If GitHub Advanced Security is later enabled, add the CodeQL workflow and require its successful check.
 3. Merge or manually run **Publish container** on the default branch.
 4. Open the package and confirm private visibility, source-repository linkage, ARM64 platform, full-commit tag, and manifest digest.
 5. Apply the branch ruleset using the check names from the successful run.

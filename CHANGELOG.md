@@ -7,7 +7,7 @@ Significant operator-visible changes are recorded here. This project follows the
 ### Added
 
 - Private-repository governance, security reporting guidance, and contribution policy.
-- GitHub Actions checks for compilation, tests, secret patterns, CodeQL, and an ARM64 container build.
+- GitHub Actions checks for compilation, tests, secret patterns, and an ARM64 container build.
 - Private GHCR publishing with immutable full-commit tags and a RouterOS-compatible single-platform manifest.
 - RouterOS canary deployment, rollback, and operations runbooks.
 

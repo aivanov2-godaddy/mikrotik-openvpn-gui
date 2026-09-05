@@ -56,7 +56,7 @@ The dashboard verifies the credentials presented at login against RouterOS. Pref
 
 ## Build and release integrity
 
-Pull requests run tests, a clean ARM64 build, and CodeQL. The publishing workflow reruns tests before it can push. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; they may be evaluated only through an isolated canary on the installed RouterOS release. Operators must compare the selected workflow commit, immutable GHCR tag, and RouterOS deployment record before promotion.
+Pull requests run secret-pattern checks, tests, and a clean ARM64 build. CodeQL should be enabled when GitHub Advanced Security is available for the private repository; until then it is not represented as a passing control. The publishing workflow reruns tests before it can push. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; they may be evaluated only through an isolated canary on the installed RouterOS release. Operators must compare the selected workflow commit, immutable GHCR tag, and RouterOS deployment record before promotion.
 
 ## Secret exposure response
 

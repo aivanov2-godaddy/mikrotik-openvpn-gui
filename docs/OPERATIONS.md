@@ -11,7 +11,7 @@
 
 ## Safe update cadence
 
-1. Review dependency and CodeQL alerts.
+1. Review dependency alerts and every available repository security signal.
 2. Merge through a pull request with required checks.
 3. Select the resulting immutable `sha-` image or digest.
 4. Use the canary and promotion gates in [DEPLOYMENT.md](DEPLOYMENT.md).

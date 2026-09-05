@@ -60,7 +60,7 @@ Session termination is deliberately narrow: the requested identifier is validate
 ## GitHub delivery path
 
 ```text
-pull request -> CI and CodeQL -> review -> merge to default branch
+pull request -> CI and dependency/security review -> merge to default branch
   -> repeat tests -> build linux/arm64 image -> private GHCR package
   -> operator selects immutable SHA/digest -> isolated RouterOS canary
   -> health and login smoke tests -> controlled proxy cutover
