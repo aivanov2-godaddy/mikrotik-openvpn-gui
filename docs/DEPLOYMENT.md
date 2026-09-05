@@ -18,7 +18,7 @@ Configure these as **environment secrets** under a protected GitHub environment 
 | `ROUTEROS_CONTAINER_NAME` | Exact production container name; do not use a display label or mutable tag |
 | `ROUTEROS_REST_CA_B64` | Base64 of the public CA certificate that signs the REST server certificate |
 
-The deploy job also needs a private network path from the runner to RouterOS REST. GitHub-hosted runner IP addresses change; do not open RouterOS REST to all GitHub ranges. Use an approved self-hosted runner inside the management network or a narrowly scoped, authenticated deployment relay. Keep `www-ssl` enabled and `www` disabled, restrict the service to that path, and retain RouterOS firewall logging for denied attempts.
+The deploy job runs on the repository-scoped Windows runner labeled `routeros-private` inside the management network. GitHub-hosted runner IP addresses change; do not open RouterOS REST to all GitHub ranges. Keep that runner dedicated to this repository, online only on the trusted management workstation, and patched like a production administrator endpoint. If the runner is unavailable, use an approved narrowly scoped, authenticated deployment relay instead. Keep `www-ssl` enabled and `www` disabled, restrict the service to the runner's management path, and retain RouterOS firewall logging for denied attempts.
 
 Test the path with **workflow_dispatch** and an already-published full commit before relying on automatic post-merge updates. A missing secret, non-HTTPS URL, invalid CA, ambiguous container name, mutable image, or unreachable REST endpoint fails without changing RouterOS.
 

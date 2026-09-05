@@ -62,7 +62,11 @@ Create these environment secrets; never put them in repository variables, workfl
 | `ROUTEROS_CONTAINER_NAME` | Exact production container name (not a mutable image tag) |
 | `ROUTEROS_REST_CA_B64` | Base64-encoded public CA certificate that signs the REST server certificate |
 
-GitHub-hosted runner egress addresses are dynamic. Do not broadly allow GitHub's published ranges on RouterOS. Provide a private path to the REST endpoint (for example an approved self-hosted runner or a narrowly scoped deployment relay), then allow only that path in the RouterOS service and firewall rules. The workflow fails closed when any secret is missing or the REST certificate cannot be verified.
+GitHub-hosted runner egress addresses are dynamic. Do not broadly allow GitHub's published ranges on RouterOS. The repository workflow targets a repository-scoped Windows runner with labels `self-hosted`, `Windows`, `X64`, and `routeros-private`; install it on a patched management workstation that can reach the private REST URL, and allow only that workstation in the RouterOS service and firewall rules. Keep the runner online only for this repository and do not run untrusted workflows on it. A narrowly scoped, authenticated deployment relay is the approved fallback. The workflow fails closed when any secret is missing or the REST certificate cannot be verified.
+
+### Windows management runner
+
+From the repository's **Settings → Actions → Runners → New self-hosted runner** page, download the current Windows x64 runner and verify the SHA-256 shown by GitHub. Configure it with the one-time registration token and the labels above, then keep the listener running from the runner directory. Do not paste the token into the repository, a workflow, a ticket, or shell history. If the workstation restarts, start `run.cmd` again (or install it using the runner's documented Windows service mode) and confirm the runner is **Idle** before testing a deploy.
 
 ## First-run checklist
 
@@ -72,4 +76,5 @@ GitHub-hosted runner egress addresses are dynamic. Do not broadly allow GitHub's
 4. Open the package and confirm private visibility, source-repository linkage, ARM64 platform, full-commit tag, and manifest digest.
 5. Apply the branch ruleset using the check names from the successful run.
 6. Configure the protected `production` environment secrets above and run **Deploy production to RouterOS** manually with a known immutable commit as a connectivity test.
-7. Create an expiring `read:packages` pull token and follow [DEPLOYMENT.md](DEPLOYMENT.md).
+7. Confirm the run was assigned to the `routeros-private` runner and that RouterOS reports the requested immutable image and a healthy/running container.
+8. Create an expiring `read:packages` pull token and follow [DEPLOYMENT.md](DEPLOYMENT.md).

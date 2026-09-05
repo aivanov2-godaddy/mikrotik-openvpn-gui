@@ -4,6 +4,8 @@ Significant operator-visible changes are recorded here. This project follows the
 
 ## Unreleased
 
+- Route the post-publish RouterOS deployment job to the repository-scoped private Windows runner and use PowerShell-compatible validation, CA handling, and summaries.
+
 ### Added
 
 - Private-repository governance, security reporting guidance, and contribution policy.

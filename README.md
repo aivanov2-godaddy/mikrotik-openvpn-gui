@@ -105,7 +105,7 @@ Production deploys the immutable full-commit `sha-` tag, never the mutable `edge
 
 `deploy_routeros_canary.py` is an offline plan renderer with no network or apply mode. It validates the full image commit, HTTPS origins, REST certificate SAN, RouterOS-safe names/paths, proxy sources, and an isolated canary subnet before printing commands for review. The old `update_routeros_app.py` filename remains only as a fail-closed tombstone: it exits without contacting RouterOS and explains the supported migration path.
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the one-time automation setup, network boundary, canary procedure, and rollback gates. The workflow is intentionally fail-closed until its production secrets and private REST path are configured.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the one-time automation setup, private runner boundary, canary procedure, and rollback gates. The workflow is intentionally fail-closed until its production secrets and private REST path are configured; once the labeled management runner is online, every successful default-branch image publication can deploy automatically.
 
 ## Contributing
 

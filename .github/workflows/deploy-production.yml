@@ -27,7 +27,9 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == github.event.repository.default_branch &&
       github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-latest
+    # The RouterOS REST endpoint is private. This job must run on the
+    # repository-scoped management runner inside the trusted network.
+    runs-on: [self-hosted, Windows, X64, routeros-private]
     timeout-minutes: 25
     environment:
       name: production
@@ -48,33 +50,41 @@ jobs:
         with:
           python-version: "3.14"
       - name: Validate deployment inputs
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          if [[ ! "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::The release commit must be a full lowercase SHA"; exit 1
-          fi
-          for name in ROUTEROS_REST_URL ROUTEROS_DEPLOY_USERNAME ROUTEROS_DEPLOY_PASSWORD ROUTEROS_CONTAINER_NAME ROUTEROS_REST_CA_B64; do
-            if [[ -z "${!name}" ]]; then echo "::error::Missing production secret $name"; exit 1; fi
-          done
-          mkdir -p "$RUNNER_TEMP/routeros"
-          printf '%s' "$ROUTEROS_REST_CA_B64" | base64 --decode > "$RUNNER_TEMP/routeros/routeros-ca.crt"
-          chmod 600 "$RUNNER_TEMP/routeros/routeros-ca.crt"
-          test -s "$RUNNER_TEMP/routeros/routeros-ca.crt"
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_COMMIT -notmatch '^[0-9a-f]{40}$') {
+            Write-Error 'The release commit must be a full lowercase SHA'
+          }
+          foreach ($name in @('ROUTEROS_REST_URL', 'ROUTEROS_DEPLOY_USERNAME', 'ROUTEROS_DEPLOY_PASSWORD', 'ROUTEROS_CONTAINER_NAME', 'ROUTEROS_REST_CA_B64')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              Write-Error "Missing production secret $name"
+            }
+          }
+          $caDir = Join-Path $env:RUNNER_TEMP 'routeros'
+          New-Item -ItemType Directory -Path $caDir -Force | Out-Null
+          $caPath = Join-Path $caDir 'routeros-ca.crt'
+          [IO.File]::WriteAllBytes($caPath, [Convert]::FromBase64String($env:ROUTEROS_REST_CA_B64))
+          if ((Get-Item -LiteralPath $caPath).Length -le 0) {
+            Write-Error 'RouterOS REST CA certificate is empty'
+          }
       - name: Pull, update, start, and health-gate RouterOS container
         env:
           RELEASE_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ env.RELEASE_COMMIT }}
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          export ROUTEROS_REST_CA_PEM="$(base64 --decode < "$RUNNER_TEMP/routeros/routeros-ca.crt")"
+          $ErrorActionPreference = 'Stop'
+          $caPath = Join-Path $env:RUNNER_TEMP 'routeros/routeros-ca.crt'
+          $env:ROUTEROS_REST_CA_PEM = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($caPath))
           python scripts/deploy_routeros_release.py
       - name: Write deployment summary
+        shell: pwsh
         run: |
-          {
-            echo "### RouterOS production deployment"
-            echo "- Commit: `$RELEASE_COMMIT`"
-            echo "- Image: `ghcr.io/${{ github.repository }}:sha-$RELEASE_COMMIT`"
-            echo "- RouterOS container: `$ROUTEROS_CONTAINER_NAME`"
-            echo "- Strategy: in-place immutable image update with automatic rollback on start failure"
-          } >> "$GITHUB_STEP_SUMMARY"
+          @"
+          ### RouterOS production deployment
+          - Commit: ``$env:RELEASE_COMMIT``
+          - Image: ``ghcr.io/${{ github.repository }}:sha-$env:RELEASE_COMMIT``
+          - RouterOS container: ``$env:ROUTEROS_CONTAINER_NAME``
+          - Strategy: in-place immutable image update with automatic rollback on start failure
+          "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
