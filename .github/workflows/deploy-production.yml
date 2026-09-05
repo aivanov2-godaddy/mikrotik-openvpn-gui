@@ -45,10 +45,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_COMMIT }}
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.14"
+      - name: Validate runner Python
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (& python --version 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^Python 3\.(1[0-9])(?:\.|$)') {
+            throw "The private runner must provide Python 3.10 or newer; detected: $version"
+          }
+          Write-Host "Using $version from the private runner"
       - name: Validate deployment inputs
         shell: pwsh
         run: |

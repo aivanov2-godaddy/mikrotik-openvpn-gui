@@ -66,7 +66,7 @@ GitHub-hosted runner egress addresses are dynamic. Do not broadly allow GitHub's
 
 ### Windows management runner
 
-From the repository's **Settings → Actions → Runners → New self-hosted runner** page, download the current Windows x64 runner and verify the SHA-256 shown by GitHub. Configure it with the one-time registration token and the labels above, then keep the listener running from the runner directory. Do not paste the token into the repository, a workflow, a ticket, or shell history. If the workstation restarts, start `run.cmd` again (or install it using the runner's documented Windows service mode) and confirm the runner is **Idle** before testing a deploy.
+From the repository's **Settings → Actions → Runners → New self-hosted runner** page, download the current Windows x64 runner and verify the SHA-256 shown by GitHub. Configure it with the one-time registration token and the labels above, install Python 3.10 or newer and Git, then keep the listener running from the runner directory. Do not paste the token into the repository, a workflow, a ticket, or shell history. If the workstation restarts, start `run.cmd` again (or install it using the runner's documented Windows service mode) and confirm the runner is **Idle** before testing a deploy. The deploy workflow checks `python --version` and fails before touching RouterOS when the required runtime is missing.
 
 ## First-run checklist
 
