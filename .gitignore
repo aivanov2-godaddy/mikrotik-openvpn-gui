@@ -1,0 +1,50 @@
+# Local credentials and environment overrides
+.secrets/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Runtime state and exports
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.db
+*.log
+*.zip
+*.tar
+*.tar.*
+*.ovpn
+*.backup
+*.rsc
+data/
+exports/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build output
+build/
+dist/
+*.egg-info/

@@ -1,0 +1,144 @@
+# RouterOS deployment from private GHCR
+
+This runbook uses GitHub as the source of application code and GHCR as the image registry. It intentionally separates **publishing** from **production promotion**: a merge builds an image, but an operator selects and validates an immutable image before cutover.
+
+Replace every value in angle brackets. Never commit the resulting commands, exports, or credentials.
+
+## Prerequisites
+
+- RouterOS 7 with the Container package enabled and a CPU architecture matching the published `linux/arm64` image.
+- Container mode enabled through the RouterOS physical-presence procedure.
+- Sufficient external storage for image extraction, two application roots during canary, and database backups.
+- A private GHCR package linked to this repository.
+- A dedicated classic GitHub token with `read:packages` only, an owner-approved expiration, and access to this private package.
+- A configuration-only directory containing the trusted public CA certificate used to verify RouterOS REST. RouterOS container mounts are writable, so protect the source through management policy and keep secrets out of it.
+- A RouterOS REST certificate whose Subject Alternative Name contains the exact DNS hostname used by `ROUTEROS_REST_URL` (or an exact IP SAN when an IP URL is unavoidable).
+- A tested database backup and the identity/digest of the current working container.
+
+Do not use a GitHub account password, full repository token, Actions token, SSH deploy key, or administrator PAT as the router's registry credential.
+
+## 1. Select a release
+
+1. Open the completed **Publish container** workflow run for the desired default-branch commit.
+2. Confirm its test job and image publication succeeded.
+3. Record the full commit SHA and published image digest in the change ticket.
+4. Use `<owner>/mikrotik-openvpn-gui:sha-<full-commit>` relative to the configured `https://ghcr.io` registry.
+5. Do not deploy `edge`.
+
+## 2. Record current state
+
+In a private operator record, capture:
+
+```routeros
+/system/resource/print
+/container/print detail
+/container/mounts/print detail
+/container/envs/print detail
+/interface/veth/print detail
+/ip/address/print detail
+```
+
+Do not paste unredacted output into GitHub. Container environment output, network addresses, user names, and registry configuration are operationally sensitive.
+
+Before changing `/container/config`, record its non-secret registry URL and temporary directory. RouterOS container registry configuration is global, so a change can affect updates for other containers.
+
+## 3. Back up persistent state
+
+The consistent method is a short maintenance stop:
+
+1. Stop the current dashboard container.
+2. Copy its complete persistent data directory to a timestamped directory on the same external disk.
+3. Start the current dashboard again and verify `/healthz` before continuing.
+4. Copy the backup off-router through an approved encrypted channel.
+
+The copy must include `dashboard.sqlite` and any SQLite sidecar files present. Do not copy only the database while writes are active.
+
+## 4. Configure private registry access
+
+Set the global registry only for the pull window:
+
+```routeros
+/container/config/set registry-url=https://ghcr.io username="<github-user>" password="<read-packages-token>" tmpdir="<external-disk>/containers/tmp"
+```
+
+The token will be stored as sensitive RouterOS configuration. Restrict RouterOS management access, exports, backups, and support files accordingly. After the image has been pulled, restore the prior registry URL if other containers depend on it. Keep the credential only if controlled future GHCR updates require it.
+
+## 5. Prepare immutable mounts
+
+Create distinct canary state; never point an untested image at the production database.
+
+```routeros
+/container/mounts/add list=vpn-gui-canary-mounts src="<external-disk>/vpn-gui/canary-data" dst=/data
+/container/mounts/add list=vpn-gui-canary-mounts src="<external-disk>/vpn-gui/config" dst=/config
+```
+
+Place only the RouterOS REST public CA and non-secret configuration under the config source directory. RouterOS does not expose a read-only flag for this mount; restrict router/container administration accordingly. The recommended environment values are:
+
+```routeros
+/container/envs/add list=vpn-gui-canary-env key=PUBLIC_ORIGIN value="https://vpn.example.com"
+/container/envs/add list=vpn-gui-canary-env key=ROUTEROS_REST_URL value="https://<router-hostname-present-in-certificate-san>:<rest-port>/rest"
+/container/envs/add list=vpn-gui-canary-env key=ROUTEROS_CA_FILE value=/config/routeros-ca.crt
+/container/envs/add list=vpn-gui-canary-env key=ROUTEROS_INSECURE_TLS value=false
+/container/envs/add list=vpn-gui-canary-env key=DATABASE_PATH value=/data/dashboard.sqlite
+/container/envs/add list=vpn-gui-canary-env key=DROP_PRIVILEGES value=true
+/container/envs/add list=vpn-gui-canary-env key=TRUST_CLOUDFLARE value=true
+/container/envs/add list=vpn-gui-canary-env key=TRUSTED_PROXY_SOURCES value="<router-proxy-address>"
+```
+
+There is intentionally no mount whose destination is `/app`. Application files come from the image.
+
+Validate the REST certificate chain and hostname before the canary pull. A certificate that contains only a Common Name, or whose SAN contains a different public hostname, is not sufficient. Issue the correct certificate or select a URL already covered by its SAN; never set `ROUTEROS_INSECURE_TLS=true` as a workaround.
+
+## 6. Create an isolated canary
+
+Create a dedicated VETH address and a private router address on the application bridge. Choose an unused subnet that does not overlap LAN, VPN pools, routes, or another container. Review the resolved values before applying them.
+
+```routeros
+/interface/veth/add name=veth-vpn-gui-canary address=<canary-address>/<prefix> gateway=<router-canary-address>
+/interface/bridge/port/add bridge=<container-bridge> interface=veth-vpn-gui-canary
+/ip/address/add address=<router-canary-address>/<prefix> interface=<container-bridge> comment="VPN GUI canary gateway"
+```
+
+Add the canary with a separate root directory and the immutable image reference:
+
+```routeros
+/container/add remote-image=<owner>/mikrotik-openvpn-gui:sha-<full-commit> interface=veth-vpn-gui-canary root-dir="<external-disk>/containers/vpn-gui-canary" mountlists=vpn-gui-canary-mounts envlists=vpn-gui-canary-env start-on-boot=no logging=yes comment="VPN GUI canary <short-commit>"
+```
+
+Wait for extraction to finish, then start the exact canary record. Do not expose it through the public proxy yet.
+
+RouterOS documents `remote-image` relative to `/container/config registry-url`, which is the assumed path above. A fully qualified registry reference or digest reference may be tested in an isolated canary on the installed RouterOS version, but do not make production depend on it until that behavior is verified.
+
+## 7. Validate before cutover
+
+At minimum:
+
+- container state is running and stable;
+- `http://<canary-address>:8080/healthz` returns HTTP 200 and `{"status":"ok"}`;
+- no TLS, database, permission, or restart errors appear in the RouterOS log;
+- the login page renders through a private operator path;
+- a dedicated test RouterOS account can authenticate;
+- read-only pages show users and sessions;
+- the existing mock/unit CI run corresponds to the deployed commit;
+- no live user, session, certificate, firewall, reverse-proxy, or DNS change is made by the smoke test.
+
+Only after the read-only checks pass should an approved test identity exercise a reversible create/edit/remove flow.
+
+## 8. Promote
+
+1. Copy the production SQLite data into a new production data directory while the old container is stopped, or reuse the existing `/data` mount only after canary validation and a consistent backup.
+2. Create the production container from the exact canary image, its production data mount, and the shared configuration-only mount.
+3. Stop the old container without removing its record, root directory, or data.
+4. Start the new container and verify private health.
+5. Change the reverse-proxy target to the new private address in one reviewed operation.
+6. Verify HTTP-to-HTTPS redirect, TLS, Cloudflare Access, RouterOS login, user/session reads, and one approved reversible action.
+7. Observe logs, CPU, memory, storage, login failures, and session refresh for the agreed window.
+
+Do not delete the old container or backup during the observation window. Follow [ROLLBACK.md](ROLLBACK.md) on any failed gate.
+
+## 9. Close the change
+
+- Record the deployed commit SHA, image digest, workflow run, operator, time, tests, and rollback checkpoint.
+- Remove the isolated canary after the observation window.
+- Rotate the package-read token if it was exposed to shell history, logs, exports, screenshots, or support data.
+- Restore the previous global registry configuration if other RouterOS containers require it.

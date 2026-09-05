@@ -1,0 +1,33 @@
+# Contributing
+
+This private repository accepts changes from authorized collaborators only.
+
+## Workflow
+
+1. Create a short-lived branch from the current default branch.
+2. Keep the change focused; do not combine router policy changes with unrelated UI work.
+3. Add or update tests for observable behavior.
+4. Run the local verification commands below.
+5. Update `CHANGELOG.md` when operator-visible behavior changes.
+6. Open a pull request and complete the security and rollout checklist.
+7. Merge only after required checks and review succeed.
+
+```powershell
+python scripts/check-secrets.py
+python -m compileall -q app.py automation.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py
+python -m unittest discover -s tests -v
+```
+
+## Engineering rules
+
+- RouterOS remains the source of truth for VPN identities and active sessions.
+- Never weaken TLS verification to solve a certificate problem.
+- Do not log credentials, private keys, profile payloads, raw authorization headers, or QR hand-off contents.
+- Treat user names, email addresses, addresses, usage, and audit events as sensitive operational data.
+- Preserve `/data` compatibility or document and test the migration and rollback boundary.
+- Keep destructive operations behind explicit confirmation and validate target identifiers against fresh RouterOS state.
+- Prefer immutable image tags/digests. Never make production follow a mutable tag automatically.
+
+## Commit and pull-request scope
+
+Use clear imperative commit subjects. A pull request should explain the problem, user-visible result, tests performed, security impact, deployment plan, and rollback plan. Screenshots must use mock or redacted data.

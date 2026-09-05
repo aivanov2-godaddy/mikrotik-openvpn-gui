@@ -1,0 +1,76 @@
+# Operations runbook
+
+## Daily checks
+
+- Container status is running without restart churn.
+- `/healthz` responds through the private path and the public path follows the expected Cloudflare Access flow.
+- RouterOS REST certificate validation succeeds; `ROUTEROS_INSECURE_TLS` remains `false`.
+- SQLite storage, RouterOS container storage, CPU, and memory stay below local alert thresholds.
+- Dashboard users, connected sessions, and interface counters agree with WinBox for a sample identity.
+- Audit events contain no passwords, tokens, private keys, profile bodies, or raw authorization headers.
+
+## Safe update cadence
+
+1. Review dependency and CodeQL alerts.
+2. Merge through a pull request with required checks.
+3. Select the resulting immutable `sha-` image or digest.
+4. Use the canary and promotion gates in [DEPLOYMENT.md](DEPLOYMENT.md).
+5. Retain the previous deployment until the observation window ends.
+
+Avoid a RouterOS scheduler that blindly follows `edge`. An update should not become production merely because a mutable registry tag changed.
+
+## Database backup
+
+SQLite backups must be consistent:
+
+1. Stop the dashboard container during an approved maintenance window.
+2. Copy the complete `/data` source directory, including sidecar files.
+3. Start the container and verify health immediately.
+4. Export the checkpoint to encrypted off-router storage.
+5. Test restoration periodically into an isolated canary, never over production.
+
+Apply retention appropriate to the sensitivity of email ownership, address, usage, and audit metadata. Destroy expired backups securely.
+
+## Credential and certificate rotation
+
+- Rotate the GHCR package-read token before expiry and after any suspected exposure.
+- Keep its scope to `read:packages`; validate the new token with a canary pull before revoking the old token.
+- Rotate the RouterOS REST server certificate with an overlap window: install the new public CA/config mount, canary the connection, then retire the old trust material.
+- Revoke device certificates through RouterOS and the dashboard; do not rely on deleting a downloaded profile.
+- Review Cloudflare and RouterOS administrator membership regularly.
+
+## Capacity
+
+Track:
+
+- root-directory and temporary image extraction space;
+- `/data` growth and backup size;
+- container memory/restarts;
+- RouterOS CPU under concurrent profile generation and session polling;
+- active OpenVPN sessions versus configured account/device limits.
+
+MikroTik recommends external storage for containers. Do not start a pull unless there is room for the compressed layers, extraction, current image, canary, and rollback image.
+
+## Incident containment
+
+If administration access is suspected compromised:
+
+1. Restrict or disable public dashboard access at the edge while preserving OpenVPN service.
+2. Revoke the suspected Cloudflare/GitHub/RouterOS credential.
+3. Stop profile issuance and destructive dashboard actions.
+4. Preserve sanitized logs, image digest, RouterOS configuration snapshot, and audit database through approved private storage.
+5. Review RouterOS users, PPP secrets, certificates, active sessions, firewall, proxy, and scheduler state directly in WinBox.
+6. Rotate affected client credentials/certificates and restore only from a known-good image and checkpoint.
+
+Never paste raw incident artifacts into an issue. Use a private security advisory.
+
+## Disaster recovery inventory
+
+Keep, outside the router and this repository:
+
+- last known-good image digest and commit SHA;
+- RouterOS configuration backup/export protected according to local policy;
+- encrypted dashboard `/data` checkpoint;
+- public RouterOS REST CA certificate and its rotation record;
+- documented bridge/VETH/proxy/firewall topology;
+- registry-token recovery and revocation procedure.
