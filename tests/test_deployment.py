@@ -125,7 +125,9 @@ class DeploymentPolicyTests(unittest.TestCase):
 
     def test_image_leaves_routeros_runtime_identity_files_absent(self) -> None:
         containerfile = (Path(__file__).resolve().parents[1] / "Containerfile").read_text(encoding="utf-8")
-        self.assertIn("rm -f /etc/hostname /etc/hosts /etc/resolv.conf", containerfile)
+        self.assertIn("FROM scratch", containerfile)
+        for runtime_file in ("etc/hostname", "etc/hosts", "etc/resolv.conf"):
+            self.assertIn(f"--exclude={runtime_file}", containerfile)
 
     def test_waf_plan_creates_updates_and_is_idempotent(self) -> None:
         create = plan_waf_operation(None, zone_id=TEST_ZONE_ID)

@@ -1,15 +1,10 @@
-FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc
+# syntax=docker/dockerfile:1.19@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6
 
 ARG VERSION=dev
 ARG REVISION=unknown
 ARG SOURCE_URL=""
 
-LABEL org.opencontainers.image.title="MikroTik OpenVPN GUI" \
-      org.opencontainers.image.description="A focused OpenVPN control plane for MikroTik RouterOS" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${REVISION}" \
-      org.opencontainers.image.source="${SOURCE_URL}" \
-      org.opencontainers.image.licenses="LicenseRef-Proprietary"
+FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc AS routeros-rootfs
 
 WORKDIR /app
 
@@ -18,12 +13,32 @@ COPY app.py automation.py favicon.py icons.py qr.py routeros.py security.py stor
 COPY static ./static
 COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 
-# RouterOS creates these runtime identity files itself and refuses to start an
-# extracted image when they already exist in the root filesystem.
 # The application prepares database ownership as root and then drops to UID/GID 65534.
 RUN mkdir -p /data \
-    && chmod 0700 /data \
-    && rm -f /etc/hostname /etc/hosts /etc/resolv.conf
+    && chmod 0700 /data
+
+FROM scratch
+
+ARG VERSION
+ARG REVISION
+ARG SOURCE_URL
+
+LABEL org.opencontainers.image.title="MikroTik OpenVPN GUI" \
+      org.opencontainers.image.description="A focused OpenVPN control plane for MikroTik RouterOS" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.licenses="LicenseRef-Proprietary"
+
+# RouterOS creates these runtime identity files itself and refuses to start an
+# extracted image when they already exist in the root filesystem.
+COPY --from=routeros-rootfs \
+    --exclude=etc/hostname \
+    --exclude=etc/hosts \
+    --exclude=etc/resolv.conf \
+    / /
+
+WORKDIR /app
 
 ENV APP_PORT=8080 \
     REDIRECT_PORT=8081 \
