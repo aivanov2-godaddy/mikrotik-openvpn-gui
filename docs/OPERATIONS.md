@@ -12,12 +12,12 @@
 ## Safe update cadence
 
 1. Review dependency alerts and every available repository security signal.
-2. Merge through a pull request with required checks.
-3. Select the resulting immutable `sha-` image or digest.
-4. Use the canary and promotion gates in [DEPLOYMENT.md](DEPLOYMENT.md).
-5. Retain the previous deployment until the observation window ends.
+2. Merge through a pull request with the required pre-commit, secret, test, and ARM64 checks.
+3. Let **Deploy production to RouterOS** pull the immutable full-commit `sha-` tag through the protected production environment.
+4. Confirm the workflow summary, RouterOS container status, dashboard `/readyz` revision, and the public login path.
+5. Retain the previous image and data checkpoint until the observation window ends.
 
-Avoid a RouterOS scheduler that blindly follows `edge`. An update should not become production merely because a mutable registry tag changed.
+The workflow never follows `edge`, changes mutable registry settings, or modifies the container's mounts and environment. Use the canary-first procedure in [DEPLOYMENT.md](DEPLOYMENT.md) for schema, data, or RouterOS-policy migrations before merging them.
 
 ## Database backup
 

@@ -1,6 +1,26 @@
 # RouterOS deployment from private GHCR
 
-This runbook uses GitHub as the source of application code and GHCR as the image registry. It intentionally separates **publishing** from **production promotion**: a merge builds an image, but an operator selects and validates an immutable image before cutover.
+This runbook uses GitHub as the source of application code and GHCR as the image registry. A merge to `main` builds an immutable image and, after the publish workflow succeeds, **Deploy production to RouterOS** pulls and runs the exact full-commit image through the RouterOS HTTPS REST API. The workflow is fail-closed until the private REST path and protected environment secrets are configured.
+
+Routine application-only changes use the automated path. Schema, data, RouterOS-policy, or topology changes still require the canary-first procedure below and should not be merged until the canary and rollback gates are complete.
+
+## Automated post-merge deployment
+
+The workflow `.github/workflows/deploy-production.yml` listens for a successful **Publish container** run on `main`. It checks out the published commit, verifies the full SHA, stops the exact configured container, sets its `remote-image` to `ghcr.io/<owner>/<repo>:sha-<full-sha>`, invokes RouterOS `/container/update`, starts the container, and waits for `status=running`. If any update or start gate fails, it attempts to restore the previous immutable image and start it again. It never uploads source files or changes mounts, environment lists, interfaces, firewall rules, or persistent data.
+
+Configure these as **environment secrets** under a protected GitHub environment named `production`:
+
+| Secret | Required value |
+| --- | --- |
+| `ROUTEROS_REST_URL` | Credential-free `https://.../rest` URL whose certificate SAN matches its hostname |
+| `ROUTEROS_DEPLOY_USERNAME` | Dedicated RouterOS account with only the container read/write actions required for deployment |
+| `ROUTEROS_DEPLOY_PASSWORD` | Password for that account |
+| `ROUTEROS_CONTAINER_NAME` | Exact production container name; do not use a display label or mutable tag |
+| `ROUTEROS_REST_CA_B64` | Base64 of the public CA certificate that signs the REST server certificate |
+
+The deploy job also needs a private network path from the runner to RouterOS REST. GitHub-hosted runner IP addresses change; do not open RouterOS REST to all GitHub ranges. Use an approved self-hosted runner inside the management network or a narrowly scoped, authenticated deployment relay. Keep `www-ssl` enabled and `www` disabled, restrict the service to that path, and retain RouterOS firewall logging for denied attempts.
+
+Test the path with **workflow_dispatch** and an already-published full commit before relying on automatic post-merge updates. A missing secret, non-HTTPS URL, invalid CA, ambiguous container name, mutable image, or unreachable REST endpoint fails without changing RouterOS.
 
 Replace every value in angle brackets. Never commit the resulting commands, exports, or credentials.
 

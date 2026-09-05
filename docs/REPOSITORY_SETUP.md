@@ -50,7 +50,19 @@ Enable where available:
 - code scanning with CodeQL, when GitHub Advanced Security is enabled for the private repository;
 - automatic deletion of head branches after merge.
 
-Use a protected `production` environment if a future workflow performs deployment. Require an owner review and allow only the default branch. Image publication alone does not need RouterOS or Cloudflare credentials.
+Use a protected `production` environment for the post-merge RouterOS deployment workflow. Require an owner review when the repository plan supports environment approvals and allow only the default branch. Image publication alone does not need RouterOS or Cloudflare credentials.
+
+Create these environment secrets; never put them in repository variables, workflow files, or commit history:
+
+| Secret | Purpose |
+| --- | --- |
+| `ROUTEROS_REST_URL` | HTTPS RouterOS REST base URL ending in `/rest` |
+| `ROUTEROS_DEPLOY_USERNAME` | Dedicated least-privilege RouterOS deployment account |
+| `ROUTEROS_DEPLOY_PASSWORD` | Password for that account |
+| `ROUTEROS_CONTAINER_NAME` | Exact production container name (not a mutable image tag) |
+| `ROUTEROS_REST_CA_B64` | Base64-encoded public CA certificate that signs the REST server certificate |
+
+GitHub-hosted runner egress addresses are dynamic. Do not broadly allow GitHub's published ranges on RouterOS. Provide a private path to the REST endpoint (for example an approved self-hosted runner or a narrowly scoped deployment relay), then allow only that path in the RouterOS service and firewall rules. The workflow fails closed when any secret is missing or the REST certificate cannot be verified.
 
 ## First-run checklist
 
@@ -59,4 +71,5 @@ Use a protected `production` environment if a future workflow performs deploymen
 3. Merge or manually run **Publish container** on the default branch.
 4. Open the package and confirm private visibility, source-repository linkage, ARM64 platform, full-commit tag, and manifest digest.
 5. Apply the branch ruleset using the check names from the successful run.
-6. Create an expiring `read:packages` pull token and follow [DEPLOYMENT.md](DEPLOYMENT.md).
+6. Configure the protected `production` environment secrets above and run **Deploy production to RouterOS** manually with a known immutable commit as a connectivity test.
+7. Create an expiring `read:packages` pull token and follow [DEPLOYMENT.md](DEPLOYMENT.md).

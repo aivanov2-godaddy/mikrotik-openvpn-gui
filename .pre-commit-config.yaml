@@ -1,0 +1,27 @@
+minimum_pre_commit_version: "3.7.1"
+exclude: ^tests/__init__\.py$
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: detect-private-key
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.10
+    hooks:
+      - id: ruff-check
+        args: [--output-format=concise]
+  - repo: local
+    hooks:
+      - id: repository-validation
+        name: Python, JavaScript, tests, and secret validation
+        entry: python scripts/pre_commit_checks.py
+        language: system
+        pass_filenames: false
+        always_run: true

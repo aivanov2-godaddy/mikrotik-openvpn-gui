@@ -367,6 +367,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             )
         }
+        self.assertIn("alex", users)
         status, _, _ = self.json_request(
             "POST", "/api/users", {
                 "username": "blocked", "email": "blocked@example.com",

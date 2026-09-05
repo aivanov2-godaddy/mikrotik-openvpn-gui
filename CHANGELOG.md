@@ -12,6 +12,8 @@ Significant operator-visible changes are recorded here. This project follows the
 - RouterOS canary deployment, rollback, and operations runbooks.
 - Offline immutable-image canary plan rendering with strict input validation.
 - A database-aware `/readyz` gate with baked release identity and ARM64 runtime smoke tests.
+- Post-merge immutable GHCR deployment workflow with RouterOS REST update, start gating, and automatic image rollback.
+- Pre-commit hooks covering repository hygiene, Python linting, JavaScript syntax, tests, compilation, and secret-pattern checks.
 
 ### Changed
 
@@ -21,3 +23,4 @@ Significant operator-visible changes are recorded here. This project follows the
 - The legacy host-mounted source updater now exits without contacting RouterOS.
 - Blue/green promotion now requires separate frozen blue, immutable checkpoint, and green working data directories for deterministic rollback.
 - Readiness now uses a ten-second cached SQLite quick-check plus a rolled-back write probe; promotion still requires a full offline integrity check of the stopped checkpoint.
+- Routine application-only merges now deploy the exact full-commit image through the protected production workflow; mutable `edge` remains inspection-only.

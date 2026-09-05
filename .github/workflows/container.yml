@@ -31,6 +31,12 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
+      - name: Verify Node.js runtime
+        run: node --version
+      - name: Install pre-commit
+        run: python -m pip install --disable-pip-version-check "pre-commit==4.3.0"
+      - name: Run repository pre-commit hooks
+        run: pre-commit run --all-files --show-diff-on-failure
       - name: Check for committed secret patterns
         run: python scripts/check-secrets.py
       - name: Compile application

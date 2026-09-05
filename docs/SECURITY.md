@@ -15,7 +15,7 @@
 - Keep repository and GHCR package visibility private.
 - Require multi-factor authentication for every collaborator.
 - Protect the default branch with pull requests, review, required checks, conversation resolution, and blocked force pushes/deletions.
-- Keep Actions permissions read-only by default; grant `packages: write` only to the image-publish job.
+- Keep Actions permissions read-only by default; grant `packages: write` only to the image-publish job. The RouterOS deployment job receives no package or repository write permission.
 - Pin Actions to full commit SHAs and let Dependabot propose reviewed updates.
 - Enable private vulnerability reporting, Dependabot alerts, secret scanning, and push protection where the account plan supports them.
 - Never place production credentials in repository variables, workflow output, artifacts, or build arguments.
@@ -29,6 +29,8 @@ Use a separate, expiring token with `read:packages` only. Its account must have 
 ### RouterOS REST TLS
 
 - Mount a trusted public CA certificate under the configuration-only `/config` path. RouterOS cannot mark this mount read-only, so protect it through management policy and keep secrets out of the directory.
+
+The GitHub deployment workflow uses a separate base64-encoded copy of that public CA in the protected `production` environment. It refuses HTTP, credential-bearing URLs, mutable image tags, missing container names, and untrusted certificates. Keep the REST endpoint on a private path; GitHub-hosted runner source addresses are dynamic and must not be added as a broad RouterOS allowlist.
 - Use a REST URL whose hostname is present exactly in the server certificate Subject Alternative Name.
 - If the URL uses an IP literal, the certificate needs the matching IP SAN; a DNS SAN or Common Name is not equivalent.
 - Keep `ROUTEROS_INSECURE_TLS=false` in every environment.
@@ -44,7 +46,7 @@ Use a separate, expiring token with `read:packages` only. Its account must have 
 
 ### Container
 
-- Deploy an immutable GHCR digest or `sha-` tag.
+- Deploy an immutable GHCR `sha-` tag and the RouterOS container's built-in `update` command. The workflow stops the configured container, updates only its image reference, waits for a running state, and automatically restores the prior image on failure. It does not upload source or modify mounts, environment, interfaces, firewall rules, or persistent data.
 - Do not mount host content over `/app`.
 - Mount `/data` persistently and reserve `/config` for non-secret trust material; do not put private keys into application code or image layers.
 - Keep privilege dropping enabled and enforce RouterOS memory/storage limits.
@@ -56,7 +58,7 @@ The dashboard verifies the credentials presented at login against RouterOS. Pref
 
 ## Build and release integrity
 
-Pull requests run secret-pattern checks, tests, and a clean ARM64 build. CodeQL should be enabled when GitHub Advanced Security is available for the private repository; until then it is not represented as a passing control. The publishing workflow reruns tests before it can push. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; they may be evaluated only through an isolated canary on the installed RouterOS release. Operators must compare the selected workflow commit, immutable GHCR tag, and RouterOS deployment record before promotion.
+Pull requests run pre-commit hygiene and lint hooks, secret-pattern checks, tests, and a clean ARM64 build. CodeQL should be enabled when GitHub Advanced Security is available for the private repository; until then it is not represented as a passing control. The publishing workflow reruns the same checks before it can push, and the post-merge deploy workflow uses only the published full-commit image. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; they may be evaluated only through an isolated canary on the installed RouterOS release. Operators must compare the selected workflow commit, immutable GHCR tag, and RouterOS deployment record after each automated update.
 
 ## Secret exposure response
 

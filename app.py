@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from automation import AutomationMixin, simultaneous_session_sources
+from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from favicon import FAVICON_SVG, ico_bytes
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg

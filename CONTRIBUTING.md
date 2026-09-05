@@ -13,6 +13,9 @@ This private repository accepts changes from authorized collaborators only.
 7. Merge only after required checks and review succeed.
 
 ```powershell
+python -m pip install pre-commit
+python -m pre_commit install
+python -m pre_commit run --all-files
 python scripts/check-secrets.py
 python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
 python -m unittest discover -s tests -v

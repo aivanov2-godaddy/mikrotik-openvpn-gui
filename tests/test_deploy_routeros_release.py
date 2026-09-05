@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import unittest
+
+from scripts.deploy_routeros_release import (
+    DeploymentError,
+    DeploymentSettings,
+    _status,
+    deploy,
+)
+
+
+OLD_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "a" * 40
+NEW_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "b" * 40
+
+
+class FakeRouterOS:
+    def __init__(self, *, fail_start: bool = False) -> None:
+        self.record = {
+            ".id": "*1",
+            "name": "vpn-dashboard",
+            "status": "running",
+            "remote-image": OLD_IMAGE,
+        }
+        self.calls: list[tuple[str, str, object]] = []
+        self.fail_start = fail_start
+        self.failed_once = False
+
+    def containers(self) -> list[dict[str, str]]:
+        return [dict(self.record)]
+
+    def container(self, _container_id: str) -> dict[str, str]:
+        return dict(self.record)
+
+    def patch_container(self, container_id: str, values: dict[str, str]) -> None:
+        self.calls.append(("patch", container_id, dict(values)))
+        self.record.update(values)
+
+    def command(self, command: str, container_id: str) -> None:
+        self.calls.append(("command", command, container_id))
+        if command == "stop":
+            self.record["status"] = "stopped"
+        elif command == "start":
+            if self.fail_start and not self.failed_once:
+                self.failed_once = True
+                self.record["status"] = "failed"
+            else:
+                self.record["status"] = "running"
+        elif command == "update":
+            self.record["status"] = "stopped"
+
+
+def settings(image: str = NEW_IMAGE) -> DeploymentSettings:
+    return DeploymentSettings(
+        rest_url="https://router.example.test/rest",
+        username="deployer",
+        password="not-used-by-fake",
+        container_name="vpn-dashboard",
+        release_image=image,
+        timeout_seconds=30,
+        poll_seconds=0,
+    )
+
+
+class DeploymentTests(unittest.TestCase):
+    def test_updates_immutable_image_and_starts_container(self) -> None:
+        router = FakeRouterOS()
+
+        revision = deploy(settings(), router)
+
+        self.assertEqual(revision, "b" * 40)
+        self.assertEqual(router.record["remote-image"], NEW_IMAGE)
+        self.assertEqual(router.record["status"], "running")
+        self.assertEqual(
+            router.calls,
+            [
+                ("command", "stop", "*1"),
+                ("patch", "*1", {"remote-image": NEW_IMAGE}),
+                ("command", "update", "*1"),
+                ("command", "start", "*1"),
+            ],
+        )
+
+    def test_running_requested_image_is_a_noop(self) -> None:
+        router = FakeRouterOS()
+
+        revision = deploy(settings(OLD_IMAGE), router)
+
+        self.assertEqual(revision, "a" * 40)
+        self.assertEqual(router.calls, [])
+
+    def test_failed_start_rolls_back_previous_image(self) -> None:
+        router = FakeRouterOS(fail_start=True)
+
+        with self.assertRaises(DeploymentError):
+            deploy(settings(), router)
+
+        self.assertEqual(router.record["remote-image"], OLD_IMAGE)
+        self.assertEqual(router.record["status"], "running")
+        self.assertIn(("patch", "*1", {"remote-image": OLD_IMAGE}), router.calls)
+
+    def test_rejects_mutable_or_non_ghcr_image(self) -> None:
+        invalid = settings("ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:edge")
+        with self.assertRaises(DeploymentError):
+            invalid.validate()
+
+    def test_accepts_routeros_running_flag_shape(self) -> None:
+        self.assertEqual(_status({"running": "true"}), "running")
+        self.assertEqual(_status({".running": "false"}), "stopped")
+        self.assertEqual(_status({"status": "healthy"}), "running")
+
+
+if __name__ == "__main__":
+    unittest.main()

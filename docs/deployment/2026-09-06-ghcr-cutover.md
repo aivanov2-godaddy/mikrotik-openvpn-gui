@@ -51,4 +51,3 @@ databases, plaintext checkpoints, or RouterOS backup files are committed here.
 The RouterOS manifest digest is not independently observable from RouterOS;
 the immutable full-commit tag and the GHCR workflow digest above are retained
 as the release evidence.
-
