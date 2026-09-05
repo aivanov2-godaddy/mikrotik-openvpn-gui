@@ -128,7 +128,7 @@ At minimum:
 
 - container state is running and stable;
 - `http://<canary-address>:8080/healthz` returns HTTP 200 and `{"status":"ok"}` for process liveness;
-- `/readyz` returns HTTP 200, `{"status":"ready"}`, successful SQLite integrity/write-rollback checks, and the exact full commit SHA selected from the workflow;
+- `/readyz` returns HTTP 200, `{"status":"ready"}`, a successful cached SQLite quick-check/write-rollback probe, and the exact full commit SHA selected from the workflow;
 - no TLS, database, permission, or restart errors appear in the RouterOS log;
 - the login page renders through a private operator path;
 - a dedicated read-only test RouterOS account can authenticate through a TLS path; never send RouterOS administrator credentials to the canary over plaintext HTTP;

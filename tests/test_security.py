@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from security import LoginRateLimiter, SessionStore, csrf_matches
 from store import MetadataStore
@@ -89,6 +90,49 @@ class SecurityTests(unittest.TestCase):
             store.verify_readiness()
 
             self.assertEqual(store.recent_audit(100), audit_before)
+
+    def test_database_readiness_success_is_cached_briefly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            with (
+                mock.patch.object(store, "_connect", wraps=store._connect) as connect,
+                mock.patch("store.time.monotonic", side_effect=(100.0, 100.0, 109.9)),
+            ):
+                store.verify_readiness()
+                store.verify_readiness()
+
+            self.assertEqual(connect.call_count, 1)
+
+    def test_database_readiness_cache_expires_and_failures_are_not_cached(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            real_connect = store._connect
+            attempts = 0
+
+            def fail_once():
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise RuntimeError("database unavailable")
+                return real_connect()
+
+            with (
+                mock.patch.object(store, "_connect", side_effect=fail_once),
+                mock.patch("store.time.monotonic", side_effect=(100.0, 100.0, 100.0)),
+            ):
+                with self.assertRaises(RuntimeError):
+                    store.verify_readiness()
+                store.verify_readiness()
+
+            self.assertEqual(attempts, 2)
+
+            with (
+                mock.patch.object(store, "_connect", wraps=real_connect) as connect,
+                mock.patch("store.time.monotonic", side_effect=(110.1, 110.1)),
+            ):
+                store.verify_readiness()
+
+            self.assertEqual(connect.call_count, 1)
 
     def test_connection_history_opens_updates_and_closes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

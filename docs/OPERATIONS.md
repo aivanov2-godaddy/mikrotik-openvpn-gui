@@ -3,7 +3,7 @@
 ## Daily checks
 
 - Container status is running without restart churn.
-- `/healthz` reports process liveness, `/readyz` reports SQLite readiness and the deployed revision, and the public path follows the expected Cloudflare Access flow.
+- `/healthz` reports process liveness, `/readyz` reports cached SQLite readiness and the deployed revision, and the public path follows the expected Cloudflare Access flow.
 - RouterOS REST certificate validation succeeds; `ROUTEROS_INSECURE_TLS` remains `false`.
 - SQLite storage, RouterOS container storage, CPU, and memory stay below local alert thresholds.
 - Dashboard users, connected sessions, and interface counters agree with WinBox for a sample identity.

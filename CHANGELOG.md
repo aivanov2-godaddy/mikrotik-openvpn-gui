@@ -20,3 +20,4 @@ Significant operator-visible changes are recorded here. This project follows the
 - RouterOS-managed `/etc/hostname`, `/etc/hosts`, and `/etc/resolv.conf` files are removed from the image so RouterOS 7.24 can create them at container start.
 - The legacy host-mounted source updater now exits without contacting RouterOS.
 - Blue/green promotion now requires separate frozen blue, immutable checkpoint, and green working data directories for deterministic rollback.
+- Readiness now uses a ten-second cached SQLite quick-check plus a rolled-back write probe; promotion still requires a full offline integrity check of the stopped checkpoint.

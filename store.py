@@ -17,6 +17,7 @@ class MetadataStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._readiness_valid_until = 0.0
         self._initialize()
         try:
             os.chmod(self.path, 0o600)
@@ -160,14 +161,16 @@ class MetadataStore:
             )
 
     def verify_readiness(self) -> None:
-        """Raise unless the database is intact and accepts a rolled-back write."""
+        """Raise unless SQLite passes a quick check and a rolled-back write."""
         with self._lock:
+            if time.monotonic() < self._readiness_valid_until:
+                return
             connection = self._connect()
             transaction_started = False
             try:
-                integrity = connection.execute("PRAGMA integrity_check").fetchall()
+                integrity = connection.execute("PRAGMA quick_check").fetchall()
                 if len(integrity) != 1 or str(integrity[0][0]).lower() != "ok":
-                    raise sqlite3.DatabaseError("SQLite integrity check failed")
+                    raise sqlite3.DatabaseError("SQLite quick check failed")
 
                 connection.execute("BEGIN IMMEDIATE")
                 transaction_started = True
@@ -182,6 +185,7 @@ class MetadataStore:
                 if transaction_started:
                     connection.rollback()
                 connection.close()
+            self._readiness_valid_until = time.monotonic() + 10.0
 
     @staticmethod
     def _control_defaults(username: str) -> dict[str, Any]:
