@@ -47,7 +47,7 @@ See [SECURITY.md](SECURITY.md) and [docs/SECURITY.md](docs/SECURITY.md) before d
 | `store.py` | SQLite metadata and audit storage |
 | `templates.py`, `static/` | WinBox-inspired web interface |
 | `tests/` | Unit and mock RouterOS integration tests |
-| `.github/workflows/` | CI, security analysis, and ARM64 image publishing |
+| `.github/workflows/` | CI, security analysis, and architecture-aware image publishing |
 | `docs/` | Deployment, rollback, security, and operations runbooks |
 
 ## Local verification
@@ -73,7 +73,7 @@ Then open `http://127.0.0.1:18080`. The mock does not contact a router or Cloudf
 
 ## Install on a new MikroTik
 
-For the supported platform matrix, Container package and device-mode setup, persistent storage, first image pull, HTTPS exposure, validation, and GitHub-driven updates, follow [First-time MikroTik installation](docs/INSTALLATION.md). The published image is ARM64 and production has been validated on RouterOS 7.24.2 with an RB5009UPr+S+.
+For the supported platform matrix, Container package and device-mode setup, persistent storage, first image pull, HTTPS exposure, validation, and GitHub-driven updates, follow [First-time MikroTik installation](docs/INSTALLATION.md). Production remains ARM64 and has been validated on RouterOS 7.24.2 with an RB5009UPr+S+.
 
 ## Runtime configuration
 
@@ -95,7 +95,7 @@ Set deployment values through the RouterOS container environment list. Never com
 
 ## Image release and deployment model
 
-Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, pre-commit hooks, an ARM64 container build, and an emulated ARM64 readiness/revision smoke test. A merge to the default branch publishes a private GHCR image only after the workflow's verification job succeeds. The **Deploy production to RouterOS** workflow then selects the exact full-commit image tag and updates the configured RouterOS container through its HTTPS REST API.
+Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, pre-commit hooks, and readiness/revision smoke tests for ARM64, ARMv7, and AMD64 images. A merge to the default branch publishes private GHCR images only after verification succeeds. The unsuffixed full-commit tag remains an ARM64 compatibility alias, so the **Deploy production to RouterOS** workflow continues selecting the same immutable tag and updating the configured RouterOS container through its HTTPS REST API.
 
 Published image tags include:
 

@@ -24,7 +24,7 @@ The current application expects the following production values unless the sourc
 
 ## 1. Confirm version and architecture
 
-In WinBox open **System → Resources** and confirm **Architecture Name** is `arm64`. In **System → Packages**, record the exact RouterOS version. From New Terminal:
+In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for ARM64, `arm` for ARMv7, and `amd64` for x86-64. In **System → Packages**, record the exact RouterOS version. From New Terminal:
 
 ```routeros
 /system/resource/print
@@ -89,7 +89,7 @@ The package is private. Create an expiring GitHub classic token with only `read:
 /container/config/set registry-url=https://ghcr.io username="<github-user>" password="<read-packages-token>" tmpdir="<external-disk>/containers/tmp"
 ```
 
-RouterOS resolves `remote-image` relative to this registry URL. Therefore use `aivanov2-godaddy/mikrotik-openvpn-gui:sha-<full-commit-sha>`, not a `ghcr.io/...`-prefixed value. Commit tags are immutable deployment references; do not use `edge` in production.
+RouterOS resolves `remote-image` relative to this registry URL. Therefore use `aivanov2-godaddy/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>`, not a `ghcr.io/...`-prefixed value. For the production RB5009 ARM64 deployment, the legacy `sha-<full-commit-sha>` tag remains an ARM64 alias and is safe to keep using. Commit tags are immutable deployment references; do not use `edge` in production.
 
 ## 7. Create mounts and environment lists
 
@@ -152,7 +152,7 @@ Then open `https://vpn.wanted.sx`, authenticate through the configured perimeter
 
 ## 11. Enable GitHub-driven updates
 
-After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_SETUP.md](REPOSITORY_SETUP.md): configure the protected `production` environment, the five RouterOS secrets, and the repository-scoped Windows runner labeled `routeros-private`. A merge to `main` runs CI, publishes a private ARM64 image tagged with the full commit SHA, and invokes the deployment workflow. The workflow updates only the immutable image reference and automatically restores the previous image if update or startup gates fail.
+After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_SETUP.md](REPOSITORY_SETUP.md): configure the protected `production` environment, the five RouterOS secrets, and the repository-scoped Windows runner labeled `routeros-private`. A merge to `main` runs CI, publishes private ARM64, ARMv7, and AMD64 images with architecture-specific immutable tags, and preserves the unsuffixed ARM64 tag used by production. The deployment workflow updates only that immutable ARM64 reference and automatically restores the previous image if update or startup gates fail.
 
 ## Troubleshooting
 
@@ -160,7 +160,7 @@ After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_S
 | --- | --- |
 | `container` package missing | Architecture/version match; install the extra package and reboot |
 | Device-mode refuses enablement | Run `/system/device-mode/update container=yes` again and complete the physical confirmation window |
-| Architecture error during pull | This release is ARM64 only; confirm `architecture-name=arm64` |
+| Architecture error during pull | Select the matching tag suffix (`arm64`, `arm`, or `amd64`) and confirm the router's `architecture-name` |
 | GHCR `auth error` | Token is classic, has `read:packages`, and can read the private package; check `/container/config` without exposing the token |
 | Manifest not found | Use registry-relative `owner/repo:sha-<fullsha>` and keep `registry-url=https://ghcr.io` |
 | Extraction fails | Move roots and `tmpdir` to external storage and check free space |
