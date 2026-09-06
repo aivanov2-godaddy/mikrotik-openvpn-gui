@@ -165,14 +165,22 @@ def _status(record: dict[str, Any]) -> str:
         return "running"
     if running in {"false", "no", "0"}:
         return "stopped"
+    # RouterOS reports a positive health probe separately from lifecycle
+    # state.  Only a healthy container is ready for traffic and for the
+    # deployment gate; an unhealthy probe is an explicit failure.
+    healthy = str(record.get("healthy", "")).casefold()
+    if healthy in {"true", "yes", "1"}:
+        return "running"
+    if healthy in {"false", "no", "0"}:
+        return "unhealthy"
     # RouterOS 7.24 exposes the lifecycle flag as `stopped` on some
     # container records.  It is the inverse of `running`, so normalize it
-    # before treating an unknown state as a timeout.
+    # when it positively confirms that the container is stopped.  A false
+    # value only means startup has progressed past the stopped state; it is
+    # not sufficient evidence that the application is ready.
     stopped = str(record.get("stopped", "")).casefold()
     if stopped in {"true", "yes", "1"}:
         return "stopped"
-    if stopped in {"false", "no", "0"}:
-        return "running"
     return ""
 
 
