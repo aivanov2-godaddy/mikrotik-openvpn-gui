@@ -7,6 +7,7 @@ from scripts.deploy_routeros_release import (
     DeploymentError,
     DeploymentSettings,
     RouterOSRest,
+    _wait_for,
     _status,
     deploy,
 )
@@ -52,6 +53,25 @@ class FakeRouterOS:
             self.record["status"] = "stopped"
 
 
+class EmptyStopRouterOS(FakeRouterOS):
+    """RouterOS 7.24 shape observed while an explicit stop is completing."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.empty_reads = 0
+
+    def container(self, _container_id: str) -> dict[str, str]:
+        if self.empty_reads and self.empty_reads < 3:
+            self.empty_reads += 1
+            return {".id": "*1", "name": "vpn-dashboard", "remote-image": OLD_IMAGE}
+        return super().container(_container_id)
+
+    def command(self, command: str, container_id: str) -> None:
+        super().command(command, container_id)
+        if command == "stop":
+            self.empty_reads = 1
+
+
 def settings(image: str = NEW_IMAGE) -> DeploymentSettings:
     return DeploymentSettings(
         rest_url="https://router.example.test/rest",
@@ -90,6 +110,36 @@ class DeploymentTests(unittest.TestCase):
                 ("command", "start", "*1"),
             ],
         )
+
+    def test_accepts_empty_routeros_record_after_stop(self) -> None:
+        router = EmptyStopRouterOS()
+
+        revision = deploy(settings(), router)
+
+        self.assertEqual(revision, "b" * 40)
+        self.assertEqual(router.record["status"], "running")
+
+    def test_pull_failure_overrides_stale_healthcheck(self) -> None:
+        self.assertEqual(
+            _status({"download/extract failed": "true", "healthcheck-status": "good"}),
+            "failed",
+        )
+
+    def test_empty_stop_state_is_not_accepted_for_update_waits(self) -> None:
+        client = Mock()
+        client.container.return_value = {".id": "*1", "name": "vpn-dashboard"}
+        short_settings = DeploymentSettings(
+            rest_url="https://router.example.test/rest",
+            username="deployer",
+            password="not-used-by-fake",
+            container_name="vpn-dashboard",
+            release_image=NEW_IMAGE,
+            timeout_seconds=0.01,
+            poll_seconds=0,
+        )
+
+        with self.assertRaises(DeploymentError):
+            _wait_for(client, "*1", "stopped", short_settings)
 
     def test_running_requested_image_is_a_noop(self) -> None:
         router = FakeRouterOS()

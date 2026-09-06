@@ -28,6 +28,15 @@ _IMAGE_PATTERN = re.compile(
     r"^ghcr\.io/[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):sha-([0-9a-f]{40})$"
 )
 _STATUS_FAILURES = {"failed", "invalid", "error", "unhealthy"}
+_LIFECYCLE_KEYS = (
+    "status",
+    "running",
+    ".running",
+    "stopped",
+    "healthy",
+    "healthcheck-status",
+)
+_EMPTY_STOP_CONFIRMATIONS = 2
 
 
 class DeploymentError(RuntimeError):
@@ -151,18 +160,22 @@ def _find_target(client: RouterOSRest, name: str) -> dict[str, Any]:
 
 
 def _status(record: dict[str, Any]) -> str:
+    pull_failed = str(record.get("download/extract failed", "")).casefold()
+    has_pull_failure = pull_failed in {"true", "yes", "1"}
     status = str(record.get("status", "")).casefold()
     if status:
         # A HEALTHCHECK-enabled image is reported as `healthy` by newer
         # RouterOS builds; treat that as the running gate for this deployer.
         if status == "healthy":
-            return "running"
+            return "failed" if has_pull_failure else "running"
+        if status in {"running", "starting", "starting-with-healthcheck"}:
+            return "failed" if has_pull_failure else status
         return status
     # Some RouterOS REST builds expose the container state as a string
     # `.running` flag instead of the CLI `status` field.
     running = str(record.get("running", record.get(".running", ""))).casefold()
     if running in {"true", "yes", "1"}:
-        return "running"
+        return "failed" if has_pull_failure else "running"
     if running in {"false", "no", "0"}:
         return "stopped"
     # RouterOS 7.24 exposes the lifecycle flag as `stopped` on some
@@ -178,7 +191,7 @@ def _status(record: dict[str, Any]) -> str:
     # deployment gate; an unhealthy probe is an explicit failure.
     healthy = str(record.get("healthy", "")).casefold()
     if healthy in {"true", "yes", "1"}:
-        return "running"
+        return "failed" if has_pull_failure else "running"
     if healthy in {"false", "no", "0"}:
         return "unhealthy"
     # RouterOS 7.24 may expose only the container health-probe result.  The
@@ -186,10 +199,23 @@ def _status(record: dict[str, Any]) -> str:
     # a failure word when the probe cannot reach the application.
     healthcheck = str(record.get("healthcheck-status", "")).casefold().strip()
     if healthcheck.startswith("good"):
-        return "running"
+        return "failed" if has_pull_failure else "running"
     if healthcheck.startswith(("bad", "failed", "error", "unhealthy")):
         return "unhealthy"
+    # RouterOS keeps a failed pull marker even after the container has been
+    # stopped.  Preserve it as an explicit failure for the start gate.
+    if has_pull_failure:
+        return "failed"
     return ""
+
+
+def _has_lifecycle_signal(record: dict[str, Any]) -> bool:
+    """Return whether RouterOS supplied a non-empty lifecycle/probe value."""
+
+    return any(
+        record.get(key) is not None and str(record.get(key)).strip()
+        for key in _LIFECYCLE_KEYS
+    )
 
 
 def _wait_for(
@@ -197,16 +223,46 @@ def _wait_for(
     container_id: str,
     desired: str,
     settings: DeploymentSettings,
+    *,
+    allow_empty_stopped: bool = False,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + settings.timeout_seconds
     last = "unknown"
+    empty_stop_observations = 0
     while time.monotonic() < deadline:
         record = client.container(container_id)
         last = _status(record)
         if last in _STATUS_FAILURES:
-            raise DeploymentError(f"RouterOS container entered failure state {last!r}")
+            # A failed download marker can remain after a stop and while the
+            # lifecycle/probe fields are temporarily omitted.  The explicit
+            # stop command plus the bounded empty-record confirmation below
+            # is the only case where that stale marker is ignored.
+            if not (
+                desired == "stopped"
+                and allow_empty_stopped
+                and last == "failed"
+                and not _has_lifecycle_signal(record)
+            ):
+                raise DeploymentError(f"RouterOS container entered failure state {last!r}")
+            last = ""
         if last == desired:
             return record
+        # RouterOS 7.24 briefly returns a record with no lifecycle or probe
+        # fields while a stop is completing.  Once the explicit stop command
+        # has been issued, two consecutive empty observations are sufficient
+        # confirmation to continue; an empty response is never accepted for
+        # the running/healthy gate.
+        if (
+            desired == "stopped"
+            and allow_empty_stopped
+            and last == ""
+            and not _has_lifecycle_signal(record)
+        ):
+            empty_stop_observations += 1
+            if empty_stop_observations >= _EMPTY_STOP_CONFIRMATIONS:
+                return record
+        else:
+            empty_stop_observations = 0
         time.sleep(settings.poll_seconds)
     raise DeploymentError(f"timed out waiting for RouterOS container status {desired!r} (last {last!r})")
 
@@ -233,7 +289,7 @@ def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> 
     try:
         if current_status != "stopped":
             client.command("stop", container_id)
-            _wait_for(client, container_id, "stopped", settings)
+            _wait_for(client, container_id, "stopped", settings, allow_empty_stopped=True)
         if changed:
             client.patch_container(container_id, {"remote-image": settings.release_image})
             client.command("update", container_id)
@@ -253,7 +309,7 @@ def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> 
                 record = client.container(container_id)
                 if _status(record) != "stopped":
                     client.command("stop", container_id)
-                    _wait_for(client, container_id, "stopped", settings)
+                    _wait_for(client, container_id, "stopped", settings, allow_empty_stopped=True)
                 client.patch_container(container_id, {"remote-image": previous_image})
                 client.command("update", container_id)
                 _wait_for(client, container_id, "stopped", settings)
