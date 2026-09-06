@@ -165,14 +165,6 @@ def _status(record: dict[str, Any]) -> str:
         return "running"
     if running in {"false", "no", "0"}:
         return "stopped"
-    # RouterOS reports a positive health probe separately from lifecycle
-    # state.  Only a healthy container is ready for traffic and for the
-    # deployment gate; an unhealthy probe is an explicit failure.
-    healthy = str(record.get("healthy", "")).casefold()
-    if healthy in {"true", "yes", "1"}:
-        return "running"
-    if healthy in {"false", "no", "0"}:
-        return "unhealthy"
     # RouterOS 7.24 exposes the lifecycle flag as `stopped` on some
     # container records.  It is the inverse of `running`, so normalize it
     # when it positively confirms that the container is stopped.  A false
@@ -181,6 +173,22 @@ def _status(record: dict[str, Any]) -> str:
     stopped = str(record.get("stopped", "")).casefold()
     if stopped in {"true", "yes", "1"}:
         return "stopped"
+    # RouterOS reports a positive health probe separately from lifecycle
+    # state.  Only a healthy container is ready for traffic and for the
+    # deployment gate; an unhealthy probe is an explicit failure.
+    healthy = str(record.get("healthy", "")).casefold()
+    if healthy in {"true", "yes", "1"}:
+        return "running"
+    if healthy in {"false", "no", "0"}:
+        return "unhealthy"
+    # RouterOS 7.24 may expose only the container health-probe result.  The
+    # value is formatted as ``good, output: ...`` for a passing probe and as
+    # a failure word when the probe cannot reach the application.
+    healthcheck = str(record.get("healthcheck-status", "")).casefold().strip()
+    if healthcheck.startswith("good"):
+        return "running"
+    if healthcheck.startswith(("bad", "failed", "error", "unhealthy")):
+        return "unhealthy"
     return ""
 
 

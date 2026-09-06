@@ -124,6 +124,12 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(_status({"stopped": "false"}), "")
         self.assertEqual(_status({"healthy": "true"}), "running")
         self.assertEqual(_status({"healthy": "false"}), "unhealthy")
+        self.assertEqual(_status({"healthcheck-status": "good, output: "}), "running")
+        self.assertEqual(_status({"healthcheck-status": "failed, output: timeout"}), "unhealthy")
+        self.assertEqual(
+            _status({"stopped": "true", "healthcheck-status": "good, output: "}),
+            "stopped",
+        )
 
 
 if __name__ == "__main__":
