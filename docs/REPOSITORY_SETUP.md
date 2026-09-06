@@ -1,5 +1,7 @@
 # GitHub repository settings
 
+For the corresponding router-side prerequisites and a clean first installation, start with [First-time MikroTik installation](INSTALLATION.md). This page covers repository and automation settings after the initial container setup.
+
 Apply these settings after creating the repository. They are documentation, not claims that a setting has already been enabled.
 
 ## Properties

@@ -4,6 +4,8 @@ This runbook uses GitHub as the source of application code and GHCR as the image
 
 Routine application-only changes use the automated path. Schema, data, RouterOS-policy, or topology changes still require the canary-first procedure below and should not be merged until the canary and rollback gates are complete.
 
+If the dashboard is not installed yet, complete the [first-time MikroTik installation guide](INSTALLATION.md) first. This runbook assumes the Container package, device-mode, networking, mounts, environment list, private GHCR access, and HTTPS reverse proxy already exist; it describes the post-merge update path only.
+
 ## Automated post-merge deployment
 
 The workflow `.github/workflows/deploy-production.yml` listens for a successful **Publish container** run on `main`. It checks out the published commit, verifies the full SHA, stops the exact configured container, sets its `remote-image` to `<owner>/<repo>:sha-<full-sha>` relative to `/container/config registry-url`, invokes RouterOS `/container/update`, starts the container, and waits for `status=running`. If any update or start gate fails, it attempts to restore the previous immutable image and start it again. It never uploads source files or changes mounts, environment lists, interfaces, firewall rules, or persistent data.

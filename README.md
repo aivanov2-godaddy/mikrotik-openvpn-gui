@@ -71,6 +71,10 @@ python tests/run_mock_app.py --port 18080
 
 Then open `http://127.0.0.1:18080`. The mock does not contact a router or Cloudflare account.
 
+## Install on a new MikroTik
+
+For the supported platform matrix, Container package and device-mode setup, persistent storage, first image pull, HTTPS exposure, validation, and GitHub-driven updates, follow [First-time MikroTik installation](docs/INSTALLATION.md). The published image is ARM64 and production has been validated on RouterOS 7.24.2 with an RB5009UPr+S+.
+
 ## Runtime configuration
 
 Set deployment values through the RouterOS container environment list. Never commit a populated environment file.
