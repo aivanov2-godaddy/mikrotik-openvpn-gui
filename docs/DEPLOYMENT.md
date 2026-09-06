@@ -6,7 +6,7 @@ Routine application-only changes use the automated path. Schema, data, RouterOS-
 
 ## Automated post-merge deployment
 
-The workflow `.github/workflows/deploy-production.yml` listens for a successful **Publish container** run on `main`. It checks out the published commit, verifies the full SHA, stops the exact configured container, sets its `remote-image` to `ghcr.io/<owner>/<repo>:sha-<full-sha>`, invokes RouterOS `/container/update`, starts the container, and waits for `status=running`. If any update or start gate fails, it attempts to restore the previous immutable image and start it again. It never uploads source files or changes mounts, environment lists, interfaces, firewall rules, or persistent data.
+The workflow `.github/workflows/deploy-production.yml` listens for a successful **Publish container** run on `main`. It checks out the published commit, verifies the full SHA, stops the exact configured container, sets its `remote-image` to `<owner>/<repo>:sha-<full-sha>` relative to `/container/config registry-url`, invokes RouterOS `/container/update`, starts the container, and waits for `status=running`. If any update or start gate fails, it attempts to restore the previous immutable image and start it again. It never uploads source files or changes mounts, environment lists, interfaces, firewall rules, or persistent data.
 
 Configure these as **environment secrets** under a protected GitHub environment named `production`:
 

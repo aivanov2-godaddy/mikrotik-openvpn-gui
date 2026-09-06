@@ -95,7 +95,10 @@ jobs:
           }
       - name: Pull, update, start, and health-gate RouterOS container
         env:
-          RELEASE_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ env.RELEASE_COMMIT }}
+          # RouterOS resolves remote-image relative to /container/config's
+          # registry-url. Keeping the host out of this value is required for
+          # authenticated GHCR pulls on RouterOS 7.24.
+          RELEASE_IMAGE: ${{ github.repository }}:sha-${{ env.RELEASE_COMMIT }}
         run: |
           $ErrorActionPreference = 'Stop'
           $caPath = Join-Path $env:RUNNER_TEMP 'routeros/routeros-ca.crt'
@@ -106,7 +109,7 @@ jobs:
           @"
           ### RouterOS production deployment
           - Commit: ``$env:RELEASE_COMMIT``
-          - Image: ``ghcr.io/${{ github.repository }}:sha-$env:RELEASE_COMMIT``
+          - Image: ``${{ github.repository }}:sha-$env:RELEASE_COMMIT`` (relative to the configured GHCR registry)
           - RouterOS container: ``$env:ROUTEROS_CONTAINER_NAME``
           - Strategy: in-place immutable image update with automatic rollback on start failure
           "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY

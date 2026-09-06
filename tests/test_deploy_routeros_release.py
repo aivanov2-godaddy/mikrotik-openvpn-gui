@@ -15,6 +15,8 @@ from scripts.deploy_routeros_release import (
 
 OLD_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "a" * 40
 NEW_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "b" * 40
+OLD_RELATIVE_IMAGE = OLD_IMAGE.removeprefix("ghcr.io/")
+NEW_RELATIVE_IMAGE = NEW_IMAGE.removeprefix("ghcr.io/")
 
 
 class FakeRouterOS:
@@ -107,13 +109,13 @@ class DeploymentTests(unittest.TestCase):
         revision = deploy(settings(), router)
 
         self.assertEqual(revision, "b" * 40)
-        self.assertEqual(router.record["remote-image"], NEW_IMAGE)
+        self.assertEqual(router.record["remote-image"], NEW_RELATIVE_IMAGE)
         self.assertEqual(router.record["status"], "running")
         self.assertEqual(
             router.calls,
             [
                 ("command", "stop", "*1"),
-                ("patch", "*1", {"remote-image": NEW_IMAGE}),
+                ("patch", "*1", {"remote-image": NEW_RELATIVE_IMAGE}),
                 ("command", "update", "*1"),
                 ("command", "start", "*1"),
             ],
@@ -163,14 +165,19 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaises(DeploymentError):
             deploy(settings(), router)
 
-        self.assertEqual(router.record["remote-image"], OLD_IMAGE)
         self.assertEqual(router.record["status"], "running")
-        self.assertIn(("patch", "*1", {"remote-image": OLD_IMAGE}), router.calls)
+        self.assertEqual(router.record["remote-image"], OLD_RELATIVE_IMAGE)
+        self.assertIn(("patch", "*1", {"remote-image": OLD_RELATIVE_IMAGE}), router.calls)
 
     def test_rejects_mutable_or_non_ghcr_image(self) -> None:
         invalid = settings("ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:edge")
         with self.assertRaises(DeploymentError):
             invalid.validate()
+
+    def test_accepts_registry_relative_immutable_image(self) -> None:
+        relative = settings(NEW_RELATIVE_IMAGE)
+        relative.validate()
+        self.assertEqual(relative.revision, "b" * 40)
 
     def test_accepts_routeros_running_flag_shape(self) -> None:
         self.assertEqual(_status({"running": "true"}), "running")

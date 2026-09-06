@@ -25,7 +25,7 @@ from typing import Any
 
 
 _IMAGE_PATTERN = re.compile(
-    r"^ghcr\.io/[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):sha-([0-9a-f]{40})$"
+    r"^(?:ghcr\.io/)?[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):sha-(?P<revision>[0-9a-f]{40})$"
 )
 _STATUS_FAILURES = {"failed", "invalid", "error", "unhealthy"}
 _LIFECYCLE_KEYS = (
@@ -59,9 +59,9 @@ class DeploymentSettings:
         match = _IMAGE_PATTERN.fullmatch(self.release_image)
         if not match:
             raise DeploymentError(
-                "release image must be a lowercase GHCR image with a full sha-commit tag"
+                "release image must be a registry-relative or ghcr.io image with a full sha-commit tag"
             )
-        return match.group(1)
+        return match.group("revision")
 
     def validate(self) -> None:
         parsed = urllib.parse.urlsplit(self.rest_url)
@@ -275,16 +275,28 @@ def _image(record: dict[str, Any]) -> str:
     return str(record.get("remote-image") or record.get("tag") or "")
 
 
+def _registry_relative_image(image: str) -> str:
+    """Return the image form expected by RouterOS container registry config."""
+
+    return image.removeprefix("ghcr.io/")
+
+
 def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> str:
     settings.validate()
     client = client or RouterOSRest(settings)
     target = _find_target(client, settings.container_name)
     container_id = str(target[".id"])
-    previous_image = _image(target)
+    # RouterOS resolves `remote-image` relative to `/container/config
+    # registry-url`.  Normalize legacy fully qualified references before
+    # comparing, patching, or rolling back so a previous deployment cannot
+    # reintroduce the GHCR auth failure seen with `ghcr.io/...` on RouterOS
+    # 7.24.
+    previous_image = _registry_relative_image(_image(target))
     if not previous_image:
         raise DeploymentError("target container has no remote image/tag; refusing update")
     current_status = _status(target)
-    changed = previous_image != settings.release_image
+    release_image = _registry_relative_image(settings.release_image)
+    changed = previous_image != release_image
     print(f"Deploying revision {settings.revision} to container {settings.container_name!r}")
     if not changed and current_status == "running":
         print("Container already runs the requested immutable image")
@@ -295,16 +307,16 @@ def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> 
             client.command("stop", container_id)
             _wait_for(client, container_id, "stopped", settings, allow_empty_stopped=True)
         if changed:
-            client.patch_container(container_id, {"remote-image": settings.release_image})
+            client.patch_container(container_id, {"remote-image": release_image})
             client.command("update", container_id)
             updated = _wait_for(client, container_id, "stopped", settings)
-            observed = _image(updated)
-            if observed and observed != settings.release_image:
+            observed = _registry_relative_image(_image(updated))
+            if observed and observed != release_image:
                 raise DeploymentError("RouterOS reported a different image after update")
         client.command("start", container_id)
         started = _wait_for(client, container_id, "running", settings)
-        observed = _image(started)
-        if observed and observed != settings.release_image:
+        observed = _registry_relative_image(_image(started))
+        if observed and observed != release_image:
             raise DeploymentError("RouterOS started a different image than requested")
     except Exception as error:
         if changed:
