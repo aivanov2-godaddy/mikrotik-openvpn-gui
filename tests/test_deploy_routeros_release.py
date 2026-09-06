@@ -119,6 +119,10 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(_status({".running": "false"}), "stopped")
         self.assertEqual(_status({"status": "healthy"}), "running")
 
+    def test_accepts_routeros_stopped_flag_shape(self) -> None:
+        self.assertEqual(_status({"stopped": "true"}), "stopped")
+        self.assertEqual(_status({"stopped": "false"}), "running")
+
 
 if __name__ == "__main__":
     unittest.main()

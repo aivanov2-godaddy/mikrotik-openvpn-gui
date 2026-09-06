@@ -165,6 +165,14 @@ def _status(record: dict[str, Any]) -> str:
         return "running"
     if running in {"false", "no", "0"}:
         return "stopped"
+    # RouterOS 7.24 exposes the lifecycle flag as `stopped` on some
+    # container records.  It is the inverse of `running`, so normalize it
+    # before treating an unknown state as a timeout.
+    stopped = str(record.get("stopped", "")).casefold()
+    if stopped in {"true", "yes", "1"}:
+        return "stopped"
+    if stopped in {"false", "no", "0"}:
+        return "running"
     return ""
 
 
