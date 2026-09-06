@@ -93,6 +93,14 @@ class DeploymentTests(unittest.TestCase):
 
         client.request.assert_called_once_with("POST", "/container/stop", {"numbers": "*1"})
 
+    def test_routeros_update_uses_singular_number_selector(self) -> None:
+        client = RouterOSRest(settings())
+        client.request = Mock(return_value=[])
+
+        client.command("update", "*1")
+
+        client.request.assert_called_once_with("POST", "/container/update", {"number": "*1"})
+
     def test_updates_immutable_image_and_starts_container(self) -> None:
         router = FakeRouterOS()
 
