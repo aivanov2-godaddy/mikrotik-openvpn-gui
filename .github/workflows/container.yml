@@ -10,6 +10,7 @@ on:
       - "Containerfile"
       - "LICENSE"
       - "scripts/check-secrets.py"
+      - "scripts/deploy_routeros_release.py"
       - ".github/workflows/container.yml"
   workflow_dispatch:
 
