@@ -73,7 +73,23 @@ jobs:
           $caDir = Join-Path $env:RUNNER_TEMP 'routeros'
           New-Item -ItemType Directory -Path $caDir -Force | Out-Null
           $caPath = Join-Path $caDir 'routeros-ca.crt'
-          [IO.File]::WriteAllBytes($caPath, [Convert]::FromBase64String($env:ROUTEROS_REST_CA_B64))
+          $caInput = $env:ROUTEROS_REST_CA_B64.Trim()
+          if ($caInput -match '-----BEGIN CERTIFICATE-----') {
+            # Accept a PEM value for compatibility with existing environment
+            # configuration while keeping the secret out of the repository.
+            # Use BOM-less UTF-8: Python's TLS loader expects PEM text to start
+            # with the ASCII BEGIN marker on Windows runners.
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            [IO.File]::WriteAllText($caPath, $caInput, $utf8NoBom)
+          } else {
+            try {
+              $normalizedCa = $caInput.Trim('"') -replace '\s', ''
+              $caBytes = [Convert]::FromBase64String($normalizedCa)
+              [IO.File]::WriteAllBytes($caPath, $caBytes)
+            } catch {
+              throw 'ROUTEROS_REST_CA_B64 must be Base64-encoded PEM or a PEM certificate'
+            }
+          }
           if ((Get-Item -LiteralPath $caPath).Length -le 0) {
             Write-Error 'RouterOS REST CA certificate is empty'
           }
