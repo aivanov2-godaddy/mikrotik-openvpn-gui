@@ -33,6 +33,11 @@ jobs:
     timeout-minutes: 25
     environment:
       name: production
+    defaults:
+      run:
+        # The runner's interactive profile is user-managed and may shadow
+        # built-in PowerShell commands. Deployments must be deterministic.
+        shell: pwsh -NoProfile -command ". '{0}'"
     env:
       RELEASE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.commit || github.event.workflow_run.head_sha }}
       ROUTEROS_REST_URL: ${{ secrets.ROUTEROS_REST_URL }}
@@ -46,7 +51,6 @@ jobs:
         with:
           ref: ${{ env.RELEASE_COMMIT }}
       - name: Validate runner Python
-        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (& python --version 2>&1 | Out-String).Trim()
@@ -55,7 +59,6 @@ jobs:
           }
           Write-Host "Using $version from the private runner"
       - name: Validate deployment inputs
-        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:RELEASE_COMMIT -notmatch '^[0-9a-f]{40}$') {
@@ -77,14 +80,12 @@ jobs:
       - name: Pull, update, start, and health-gate RouterOS container
         env:
           RELEASE_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ env.RELEASE_COMMIT }}
-        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $caPath = Join-Path $env:RUNNER_TEMP 'routeros/routeros-ca.crt'
           $env:ROUTEROS_REST_CA_PEM = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($caPath))
           python scripts/deploy_routeros_release.py
       - name: Write deployment summary
-        shell: pwsh
         run: |
           @"
           ### RouterOS production deployment
