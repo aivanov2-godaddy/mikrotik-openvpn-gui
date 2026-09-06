@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import Mock
 
 from scripts.deploy_routeros_release import (
     DeploymentError,
     DeploymentSettings,
+    RouterOSRest,
     _status,
     deploy,
 )
@@ -63,6 +65,14 @@ def settings(image: str = NEW_IMAGE) -> DeploymentSettings:
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_routeros_commands_use_plural_numbers_selector(self) -> None:
+        client = RouterOSRest(settings())
+        client.request = Mock(return_value=[])
+
+        client.command("stop", "*1")
+
+        client.request.assert_called_once_with("POST", "/container/stop", {"numbers": "*1"})
+
     def test_updates_immutable_image_and_starts_container(self) -> None:
         router = FakeRouterOS()
 

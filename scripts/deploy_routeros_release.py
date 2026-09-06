@@ -134,9 +134,10 @@ class RouterOSRest:
         self.request("PATCH", f"/container/{encoded}", values)
 
     def command(self, command: str, container_id: str) -> None:
-        # RouterOS command endpoints select the record with the `number`
-        # argument (the REST API's equivalent of the CLI positional id).
-        self.request("POST", f"/container/{command}", {"number": container_id})
+        # RouterOS command endpoints select records with the `numbers`
+        # argument, which is the REST equivalent of the CLI positional id.
+        # RouterOS 7.24 rejects the singular `number` field here.
+        self.request("POST", f"/container/{command}", {"numbers": container_id})
 
 
 def _find_target(client: RouterOSRest, name: str) -> dict[str, Any]:
