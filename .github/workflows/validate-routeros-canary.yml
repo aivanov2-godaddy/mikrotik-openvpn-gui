@@ -66,7 +66,8 @@ jobs:
           }
           $caDir = Join-Path $env:RUNNER_TEMP 'routeros-canary'
           New-Item -ItemType Directory -Path $caDir -Force | Out-Null
-          $bytes = [Convert]::FromBase64String($env:ROUTEROS_REST_CA_B64.Trim().Trim('"') -replace '\s', '')
+          $normalizedCa = $env:ROUTEROS_REST_CA_B64.Trim().Trim('"') -replace '\s', ''
+          $bytes = [Convert]::FromBase64String($normalizedCa)
           [IO.File]::WriteAllBytes((Join-Path $caDir 'routeros-ca.crt'), $bytes)
       - name: Capture immutable canary baseline
         run: |

@@ -26,6 +26,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('workflows: ["Publish container"]', canary)
         self.assertIn("CANARY_BASELINE_IMAGE", canary)
         self.assertIn("RouterOS canary gate", canary)
+        self.assertIn("$normalizedCa = $env:ROUTEROS_REST_CA_B64", canary)
+        self.assertIn("[Convert]::FromBase64String($normalizedCa)", canary)
+        self.assertNotIn("FromBase64String($env:ROUTEROS_REST_CA_B64", canary)
         self.assertNotIn("CANARY_READY_URL", canary)
         self.assertNotIn("check_deployment_health.py", canary)
 
