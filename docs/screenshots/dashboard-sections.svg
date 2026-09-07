@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="920" viewBox="0 0 1440 920" role="img" aria-labelledby="title desc">
+  <title id="title">MikroTik OpenVPN GUI sections</title>
+  <desc id="desc">Representative cards for VPN users, connections, device profiles, and change history.</desc>
+  <rect width="1440" height="920" fill="#101c25"/>
+  <g font-family="Arial, sans-serif">
+    <text x="58" y="70" fill="#53b9ed" font-size="14" font-weight="700" letter-spacing="2">AUTHENTICATED DASHBOARD MENU GUIDE</text>
+    <text x="58" y="116" fill="#f4f8fb" font-size="34" font-weight="700">One simple control plane for RouterOS OpenVPN</text>
+    <text x="58" y="149" fill="#a6c1d2" font-size="18">Representative screens from the live menu structure. Values below are illustrative.</text>
+    <g transform="translate(58,190)">
+      <rect width="628" height="300" rx="6" fill="#1d2e38" stroke="#365361"/>
+      <text x="28" y="44" fill="#f4f8fb" font-size="24" font-weight="700">♙  VPN Users</text>
+      <text x="28" y="72" fill="#9db7c7" font-size="16">Owners, access state, devices, and actions</text>
+      <rect x="28" y="102" width="572" height="52" rx="4" fill="#213b49"/>
+      <text x="48" y="135" fill="#dceaf2" font-size="17" font-weight="700">Name / owner</text>
+      <text x="382" y="135" fill="#dceaf2" font-size="17" font-weight="700">Status</text>
+      <text x="510" y="135" fill="#dceaf2" font-size="17" font-weight="700">Actions</text>
+      <text x="48" y="197" fill="#f4f8fb" font-size="19" font-weight="700">demo-user</text>
+      <text x="48" y="223" fill="#9db7c7" font-size="15">Device profile · 5 concurrent devices</text>
+      <circle cx="389" cy="211" r="6" fill="#8b9da8"/><text x="404" y="217" fill="#b6cad5" font-size="15">Offline</text>
+      <rect x="510" y="188" width="89" height="36" rx="4" fill="#294655"/><text x="525" y="212" fill="#edf5fa" font-size="14">Actions</text>
+      <text x="48" y="263" fill="#53b9ed" font-size="13" font-weight="700" letter-spacing="1.5">DOWNLOAD · QR · EDIT · TERMINATE</text>
+    </g>
+    <g transform="translate(754,190)">
+      <rect width="628" height="300" rx="6" fill="#1d2e38" stroke="#365361"/>
+      <text x="28" y="44" fill="#f4f8fb" font-size="24" font-weight="700">⇄  Connections</text>
+      <text x="28" y="72" fill="#9db7c7" font-size="16">Live sessions, source address, and traffic</text>
+      <rect x="28" y="102" width="572" height="76" rx="4" fill="#213b49"/>
+      <circle cx="52" cy="140" r="7" fill="#27c58b"/><text x="70" y="147" fill="#e4f8f0" font-size="20" font-weight="700">0 active sessions</text>
+      <text x="28" y="218" fill="#8faaba" font-size="15">The page refreshes session metrics without rebuilding the layout.</text>
+      <path d="M28 260 H600" stroke="#365361"/><path d="M28 260 C110 230 136 275 214 242 S370 274 450 232 S540 260 600 220" fill="none" stroke="#39a9e6" stroke-width="3"/>
+      <text x="28" y="286" fill="#53b9ed" font-size="13" font-weight="700" letter-spacing="1.5">BYTE / PACKET RATE GRAPHS</text>
+    </g>
+    <g transform="translate(58,540)">
+      <rect width="628" height="300" rx="6" fill="#1d2e38" stroke="#365361"/>
+      <text x="28" y="44" fill="#f4f8fb" font-size="24" font-weight="700">▣  Device Profiles</text>
+      <text x="28" y="72" fill="#9db7c7" font-size="16">Per-device certificates and downloads</text>
+      <rect x="28" y="103" width="572" height="64" rx="4" fill="#213b49"/>
+      <text x="48" y="131" fill="#f4f8fb" font-size="18" font-weight="700">Android phone</text>
+      <text x="48" y="153" fill="#9db7c7" font-size="14">demo-user · certificate protected</text>
+      <rect x="445" y="118" width="70" height="32" rx="4" fill="#1b79ae"/><text x="459" y="140" fill="#fff" font-size="13">Download</text>
+      <rect x="525" y="118" width="54" height="32" rx="4" fill="#294655"/><text x="542" y="140" fill="#fff" font-size="13">QR</text>
+      <text x="28" y="225" fill="#9db7c7" font-size="15">Profiles are generated from the RouterOS source of truth.</text>
+      <text x="28" y="265" fill="#53b9ed" font-size="13" font-weight="700" letter-spacing="1.5">ZIP DOWNLOADS · QR HAND-OFFS · CERTIFICATE ROTATION</text>
+    </g>
+    <g transform="translate(754,540)">
+      <rect width="628" height="300" rx="6" fill="#1d2e38" stroke="#365361"/>
+      <text x="28" y="44" fill="#f4f8fb" font-size="24" font-weight="700">▤  Change History</text>
+      <text x="28" y="72" fill="#9db7c7" font-size="16">Sanitized audit trail for operator actions</text>
+      <g font-size="16">
+        <text x="30" y="125" fill="#dceaf2">user.profile.created</text><text x="414" y="125" fill="#90afc1">today · operator</text>
+        <path d="M28 140 H600" stroke="#365361"/>
+        <text x="30" y="178" fill="#dceaf2">session.terminated</text><text x="414" y="178" fill="#90afc1">yesterday · operator</text>
+        <path d="M28 193 H600" stroke="#365361"/>
+        <text x="30" y="231" fill="#dceaf2">policy.updated</text><text x="414" y="231" fill="#90afc1">last week · operator</text>
+      </g>
+      <text x="28" y="274" fill="#53b9ed" font-size="13" font-weight="700" letter-spacing="1.5">NO PASSWORDS · TOKENS · PRIVATE KEYS</text>
+    </g>
+  </g>
+</svg>
