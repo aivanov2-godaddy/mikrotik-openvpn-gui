@@ -50,7 +50,7 @@ jobs:
       - name: Check for committed secret patterns
         run: python scripts/check-secrets.py
       - name: Compile application
-        run: python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
+        run: python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py install_routeros.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
       - name: Run unit and mock integration tests
         run: python -m unittest discover -s tests -v
 

@@ -16,6 +16,7 @@ PYTHON_FILES = [
     "deployment.py",
     "favicon.py",
     "icons.py",
+    "install_routeros.py",
     "qr.py",
     "routeros.py",
     "security.py",

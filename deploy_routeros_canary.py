@@ -109,6 +109,7 @@ class CanarySettings:
     ovpn_server_identity: str = ""
     trust_cloudflare: bool = False
     trusted_proxy_sources: str = ""
+    repository: str = "mikrotik-openvpn-gui-public"
 
     def validated(self) -> "ValidatedCanarySettings":
         owner = self.owner.casefold()
@@ -116,6 +117,9 @@ class CanarySettings:
             raise ValueError("owner must be a lowercase GitHub user or organization name")
         if not _FULL_COMMIT.fullmatch(self.commit):
             raise ValueError("commit must be the full 40-character lowercase Git commit SHA")
+        repository = self.repository.casefold()
+        if self.repository != repository or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,98}", repository):
+            raise ValueError("repository must be a lowercase container repository name")
 
         public_origin, _ = _https_url(self.public_origin, "public origin")
         if urlsplit(public_origin).path not in {"", "/"}:
@@ -168,6 +172,7 @@ class CanarySettings:
 
         return ValidatedCanarySettings(
             owner=owner,
+            repository=repository,
             commit=self.commit,
             public_origin=public_origin,
             routeros_rest_url=routeros_rest_url,
@@ -185,6 +190,7 @@ class CanarySettings:
 @dataclass(frozen=True)
 class ValidatedCanarySettings:
     owner: str
+    repository: str
     commit: str
     public_origin: str
     routeros_rest_url: str
@@ -207,7 +213,7 @@ def render_canary_plan(settings: CanarySettings) -> str:
     envs = _validated_name(f"{slug}-env", "environment list")
     comment = f"VPN GUI canary {short}"
     root = values.external_root
-    image = f"{values.owner}/mikrotik-openvpn-gui:sha-{values.commit}"
+    image = f"{values.owner}/{values.repository}:sha-{values.commit}"
 
     environment = {
         "PUBLIC_ORIGIN": values.public_origin,
@@ -259,6 +265,7 @@ def argument_parser() -> argparse.ArgumentParser:
         description="Render an offline RouterOS plan for an immutable GHCR canary."
     )
     parser.add_argument("--owner", required=True, help="Lowercase GitHub owner with package read access")
+    parser.add_argument("--repository", default="mikrotik-openvpn-gui-public")
     parser.add_argument("--commit", required=True, help="Full 40-character lowercase commit SHA")
     parser.add_argument("--public-origin", required=True, help="Credential-free HTTPS dashboard origin")
     parser.add_argument("--routeros-rest-url", required=True, help="Verified HTTPS RouterOS URL ending in /rest")
@@ -314,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         plan = render_canary_plan(
             CanarySettings(
                 owner=arguments.owner,
+                repository=arguments.repository,
                 commit=arguments.commit,
                 public_origin=arguments.public_origin,
                 routeros_rest_url=arguments.routeros_rest_url,
