@@ -15,10 +15,27 @@ from typing import Any
 from unittest import mock
 
 from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, resolve_client_ip
+from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials
 from security import LoginRateLimiter, SessionStore
 from store import MetadataStore
 from tests.mock_routeros import MockRouterOS
+
+
+def test_runtime_config() -> RuntimeConfig:
+    return RuntimeConfig.from_environ(
+        {
+            "PUBLIC_ORIGIN": "https://dashboard.example.test",
+            "ROUTEROS_REST_URL": "https://router.example.test:8443/rest",
+            "OVPN_PPP_PROFILE": "vpn-full-tunnel",
+            "OVPN_SERVER_NAME": "vpn-server",
+            "OVPN_CA_NAME": "vpn-ca",
+            "OVPN_HOST": "vpn.example.test",
+            "VPN_LAN_CIDR": "192.0.2.0/24",
+            "VPN_ROUTER_DNS": "192.0.2.1",
+            "ROUTER_DISPLAY_NAME": "router.example.test",
+        }
+    )
 
 
 class DashboardIntegrationTests(unittest.TestCase):
@@ -26,12 +43,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.mock = MockRouterOS()
         self.mock.__enter__()
+        self.config = test_runtime_config()
         context = AppContext(
-            router=RouterOSClient(self.mock.url),
+            router=RouterOSClient(self.mock.url, topology=self.config.topology),
             store=MetadataStore(str(Path(self.temporary.name) / "dashboard.sqlite")),
             sessions=SessionStore(),
             limiter=LoginRateLimiter(),
-            public_origin="https://vpn.wanted.sx",
+            config=self.config,
             release_version="1.2.3",
             release_revision="0123456789abcdef",
         )
@@ -145,7 +163,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Byte Graph", page)
         self.assertIn(b"Packet Graph", page)
         self.assertIn(b"data-rx-packets=\"387\"", page)
-        self.assertIn(b"core.Wanted.sx", page)
+        self.assertIn(b"router.example.test", page)
         self.assertNotIn(b">Session</span>", page)
         self.assertNotIn(b"New Terminal", page)
         self.assertNotIn(b"Workspace:", page)
@@ -167,6 +185,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Last activity", page)
         self.assertIn(b"Transferred", page)
         self.assertIn(b"Concurrent devices", page)
+        self.assertIn(b"RouterOS DNS (192.0.2.1)", page)
         self.assertIn(b'data-user-max-sessions="5"', page)
         for speed in (b"5 Mbps", b"10 Mbps", b"25 Mbps", b"50 Mbps", b"100 Mbps"):
             self.assertIn(speed, page)
@@ -191,19 +210,19 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, headers, payload = self.request("GET", "/api/connections.csv")
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "text/csv; charset=utf-8")
-        self.assertIn("wanted-vpn-connection-history.csv", headers["content-disposition"])
+        self.assertIn("vpn-connection-history.csv", headers["content-disposition"])
         self.assertIn(b"null", payload)
 
         status, headers, payload = self.request("GET", "/api/usage.csv")
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "text/csv; charset=utf-8")
-        self.assertIn("wanted-vpn-monthly-usage.csv", headers["content-disposition"])
+        self.assertIn("vpn-monthly-usage.csv", headers["content-disposition"])
         self.assertIn(b"total_bytes", payload)
         self.assertIn(b"null", payload)
 
         status, headers, payload = self.request("GET", "/api/audit.csv")
         self.assertEqual(status, 200)
-        self.assertIn("wanted-vpn-change-history.csv", headers["content-disposition"])
+        self.assertIn("vpn-change-history.csv", headers["content-disposition"])
         self.assertIn(b"operator,action,target,result", payload)
 
     def test_readiness_failure_is_generic_and_non_successful(self) -> None:
@@ -341,7 +360,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
         response = json.loads(payload)
-        self.assertTrue(response["download_url"].startswith("https://vpn.wanted.sx/share/"))
+        self.assertTrue(response["download_url"].startswith("https://dashboard.example.test/share/"))
         self.assertIn("<svg", response["qr_svg"])
         share_path = urllib.parse.urlsplit(response["download_url"]).path
 
@@ -357,6 +376,45 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertNotIn(b"qr-passphrase", profile)
         status, _, _ = self.request("GET", share_path)
         self.assertEqual(status, 410)
+
+    def test_incomplete_instance_topology_fails_before_profile_mutation(self) -> None:
+        self.login()
+        self.server.context.config = RuntimeConfig.from_environ(
+            {
+                "PUBLIC_ORIGIN": "https://dashboard.example.test",
+                "ROUTEROS_REST_URL": "https://router.example.test:8443/rest",
+            }
+        )
+        alex_id = next(
+            user["id"]
+            for user in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+            if user["name"] == "alex"
+        )
+        status, _, payload = self.json_request(
+            "POST",
+            f"/api/users/{urllib.parse.quote(alex_id, safe='*')}/profiles",
+            {"device_name": "Blocked device", "key_passphrase": "blocked-passphrase"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("OpenVPN profile issuing is not configured", json.loads(payload)["error"])
+        self.assertEqual(set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2"})
+        self.assertFalse(any(name.startswith("vpn-dashboard-before-") for name in self.mock.state.files))
+
+        status, _, payload = self.json_request(
+            "POST",
+            "/api/users",
+            {
+                "username": "blocked-user",
+                "email": "blocked@example.test",
+                "password": "blocked-passphrase",
+                "device_name": "Blocked phone",
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("OpenVPN profile issuing is not configured", json.loads(payload)["error"])
+        self.assertNotIn("blocked-user", [item["name"] for item in self.mock.state.users.values()])
 
     def test_read_only_router_role_cannot_mutate(self) -> None:
         self.mock.state.admin_group = "read"
@@ -509,7 +567,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
 class RedirectTests(unittest.TestCase):
     def test_http_redirect_drops_query_and_preserves_path(self) -> None:
-        RedirectHandler.public_origin = "https://vpn.wanted.sx"
+        RedirectHandler.public_origin = "https://dashboard.example.test"
         server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -519,7 +577,7 @@ class RedirectTests(unittest.TestCase):
             response = connection.getresponse()
             response.read()
             self.assertEqual(response.status, 308)
-            self.assertEqual(response.getheader("Location"), "https://vpn.wanted.sx/dashboard")
+            self.assertEqual(response.getheader("Location"), "https://dashboard.example.test/dashboard")
             connection.close()
         finally:
             server.shutdown()

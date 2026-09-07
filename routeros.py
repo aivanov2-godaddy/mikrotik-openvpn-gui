@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import re
 import secrets
@@ -10,6 +11,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+from config import ConfigurationError, OpenVPNTopology
 
 
 class RouterOSError(RuntimeError):
@@ -61,14 +64,32 @@ def _slug(value: str, maximum: int = 42) -> str:
 def harden_profile(
     profile: str,
     *,
+    server_identity: str,
+    lan_cidr: str | None,
+    router_dns: str | None,
     policy: str = "full-tunnel",
     dns_mode: str = "router",
 ) -> str:
     normalized_policy = policy if policy in {"full-tunnel", "lan-only", "internet-only"} else "full-tunnel"
     normalized_dns = dns_mode if dns_mode in {"router", "cloudflare"} else "router"
+    if not server_identity:
+        raise RouterOSError("OpenVPN server identity is not configured")
+    network: ipaddress.IPv4Network | None = None
+    if lan_cidr:
+        try:
+            candidate = ipaddress.ip_network(lan_cidr, strict=True)
+        except ValueError as error:
+            raise RouterOSError("VPN_LAN_CIDR is invalid") from error
+        if candidate.version != 4:
+            raise RouterOSError("VPN_LAN_CIDR must be IPv4")
+        network = candidate
+    if normalized_policy in {"full-tunnel", "lan-only"} and network is None:
+        raise RouterOSError("VPN_LAN_CIDR is required for this traffic policy")
+    if normalized_dns == "router" and not router_dns:
+        raise RouterOSError("VPN_ROUTER_DNS is required when RouterOS DNS is selected")
     required = [
         "auth-nocache",
-        "verify-x509-name ovpn.Wanted.sx name",
+        f"verify-x509-name {server_identity} name",
     ]
     normalized = profile.replace("\r\n", "\n").replace("\r", "\n")
     ca_index = normalized.find("<ca>")
@@ -80,7 +101,10 @@ def harden_profile(
     lines = [
         line for line in lines
         if not line.startswith("redirect-gateway")
-        and not line.startswith("route 10.10.10.0 255.255.255.0")
+        and not (
+            network is not None
+            and line == f"route {network.network_address} {network.netmask}"
+        )
         and not line.startswith("dhcp-option DNS ")
     ]
     header = "\n".join(lines)
@@ -90,9 +114,11 @@ def harden_profile(
             header += "\n" + directive
     if normalized_policy in {"full-tunnel", "internet-only"}:
         header += "\nredirect-gateway def1"
-    if normalized_policy in {"full-tunnel", "lan-only"}:
-        header += "\nroute 10.10.10.0 255.255.255.0"
-    dns_server = "1.1.1.1" if normalized_dns == "cloudflare" else "10.10.10.1"
+    if normalized_policy in {"full-tunnel", "lan-only"} and network is not None:
+        header += f"\nroute {network.network_address} {network.netmask}"
+    dns_server = "1.1.1.1" if normalized_dns == "cloudflare" else router_dns
+    if not dns_server:
+        raise RouterOSError("VPN DNS is not configured")
     header += f"\ndhcp-option DNS {dns_server}"
     hardened = header + "\n" + payload
     if not all(tag in hardened for tag in ("<ca>", "<cert>", "<key>")):
@@ -108,17 +134,15 @@ class RouterOSClient:
         ca_file: str | None = None,
         timeout: float = 15,
         insecure_tls: bool = False,
-        ovpn_profile: str = "ovpn-full-tunnel",
-        ovpn_server: str = "ovpn-wanted",
-        ovpn_ca: str = "ovpn-ca-2026",
-        ovpn_host: str = "ovpn.Wanted.sx",
+        topology: OpenVPNTopology | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.ovpn_profile = ovpn_profile
-        self.ovpn_server = ovpn_server
-        self.ovpn_ca = ovpn_ca
-        self.ovpn_host = ovpn_host
+        self.topology = topology or OpenVPNTopology()
+        self.ovpn_profile = self.topology.ppp_profile
+        self.ovpn_server = self.topology.server_name
+        self.ovpn_ca = self.topology.ca_name
+        self.ovpn_host = self.topology.host
         if self.base_url.startswith("https://"):
             if insecure_tls:
                 self.ssl_context = ssl._create_unverified_context()  # noqa: SLF001 - explicit test option
@@ -240,9 +264,13 @@ class RouterOSClient:
                 },
             )
         )
-        record = next(
-            (item for item in records if str(item.get("name", "")) == self.ovpn_server),
-            records[0] if records else None,
+        record = (
+            next(
+                (item for item in records if str(item.get("name", "")) == self.ovpn_server),
+                None,
+            )
+            if self.ovpn_server
+            else (records[0] if records else None)
         )
         if not record:
             raise RouterOSError("Configured OpenVPN server was not found")
@@ -273,18 +301,20 @@ class RouterOSClient:
     def list_ovpn_client_certificates(
         self, credentials: RouterOSCredentials
     ) -> list[dict[str, Any]]:
+        query: dict[str, Any] = {
+            ".proplist": (
+                ".id,name,common-name,fingerprint,issuer,invalid-after,"
+                "expires-after,revoked,key-usage,trusted,ca"
+            )
+        }
+        if self.ovpn_ca:
+            query["ca"] = self.ovpn_ca
         records = _records(
             self._request(
                 "GET",
                 "/certificate",
                 credentials,
-                query={
-                    "ca": self.ovpn_ca,
-                    ".proplist": (
-                        ".id,name,common-name,fingerprint,issuer,invalid-after,"
-                        "expires-after,revoked,key-usage,trusted,ca"
-                    )
-                },
+                query=query,
             )
         )
         clients: list[dict[str, Any]] = []
@@ -292,7 +322,7 @@ class RouterOSClient:
             key_usage = str(item.get("key-usage", ""))
             issuer = str(item.get("issuer", ""))
             certificate_authority = str(item.get("ca", ""))
-            if "tls-client" not in key_usage or certificate_authority != self.ovpn_ca:
+            if "tls-client" not in key_usage or (self.ovpn_ca and certificate_authority != self.ovpn_ca):
                 continue
             clients.append(
                 {
@@ -420,6 +450,8 @@ class RouterOSClient:
         comment: str,
         profile: str | None = None,
     ) -> dict[str, Any]:
+        if not (profile or self.ovpn_profile):
+            raise RouterOSError("OVPN_PPP_PROFILE must be configured before creating VPN users")
         result = self._request(
             "PUT",
             "/ppp/secret",
@@ -443,6 +475,8 @@ class RouterOSClient:
         rate_limit_kbps: int,
     ) -> str:
         if not rate_limit_kbps:
+            if not self.ovpn_profile:
+                raise RouterOSError("OVPN_PPP_PROFILE must be configured before creating VPN users")
             return self.ovpn_profile
         profile_name = f"vpn-ui-{_slug(username, 24)}"
         records = _records(
@@ -558,6 +592,10 @@ class RouterOSClient:
         policy: str = "full-tunnel",
         dns_mode: str = "router",
     ) -> ProvisionedProfile:
+        try:
+            self.topology.require_profile_generation(policy=policy, dns_mode=dns_mode)
+        except ConfigurationError as error:
+            raise RouterOSError(str(error)) from None
         suffix = secrets.token_hex(3)
         certificate_name = f"ovpn-ui-{_slug(vpn_user, 18)}-{_slug(device_name, 18)}-{suffix}"
         common_name = f"{_slug(vpn_user, 24)}-{_slug(device_name, 24)}"
@@ -648,7 +686,14 @@ class RouterOSClient:
                 raise RouterOSError("RouterOS did not produce exactly one client profile")
             profile_name = new_profiles[0]
             raw_profile = self._file_contents(credentials, profile_name)
-            hardened = harden_profile(raw_profile, policy=policy, dns_mode=dns_mode)
+            hardened = harden_profile(
+                raw_profile,
+                server_identity=self.topology.server_identity,
+                lan_cidr=self.topology.lan_cidr or None,
+                router_dns=self.topology.router_dns or None,
+                policy=policy,
+                dns_mode=dns_mode,
+            )
 
             for file_name in (exported_cert, exported_key, profile_name):
                 generated_file_ids.append(files_after.get(file_name, {}).get(".id"))

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
+from config import RuntimeConfig
 from favicon import FAVICON_SVG, ico_bytes
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg
@@ -69,11 +70,13 @@ class AppContext:
     store: MetadataStore
     sessions: SessionStore
     limiter: LoginRateLimiter
-    public_origin: str
-    trust_cloudflare: bool = False
-    trusted_proxy_sources: tuple[str, ...] = ()
+    config: RuntimeConfig
     release_version: str = "unknown"
     release_revision: str = "unknown"
+
+    @property
+    def public_origin(self) -> str:
+        return self.config.public_origin
 
 
 @dataclass(slots=True)
@@ -159,8 +162,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return resolve_client_ip(
             peer,
             self.headers.get("CF-Connecting-IP", ""),
-            trust_cloudflare=context.trust_cloudflare,
-            trusted_proxy_sources=context.trusted_proxy_sources,
+            trust_cloudflare=context.config.trust_cloudflare,
+            trusted_proxy_sources=context.config.trusted_proxy_sources,
         )
 
     def _headers(
@@ -464,7 +467,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if self._session():
                 self._redirect("/dashboard")
             else:
-                self._html(login_page())
+                self._html(
+                    login_page(
+                        dashboard_name=self.server.context.config.dashboard_name,
+                        router_display_name=self.server.context.config.router_display_name,
+                    )
+                )
             return
         if path == "/dashboard":
             self._dashboard()
@@ -507,7 +515,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             rows = self.server.context.store.recent_audit(100)
             self._csv(
-                "wanted-vpn-change-history.csv",
+                "vpn-change-history.csv",
                 ["timestamp", "operator", "action", "target", "result", "details"],
                 [
                     [
@@ -523,7 +531,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             rows = self.server.context.store.recent_connections(250)
             self._csv(
-                "wanted-vpn-connection-history.csv",
+                "vpn-connection-history.csv",
                 [
                     "user", "connected", "disconnected", "source_ip", "vpn_ip",
                     "encryption", "received_bytes", "sent_bytes", "received_packets", "sent_packets",
@@ -566,7 +574,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     ]
                 )
             self._csv(
-                "wanted-vpn-monthly-usage.csv",
+                "vpn-monthly-usage.csv",
                 ["user", "period_start", "connections", "received_bytes", "sent_bytes", "total_bytes", "quota_mb", "last_seen"],
                 rows,
             )
@@ -666,6 +674,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 alerts=self.server.context.store.recent_alerts(20),
                 admin_role=session.role,
                 router=router,
+                dashboard_name=self.server.context.config.dashboard_name,
+                router_display_name=self.server.context.config.router_display_name,
+                vpn_host=self.server.context.config.topology.host,
+                router_dns=self.server.context.config.topology.router_dns,
+                access_protected_by_cloudflare=self.server.context.config.trust_cloudflare,
             )
         )
 
@@ -728,7 +741,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 actor="unknown", action="login.rate_limited", target="dashboard",
                 status="failed", details={"source": identity},
             )
-            self._html(login_page("Too many attempts. Try again in a few minutes."), status=429)
+            self._html(
+                login_page(
+                    "Too many attempts. Try again in a few minutes.",
+                    dashboard_name=self.server.context.config.dashboard_name,
+                    router_display_name=self.server.context.config.router_display_name,
+                ),
+                status=429,
+            )
             return
         try:
             form = self._read_form()
@@ -745,7 +765,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action="login.failure", target="dashboard", status="failed",
                 details={"source": identity},
             )
-            self._html(login_page("MikroTik authentication failed."), status=HTTPStatus.UNAUTHORIZED)
+            self._html(
+                login_page(
+                    "MikroTik authentication failed.",
+                    dashboard_name=self.server.context.config.dashboard_name,
+                    router_display_name=self.server.context.config.router_display_name,
+                ),
+                status=HTTPStatus.UNAUTHORIZED,
+            )
             return
         self.server.context.limiter.success(identity)
         role = self.server.context.router.get_admin_role(credentials)
@@ -871,8 +898,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         user_id: str | None = None
         username = ""
         try:
-            if not self._checkpoint(session, audit_action):
-                return
             username = self._validate_username(str(data.get("username", "")))
             password = self._validate_secret(str(data.get("password", "")), "VPN password")
             device_name = self._validate_device(str(data.get("device_name", "")))
@@ -882,6 +907,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Choose a valid profile delivery method")
             comment = str(data.get("comment", "")).strip()[:96]
             controls = self._parse_controls(data)
+            self.server.context.config.topology.require_profile_generation(
+                policy=controls["policy"], dns_mode=controls["dns_mode"]
+            )
+            if not self._checkpoint(session, audit_action):
+                return
             router_profile = self.server.context.router.ensure_rate_profile(
                 credentials,
                 username=username,
@@ -995,9 +1025,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if delivery not in {"ovpn", "zip", "qr"}:
                 raise ValueError("Choose a valid profile delivery method")
             user = self._find_user(credentials, user_id)
+            controls = self.server.context.store.user_controls(str(user["name"]))
+            self.server.context.config.topology.require_profile_generation(
+                policy=str(controls.get("policy", "full-tunnel")),
+                dns_mode=str(controls.get("dns_mode", "router")),
+            )
             if not self._checkpoint(session, "profile.create"):
                 return
-            controls = self.server.context.store.user_controls(str(user["name"]))
             profile = self.server.context.router.provision_profile(
                 credentials,
                 vpn_user=str(user["name"]),
@@ -1216,7 +1250,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 class RedirectHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    public_origin = "https://vpn.wanted.sx"
+    public_origin = "http://localhost"
 
     def do_GET(self) -> None:
         target = self.public_origin.rstrip("/") + urllib.parse.urlsplit(self.path).path
@@ -1231,24 +1265,19 @@ class RedirectHandler(BaseHTTPRequestHandler):
 
 
 def build_context() -> AppContext:
-    public_origin = os.environ.get("PUBLIC_ORIGIN", "https://vpn.wanted.sx").rstrip("/")
+    config = RuntimeConfig.from_environ()
     router = RouterOSClient(
-        os.environ.get("ROUTEROS_REST_URL", "https://172.31.255.1:8443/rest"),
-        ca_file=os.environ.get("ROUTEROS_CA_FILE") or None,
-        insecure_tls=os.environ.get("ROUTEROS_INSECURE_TLS", "false").lower() == "true",
+        config.routeros_rest_url,
+        ca_file=config.routeros_ca_file,
+        insecure_tls=config.routeros_insecure_tls,
+        topology=config.topology,
     )
     return AppContext(
         router=router,
-        store=MetadataStore(os.environ.get("DATABASE_PATH", "/data/dashboard.sqlite")),
+        store=MetadataStore(config.database_path),
         sessions=SessionStore(),
         limiter=LoginRateLimiter(),
-        public_origin=public_origin,
-        trust_cloudflare=os.environ.get("TRUST_CLOUDFLARE", "false").lower() == "true",
-        trusted_proxy_sources=tuple(
-            source.strip()
-            for source in os.environ.get("TRUSTED_PROXY_SOURCES", "").split(",")
-            if source.strip()
-        ),
+        config=config,
         release_version=baked_release_value("VERSION"),
         release_revision=baked_release_value("REVISION"),
     )

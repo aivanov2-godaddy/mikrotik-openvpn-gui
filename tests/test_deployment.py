@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import ipaddress
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from deployment import (
     cloudflare_bulgaria_rule,
     routeros_origin_acl_script,
 )
-from deploy_routeros_canary import CanarySettings, render_canary_plan
+from deploy_routeros_canary import CanarySettings, main as render_canary_main, render_canary_plan
 from cloudflare import (
     CONFIG_PHASE,
     CONFIG_REF,
@@ -74,6 +74,12 @@ class DeploymentPolicyTests(unittest.TestCase):
             bridge="br-containers",
             canary_address="192.0.2.6/30",
             gateway="192.0.2.5",
+            ovpn_ppp_profile="vpn-full-tunnel",
+            ovpn_server_name="vpn-server",
+            ovpn_ca_name="vpn-ca",
+            ovpn_host="ovpn.example.com",
+            vpn_lan_cidr="10.10.10.0/24",
+            vpn_router_dns="10.10.10.1",
             trust_cloudflare=True,
             trusted_proxy_sources="192.0.2.1,2001:db8::1",
         )
@@ -91,10 +97,64 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertIn("memory-high=134217728", plan)
         self.assertIn("memory-max=201326592", plan)
         self.assertIn('key=ROUTEROS_INSECURE_TLS value="false"', plan)
+        self.assertIn('key=OVPN_PPP_PROFILE value="vpn-full-tunnel"', plan)
+        self.assertIn('key=OVPN_SERVER_NAME value="vpn-server"', plan)
+        self.assertIn('key=OVPN_CA_NAME value="vpn-ca"', plan)
+        self.assertIn('key=OVPN_HOST value="ovpn.example.com"', plan)
+        self.assertIn('key=VPN_LAN_CIDR value="10.10.10.0/24"', plan)
+        self.assertIn('key=VPN_ROUTER_DNS value="10.10.10.1"', plan)
+        self.assertNotIn("key=OVPN_SERVER_IDENTITY", plan)
         self.assertIn("start-on-boot=no", plan)
         self.assertNotIn("dst=/app", plan)
         self.assertNotIn("remote-image=python", plan)
         self.assertNotIn("password", plan.casefold())
+
+    def test_canary_plan_renders_an_explicit_openvpn_server_identity(self) -> None:
+        plan = render_canary_plan(
+            replace(self.canary_settings(), ovpn_server_identity="vpn-server.example.com")
+        )
+        self.assertIn('key=OVPN_SERVER_IDENTITY value="vpn-server.example.com"', plan)
+
+    def test_canary_cli_passes_the_openvpn_topology_to_the_plan(self) -> None:
+        settings = self.canary_settings()
+        output = io.StringIO()
+        with redirect_stdout(output):
+            status = render_canary_main(
+                [
+                    "--owner",
+                    settings.owner,
+                    "--commit",
+                    settings.commit,
+                    "--public-origin",
+                    settings.public_origin,
+                    "--routeros-rest-url",
+                    settings.routeros_rest_url,
+                    "--routeros-rest-san",
+                    settings.routeros_rest_san,
+                    "--external-root",
+                    settings.external_root,
+                    "--bridge",
+                    settings.bridge,
+                    "--canary-address",
+                    settings.canary_address,
+                    "--gateway",
+                    settings.gateway,
+                    "--ovpn-ppp-profile",
+                    settings.ovpn_ppp_profile,
+                    "--ovpn-server-name",
+                    settings.ovpn_server_name,
+                    "--ovpn-ca-name",
+                    settings.ovpn_ca_name,
+                    "--ovpn-host",
+                    settings.ovpn_host,
+                    "--vpn-lan-cidr",
+                    settings.vpn_lan_cidr,
+                    "--vpn-router-dns",
+                    settings.vpn_router_dns,
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn('key=OVPN_HOST value="ovpn.example.com"', output.getvalue())
 
     def test_canary_plan_rejects_unsafe_or_unverified_inputs(self) -> None:
         settings = self.canary_settings()
@@ -114,6 +174,10 @@ class DeploymentPolicyTests(unittest.TestCase):
             render_canary_plan(replace(settings, trusted_proxy_sources="192.0.2.0/24"))
         with self.assertRaisesRegex(ValueError, "network or broadcast"):
             render_canary_plan(replace(settings, canary_address="192.0.2.4/30"))
+        with self.assertRaisesRegex(ValueError, "RouterOS-safe"):
+            render_canary_plan(replace(settings, ovpn_ppp_profile="unsafe profile"))
+        with self.assertRaisesRegex(ValueError, "canonical IPv4"):
+            render_canary_plan(replace(settings, vpn_lan_cidr="10.10.10.7/24"))
 
     def test_direct_source_updater_is_retired_and_fails_closed(self) -> None:
         output = io.StringIO()

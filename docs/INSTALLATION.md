@@ -7,20 +7,20 @@ This guide installs the VPN Dashboard container on a new RouterOS device. It is 
 | Requirement | Supported target |
 | --- | --- |
 | RouterOS | RouterOS 7; validated in production on 7.24.2 |
-| CPU | `arm64` (the published image is `linux/arm64`) |
+| CPU | `arm64` (the validated RouterOS container target) |
 | Known-good device | MikroTik RB5009UPr+S+ |
 | Container package | Installed and enabled |
 | Device mode | `container=yes` |
 | Storage | External disk strongly recommended; reserve space for two image roots, temporary extraction, and SQLite data |
 | Network | An unused container subnet, DNS, and outbound HTTPS to GHCR |
 
-Other arm64 MikroTik models may work if they have the Container package and adequate storage/RAM. ARM 32-bit, MIPS, MMIPS, TILE, PPC, and other architectures cannot run the current image unless a matching image is built and published.
+Other ARM64 MikroTik models may work if they have the Container package and adequate storage/RAM. Other MikroTik architectures remain outside this installation guide until a matching RouterOS container pull and runtime validation has been completed, regardless of image availability.
 
 ## Before you start
 
 Create an encrypted RouterOS backup and export a redacted configuration. Perform package installation and device-mode changes during a maintenance window: enabling device-mode requires a physical confirmation and reboots the router. Use a dedicated least-privilege RouterOS account for the dashboard and deployment runner; do not use the owner password in automation.
 
-The current application expects the following production values unless the source is adapted: OpenVPN profile `ovpn-full-tunnel`, server `ovpn-wanted`, CA `ovpn-ca-2026`, public host `ovpn.Wanted.sx`, LAN route `10.10.10.0/24`, and router DNS `10.10.10.1`. Confirm or change these deliberately before onboarding users.
+Before onboarding users, record the existing OpenVPN PPP profile name, OpenVPN server name, certificate authority name, public OpenVPN hostname or IP, LAN CIDR, and RouterOS DNS address. These are configured per installation through the container environment list; the image does not assume any particular topology.
 
 ## 1. Confirm version and architecture
 
@@ -79,7 +79,7 @@ The application listens on container port `8080`; its redirect listener is `8081
 
 Enable only `www-ssl` for management, keep `www` disabled, and restrict the service and firewall to the private management runner and approved operator sources. The REST URL must end in `/rest`, for example `https://router.example.invalid:8443/rest`.
 
-Install a RouterOS HTTPS certificate whose Subject Alternative Name matches the REST hostname exactly. Export only the public CA certificate to the container's configuration directory; never export a private key. Confirm the OpenVPN server, profile, CA, DNS, and LAN route match the values listed above. The dashboard does not replace RouterOS as the VPN source of truth.
+Install a RouterOS HTTPS certificate whose Subject Alternative Name matches the REST hostname exactly. Export only the public CA certificate to the container's configuration directory; never export a private key. Confirm the OpenVPN server, PPP profile, CA, public endpoint, DNS, and LAN route that you recorded above. The dashboard does not replace RouterOS as the VPN source of truth.
 
 ## 6. Configure private GHCR access
 
@@ -103,7 +103,7 @@ Create separate persistent directories for SQLite data and configuration (includ
 Create an environment list with these values:
 
 ```text
-PUBLIC_ORIGIN=https://vpn.wanted.sx
+PUBLIC_ORIGIN=https://vpn.example.com
 ROUTEROS_REST_URL=https://<router-rest-host>:8443/rest
 ROUTEROS_CA_FILE=/config/routeros-ca.crt
 ROUTEROS_INSECURE_TLS=false
@@ -113,9 +113,19 @@ REDIRECT_PORT=8081
 DROP_PRIVILEGES=true
 TRUST_CLOUDFLARE=true
 TRUSTED_PROXY_SOURCES=<approved-proxy-sources>
+OVPN_PPP_PROFILE=<existing-ppp-profile>
+OVPN_SERVER_NAME=<existing-openvpn-server>
+OVPN_CA_NAME=<existing-certificate-authority>
+OVPN_HOST=ovpn.example.com
+# Optional when it equals OVPN_HOST:
+OVPN_SERVER_IDENTITY=
+VPN_LAN_CIDR=192.0.2.0/24
+VPN_ROUTER_DNS=192.0.2.1
+DASHBOARD_NAME=MikroTik OpenVPN GUI
+ROUTER_DISPLAY_NAME=RouterOS
 ```
 
-Keep `ROUTEROS_INSECURE_TLS=false` in production. `TRUST_CLOUDFLARE` is safe only when every request reaches the app through a trusted Cloudflare/reverse-proxy path.
+Keep `ROUTEROS_INSECURE_TLS=false` in production. `TRUST_CLOUDFLARE` is safe only when every request reaches the app through a trusted Cloudflare/reverse-proxy path. The `OVPN_*`, `VPN_LAN_CIDR`, and `VPN_ROUTER_DNS` values are required before the dashboard can create a user or issue a profile; the dashboard fails closed until they are present.
 
 ## 8. Add and start the first container
 
@@ -137,7 +147,7 @@ The expected state is `status=running`, `healthy=true`, and a successful health 
 
 ## 9. Publish the HTTPS dashboard
 
-Keep the container address private. Configure the existing reverse proxy or RouterOS web proxy so `https://vpn.wanted.sx` terminates TLS on port 443 and proxies to the container's `8080`; redirect port 80 to HTTPS. Cloudflare may provide the public certificate and country/access policy, but it must not proxy RouterOS REST or OpenVPN UDP traffic. Never expose the container or REST endpoint directly to the public internet.
+Keep the container address private. Configure the existing reverse proxy or RouterOS web proxy so your `PUBLIC_ORIGIN` terminates TLS on port 443 and proxies to the container's `8080`; redirect port 80 to HTTPS. Cloudflare may provide the public certificate and country/access policy, but it must not proxy RouterOS REST or OpenVPN UDP traffic. Never expose the container or REST endpoint directly to the public internet.
 
 ## 10. Validate the installation
 
@@ -148,7 +158,7 @@ curl.exe -fsS http://<container-ip>:8080/healthz
 curl.exe -fsS http://<container-ip>:8080/readyz
 ```
 
-Then open `https://vpn.wanted.sx`, authenticate through the configured perimeter and RouterOS credentials, confirm the router status is online, inspect **VPN Users** and **Active Sessions**, create a test profile, and verify download/QR onboarding. Finally confirm `start-on-boot=yes` and that the container survives a controlled reboot.
+Then open the configured `PUBLIC_ORIGIN`, authenticate through the configured perimeter and RouterOS credentials, confirm the router status is online, inspect **VPN Users** and **Active Sessions**, create a test profile, and verify download/QR onboarding. Finally confirm `start-on-boot=yes` and that the container survives a controlled reboot.
 
 ## 11. Enable GitHub-driven updates
 

@@ -18,7 +18,7 @@ class State:
                 ".id": "*1",
                 "name": "alex",
                 "service": "ovpn",
-                "profile": "ovpn-full-tunnel",
+                "profile": "vpn-full-tunnel",
                 "comment": "Samsung",
                 "disabled": "no",
             },
@@ -26,19 +26,19 @@ class State:
                 ".id": "*2",
                 "name": "null",
                 "service": "ovpn",
-                "profile": "ovpn-full-tunnel",
+                "profile": "vpn-full-tunnel",
                 "comment": "Pixel",
                 "disabled": "no",
             },
         }
         self.profiles: dict[str, dict[str, Any]] = {
-            "*P0": {".id": "*P0", "name": "ovpn-full-tunnel", "rate-limit": ""}
+            "*P0": {".id": "*P0", "name": "vpn-full-tunnel", "rate-limit": ""}
         }
         self.certificates: dict[str, dict[str, Any]] = {
             "*CA": {
                 ".id": "*CA",
-                "name": "ovpn-ca-2026",
-                "common-name": "ovpn-ca-2026",
+                "name": "vpn-ca",
+                "common-name": "vpn-ca",
                 "fingerprint": "CA:FAKE",
                 "trusted": "yes",
                 "key-usage": "key-cert-sign,crl-sign",
@@ -49,8 +49,8 @@ class State:
                 "name": "ovpn-alex-s26",
                 "common-name": "alex-samsung-s26-ultra",
                 "fingerprint": "A1:EX:26",
-                "issuer": "ovpn-ca-2026",
-                "ca": "ovpn-ca-2026",
+                "issuer": "vpn-ca",
+                "ca": "vpn-ca",
                 "trusted": "yes",
                 "revoked": "no",
                 "key-usage": "tls-client",
@@ -62,8 +62,8 @@ class State:
                 "name": "ovpn-null-pixel",
                 "common-name": "null-google-pixel-10-pro-xl",
                 "fingerprint": "NU:LL:10",
-                "issuer": "ovpn-ca-2026",
-                "ca": "ovpn-ca-2026",
+                "issuer": "vpn-ca",
+                "ca": "vpn-ca",
                 "trusted": "yes",
                 "revoked": "no",
                 "key-usage": "tls-client",
@@ -73,7 +73,7 @@ class State:
         }
         self.ovpn_servers = [{
             ".id": "*OVPN1",
-            "name": "ovpn-wanted",
+            "name": "vpn-server",
             "disabled": "no",
             "protocol": "udp",
             "port": "1194",
@@ -125,9 +125,9 @@ class State:
             }
         }
         self.files: dict[str, dict[str, Any]] = {
-            "ovpn-ca-2026.crt": {
+            "vpn-ca.crt": {
                 ".id": "*F0",
-                "name": "ovpn-ca-2026.crt",
+                "name": "vpn-ca.crt",
                 "type": ".crt file",
                 "size": "64",
                 "contents": "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----\n",
@@ -328,14 +328,14 @@ class MockHandler(BaseHTTPRequestHandler):
         state = self.server.state
         with state.lock:
             if path == "/certificate/sign":
-                state.certificates[body["number"]]["issuer"] = "ovpn-ca-2026"
+                state.certificates[body["number"]]["issuer"] = "vpn-ca"
                 state.certificates[body["number"]]["ca"] = body["ca"]
                 self._empty()
             elif path == "/certificate/export-certificate":
                 cert = state.certificates[body["numbers"]]
                 name = cert["name"]
-                if name == "ovpn-ca-2026":
-                    state.file("ovpn-ca-2026.crt", "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----\n", ".crt file")
+                if name == "vpn-ca":
+                    state.file("vpn-ca.crt", "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----\n", ".crt file")
                 else:
                     state.file(f"cert_export_{name}.crt", f"-----BEGIN CERTIFICATE-----\n{name}\n-----END CERTIFICATE-----\n", ".crt file")
                     mock_key = (
@@ -351,7 +351,7 @@ class MockHandler(BaseHTTPRequestHandler):
                 key = state.files[body["client-cert-key"]]["contents"]
                 ca = state.files[body["ca-certificate"]]["contents"]
                 profile = (
-                    "client\ndev tun\nremote ovpn.Wanted.sx 1194 udp\nauth-user-pass\nremote-cert-tls server\n"
+                    "client\ndev tun\nremote vpn.example.test 1194 udp\nauth-user-pass\nremote-cert-tls server\n"
                     f"<ca>\n{ca}</ca>\n<cert>\n{cert}</cert>\n<key>\n{key}</key>\n"
                 )
                 state.file(f"client{state.next_file}.ovpn", profile, ".ovpn file")

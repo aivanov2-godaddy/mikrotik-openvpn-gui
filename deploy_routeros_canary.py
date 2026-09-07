@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from config import ConfigurationError, OpenVPNTopology
+
 
 _FULL_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _GHCR_OWNER = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$")
@@ -98,6 +100,13 @@ class CanarySettings:
     bridge: str
     canary_address: str
     gateway: str
+    ovpn_ppp_profile: str
+    ovpn_server_name: str
+    ovpn_ca_name: str
+    ovpn_host: str
+    vpn_lan_cidr: str
+    vpn_router_dns: str
+    ovpn_server_identity: str = ""
     trust_cloudflare: bool = False
     trusted_proxy_sources: str = ""
 
@@ -138,6 +147,25 @@ class CanarySettings:
         elif self.trusted_proxy_sources.strip():
             raise ValueError("trusted proxy sources require --trust-cloudflare")
 
+        # A canary must be able to exercise every profile-issuing path before
+        # promotion. Reuse the runtime parser so plan-time validation exactly
+        # matches what the image will accept when RouterOS starts the container.
+        try:
+            topology = OpenVPNTopology.from_values(
+                {
+                    "OVPN_PPP_PROFILE": self.ovpn_ppp_profile,
+                    "OVPN_SERVER_NAME": self.ovpn_server_name,
+                    "OVPN_CA_NAME": self.ovpn_ca_name,
+                    "OVPN_HOST": self.ovpn_host,
+                    "OVPN_SERVER_IDENTITY": self.ovpn_server_identity,
+                    "VPN_LAN_CIDR": self.vpn_lan_cidr,
+                    "VPN_ROUTER_DNS": self.vpn_router_dns,
+                }
+            )
+            topology.require_profile_generation(policy="full-tunnel", dns_mode="router")
+        except ConfigurationError as error:
+            raise ValueError(str(error)) from None
+
         return ValidatedCanarySettings(
             owner=owner,
             commit=self.commit,
@@ -147,6 +175,8 @@ class CanarySettings:
             bridge=_validated_name(self.bridge, "bridge"),
             canary=canary,
             gateway=gateway,
+            topology=topology,
+            has_explicit_server_identity=bool(self.ovpn_server_identity.strip()),
             trust_cloudflare=self.trust_cloudflare,
             trusted_proxy_sources=proxy_sources,
         )
@@ -162,6 +192,8 @@ class ValidatedCanarySettings:
     bridge: str
     canary: ipaddress.IPv4Interface | ipaddress.IPv6Interface
     gateway: ipaddress.IPv4Address | ipaddress.IPv6Address
+    topology: OpenVPNTopology
+    has_explicit_server_identity: bool
     trust_cloudflare: bool
     trusted_proxy_sources: str
 
@@ -184,8 +216,16 @@ def render_canary_plan(settings: CanarySettings) -> str:
         "ROUTEROS_INSECURE_TLS": "false",
         "DATABASE_PATH": "/data/dashboard.sqlite",
         "DROP_PRIVILEGES": "true",
+        "OVPN_PPP_PROFILE": values.topology.ppp_profile,
+        "OVPN_SERVER_NAME": values.topology.server_name,
+        "OVPN_CA_NAME": values.topology.ca_name,
+        "OVPN_HOST": values.topology.host,
+        "VPN_LAN_CIDR": values.topology.lan_cidr,
+        "VPN_ROUTER_DNS": values.topology.router_dns,
         "TRUST_CLOUDFLARE": str(values.trust_cloudflare).lower(),
     }
+    if values.has_explicit_server_identity:
+        environment["OVPN_SERVER_IDENTITY"] = values.topology.server_identity
     if values.trust_cloudflare:
         environment["TRUSTED_PROXY_SOURCES"] = values.trusted_proxy_sources
 
@@ -227,6 +267,41 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bridge", required=True, help="Existing private container bridge")
     parser.add_argument("--canary-address", required=True, help="Unused canary address with prefix")
     parser.add_argument("--gateway", required=True, help="Unused router gateway in the canary subnet")
+    parser.add_argument(
+        "--ovpn-ppp-profile",
+        required=True,
+        help="Existing RouterOS PPP profile used by OpenVPN users",
+    )
+    parser.add_argument(
+        "--ovpn-server-name",
+        required=True,
+        help="Existing RouterOS OpenVPN server name",
+    )
+    parser.add_argument(
+        "--ovpn-ca-name",
+        required=True,
+        help="Existing RouterOS certificate authority name",
+    )
+    parser.add_argument(
+        "--ovpn-host",
+        required=True,
+        help="Public OpenVPN DNS name or IP included in client profiles",
+    )
+    parser.add_argument(
+        "--ovpn-server-identity",
+        default="",
+        help="Optional certificate identity when it differs from --ovpn-host",
+    )
+    parser.add_argument(
+        "--vpn-lan-cidr",
+        required=True,
+        help="Canonical IPv4 LAN network routed by full-tunnel profiles",
+    )
+    parser.add_argument(
+        "--vpn-router-dns",
+        required=True,
+        help="Router DNS IP sent to router-DNS client profiles",
+    )
     parser.add_argument("--trust-cloudflare", action="store_true")
     parser.add_argument("--trusted-proxy-source", action="append", default=[])
     return parser
@@ -247,6 +322,13 @@ def main(argv: list[str] | None = None) -> int:
                 bridge=arguments.bridge,
                 canary_address=arguments.canary_address,
                 gateway=arguments.gateway,
+                ovpn_ppp_profile=arguments.ovpn_ppp_profile,
+                ovpn_server_name=arguments.ovpn_server_name,
+                ovpn_ca_name=arguments.ovpn_ca_name,
+                ovpn_host=arguments.ovpn_host,
+                ovpn_server_identity=arguments.ovpn_server_identity,
+                vpn_lan_cidr=arguments.vpn_lan_cidr,
+                vpn_router_dns=arguments.vpn_router_dns,
                 trust_cloudflare=arguments.trust_cloudflare,
                 trusted_proxy_sources=",".join(arguments.trusted_proxy_source),
             )

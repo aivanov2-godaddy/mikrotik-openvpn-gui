@@ -203,14 +203,19 @@ def _session_card(session: dict[str, Any]) -> str:
     </article>"""
 
 
-def login_page(error: str = "") -> str:
+def login_page(
+    error: str = "",
+    *,
+    dashboard_name: str = "MikroTik OpenVPN GUI",
+    router_display_name: str = "RouterOS",
+) -> str:
     notice = (
         f'<p class="notice error" role="alert">{html.escape(error)}</p>' if error else ""
     )
     body = f"""
 <main class="login-shell">
   <section class="login-card" aria-labelledby="login-title">
-    <header class="login-titlebar"><div class="mikrotik-wordmark"><span class="mikrotik-mark">{_icon('logo')}</span><strong>MIKROTIK</strong><span class="brand-host">core.Wanted.sx</span></div><span>VPN Dashboard</span></header>
+    <header class="login-titlebar"><div class="mikrotik-wordmark"><span class="mikrotik-mark">{_icon('logo')}</span><strong>MIKROTIK</strong><span class="brand-host">{html.escape(router_display_name)}</span></div><span>{html.escape(dashboard_name)}</span></header>
     <div class="login-tabs"><span class="active">Connect</span></div>
     <div class="login-content">
     <p class="eyebrow">ROUTEROS CONTROL PLANE</p>
@@ -223,10 +228,10 @@ def login_page(error: str = "") -> str:
       <div class="login-actions"><span class="login-security">{_icon('lock')} Secure RouterOS session</span><button class="primary" type="submit">Connect</button></div>
     </form>
     </div>
-    <footer class="login-status"><span class="status-led"></span><span>Cloudflare Access verified</span><span>RouterOS 7</span></footer>
+    <footer class="login-status"><span class="status-led"></span><span>Secure RouterOS sign-in</span><span>RouterOS 7</span></footer>
   </section>
 </main>"""
-    return _page("Wanted VPN · Sign in", body)
+    return _page(f"{dashboard_name} · Sign in", body)
 
 
 def dashboard_page(
@@ -246,6 +251,11 @@ def dashboard_page(
     alerts: list[dict[str, Any]],
     admin_role: str,
     router: dict[str, Any],
+    dashboard_name: str = "MikroTik OpenVPN GUI",
+    router_display_name: str = "RouterOS",
+    vpn_host: str = "",
+    router_dns: str = "",
+    access_protected_by_cloudflare: bool = False,
 ) -> str:
     device_counts: dict[str, int] = {}
     for device in devices:
@@ -508,6 +518,11 @@ def dashboard_page(
     strong_cipher = "aes256-gcm" in str(ovpn_server.get("cipher", "")).lower()
     tls_restricted = str(ovpn_server.get("tls_version", "")).lower() == "only-1.2"
     full_tunnel = "def1" in str(ovpn_server.get("redirect_gateway", "")).lower()
+    dashboard_name_safe = html.escape(dashboard_name)
+    router_display_name_safe = html.escape(router_display_name)
+    vpn_host_safe = html.escape(vpn_host or "not configured")
+    router_dns_safe = html.escape(router_dns or "not configured")
+    access_layer = "Cloudflare Access" if access_protected_by_cloudflare else "your configured access layer"
     warning_markup = ""
     if warnings:
         warning_items = "".join(f"<li>{html.escape(item)}</li>" for item in warnings)
@@ -517,7 +532,7 @@ def dashboard_page(
     body = f"""
 <div class="winbox-shell">
   <header class="winbox-menubar">
-    <a class="mikrotik-wordmark" href="/dashboard"><span class="mikrotik-mark">{_icon('logo')}</span><strong>MIKROTIK</strong><span class="brand-host">core.Wanted.sx</span></a>
+    <a class="mikrotik-wordmark" href="/dashboard"><span class="mikrotik-mark">{_icon('logo')}</span><strong>MIKROTIK</strong><span class="brand-host">{router_display_name_safe}</span></a>
     <div class="menubar-spacer"></div>
     <span class="safe-mode">{_icon('shield')} Access protected</span>
     <span class="router-pill"><i></i><span>{board}</span><small>RouterOS {version} · {html.escape(admin_role.title())}</small></span>
@@ -554,16 +569,16 @@ def dashboard_page(
             <div class="health-item"><span>Storage used</span><strong data-router-storage>{storage_used}%</strong><progress data-router-storage-progress max="100" value="{storage_used}"></progress></div>
             <div class="health-item"><span>Router uptime</span><strong data-router-uptime>{html.escape(uptime)}</strong><small>No bad storage blocks detected</small></div>
           </div></article>
-          <article class="panel security-posture-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Security posture</strong><small>Controls verified against RouterOS now</small></span></div><span class="posture-score">{sum((server_enabled, client_certificates, strong_cipher, tls_restricted, full_tunnel))}/5 enforced</span></div><ul class="posture-list"><li class="{'pass' if client_certificates else 'fail'}"><i></i><span><strong>Device certificate required</strong><small>Stolen VPN passwords alone cannot connect.</small></span></li><li class="{'pass' if strong_cipher else 'fail'}"><i></i><span><strong>AES-256-GCM encryption</strong><small>Strong authenticated tunnel encryption is enforced.</small></span></li><li class="{'pass' if tls_restricted else 'fail'}"><i></i><span><strong>TLS restricted</strong><small>{html.escape(str(ovpn_server.get('tls_version', 'Unknown')))} accepted by the server.</small></span></li><li class="{'pass' if full_tunnel else 'fail'}"><i></i><span><strong>Full-tunnel routing</strong><small>Phone internet and LAN access travel through MikroTik.</small></span></li><li class="pass"><i></i><span><strong>Two-stage admin login</strong><small>Cloudflare Access 2FA plus RouterOS credentials.</small></span></li></ul></article>
+          <article class="panel security-posture-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Security posture</strong><small>Controls verified against RouterOS now</small></span></div><span class="posture-score">{sum((server_enabled, client_certificates, strong_cipher, tls_restricted, full_tunnel))}/5 enforced</span></div><ul class="posture-list"><li class="{'pass' if client_certificates else 'fail'}"><i></i><span><strong>Device certificate required</strong><small>Stolen VPN passwords alone cannot connect.</small></span></li><li class="{'pass' if strong_cipher else 'fail'}"><i></i><span><strong>AES-256-GCM encryption</strong><small>Strong authenticated tunnel encryption is enforced.</small></span></li><li class="{'pass' if tls_restricted else 'fail'}"><i></i><span><strong>TLS restricted</strong><small>{html.escape(str(ovpn_server.get('tls_version', 'Unknown')))} accepted by the server.</small></span></li><li class="{'pass' if full_tunnel else 'fail'}"><i></i><span><strong>Full-tunnel routing</strong><small>Phone internet and LAN access travel through MikroTik.</small></span></li><li class="pass"><i></i><span><strong>Protected dashboard login</strong><small>{access_layer} plus RouterOS credentials.</small></span></li></ul></article>
         </section>
         <section class="overview-grid">
           <article class="panel quick-start-panel"><div class="panel-heading"><div>{_icon('enable')}<span><strong>Connect a new phone</strong><small>Three simple steps</small></span></div></div><ol class="simple-steps"><li><strong>1</strong><span><b>Add the person</b><small>The dashboard creates everything automatically.</small></span></li><li><strong>2</strong><span><b>Download the profile</b><small>Send the downloaded file to the phone.</small></span></li><li><strong>3</strong><span><b>Open it with OpenVPN</b><small>Enter the VPN username and password, then connect.</small></span></li></ol>{add_phone_button}</article>
           <article class="panel updates-panel"><div class="panel-heading"><div>{_icon('log')}<span><strong>What changed</strong><small>6 August 2026 access policy release</small></span></div></div><ul class="update-bullets"><li>Every user now shows live activity, traffic totals, policy, quota usage, access expiry, and schedule.</li><li>Traffic presets can create full-tunnel, LAN-only, or internet-only profiles with RouterOS or Cloudflare DNS.</li><li>Optional expiry, maximum-device, speed-limit, monthly-quota, and scheduled-access controls are enforced automatically.</li><li>Quota, schedule, expiry, and session-limit notices appear here and can be acknowledged without touching the VPN connection.</li><li>Every automated restriction creates a non-sensitive RouterOS export checkpoint before the account changes.</li><li>Read-only RouterOS accounts can inspect the dashboard while operator/owner accounts retain change controls.</li></ul></article>
         </section>
         <section class="panel architecture-panel"><div class="panel-heading"><div>{_icon('traffic')}<span><strong>What happens under the hood</strong><small>Two separate paths keep administration and VPN traffic simple and secure</small></span></div><span class="posture-badge">Automatic</span></div><div class="architecture-paths">
-          <article><header>{_icon('lock')}<span><strong>Managing the VPN website</strong><small>Control plane</small></span></header><ol><li><b>1</b><span>Cloudflare Access verifies your email code.</span></li><li><b>2</b><span>RouterOS verifies the same credentials as WinBox.</span></li><li><b>3</b><span>The dashboard applies changes through the private RouterOS REST service.</span></li></ol></article>
-          <article><header>{_icon('device')}<span><strong>A phone using the VPN</strong><small>Encrypted data plane</small></span></header><ol><li><b>1</b><span>The phone connects directly to ovpn.Wanted.sx on UDP 1194.</span></li><li><b>2</b><span>RouterOS requires its device certificate and VPN username/password.</span></li><li><b>3</b><span>RouterOS routes LAN and internet traffic through the encrypted tunnel.</span></li></ol></article>
-        </div><footer><strong>Important:</strong> Cloudflare protects the administration website. OpenVPN phone traffic goes directly to MikroTik and is not sent through Cloudflare.</footer></section>
+          <article><header>{_icon('lock')}<span><strong>Managing the VPN website</strong><small>Control plane</small></span></header><ol><li><b>1</b><span>{access_layer} protects the dashboard.</span></li><li><b>2</b><span>RouterOS verifies the same credentials as WinBox.</span></li><li><b>3</b><span>The dashboard applies changes through the private RouterOS REST service.</span></li></ol></article>
+          <article><header>{_icon('device')}<span><strong>A phone using the VPN</strong><small>Encrypted data plane</small></span></header><ol><li><b>1</b><span>The phone connects directly to {vpn_host_safe} on the configured OpenVPN port.</span></li><li><b>2</b><span>RouterOS requires its device certificate and VPN username/password.</span></li><li><b>3</b><span>RouterOS routes LAN and internet traffic through the encrypted tunnel.</span></li></ol></article>
+        </div><footer><strong>Important:</strong> The dashboard and VPN data plane are separate. OpenVPN phone traffic goes directly to MikroTik.</footer></section>
       </section>
 
       <section class="app-view" id="vpn-users" data-view="vpn-users" hidden>
@@ -582,7 +597,7 @@ def dashboard_page(
         <header class="view-heading"><div><p class="eyebrow">DEVICES</p><h1>Device Profiles</h1><p>Each phone gets its own protected OpenVPN profile.</p></div><button class="primary" type="button" data-view-target="vpn-users">{_icon('plus')}<span>Add a device</span></button></header>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('device')}<span><strong>Managed devices</strong><small>Profiles created by this dashboard</small></span></div><span class="posture-badge">Protected automatically</span></div><div class="responsive-table"><table class="device-table"><thead><tr><th>Device / owner</th><th>Status</th><th>Protection ID</th><th>Created</th><th>Action</th></tr></thead><tbody>{device_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('certificate')}<span><strong>RouterOS certificate inventory</strong><small>All client identities accepted by this OpenVPN CA</small></span></div><span class="muted-label">{len(certificates)} certificates</span></div><div class="responsive-table"><table class="certificate-table"><thead><tr><th>Certificate / identity</th><th>Owner / device</th><th>Status</th><th>Expires</th><th>Fingerprint</th></tr></thead><tbody>{certificate_markup}</tbody></table></div></section>
-        <section class="panel protection-summary"><div class="panel-heading compact"><div>{_icon('shield')}<span><strong>Protection handled for you</strong><small>No certificate knowledge required</small></span></div></div><ul class="checks"><li><span>{_icon('check')}</span><div><strong>Separate protection per device</strong><small>Each downloaded profile receives a separate certificate.</small></div></li><li><span>{_icon('check')}</span><div><strong>Private key encrypted</strong><small>The password you choose protects the downloaded profile.</small></div></li><li><span>{_icon('check')}</span><div><strong>Correct server verified</strong><small>The profile accepts only ovpn.Wanted.sx.</small></div></li><li><span>{_icon('check')}</span><div><strong>Temporary files removed</strong><small>Setup files are cleaned automatically after download.</small></div></li><li class="{'ready' if crl_ready else 'warning'}"><span>{_icon('shield')}</span><div><strong>{'Certificate revocation enforced' if crl_ready else 'Per-device revocation needs CA migration'}</strong><small>{'RouterOS CRL checking is active.' if crl_ready else 'The current CA has no active CRL distribution point. A planned CA rotation is required before a lost profile can be reliably revoked.'}</small></div></li></ul></section>
+        <section class="panel protection-summary"><div class="panel-heading compact"><div>{_icon('shield')}<span><strong>Protection handled for you</strong><small>No certificate knowledge required</small></span></div></div><ul class="checks"><li><span>{_icon('check')}</span><div><strong>Separate protection per device</strong><small>Each downloaded profile receives a separate certificate.</small></div></li><li><span>{_icon('check')}</span><div><strong>Private key encrypted</strong><small>The password you choose protects the downloaded profile.</small></div></li><li><span>{_icon('check')}</span><div><strong>Correct server verified</strong><small>The profile accepts only {vpn_host_safe}.</small></div></li><li><span>{_icon('check')}</span><div><strong>Temporary files removed</strong><small>Setup files are cleaned automatically after download.</small></div></li><li class="{'ready' if crl_ready else 'warning'}"><span>{_icon('shield')}</span><div><strong>{'Certificate revocation enforced' if crl_ready else 'Per-device revocation needs CA migration'}</strong><small>{'RouterOS CRL checking is active.' if crl_ready else 'The current CA has no active CRL distribution point. A planned CA rotation is required before a lost profile can be reliably revoked.'}</small></div></li></ul></section>
       </section>
 
       <section class="app-view" id="audit-log" data-view="audit-log" hidden>
@@ -591,10 +606,10 @@ def dashboard_page(
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('log')}<span><strong>System history</strong><small>Newest changes first · up to 100 entries</small></span></div><span class="muted-label">{len(audit)} recorded</span></div><div class="responsive-table"><table class="history-table"><thead><tr><th>When</th><th>Change</th><th>Target</th><th>By</th><th>Result</th><th>Details</th></tr></thead><tbody>{audit_markup}</tbody></table></div></section>
       </section>
 
-      <footer class="app-footer"><span>Wanted Network VPN Console</span><span>Cloudflare Access · RouterOS authentication</span></footer>
+      <footer class="app-footer"><span>{dashboard_name_safe}</span><span>RouterOS authentication</span></footer>
     </main>
 
-    <footer class="winbox-statusbar" id="system-status"><span class="status-led"></span><strong>core.Wanted.sx</strong><span>{board} / arm64 / RouterOS {version}</span><span class="status-spacer"></span><span>{len(users)} users</span><span>{len(sessions)} active</span><span>{actor_safe}</span><time>{time.strftime('%Y-%m-%d %H:%M')}</time></footer>
+    <footer class="winbox-statusbar" id="system-status"><span class="status-led"></span><strong>{router_display_name_safe}</strong><span>{board} / arm64 / RouterOS {version}</span><span class="status-spacer"></span><span>{len(users)} users</span><span>{len(sessions)} active</span><span>{actor_safe}</span><time>{time.strftime('%Y-%m-%d %H:%M')}</time></footer>
   </section>
 </div>
 
@@ -615,4 +630,8 @@ def dashboard_page(
 <dialog id="delete-dialog"><form id="delete-form" method="dialog" class="dialog-card warning-dialog"><header><div><p class="eyebrow danger-text">ACCESS REMOVAL</p><h2>Remove VPN user?</h2><p>This action changes RouterOS and cannot be undone.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><input type="hidden" name="user_id"><div class="warning-summary"><span class="warning-symbol">!</span><div><strong data-delete-user></strong><small>User access and dashboard-managed certificates will be retired.</small></div></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="danger">Remove access</button></footer></form></dialog>
 <dialog id="qr-dialog"><form method="dialog" class="dialog-card qr-dialog"><header><div><p class="eyebrow">SECURE PROFILE</p><h2>Scan to download</h2><p data-qr-description>Scan this code with the phone camera to download the OpenVPN profile.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="qr-code-frame"><img data-qr-image alt="OpenVPN profile download QR code"></div><label class="share-link"><span>Download link</span><input type="text" data-qr-url readonly></label><p class="qr-help">The link expires in 10 minutes and can be downloaded up to three times. The archive contains the encrypted OpenVPN profile.</p><footer><button type="button" class="quiet" data-copy-share>{_icon('copy')}<span>Copy link</span></button><button type="button" class="primary" data-close>Done</button></footer></form></dialog>
 """
-    return _page("Wanted VPN · Dashboard", body, script=True, csrf=csrf)
+    # The edit dialog is an intentionally compact static fragment. Substitute
+    # its RouterOS DNS label after construction so it always reflects the
+    # configured topology rather than the sample network used in older builds.
+    body = body.replace("RouterOS DNS (10.10.10.1)", f"RouterOS DNS ({router_dns_safe})")
+    return _page(f"{dashboard_name} · Dashboard", body, script=True, csrf=csrf)

@@ -47,7 +47,7 @@ Do not use a GitHub account password, full repository token, Actions token, SSH 
 python deploy_routeros_canary.py --help
 ```
 
-Every environment-specific value is required explicitly. The helper rejects short or mutable image references, non-HTTPS URLs, a REST hostname that differs from the confirmed certificate SAN, unsafe RouterOS names and paths, inconsistent proxy trust, and a gateway outside the canary subnet. It prints a review-only plan with `start-on-boot=no` and stops before starting or exposing the container.
+Every environment-specific value is required explicitly. The helper also requires the existing OpenVPN PPP profile, server, CA, public host, LAN CIDR, and RouterOS DNS address; the optional `--ovpn-server-identity` is used only when it differs from the public host. It rejects short or mutable image references, non-HTTPS URLs, a REST hostname that differs from the confirmed certificate SAN, unsafe RouterOS names and paths, incomplete or invalid OpenVPN topology, inconsistent proxy trust, and a gateway outside the canary subnet. It prints a review-only plan with `start-on-boot=no` and stops before starting or exposing the canary.
 
 The legacy `update_routeros_app.py` source uploader is permanently fail closed and has no override. It must not be used for deployment.
 
@@ -118,6 +118,13 @@ Place only the RouterOS REST public CA and non-secret configuration under the co
 /container/envs/add list=vpn-gui-canary-env key=DROP_PRIVILEGES value=true
 /container/envs/add list=vpn-gui-canary-env key=TRUST_CLOUDFLARE value=true
 /container/envs/add list=vpn-gui-canary-env key=TRUSTED_PROXY_SOURCES value="<router-proxy-address>"
+/container/envs/add list=vpn-gui-canary-env key=OVPN_PPP_PROFILE value="<existing-ppp-profile>"
+/container/envs/add list=vpn-gui-canary-env key=OVPN_SERVER_NAME value="<existing-openvpn-server>"
+/container/envs/add list=vpn-gui-canary-env key=OVPN_CA_NAME value="<existing-certificate-authority>"
+/container/envs/add list=vpn-gui-canary-env key=OVPN_HOST value="<public-openvpn-host-or-ip>"
+# Add OVPN_SERVER_IDENTITY only when it differs from OVPN_HOST.
+/container/envs/add list=vpn-gui-canary-env key=VPN_LAN_CIDR value="<canonical-ipv4-lan-cidr>"
+/container/envs/add list=vpn-gui-canary-env key=VPN_ROUTER_DNS value="<router-dns-ip>"
 ```
 
 There is intentionally no mount whose destination is `/app`. Application files come from the image.
