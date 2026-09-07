@@ -14,7 +14,7 @@ This guide installs the VPN Dashboard container on a new RouterOS device. It is 
 | Storage | External disk strongly recommended; reserve space for two image roots, temporary extraction, and SQLite data |
 | Network | An unused container subnet, DNS, and outbound HTTPS to GHCR |
 
-Other ARM64 MikroTik models may work if they have the Container package and adequate storage/RAM. Other MikroTik architectures remain outside this installation guide until a matching RouterOS container pull and runtime validation has been completed, regardless of image availability.
+Other ARM64 MikroTik models may work if they have the Container package and adequate storage/RAM. The project also publishes an `amd64` image for x86/CHR evaluation, but it is not production-validated. RouterOS labels its 32-bit devices as `arm`; MikroTik's container documentation calls out ARM32/ARMv5 compatibility, so this project intentionally does not publish an `arm` (ARMv7) image. Other architectures remain outside this installation guide until a matching RouterOS container pull and runtime validation has been completed.
 
 ## Before you start
 
@@ -24,7 +24,7 @@ Before onboarding users, record the existing OpenVPN PPP profile name, OpenVPN s
 
 ## 1. Confirm version and architecture
 
-In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for ARM64, `arm` for ARMv7, and `amd64` for x86-64. In **System → Packages**, record the exact RouterOS version. From New Terminal:
+In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for the validated ARM64 target and `amd64` for x86/CHR evaluation. Do not use an ARMv7 image for a RouterOS `arm` device: MikroTik documents ARM32/ARMv5 constraints for that target, and this project does not publish an ARM image until it has been verified there. In **System → Packages**, record the exact RouterOS version. From New Terminal:
 
 ```routeros
 /system/resource/print
@@ -162,7 +162,7 @@ Then open the configured `PUBLIC_ORIGIN`, authenticate through the configured pe
 
 ## 11. Enable GitHub-driven updates
 
-After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_SETUP.md](REPOSITORY_SETUP.md): configure the protected `production` environment, the five RouterOS secrets, and the repository-scoped Windows runner labeled `routeros-private`. A merge to `main` runs CI, publishes private ARM64, ARMv7, and AMD64 images with architecture-specific immutable tags, and preserves the unsuffixed ARM64 tag used by production. The deployment workflow updates only that immutable ARM64 reference and automatically restores the previous image if update or startup gates fail.
+After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_SETUP.md](REPOSITORY_SETUP.md): configure the protected `production` environment, the five RouterOS secrets, and the repository-scoped Windows runner labeled `routeros-private`. A merge to `main` runs CI, publishes private ARM64 and AMD64 images with architecture-specific immutable tags, and preserves the unsuffixed ARM64 tag used by production. The deployment workflow updates only that immutable ARM64 reference and automatically restores the previous image if update or startup gates fail.
 
 ## Troubleshooting
 
@@ -170,7 +170,7 @@ After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_S
 | --- | --- |
 | `container` package missing | Architecture/version match; install the extra package and reboot |
 | Device-mode refuses enablement | Run `/system/device-mode/update container=yes` again and complete the physical confirmation window |
-| Architecture error during pull | Select the matching tag suffix (`arm64`, `arm`, or `amd64`) and confirm the router's `architecture-name` |
+| Architecture error during pull | Confirm the router's `architecture-name`; use `arm64` only on the validated ARM64 target or `amd64` only for a tested x86/CHR evaluation. Do not substitute an ARMv7 image for RouterOS `arm`. |
 | GHCR `auth error` | Token is classic, has `read:packages`, and can read the private package; check `/container/config` without exposing the token |
 | Manifest not found | Use registry-relative `owner/repo:sha-<fullsha>` and keep `registry-url=https://ghcr.io` |
 | Extraction fails | Move roots and `tmpdir` to external storage and check free space |

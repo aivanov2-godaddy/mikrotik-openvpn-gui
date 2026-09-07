@@ -55,9 +55,6 @@ jobs:
           - name: ARM64
             platform: linux/arm64
             suffix: arm64
-          - name: ARMv7
-            platform: linux/arm/v7
-            suffix: arm
           - name: AMD64
             platform: linux/amd64
             suffix: amd64

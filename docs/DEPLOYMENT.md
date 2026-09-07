@@ -28,7 +28,7 @@ Replace every value in angle brackets. Never commit the resulting commands, expo
 
 ## Prerequisites
 
-- RouterOS 7 with the Container package enabled and a CPU architecture matching the published `linux/arm64` image.
+- RouterOS 7 with the Container package enabled and an ARM64 CPU for the automated production workflow. The workflow intentionally deploys only the validated ARM64 image; x86/CHR evaluation uses an explicit `amd64` image and its own reviewed canary procedure.
 - Container mode enabled through the RouterOS physical-presence procedure.
 - Sufficient external storage for image extraction, two application roots during canary, an immutable database checkpoint, and a separate green working copy. If the existing installation is on internal storage, treat that as a documented risk exception and verify the full capacity budget before every pull.
 - A private GHCR package linked to this repository.

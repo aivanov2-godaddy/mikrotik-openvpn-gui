@@ -105,7 +105,9 @@ The image includes only safe local defaults and does not infer an OpenVPN topolo
 
 ## Image release and deployment model
 
-Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, pre-commit hooks, and readiness/revision smoke tests for ARM64, ARMv7, and AMD64 images. A merge to the default branch publishes private GHCR images only after verification succeeds. The unsuffixed full-commit tag remains an ARM64 compatibility alias, so the **Deploy production to RouterOS** workflow continues selecting the same immutable tag and updating the configured RouterOS container through its HTTPS REST API.
+Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, pre-commit hooks, and readiness/revision smoke tests for ARM64 and AMD64 images. A merge to the default branch publishes private GHCR images only after verification succeeds. The unsuffixed full-commit tag remains an ARM64 compatibility alias, so the **Deploy production to RouterOS** workflow continues selecting the same immutable tag and updating the configured RouterOS container through its HTTPS REST API.
+
+RouterOS labels its 32-bit devices as `arm`, but its container documentation calls out ARM32/ARMv5 compatibility; it does not establish ARMv7 compatibility. This project therefore does **not** publish an `arm` image tag. ARM64 is the only RouterOS target validated in production. AMD64 is published for x86/CHR evaluation and must be canary-tested on the exact RouterOS release before use. A future `arm` image will be added only after it is built for and verified on a real ARM32 RouterOS target.
 
 Published image tags include:
 
