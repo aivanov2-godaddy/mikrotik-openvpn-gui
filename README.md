@@ -35,7 +35,7 @@ screens. They contain no production accounts, addresses, or credentials.
 ## Quick start
 
 1. Check the [supported RouterOS platform requirements](docs/INSTALLATION.md#1-check-the-platform).
-2. Follow the [first-time installation guide](docs/INSTALLATION.md) to enable Container mode, create storage/networking, configure RouterOS REST trust, and start an immutable image.
+2. Run the offline [Installation Wizard](docs/INSTALL_WIZARD.md) and follow the [first-time installation guide](docs/INSTALLATION.md) to enable Container mode, create storage/networking, configure RouterOS REST trust, and start an immutable image.
 3. Expose the dashboard safely with the [HTTPS and reverse-proxy guide](docs/EXPOSURE.md). Direct TLS, a normal DNS name, local-only access, and optional Cloudflare are supported.
 4. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
 
@@ -82,7 +82,7 @@ python -m pip install pre-commit
 python -m pre_commit install
 python -m pre_commit run --all-files
 python scripts/check-secrets.py
-python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
+python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py install_routeros.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
 python -m unittest discover -s tests -v
 ```
 
@@ -106,6 +106,8 @@ That separation prevents a pull request or a fork from modifying any router.
 See [docs/RELEASES.md](docs/RELEASES.md) for versioning and image tags,
 [SECURITY.md](SECURITY.md) for reporting guidance, and
 [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
+
+The planned public releases are tracked in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## License and trademarks
 
