@@ -2,7 +2,7 @@ name: Deploy production to RouterOS
 
 on:
   workflow_run:
-    workflows: ["Publish container"]
+    workflows: ["Validate RouterOS canary"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -39,7 +39,8 @@ jobs:
       vars.ENABLE_ROUTEROS_AUTODEPLOY == 'true' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == github.event.repository.default_branch &&
-      github.event.workflow_run.head_repository.full_name == github.repository)
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.event == 'workflow_run')
     # The RouterOS REST endpoint is private. This job must run on the
     # repository-scoped management runner inside the trusted network.
     runs-on: [self-hosted, Windows, X64, routeros-private]

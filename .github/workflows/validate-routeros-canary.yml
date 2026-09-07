@@ -1,0 +1,113 @@
+name: Validate RouterOS canary
+
+on:
+  workflow_run:
+    workflows: ["Publish container"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full default-branch commit SHA whose published ARM64 image should be canary-tested
+        required: true
+        type: string
+      confirm_canary:
+        description: Type CANARY to update the isolated canary container
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routeros-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Update, validate, and restore isolated canary
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.confirm_canary == 'CANARY') ||
+      (github.event_name == 'workflow_run' &&
+      vars.ENABLE_ROUTEROS_AUTODEPLOY == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: [self-hosted, Windows, X64, routeros-private]
+    timeout-minutes: 35
+    environment:
+      name: canary
+    defaults:
+      run:
+        shell: pwsh -NoProfile -command ". '{0}'"
+    env:
+      RELEASE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.commit || github.event.workflow_run.head_sha }}
+      RELEASE_ARCHITECTURE: arm64
+      ROUTEROS_REST_URL: ${{ secrets.CANARY_ROUTEROS_REST_URL }}
+      ROUTEROS_DEPLOY_USERNAME: ${{ secrets.CANARY_ROUTEROS_DEPLOY_USERNAME }}
+      ROUTEROS_DEPLOY_PASSWORD: ${{ secrets.CANARY_ROUTEROS_DEPLOY_PASSWORD }}
+      ROUTEROS_CONTAINER_NAME: ${{ secrets.CANARY_ROUTEROS_CONTAINER_NAME }}
+      ROUTEROS_REST_CA_B64: ${{ secrets.CANARY_ROUTEROS_REST_CA_B64 }}
+      CANARY_READY_URL: ${{ secrets.CANARY_READY_URL }}
+      CANARY_READY_CA_B64: ${{ secrets.CANARY_READY_CA_B64 }}
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: Validate canary configuration
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_COMMIT -notmatch '^[0-9a-f]{40}$') { throw 'The release commit must be a full lowercase SHA' }
+          git cat-file -e "$env:RELEASE_COMMIT^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'The selected release commit is not available in the trusted checkout' }
+          git merge-base --is-ancestor $env:RELEASE_COMMIT "origin/${{ github.event.repository.default_branch }}"
+          if ($LASTEXITCODE -ne 0) { throw 'The selected release commit must be reachable from the default branch' }
+          foreach ($name in @('ROUTEROS_REST_URL', 'ROUTEROS_DEPLOY_USERNAME', 'ROUTEROS_DEPLOY_PASSWORD', 'ROUTEROS_CONTAINER_NAME', 'ROUTEROS_REST_CA_B64', 'CANARY_READY_URL', 'CANARY_READY_CA_B64')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing canary secret $name" }
+          }
+          $caDir = Join-Path $env:RUNNER_TEMP 'routeros-canary'
+          New-Item -ItemType Directory -Path $caDir -Force | Out-Null
+          foreach ($pair in @(@('ROUTEROS_REST_CA_B64', 'routeros-ca.crt'), @('CANARY_READY_CA_B64', 'ready-ca.crt'))) {
+            $bytes = [Convert]::FromBase64String([Environment]::GetEnvironmentVariable($pair[0]).Trim().Trim('"') -replace '\s', '')
+            [IO.File]::WriteAllBytes((Join-Path $caDir $pair[1]), $bytes)
+          }
+      - name: Capture immutable canary baseline
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $caPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/routeros-ca.crt'
+          $env:ROUTEROS_REST_CA_PEM = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($caPath))
+          $env:RELEASE_IMAGE = "${{ github.repository }}:sha-$env:RELEASE_COMMIT-$env:RELEASE_ARCHITECTURE"
+          $baseline = (python scripts/deploy_routeros_release.py --current-image).Trim()
+          if ($baseline -notmatch '^.+:sha-([0-9a-f]{40})(?:-(arm64|amd64))?$') { throw 'Canary baseline is not an immutable supported image' }
+          "CANARY_BASELINE_IMAGE=$baseline" | Add-Content -LiteralPath $env:GITHUB_ENV
+          "CANARY_BASELINE_REVISION=$($matches[1])" | Add-Content -LiteralPath $env:GITHUB_ENV
+      - name: Update and verify candidate canary
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $caPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/routeros-ca.crt'
+          $healthCaPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/ready-ca.crt'
+          $env:ROUTEROS_REST_CA_PEM = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($caPath))
+          $env:RELEASE_IMAGE = "${{ github.repository }}:sha-$env:RELEASE_COMMIT-$env:RELEASE_ARCHITECTURE"
+          python scripts/deploy_routeros_release.py
+          python scripts/check_deployment_health.py --url "$env:CANARY_READY_URL" --expected-revision "$env:RELEASE_COMMIT" --ca-file "$healthCaPath"
+      - name: Restore and verify canary baseline
+        if: always() && env.CANARY_BASELINE_IMAGE != '' && env.CANARY_BASELINE_REVISION != ''
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $caPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/routeros-ca.crt'
+          $healthCaPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/ready-ca.crt'
+          $env:ROUTEROS_REST_CA_PEM = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($caPath))
+          $env:RELEASE_IMAGE = $env:CANARY_BASELINE_IMAGE
+          python scripts/deploy_routeros_release.py
+          python scripts/check_deployment_health.py --url "$env:CANARY_READY_URL" --expected-revision "$env:CANARY_BASELINE_REVISION" --ca-file "$healthCaPath"
+      - name: Write canary summary
+        if: always()
+        run: |
+          @"
+          ### RouterOS canary gate
+          - Candidate commit: ``$env:RELEASE_COMMIT``
+          - Candidate image: ``${{ github.repository }}:sha-$env:RELEASE_COMMIT-$env:RELEASE_ARCHITECTURE``
+          - Rollback baseline: ``$env:CANARY_BASELINE_IMAGE``
+          - Production promotion: only on complete canary success
+          "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY

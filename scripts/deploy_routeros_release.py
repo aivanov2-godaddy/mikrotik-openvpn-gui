@@ -281,6 +281,17 @@ def _registry_relative_image(image: str) -> str:
     return image.removeprefix("ghcr.io/")
 
 
+def current_image(settings: DeploymentSettings, client: RouterOSRest | None = None) -> str:
+    """Read and validate the installed immutable image without mutating RouterOS."""
+
+    settings.validate()
+    client = client or RouterOSRest(settings)
+    image = _registry_relative_image(_image(_find_target(client, settings.container_name)))
+    if not image or not _IMAGE_PATTERN.fullmatch(image):
+        raise DeploymentError("target container does not use a supported immutable GHCR image")
+    return image
+
+
 def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> str:
     settings.validate()
     client = client or RouterOSRest(settings)
@@ -364,10 +375,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Deploy one immutable GHCR image to a RouterOS container")
     parser.add_argument("--image", help="full immutable GHCR image; defaults to RELEASE_IMAGE")
     parser.add_argument("--container-name", help="exact RouterOS container name")
+    parser.add_argument("--current-image", action="store_true", help="print the installed immutable image without changing RouterOS")
     parser.add_argument("--timeout", type=int, default=600, help="per-operation timeout in seconds")
     arguments = parser.parse_args(argv)
     try:
-        deploy(_settings_from_environment(arguments))
+        settings = _settings_from_environment(arguments)
+        if arguments.current_image:
+            print(current_image(settings))
+        else:
+            deploy(settings)
     except DeploymentError as error:
         print(f"deployment blocked: {error}", file=sys.stderr)
         return 2

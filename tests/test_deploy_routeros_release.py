@@ -9,6 +9,7 @@ from scripts.deploy_routeros_release import (
     RouterOSRest,
     _wait_for,
     _status,
+    current_image,
     deploy,
 )
 
@@ -182,6 +183,14 @@ class DeploymentTests(unittest.TestCase):
 
     def test_accepts_architecture_specific_immutable_image(self) -> None:
         settings(NEW_ARM64_IMAGE).validate()
+
+    def test_reads_installed_immutable_image_without_mutation(self) -> None:
+        router = FakeRouterOS()
+
+        image = current_image(settings(), router)
+
+        self.assertEqual(image, OLD_RELATIVE_IMAGE)
+        self.assertEqual(router.calls, [])
 
     def test_accepts_routeros_running_flag_shape(self) -> None:
         self.assertEqual(_status({"running": "true"}), "running")
