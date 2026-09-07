@@ -72,6 +72,11 @@ Before creating a public release:
 
 1. Complete the public-source privacy, licensing, history-scan, and support
    gate. Do not change repository or package visibility before it passes.
+   From a private local clone, run
+   `python scripts/check_history.py --repo . --marker '<private instance marker>'`
+   once for each private hostname, account label, or other deployment identity.
+   The scanner checks every commit reachable from local refs and prints only
+   rule labels, commit prefixes, and paths—not the marker or matched value.
 2. Run the full local and GitHub CI validation suite, including the secret
    scanner and both published image smoke tests.
 3. Validate the ARM64 image with the documented isolated RouterOS canary,
