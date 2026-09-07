@@ -73,6 +73,30 @@ Do not send RouterOS REST management traffic or OpenVPN UDP through Cloudflare.
 Cloudflare credentials, country policy, firewall/NAT rules, and identity rules
 remain outside the dashboard image and repository.
 
+### Optional Cloudflare helper
+
+`cloudflare.py` is an offline operator helper; it is not part of the container
+image and never runs during installation or deployment. Set credentials only in
+your local process environment, then name the exact dashboard hostname to
+inspect or change. Nothing is inferred from this repository.
+
+```powershell
+$env:CLOUDFLARE_API_TOKEN = '<local token>'
+$env:CLOUDFLARE_ZONE_ID = '<zone id>'
+python cloudflare.py --hostname vpn.example.com --check
+```
+
+To opt into strict TLS, an explicit country allowlist, and proxying that one A
+record, add all of the requested actions deliberately:
+
+```powershell
+python cloudflare.py --hostname vpn.example.com --allow-country BG --apply-edge --proxy-dns
+```
+
+Omit `--allow-country` to leave country policy untouched. Omit `--proxy-dns`
+to leave DNS unchanged. These choices are independent, so the helper cannot
+silently alter a pre-existing Cloudflare hostname.
+
 ## Validation and rollback
 
 1. Confirm the proxy has a valid certificate for `PUBLIC_ORIGIN` and that HTTP

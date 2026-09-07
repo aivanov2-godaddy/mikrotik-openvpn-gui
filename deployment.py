@@ -6,12 +6,16 @@ Container deployment intentionally lives in the offline GHCR canary-plan rendere
 
 from __future__ import annotations
 
+import ipaddress
+import re
 from typing import Any
 
 
-PUBLIC_HOST = "vpn.wanted.sx"
-CONTAINER_ADDRESS = "172.31.255.2"
 CLOUDFLARE_ADDRESS_LIST = "vpn-dashboard-cloudflare"
+HOSTNAME_PATTERN = re.compile(
+    r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+)
 
 # Published at https://www.cloudflare.com/ips-v4 and /ips-v6 on 2026-08-04.
 CLOUDFLARE_IPV4_RANGES = (
@@ -43,19 +47,51 @@ CLOUDFLARE_IPV6_RANGES = (
 )
 
 
-def cloudflare_bulgaria_rule(hostname: str = PUBLIC_HOST) -> dict[str, Any]:
-    return {
+def normalize_cloudflare_hostname(hostname: str) -> str:
+    """Return a safe canonical DNS name for a Cloudflare host-scoped rule."""
+    normalized_host = hostname.strip().rstrip(".").lower()
+    if not HOSTNAME_PATTERN.fullmatch(normalized_host):
+        raise ValueError("hostname must be a non-empty DNS name")
+    return normalized_host
+
+
+def cloudflare_country_allowlist_rule(
+    hostname: str, countries: tuple[str, ...], *, include_position: bool = True
+) -> dict[str, Any]:
+    """Create a host-scoped Cloudflare country allowlist rule.
+
+    This optional edge policy is intentionally input-driven: a public clone
+    must never inherit a hostname or geography policy from another deployment.
+    """
+    normalized_host = normalize_cloudflare_hostname(hostname)
+    normalized_countries = tuple(country.strip().upper() for country in countries)
+    if not normalized_countries or any(
+        not re.fullmatch(r"[A-Z]{2}", country) for country in normalized_countries
+    ):
+        raise ValueError("at least one two-letter country code is required")
+    allowed = ", ".join(f'"{country}"' for country in dict.fromkeys(normalized_countries))
+    rule = {
         "action": "block",
-        "expression": f'(http.host eq "{hostname}" and not ip.src.country in {{"BG"}})',
-        "description": "VPN Dashboard: allow Bulgaria only",
+        "expression": (
+            f'(http.host eq "{normalized_host}" and not ip.src.country in {{{allowed}}})'
+        ),
+        "description": "VPN Dashboard: country allowlist",
         "enabled": True,
         "ref": "vpn_dashboard_bulgaria_only",
-        "position": {"index": 1},
     }
+    if include_position:
+        rule["position"] = {"index": 1}
+    return rule
 
 
-def routeros_origin_acl_script() -> str:
+def routeros_origin_acl_script(container_address: str) -> str:
     """Return an idempotent RouterOS script for the web-origin perimeter."""
+    try:
+        target = str(ipaddress.ip_address(container_address))
+    except ValueError as error:
+        raise ValueError("container_address must be an IPv4 address") from error
+    if ipaddress.ip_address(target).version != 4:
+        raise ValueError("container_address must be an IPv4 address")
     commands = [
         f'/ip/firewall/address-list/remove [find where list="{CLOUDFLARE_ADDRESS_LIST}"]',
         '/ip/firewall/filter/remove [find where comment~"^VPN Dashboard: origin"]',
@@ -75,13 +111,13 @@ def routeros_origin_acl_script() -> str:
             f'src-address-list="{CLOUDFLARE_ADDRESS_LIST}" '
             'comment="VPN Dashboard: origin allow Cloudflare HTTPS" place-before=0',
             f'/ip/firewall/filter/add chain=forward action=drop protocol=tcp '
-            f'dst-address={CONTAINER_ADDRESS} dst-port=8080,8081 '
+            f'dst-address={target} dst-port=8080,8081 '
             'comment="VPN Dashboard: origin block direct container" place-before=0',
             f'/ip/firewall/filter/add chain=forward action=accept protocol=tcp '
-            f'src-address-list="{CLOUDFLARE_ADDRESS_LIST}" dst-address={CONTAINER_ADDRESS} dst-port=8081 '
+            f'src-address-list="{CLOUDFLARE_ADDRESS_LIST}" dst-address={target} dst-port=8081 '
             'comment="VPN Dashboard: origin allow Cloudflare HTTP" place-before=0',
             f'/ip/firewall/nat/add chain=dstnat action=dst-nat protocol=tcp in-interface-list=WAN '
-            f'dst-port=80 to-addresses={CONTAINER_ADDRESS} to-ports=8081 '
+            f'dst-port=80 to-addresses={target} to-ports=8081 '
             'comment="VPN Dashboard: HTTP redirect"',
         ]
     )

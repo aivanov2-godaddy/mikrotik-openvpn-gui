@@ -9,7 +9,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from deployment import PUBLIC_HOST, cloudflare_bulgaria_rule
+from deployment import cloudflare_country_allowlist_rule, normalize_cloudflare_hostname
 
 
 API_BASE = "https://api.cloudflare.com/client/v4"
@@ -48,7 +48,7 @@ class CloudflareAPI:
             headers={
                 "Authorization": f"Bearer {self.token}",
                 "Content-Type": "application/json",
-                "User-Agent": "wanted-vpn-dashboard/1.0",
+                "User-Agent": "mikrotik-openvpn-gui/1.0",
             },
         )
         try:
@@ -64,18 +64,20 @@ class CloudflareAPI:
         return decoded.get("result")
 
 
-def desired_rule(*, include_position: bool = True) -> dict[str, Any]:
-    rule = cloudflare_bulgaria_rule()
-    if not include_position:
-        rule.pop("position", None)
-    return rule
+def desired_rule(
+    hostname: str, countries: tuple[str, ...], *, include_position: bool = True
+) -> dict[str, Any]:
+    return cloudflare_country_allowlist_rule(
+        hostname, countries, include_position=include_position
+    )
 
 
-def desired_tls_rule(*, include_position: bool = True) -> dict[str, Any]:
+def desired_tls_rule(hostname: str, *, include_position: bool = True) -> dict[str, Any]:
+    normalized_host = normalize_cloudflare_hostname(hostname)
     rule: dict[str, Any] = {
         "action": "set_config",
         "action_parameters": {"ssl": "strict"},
-        "expression": f'(http.host eq "{PUBLIC_HOST}")',
+        "expression": f'(http.host eq "{normalized_host}")',
         "description": "VPN Dashboard: strict origin TLS",
         "enabled": True,
         "ref": CONFIG_REF,
@@ -86,20 +88,29 @@ def desired_tls_rule(*, include_position: bool = True) -> dict[str, Any]:
 
 
 def plan_waf_operation(
-    entrypoint: dict[str, Any] | None, *, zone_id: str
+    entrypoint: dict[str, Any] | None,
+    *,
+    zone_id: str,
+    hostname: str,
+    countries: tuple[str, ...],
 ) -> WAFOperation | None:
+    if not countries:
+        return None
     phase_path = f"/zones/{zone_id}/rulesets/phases/{WAF_PHASE}/entrypoint"
     if entrypoint is None:
-        return WAFOperation("PUT", phase_path, {"rules": [desired_rule(include_position=False)]})
+        return WAFOperation(
+            "PUT", phase_path,
+            {"rules": [desired_rule(hostname, countries, include_position=False)]},
+        )
 
     ruleset_id = str(entrypoint["id"])
     current = next((rule for rule in entrypoint.get("rules", []) if rule.get("ref") == WAF_REF), None)
-    wanted = desired_rule(include_position=False)
+    wanted = desired_rule(hostname, countries, include_position=False)
     if current is None:
         return WAFOperation(
             "POST",
             f"/zones/{zone_id}/rulesets/{ruleset_id}/rules",
-            desired_rule(include_position=True),
+            desired_rule(hostname, countries, include_position=True),
         )
     equivalent = all(current.get(key) == value for key, value in wanted.items())
     if equivalent:
@@ -107,25 +118,27 @@ def plan_waf_operation(
     return WAFOperation(
         "PATCH",
         f"/zones/{zone_id}/rulesets/{ruleset_id}/rules/{current['id']}",
-        desired_rule(include_position=True),
+        desired_rule(hostname, countries, include_position=True),
     )
 
 
 def plan_tls_operation(
-    entrypoint: dict[str, Any] | None, *, zone_id: str
+    entrypoint: dict[str, Any] | None, *, zone_id: str, hostname: str
 ) -> WAFOperation | None:
     phase_path = f"/zones/{zone_id}/rulesets/phases/{CONFIG_PHASE}/entrypoint"
     if entrypoint is None:
-        return WAFOperation("PUT", phase_path, {"rules": [desired_tls_rule(include_position=False)]})
+        return WAFOperation(
+            "PUT", phase_path, {"rules": [desired_tls_rule(hostname, include_position=False)]}
+        )
 
     ruleset_id = str(entrypoint["id"])
     current = next((rule for rule in entrypoint.get("rules", []) if rule.get("ref") == CONFIG_REF), None)
-    wanted = desired_tls_rule(include_position=False)
+    wanted = desired_tls_rule(hostname, include_position=False)
     if current is None:
         return WAFOperation(
             "POST",
             f"/zones/{zone_id}/rulesets/{ruleset_id}/rules",
-            desired_tls_rule(include_position=True),
+            desired_tls_rule(hostname, include_position=True),
         )
     equivalent = all(current.get(key) == value for key, value in wanted.items())
     if equivalent:
@@ -133,7 +146,7 @@ def plan_tls_operation(
     return WAFOperation(
         "PATCH",
         f"/zones/{zone_id}/rulesets/{ruleset_id}/rules/{current['id']}",
-        desired_tls_rule(include_position=True),
+        desired_tls_rule(hostname, include_position=True),
     )
 
 
@@ -147,24 +160,24 @@ def get_entrypoint(api: CloudflareAPI, phase: str = WAF_PHASE) -> dict[str, Any]
         raise
 
 
-def dns_record(api: CloudflareAPI) -> dict[str, Any]:
-    query = urllib.parse.urlencode({"type": "A", "name": PUBLIC_HOST})
+def dns_record(api: CloudflareAPI, hostname: str) -> dict[str, Any]:
+    query = urllib.parse.urlencode({"type": "A", "name": hostname})
     records = api.request("GET", f"/zones/{api.zone_id}/dns_records?{query}")
     if len(records) != 1:
-        raise CloudflareError(f"Expected one A record for {PUBLIC_HOST}, found {len(records)}")
+        raise CloudflareError(f"Expected one A record for {hostname}, found {len(records)}")
     return records[0]
 
 
-def status(api: CloudflareAPI) -> dict[str, Any]:
+def status(
+    api: CloudflareAPI, hostname: str, *, include_dns: bool = False
+) -> dict[str, Any]:
     entrypoint = get_entrypoint(api)
     config_entrypoint = get_entrypoint(api, CONFIG_PHASE)
-    record = dns_record(api)
     ssl = api.request("GET", f"/zones/{api.zone_id}/settings/ssl")
     rule = None if entrypoint is None else next(
         (item for item in entrypoint.get("rules", []) if item.get("ref") == WAF_REF), None
     )
-    return {
-        "dns": {"name": record.get("name"), "content": record.get("content"), "proxied": record.get("proxied")},
+    result = {
         "zone_ssl_mode": ssl.get("value"),
         "vpn_ssl_rule": None if config_entrypoint is None else next(
             (
@@ -179,50 +192,84 @@ def status(api: CloudflareAPI) -> dict[str, Any]:
             ),
             None,
         ),
-        "bulgaria_rule": None if rule is None else {
+        "country_allowlist_rule": None if rule is None else {
             "action": rule.get("action"), "expression": rule.get("expression"), "enabled": rule.get("enabled")
         },
     }
+    if include_dns:
+        record = dns_record(api, hostname)
+        result["dns"] = {
+            "name": record.get("name"),
+            "content": record.get("content"),
+            "proxied": record.get("proxied"),
+        }
+    return result
 
 
-def apply_edge(api: CloudflareAPI) -> dict[str, Any]:
-    operation = plan_waf_operation(get_entrypoint(api), zone_id=api.zone_id)
+def apply_edge(
+    api: CloudflareAPI,
+    hostname: str,
+    *,
+    countries: tuple[str, ...] = (),
+    proxy_dns: bool = False,
+) -> dict[str, Any]:
+    operation = plan_waf_operation(
+        get_entrypoint(api), zone_id=api.zone_id,
+        hostname=hostname, countries=countries,
+    )
     if operation:
         api.request(operation.method, operation.path, operation.body)
 
     tls_operation = plan_tls_operation(
-        get_entrypoint(api, CONFIG_PHASE), zone_id=api.zone_id
+        get_entrypoint(api, CONFIG_PHASE), zone_id=api.zone_id, hostname=hostname
     )
     if tls_operation:
         api.request(tls_operation.method, tls_operation.path, tls_operation.body)
-    record = dns_record(api)
-    api.request(
-        "PATCH",
-        f"/zones/{api.zone_id}/dns_records/{record['id']}",
-        {
-            "type": "A",
-            "name": PUBLIC_HOST,
-            "content": record["content"],
-            "proxied": True,
-            "ttl": 1,
-        },
-    )
-    return status(api)
+    if proxy_dns:
+        record = dns_record(api, hostname)
+        api.request(
+            "PATCH",
+            f"/zones/{api.zone_id}/dns_records/{record['id']}",
+            {
+                "type": "A",
+                "name": hostname,
+                "content": record["content"],
+                "proxied": True,
+                "ttl": 1,
+            },
+        )
+    return status(api, hostname, include_dns=proxy_dns)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect or apply the VPN Dashboard Cloudflare edge policy")
+    parser.add_argument(
+        "--hostname", default=os.environ.get("CLOUDFLARE_PUBLIC_HOST", ""),
+        help="public dashboard DNS hostname (or set CLOUDFLARE_PUBLIC_HOST)",
+    )
+    parser.add_argument(
+        "--allow-country", action="append", default=[], metavar="ISO_CODE",
+        help="optional repeatable two-letter country code for a host-scoped WAF allowlist",
+    )
     parser.add_argument("--check", action="store_true", help="read current Cloudflare state")
-    parser.add_argument("--apply-edge", action="store_true", help="apply BG-only WAF, strict TLS, and proxied DNS")
+    parser.add_argument("--proxy-dns", action="store_true", help="also set the selected A record to proxied")
+    parser.add_argument("--apply-edge", action="store_true", help="apply explicit optional WAF, strict TLS, and DNS settings")
     args = parser.parse_args()
+    try:
+        hostname = normalize_cloudflare_hostname(args.hostname)
+    except ValueError as error:
+        parser.error(f"--hostname or CLOUDFLARE_PUBLIC_HOST: {error}")
+    countries = tuple(args.allow_country)
     if not args.check and not args.apply_edge:
         print(
             json.dumps(
                 {
-                    "desired_waf_rule": desired_rule(),
-                    "desired_tls_rule": desired_tls_rule(),
+                    "desired_waf_rule": (
+                        desired_rule(hostname, countries) if countries else None
+                    ),
+                    "desired_tls_rule": desired_tls_rule(hostname),
                     "zone_ssl_mode": "unchanged",
-                    "dns_proxied": True,
+                    "dns_proxy_requested": args.proxy_dns,
                 },
                 indent=2,
             )
@@ -232,7 +279,10 @@ def main() -> None:
         os.environ.get("CLOUDFLARE_API_TOKEN", ""),
         os.environ.get("CLOUDFLARE_ZONE_ID", ""),
     )
-    result = apply_edge(api) if args.apply_edge else status(api)
+    result = (
+        apply_edge(api, hostname, countries=countries, proxy_dns=args.proxy_dns)
+        if args.apply_edge else status(api, hostname, include_dns=args.proxy_dns)
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

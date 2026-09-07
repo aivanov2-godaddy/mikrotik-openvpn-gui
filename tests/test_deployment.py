@@ -11,7 +11,7 @@ from deployment import (
     CLOUDFLARE_ADDRESS_LIST,
     CLOUDFLARE_IPV4_RANGES,
     CLOUDFLARE_IPV6_RANGES,
-    cloudflare_bulgaria_rule,
+    cloudflare_country_allowlist_rule,
     routeros_origin_acl_script,
 )
 from deploy_routeros_canary import CanarySettings, main as render_canary_main, render_canary_plan
@@ -27,6 +27,8 @@ from update_routeros_app import main as retired_source_update
 
 
 TEST_ZONE_ID = "example-zone-id"
+TEST_HOSTNAME = "vpn.example.test"
+TEST_CONTAINER_ADDRESS = "192.0.2.10"
 
 
 class DeploymentPolicyTests(unittest.TestCase):
@@ -37,7 +39,7 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertEqual(sum(network.version == 6 for network in networks), 7)
 
     def test_origin_acl_is_cloudflare_only_for_both_web_paths(self) -> None:
-        script = routeros_origin_acl_script()
+        script = routeros_origin_acl_script(TEST_CONTAINER_ADDRESS)
         lines = script.splitlines()
         for network in CLOUDFLARE_IPV4_RANGES:
             self.assertIn(f'list="{CLOUDFLARE_ADDRESS_LIST}" address={network}', script)
@@ -50,17 +52,31 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertLess(https_drop, https_allow)
         self.assertLess(direct_drop, http_allow)
         self.assertIn("chain=input action=drop protocol=tcp dst-port=443", lines[https_drop])
-        self.assertIn("dst-address=172.31.255.2 dst-port=8080,8081", lines[direct_drop])
-        self.assertIn("dst-port=80 to-addresses=172.31.255.2 to-ports=8081", script)
+        self.assertIn(
+            f"dst-address={TEST_CONTAINER_ADDRESS} dst-port=8080,8081", lines[direct_drop]
+        )
+        self.assertIn(
+            f"dst-port=80 to-addresses={TEST_CONTAINER_ADDRESS} to-ports=8081", script
+        )
 
-    def test_bulgaria_rule_is_host_scoped_and_blocking(self) -> None:
-        rule = cloudflare_bulgaria_rule()
+    def test_country_allowlist_rule_is_host_scoped_and_blocking(self) -> None:
+        rule = cloudflare_country_allowlist_rule(TEST_HOSTNAME, ("bg", "DE", "BG"))
         self.assertEqual(rule["action"], "block")
         self.assertTrue(rule["enabled"])
         self.assertEqual(rule["ref"], "vpn_dashboard_bulgaria_only")
-        self.assertIn('http.host eq "vpn.wanted.sx"', rule["expression"])
-        self.assertIn('not ip.src.country in {"BG"}', rule["expression"])
+        self.assertIn(f'http.host eq "{TEST_HOSTNAME}"', rule["expression"])
+        self.assertIn('not ip.src.country in {"BG", "DE"}', rule["expression"])
         self.assertEqual(rule["position"], {"index": 1})
+
+    def test_edge_tooling_rejects_implicit_or_invalid_targets(self) -> None:
+        with self.assertRaisesRegex(ValueError, "hostname"):
+            cloudflare_country_allowlist_rule("", ("BG",))
+        with self.assertRaisesRegex(ValueError, "country code"):
+            cloudflare_country_allowlist_rule(TEST_HOSTNAME, ("BGR",))
+        with self.assertRaisesRegex(ValueError, "container_address"):
+            routeros_origin_acl_script("not-an-ip")
+        with self.assertRaisesRegex(ValueError, "container_address"):
+            routeros_origin_acl_script("2001:db8::10")
 
     @staticmethod
     def canary_settings() -> CanarySettings:
@@ -201,12 +217,20 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertNotIn("http://127.0.0.1:8080/healthz", containerfile)
 
     def test_waf_plan_creates_updates_and_is_idempotent(self) -> None:
-        create = plan_waf_operation(None, zone_id=TEST_ZONE_ID)
+        self.assertIsNone(
+            plan_waf_operation(
+                None, zone_id=TEST_ZONE_ID, hostname=TEST_HOSTNAME, countries=()
+            )
+        )
+        create = plan_waf_operation(
+            None, zone_id=TEST_ZONE_ID, hostname=TEST_HOSTNAME, countries=("BG",)
+        )
         self.assertEqual(create.method, "PUT")
         self.assertIn(f"/zones/{TEST_ZONE_ID}/rulesets/phases/{WAF_PHASE}/entrypoint", create.path)
 
         add = plan_waf_operation(
-            {"id": "ruleset-1", "rules": []}, zone_id=TEST_ZONE_ID
+            {"id": "ruleset-1", "rules": []},
+            zone_id=TEST_ZONE_ID, hostname=TEST_HOSTNAME, countries=("BG",),
         )
         self.assertEqual(add.method, "POST")
         self.assertEqual(add.body["ref"], WAF_REF)
@@ -216,33 +240,33 @@ class DeploymentPolicyTests(unittest.TestCase):
         matching_rule["id"] = "rule-1"
         self.assertIsNone(
             plan_waf_operation(
-                {"id": "ruleset-1", "rules": [matching_rule]},
-                zone_id=TEST_ZONE_ID,
+                {"id": "ruleset-1", "rules": [matching_rule]}, zone_id=TEST_ZONE_ID,
+                hostname=TEST_HOSTNAME, countries=("BG",),
             )
         )
 
         matching_rule["expression"] = "false"
         update = plan_waf_operation(
-            {"id": "ruleset-1", "rules": [matching_rule]},
-            zone_id=TEST_ZONE_ID,
+            {"id": "ruleset-1", "rules": [matching_rule]}, zone_id=TEST_ZONE_ID,
+            hostname=TEST_HOSTNAME, countries=("BG",),
         )
         self.assertEqual(update.method, "PATCH")
         self.assertTrue(update.path.endswith("/rules/rule-1"))
 
     def test_tls_plan_is_host_scoped_and_does_not_change_zone_default(self) -> None:
-        create = plan_tls_operation(None, zone_id=TEST_ZONE_ID)
+        create = plan_tls_operation(None, zone_id=TEST_ZONE_ID, hostname=TEST_HOSTNAME)
         self.assertEqual(create.method, "PUT")
         self.assertIn(f"/zones/{TEST_ZONE_ID}/rulesets/phases/{CONFIG_PHASE}/entrypoint", create.path)
         rule = create.body["rules"][0]
         self.assertEqual(rule["ref"], CONFIG_REF)
         self.assertEqual(rule["action_parameters"], {"ssl": "strict"})
-        self.assertEqual(rule["expression"], '(http.host eq "vpn.wanted.sx")')
+        self.assertEqual(rule["expression"], f'(http.host eq "{TEST_HOSTNAME}")')
 
         current = dict(rule, id="tls-rule-1")
         self.assertIsNone(
             plan_tls_operation(
                 {"id": "config-ruleset", "rules": [current]},
-                zone_id=TEST_ZONE_ID,
+                zone_id=TEST_ZONE_ID, hostname=TEST_HOSTNAME,
             )
         )
 
