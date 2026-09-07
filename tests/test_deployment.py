@@ -94,8 +94,8 @@ class DeploymentPolicyTests(unittest.TestCase):
             ovpn_server_name="vpn-server",
             ovpn_ca_name="vpn-ca",
             ovpn_host="ovpn.example.com",
-            vpn_lan_cidr="10.10.10.0/24",
-            vpn_router_dns="10.10.10.1",
+            vpn_lan_cidr="198.18.10.0/24",
+            vpn_router_dns="198.18.10.1",
             trust_cloudflare=True,
             trusted_proxy_sources="192.0.2.1,2001:db8::1",
         )
@@ -117,8 +117,8 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertIn('key=OVPN_SERVER_NAME value="vpn-server"', plan)
         self.assertIn('key=OVPN_CA_NAME value="vpn-ca"', plan)
         self.assertIn('key=OVPN_HOST value="ovpn.example.com"', plan)
-        self.assertIn('key=VPN_LAN_CIDR value="10.10.10.0/24"', plan)
-        self.assertIn('key=VPN_ROUTER_DNS value="10.10.10.1"', plan)
+        self.assertIn('key=VPN_LAN_CIDR value="198.18.10.0/24"', plan)
+        self.assertIn('key=VPN_ROUTER_DNS value="198.18.10.1"', plan)
         self.assertNotIn("key=OVPN_SERVER_IDENTITY", plan)
         self.assertIn("start-on-boot=no", plan)
         self.assertNotIn("dst=/app", plan)
@@ -193,7 +193,7 @@ class DeploymentPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "RouterOS-safe"):
             render_canary_plan(replace(settings, ovpn_ppp_profile="unsafe profile"))
         with self.assertRaisesRegex(ValueError, "canonical IPv4"):
-            render_canary_plan(replace(settings, vpn_lan_cidr="10.10.10.7/24"))
+            render_canary_plan(replace(settings, vpn_lan_cidr="198.18.10.7/24"))
 
     def test_direct_source_updater_is_retired_and_fails_closed(self) -> None:
         output = io.StringIO()

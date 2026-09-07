@@ -158,7 +158,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, page = self.request("GET", "/dashboard")
         self.assertEqual(status, 200)
         self.assertIn(b"Connected securely", page)
-        self.assertIn(b"10.8.0.48", page)
+        self.assertIn(b"198.18.0.48", page)
         self.assertIn(b"Terminate", page)
         self.assertIn(b"Byte Graph", page)
         self.assertIn(b"Packet Graph", page)
@@ -179,7 +179,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Connection history", page)
         self.assertIn(b"RouterOS certificate inventory", page)
         self.assertIn(b"Per-device revocation needs CA migration", page)
-        self.assertIn(b"ovpn-alex-s26", page)
+        self.assertIn(b"ovpn-user-one-device-a", page)
         self.assertIn(b"What happens under the hood", page)
         self.assertIn(b"Suspend access now", page)
         self.assertIn(b"Last activity", page)
@@ -191,12 +191,15 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertIn(speed, page)
         status, _, payload = self.request("GET", "/api/users")
         self.assertEqual(status, 200)
-        self.assertEqual([item["name"] for item in json.loads(payload)["users"]], ["alex", "null"])
+        self.assertEqual(
+            [item["name"] for item in json.loads(payload)["users"]],
+            ["user-one", "user-two"],
+        )
 
         status, _, payload = self.request("GET", "/api/status")
         self.assertEqual(status, 200)
         snapshot = json.loads(payload)
-        self.assertEqual(snapshot["sessions"][0]["name"], "null")
+        self.assertEqual(snapshot["sessions"][0]["name"], "user-two")
         self.assertEqual(snapshot["sessions"][0]["tx_bytes"], 192455)
         self.assertEqual(snapshot["sessions"][0]["rx_packets"], 387)
         self.assertEqual(snapshot["sessions"][0]["tx_packets"], 825)
@@ -244,24 +247,24 @@ class DashboardIntegrationTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 400)
-        self.assertEqual(snapshot["connections"][0]["vpn_user"], "null")
+        self.assertEqual(snapshot["connections"][0]["vpn_user"], "user-two")
         self.assertEqual(
             {item["name"]: item["email"] for item in snapshot["users"]},
-            {"alex": "", "null": ""},
+            {"user-one": "", "user-two": ""},
         )
 
         status, headers, payload = self.request("GET", "/api/connections.csv")
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "text/csv; charset=utf-8")
         self.assertIn("vpn-connection-history.csv", headers["content-disposition"])
-        self.assertIn(b"null", payload)
+        self.assertIn(b"user-two", payload)
 
         status, headers, payload = self.request("GET", "/api/usage.csv")
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "text/csv; charset=utf-8")
         self.assertIn("vpn-monthly-usage.csv", headers["content-disposition"])
         self.assertIn(b"total_bytes", payload)
-        self.assertIn(b"null", payload)
+        self.assertIn(b"user-two", payload)
 
         status, headers, payload = self.request("GET", "/api/audit.csv")
         self.assertEqual(status, 200)
@@ -303,7 +306,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, _ = self.json_request(
             "POST",
             "/api/users",
-            {"username": "maria", "password": "profile-pass", "device_name": "Pixel test"},
+            {"username": "maria", "password": "profile-pass", "device_name": "Tablet test"},
             csrf=False,
         )
         self.assertEqual(status, 403)
@@ -324,13 +327,13 @@ class DashboardIntegrationTests(unittest.TestCase):
                 "username": "maria",
                 "email": "maria@example.com",
                 "password": "profile-pass",
-                "device_name": "Pixel test",
+                "device_name": "Tablet test",
                 "comment": "integration test",
             },
         )
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "application/x-openvpn-profile")
-        self.assertIn('filename="maria-Pixel-test.ovpn"', headers["content-disposition"])
+        self.assertIn('filename="maria-Tablet-test.ovpn"', headers["content-disposition"])
         self.assertIn(b"redirect-gateway def1", profile)
         self.assertIn(b"<key>", profile)
         self.assertNotIn(b"profile-pass", profile)
@@ -393,8 +396,8 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             )
         }
-        alex_id = users["alex"]["id"]
-        path = f"/api/users/{urllib.parse.quote(alex_id, safe='*')}/profiles"
+        user_one_id = users["user-one"]["id"]
+        path = f"/api/users/{urllib.parse.quote(user_one_id, safe='*')}/profiles"
         status, headers, payload = self.json_request(
             "POST",
             path,
@@ -411,9 +414,9 @@ class DashboardIntegrationTests(unittest.TestCase):
             status, headers, archive_payload = self.request("GET", share_path)
             self.assertEqual(status, 200)
             self.assertEqual(headers["content-type"], "application/zip")
-            self.assertIn('filename="alex-QR-phone.zip"', headers["content-disposition"])
+            self.assertIn('filename="user-one-QR-phone.zip"', headers["content-disposition"])
             with zipfile.ZipFile(io.BytesIO(archive_payload)) as archive:
-                self.assertEqual(archive.namelist(), ["alex-QR-phone.ovpn"])
+                self.assertEqual(archive.namelist(), ["user-one-QR-phone.ovpn"])
                 profile = archive.read(archive.namelist()[0])
             self.assertIn(b"redirect-gateway def1", profile)
             self.assertNotIn(b"qr-passphrase", profile)
@@ -428,16 +431,16 @@ class DashboardIntegrationTests(unittest.TestCase):
                 "ROUTEROS_REST_URL": "https://router.example.test:8443/rest",
             }
         )
-        alex_id = next(
+        user_one_id = next(
             user["id"]
             for user in self.server.context.router.list_ovpn_users(
                 RouterOSCredentials("admin", "routerpass")
             )
-            if user["name"] == "alex"
+            if user["name"] == "user-one"
         )
         status, _, payload = self.json_request(
             "POST",
-            f"/api/users/{urllib.parse.quote(alex_id, safe='*')}/profiles",
+            f"/api/users/{urllib.parse.quote(user_one_id, safe='*')}/profiles",
             {"device_name": "Blocked device", "key_passphrase": "blocked-passphrase"},
         )
         self.assertEqual(status, 400)
@@ -468,7 +471,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             )
         }
-        self.assertIn("alex", users)
+        self.assertIn("user-one", users)
         status, _, _ = self.json_request(
             "POST", "/api/users", {
                 "username": "blocked", "email": "blocked@example.com",
@@ -517,7 +520,10 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.request("GET", "/api/users")
         self.assertEqual(status, 200)
-        self.assertEqual([item["name"] for item in json.loads(payload)["users"]], ["alex", "null"])
+        self.assertEqual(
+            [item["name"] for item in json.loads(payload)["users"]],
+            ["user-one", "user-two"],
+        )
 
     def test_duplicate_user_and_terminate_live_session(self) -> None:
         self.login()
@@ -527,26 +533,26 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             )
         }
-        alex_id = users["alex"]["id"]
+        user_one_id = users["user-one"]["id"]
 
         status, headers, profile = self.json_request(
             "POST",
-            f"/api/users/{urllib.parse.quote(alex_id, safe='*')}/duplicate",
+            f"/api/users/{urllib.parse.quote(user_one_id, safe='*')}/duplicate",
             {
-                "username": "alex-copy",
-                "email": "alex.copy@example.com",
+                "username": "user-one-copy",
+                "email": "user.one.copy@example.test",
                 "password": "duplicate-pass",
                 "device_name": "Backup phone",
                 "comment": "Copied access",
             },
         )
         self.assertEqual(status, 200)
-        self.assertIn('filename="alex-copy-Backup-phone.ovpn"', headers["content-disposition"])
+        self.assertIn('filename="user-one-copy-Backup-phone.ovpn"', headers["content-disposition"])
         self.assertIn(b"<cert>", profile)
-        self.assertIn("alex-copy", [item["name"] for item in self.mock.state.users.values()])
+        self.assertIn("user-one-copy", [item["name"] for item in self.mock.state.users.values()])
         self.assertEqual(
-            self.server.context.store.user_emails()["alex-copy"],
-            "alex.copy@example.com",
+            self.server.context.store.user_emails()["user-one-copy"],
+            "user.one.copy@example.test",
         )
 
         session_id = next(iter(self.mock.state.active_sessions))
@@ -575,16 +581,16 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             )
         }
-        null_id = users["null"]["id"]
+        user_two_id = users["user-two"]["id"]
 
         status, _, _ = self.json_request(
-            "POST", f"/api/users/{urllib.parse.quote(null_id, safe='*')}/suspend", csrf=False
+            "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/suspend", csrf=False
         )
         self.assertEqual(status, 403)
         self.assertTrue(self.mock.state.active_sessions)
 
         status, _, payload = self.json_request(
-            "POST", f"/api/users/{urllib.parse.quote(null_id, safe='*')}/suspend"
+            "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/suspend"
         )
         self.assertEqual(status, 200)
         result = json.loads(payload)
@@ -592,16 +598,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(result["disconnected"], 1)
         self.assertEqual(result["remaining"], 0)
         self.assertFalse(self.mock.state.active_sessions)
-        disabled = next(item for item in self.mock.state.users.values() if item["name"] == "null")
+        disabled = next(item for item in self.mock.state.users.values() if item["name"] == "user-two")
         self.assertEqual(disabled["disabled"], "yes")
         self.assertIsNotNone(self.server.context.store.recent_connections(1)[0]["disconnected_at"])
 
         status, _, payload = self.json_request(
-            "POST", f"/api/users/{urllib.parse.quote(null_id, safe='*')}/restore"
+            "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/restore"
         )
         self.assertEqual(status, 200)
         self.assertFalse(json.loads(payload)["disabled"])
-        restored = next(item for item in self.mock.state.users.values() if item["name"] == "null")
+        restored = next(item for item in self.mock.state.users.values() if item["name"] == "user-two")
         self.assertEqual(restored["disabled"], "no")
         actions = [item["action"] for item in self.server.context.store.recent_audit(10)]
         self.assertIn("user.suspend", actions)
@@ -631,26 +637,26 @@ class RedirectTests(unittest.TestCase):
 class ProxyTrustTests(unittest.TestCase):
     def test_cloudflare_header_requires_the_expected_reverse_proxy(self) -> None:
         expected = resolve_client_ip(
-            "172.31.255.1",
+            "192.0.2.1",
             "2001:db8::1",
             trusted_proxy_header="CF-Connecting-IP",
-            trusted_proxy_sources=("172.31.255.1",),
+            trusted_proxy_sources=("192.0.2.1",),
         )
         spoofed = resolve_client_ip(
-            "10.10.10.50",
+            "198.51.100.50",
             "203.0.113.90",
             trusted_proxy_header="CF-Connecting-IP",
-            trusted_proxy_sources=("172.31.255.1",),
+            trusted_proxy_sources=("192.0.2.1",),
         )
         invalid = resolve_client_ip(
-            "172.31.255.1",
+            "192.0.2.1",
             "not-an-ip",
             trusted_proxy_header="CF-Connecting-IP",
-            trusted_proxy_sources=("172.31.255.1",),
+            trusted_proxy_sources=("192.0.2.1",),
         )
         self.assertEqual(expected, "2001:db8::1")
-        self.assertEqual(spoofed, "10.10.10.50")
-        self.assertEqual(invalid, "172.31.255.1")
+        self.assertEqual(spoofed, "198.51.100.50")
+        self.assertEqual(invalid, "192.0.2.1")
 
     def test_direct_proxy_honors_only_first_x_forwarded_for_from_exact_peer(self) -> None:
         expected = resolve_client_ip(

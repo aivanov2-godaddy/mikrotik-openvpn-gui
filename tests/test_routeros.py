@@ -25,7 +25,10 @@ class RouterOSClientTests(unittest.TestCase):
             credentials = RouterOSCredentials("admin", "routerpass")
             resource = client.verify_credentials(credentials)
             self.assertEqual(resource["architecture-name"], "arm64")
-            self.assertEqual([user["name"] for user in client.list_ovpn_users(credentials)], ["alex", "null"])
+            self.assertEqual(
+                [user["name"] for user in client.list_ovpn_users(credentials)],
+                ["user-one", "user-two"],
+            )
             server = client.get_ovpn_server_status(credentials)
             self.assertTrue(server["enabled"])
             self.assertTrue(server["require_client_certificate"])
@@ -33,7 +36,10 @@ class RouterOSClientTests(unittest.TestCase):
             self.assertEqual(server["redirect_gateway"], "def1")
             self.assertFalse(client.get_certificate_settings(credentials)["crl_use"])
             certificates = client.list_ovpn_client_certificates(credentials)
-            self.assertEqual([item["name"] for item in certificates], ["ovpn-alex-s26", "ovpn-null-pixel"])
+            self.assertEqual(
+                [item["name"] for item in certificates],
+                ["ovpn-user-one-device-a", "ovpn-user-two-device-b"],
+            )
             self.assertTrue(all(not item["revoked"] for item in certificates))
             self.assertEqual(mock.state.certificate_queries[-1].get("ca"), ["vpn-ca"])
             self.assertEqual(client.get_admin_role(credentials), "owner")
@@ -61,7 +67,7 @@ class RouterOSClientTests(unittest.TestCase):
             credentials = RouterOSCredentials("admin", "routerpass")
             profile = client.provision_profile(
                 credentials,
-                vpn_user="alex",
+                vpn_user="user-one",
                 device_name="Test Phone",
                 key_passphrase="private-passphrase",
             )
@@ -85,10 +91,10 @@ class RouterOSClientTests(unittest.TestCase):
             sessions = client.list_active_ovpn_sessions(credentials)
             self.assertEqual(len(sessions), 1)
             active = sessions[0]
-            self.assertEqual(active["name"], "null")
-            self.assertEqual(active["source_address"], "10.10.10.100")
-            self.assertEqual(active["vpn_address"], "10.8.0.48")
-            self.assertEqual(active["interface"], "<ovpn-null>")
+            self.assertEqual(active["name"], "user-two")
+            self.assertEqual(active["source_address"], "198.51.100.40")
+            self.assertEqual(active["vpn_address"], "198.18.0.48")
+            self.assertEqual(active["interface"], "<ovpn-user-two>")
             self.assertEqual(active["rx_bytes"], 69988)
             self.assertEqual(active["tx_bytes"], 192455)
             self.assertEqual(active["rx_packets"], 387)

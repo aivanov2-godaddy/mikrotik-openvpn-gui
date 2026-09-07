@@ -16,18 +16,18 @@ class State:
         self.users: dict[str, dict[str, Any]] = {
             "*1": {
                 ".id": "*1",
-                "name": "alex",
+                "name": "user-one",
                 "service": "ovpn",
                 "profile": "vpn-full-tunnel",
-                "comment": "Samsung",
+                "comment": "Android test device",
                 "disabled": "no",
             },
             "*2": {
                 ".id": "*2",
-                "name": "null",
+                "name": "user-two",
                 "service": "ovpn",
                 "profile": "vpn-full-tunnel",
-                "comment": "Pixel",
+                "comment": "Tablet test device",
                 "disabled": "no",
             },
         }
@@ -46,8 +46,8 @@ class State:
             },
             "*CL1": {
                 ".id": "*CL1",
-                "name": "ovpn-alex-s26",
-                "common-name": "alex-samsung-s26-ultra",
+                "name": "ovpn-user-one-device-a",
+                "common-name": "user-one-android-test-device",
                 "fingerprint": "A1:EX:26",
                 "issuer": "vpn-ca",
                 "ca": "vpn-ca",
@@ -59,8 +59,8 @@ class State:
             },
             "*CL2": {
                 ".id": "*CL2",
-                "name": "ovpn-null-pixel",
-                "common-name": "null-google-pixel-10-pro-xl",
+                "name": "ovpn-user-two-device-b",
+                "common-name": "user-two-tablet-test-device",
                 "fingerprint": "NU:LL:10",
                 "issuer": "vpn-ca",
                 "ca": "vpn-ca",
@@ -96,20 +96,20 @@ class State:
         self.active_sessions: dict[str, dict[str, Any]] = {
             "*A1": {
                 ".id": "*A1",
-                "name": "null",
+                "name": "user-two",
                 "service": "ovpn",
-                "caller-id": "10.10.10.100",
-                "address": "10.8.0.48",
+                "caller-id": "198.51.100.40",
+                "address": "198.18.0.48",
                 "uptime": "8m12s",
-                "encoding": "AES-256-GCM/[null-digest]",
+                "encoding": "AES-256-GCM/[user-two-digest]",
                 "session-id": "0x81E0000B",
-                "comment": "Pixel",
+                "comment": "Tablet test device",
             }
         }
         self.interfaces: dict[str, dict[str, Any]] = {
             "*I1": {
                 ".id": "*I1",
-                "name": "<ovpn-null>",
+                "name": "<ovpn-user-two>",
                 "type": "ovpn-in",
                 "running": "true",
                 "dynamic": "true",
@@ -194,7 +194,7 @@ class MockHandler(BaseHTTPRequestHandler):
         with state.lock:
             if path == "/system/resource":
                 self._json([{
-                    "version": "7.23.3", "architecture-name": "arm64", "board-name": "RB5009UPr+S+",
+                    "version": "7.23.3", "architecture-name": "arm64", "board-name": "router-test-board",
                     "cpu-load": "7", "free-memory": "805306368", "total-memory": "1073741824",
                     "free-hdd-space": "943718400", "total-hdd-space": "1073741824",
                     "uptime": "1d6h12m", "bad-blocks": "0",
@@ -306,7 +306,7 @@ class MockHandler(BaseHTTPRequestHandler):
                     return
                 state.active_sessions.pop(session_id)
                 for interface_id, item in list(state.interfaces.items()):
-                    if item.get("name") == "<ovpn-null>":
+                    if item.get("name") == "<ovpn-user-two>":
                         state.interfaces.pop(interface_id)
             elif path.startswith("/certificate/"):
                 state.certificates.pop(urllib.parse.unquote(path.rsplit("/", 1)[1]), None)

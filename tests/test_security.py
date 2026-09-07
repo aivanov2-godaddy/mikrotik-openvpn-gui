@@ -27,14 +27,14 @@ class SecurityTests(unittest.TestCase):
 
     def test_simultaneous_source_detection_is_grouped_and_non_destructive(self) -> None:
         sessions = [
-            {"name": "alex", "source_address": "198.51.100.8"},
-            {"name": "alex", "source_address": "203.0.113.9"},
-            {"name": "null", "source_address": "198.51.100.10"},
+            {"name": "user-one", "source_address": "198.51.100.8"},
+            {"name": "user-one", "source_address": "203.0.113.9"},
+            {"name": "user-two", "source_address": "198.51.100.10"},
             {"name": "missing-source"},
         ]
         self.assertEqual(
             simultaneous_session_sources(sessions),
-            {"alex": ("198.51.100.8", "203.0.113.9")},
+            {"user-one": ("198.51.100.8", "203.0.113.9")},
         )
 
     def test_session_idle_and_absolute_expiry(self) -> None:
@@ -72,7 +72,7 @@ class SecurityTests(unittest.TestCase):
             store.audit(
                 actor="admin",
                 action="test",
-                target="alex",
+                target="user-one",
                 status="success",
                 details={"password": "forbidden", "device": "phone"},
             )
@@ -156,7 +156,7 @@ class SecurityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
             session = {
-                "id": "*A1", "name": "null", "source_address": "198.51.100.8",
+                "id": "*A1", "name": "user-two", "source_address": "198.51.100.8",
                 "vpn_address": "10.8.0.48", "encoding": "AES-256-GCM",
                 "uptime": "1m30s", "rx_bytes": 100, "tx_bytes": 200,
                 "rx_packets": 3, "tx_packets": 4,
@@ -170,23 +170,23 @@ class SecurityTests(unittest.TestCase):
             row = store.recent_connections(1)[0]
             self.assertEqual(row["rx_bytes"], 450)
             self.assertEqual(row["last_seen_at"], 1010)
-            summary = store.connection_summaries()["null"]
+            summary = store.connection_summaries()["user-two"]
             self.assertEqual(summary["connection_count"], 1)
             self.assertEqual(summary["total_bytes"], 1350)
             self.assertEqual(summary["last_source_address"], "198.51.100.8")
             self.assertEqual(summary["active_connections"], 1)
-            self.assertEqual(store.quota_usage("null", 900), 1350)
+            self.assertEqual(store.quota_usage("user-two", 900), 1350)
 
             store.observe_sessions([], now=1020)
             row = store.recent_connections(1)[0]
             self.assertEqual(row["disconnected_at"], 1020)
-            self.assertEqual(store.connection_summaries()["null"]["active_connections"], 0)
+            self.assertEqual(store.connection_summaries()["user-two"]["active_connections"], 0)
 
     def test_controls_and_alerts_are_persistent_and_secret_free(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
             controls = store.set_user_controls(
-                "alex", policy="lan-only", expires_at=1234, max_sessions=2,
+                "user-one", policy="lan-only", expires_at=1234, max_sessions=2,
                 rate_limit_kbps=1024, dns_mode="cloudflare", notifications=False,
                 quota_mb=1024, schedule="weekdays",
             )
@@ -195,14 +195,14 @@ class SecurityTests(unittest.TestCase):
             self.assertFalse(controls["notifications"])
             self.assertEqual(controls["quota_mb"], 1024)
             self.assertEqual(controls["schedule"], "weekdays")
-            store.set_enforcement_state("alex", "quota")
-            self.assertEqual(store.user_controls("alex")["enforcement_state"], "quota")
+            store.set_enforcement_state("user-one", "quota")
+            self.assertEqual(store.user_controls("user-one")["enforcement_state"], "quota")
             self.assertTrue(store.add_alert(
-                severity="warning", action="user.expire", target="alex",
+                severity="warning", action="user.expire", target="user-one",
                 title="Access expired", details="safe details",
             ))
             self.assertFalse(store.add_alert(
-                severity="warning", action="user.expire", target="alex",
+                severity="warning", action="user.expire", target="user-one",
                 title="Access expired", details="duplicate",
             ))
             alerts = store.recent_alerts()
