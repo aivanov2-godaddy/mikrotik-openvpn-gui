@@ -1,6 +1,6 @@
 # Contributing
 
-This private repository accepts changes from authorized collaborators only.
+Changes are accepted through focused pull requests. Until the public v1.0 release gate is complete, repository visibility and package visibility remain unchanged.
 
 ## Workflow
 

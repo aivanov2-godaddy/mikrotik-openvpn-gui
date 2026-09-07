@@ -52,7 +52,7 @@ Enable where available:
 - code scanning with CodeQL, when GitHub Advanced Security is enabled for the private repository;
 - automatic deletion of head branches after merge.
 
-Use a protected `production` environment for the post-merge RouterOS deployment workflow. Require an owner review when the repository plan supports environment approvals and allow only the default branch. Image publication alone does not need RouterOS or Cloudflare credentials.
+Use a protected `production` environment for the RouterOS deployment workflow. Require an owner review when the repository plan supports environment approvals and allow only the default branch. Image publication alone does not need RouterOS or Cloudflare credentials.
 
 Create these environment secrets; never put them in repository variables, workflow files, or commit history:
 
@@ -77,6 +77,8 @@ From the repository's **Settings → Actions → Runners → New self-hosted run
 3. Merge or manually run **Publish container** on the default branch.
 4. Open the package and confirm private visibility, source-repository linkage, ARM64 platform, full-commit tag, and manifest digest.
 5. Apply the branch ruleset using the check names from the successful run.
-6. Configure the protected `production` environment secrets above and run **Deploy production to RouterOS** manually with a known immutable commit as a connectivity test.
+6. Configure the protected `production` environment secrets above and run **Deploy production to RouterOS** manually with a known immutable commit and the required `DEPLOY` confirmation as a connectivity test.
 7. Confirm the run was assigned to the `routeros-private` runner and that RouterOS reports the requested immutable image and a healthy/running container.
 8. Create an expiring `read:packages` pull token and follow [DEPLOYMENT.md](DEPLOYMENT.md).
+
+Do not create `ENABLE_ROUTEROS_AUTODEPLOY` yet. Only after the canary and rollback procedure has been recorded should an owner set that repository variable to the exact value `true`. It is intentionally absent by default, so a fork and a normal merge cannot deploy a router automatically.

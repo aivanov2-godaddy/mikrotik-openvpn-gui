@@ -1,6 +1,6 @@
 # First-time MikroTik installation
 
-This guide installs the VPN Dashboard container on a new RouterOS device. It is deliberately separate from the automated production rollout in [DEPLOYMENT.md](DEPLOYMENT.md): complete this guide once, then let GitHub Actions publish and deploy later changes.
+This guide installs the VPN Dashboard container on a new RouterOS device. It is deliberately separate from [DEPLOYMENT.md](DEPLOYMENT.md): complete this guide once, then use its protected manual promotion path for later changes. Automatic deployment is an owner opt-in only after a canary and rollback validation.
 
 ## Support matrix
 
@@ -89,7 +89,7 @@ The package is private. Create an expiring GitHub classic token with only `read:
 /container/config/set registry-url=https://ghcr.io username="<github-user>" password="<read-packages-token>" tmpdir="<external-disk>/containers/tmp"
 ```
 
-RouterOS resolves `remote-image` relative to this registry URL. Therefore use `aivanov2-godaddy/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>`, not a `ghcr.io/...`-prefixed value. For the production RB5009 ARM64 deployment, the legacy `sha-<full-commit-sha>` tag remains an ARM64 alias and is safe to keep using. Commit tags are immutable deployment references; do not use `edge` in production.
+RouterOS resolves `remote-image` relative to this registry URL. Therefore use `aivanov2-godaddy/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>`, not a `ghcr.io/...`-prefixed value. For the production RB5009 ARM64 deployment, the legacy `sha-<full-commit-sha>` tag remains an ARM64 alias and is safe to keep using. Commit-addressed tags make selection reviewable, but record the published digest for an immutable audit record; do not use `edge` in production.
 
 ## 7. Create mounts and environment lists
 
@@ -166,7 +166,7 @@ Then open the configured `PUBLIC_ORIGIN`, authenticate through the configured pe
 
 ## 11. Enable GitHub-driven updates
 
-After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_SETUP.md](REPOSITORY_SETUP.md): configure the protected `production` environment, the five RouterOS secrets, and the repository-scoped Windows runner labeled `routeros-private`. A merge to `main` runs CI, publishes private ARM64 and AMD64 images with architecture-specific immutable tags, and preserves the unsuffixed ARM64 tag used by production. The deployment workflow updates only that immutable ARM64 reference and automatically restores the previous image if update or startup gates fail.
+After the first install, follow [DEPLOYMENT.md](DEPLOYMENT.md) and [REPOSITORY_SETUP.md](REPOSITORY_SETUP.md): configure the protected `production` environment, the five RouterOS secrets, and the repository-scoped Windows runner labeled `routeros-private`. A merge to the default branch runs CI and publishes ARM64 and AMD64 images with architecture-specific immutable tags. An operator then uses the protected manual promotion workflow, choosing the matching architecture and typing `DEPLOY`; it automatically restores the previous image if update or startup gates fail. Keep automatic deployment disabled unless its documented canary and rollback requirements have been completed.
 
 ## Troubleshooting
 

@@ -15,6 +15,7 @@ from scripts.deploy_routeros_release import (
 
 OLD_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "a" * 40
 NEW_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "b" * 40
+NEW_ARM64_IMAGE = NEW_IMAGE + "-arm64"
 OLD_RELATIVE_IMAGE = OLD_IMAGE.removeprefix("ghcr.io/")
 NEW_RELATIVE_IMAGE = NEW_IMAGE.removeprefix("ghcr.io/")
 
@@ -178,6 +179,9 @@ class DeploymentTests(unittest.TestCase):
         relative = settings(NEW_RELATIVE_IMAGE)
         relative.validate()
         self.assertEqual(relative.revision, "b" * 40)
+
+    def test_accepts_architecture_specific_immutable_image(self) -> None:
+        settings(NEW_ARM64_IMAGE).validate()
 
     def test_accepts_routeros_running_flag_shape(self) -> None:
         self.assertEqual(_status({"running": "true"}), "running")

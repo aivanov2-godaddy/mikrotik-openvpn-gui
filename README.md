@@ -105,7 +105,7 @@ The image includes only safe local defaults and does not infer an OpenVPN topolo
 
 ## Image release and deployment model
 
-Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, pre-commit hooks, and readiness/revision smoke tests for ARM64 and AMD64 images. A merge to the default branch publishes private GHCR images only after verification succeeds. The unsuffixed full-commit tag remains an ARM64 compatibility alias, so the **Deploy production to RouterOS** workflow continues selecting the same immutable tag and updating the configured RouterOS container through its HTTPS REST API.
+Pull requests and pushes run compilation, secret-pattern checks, the complete test suite, pre-commit hooks, and readiness/revision smoke tests for ARM64 and AMD64 images. A merge to the default branch publishes GHCR images only after verification succeeds. The unsuffixed full-commit tag remains an ARM64 compatibility alias for the validated RouterOS target.
 
 RouterOS labels its 32-bit devices as `arm`, but its container documentation calls out ARM32/ARMv5 compatibility; it does not establish ARMv7 compatibility. This project therefore does **not** publish an `arm` image tag. ARM64 is the only RouterOS target validated in production. AMD64 is published for x86/CHR evaluation and must be canary-tested on the exact RouterOS release before use. A future `arm` image will be added only after it is built for and verified on a real ARM32 RouterOS target.
 
@@ -115,17 +115,17 @@ Published image tags include:
 - `edge` for operator inspection only;
 - a Git tag when an explicit release tag is pushed.
 
-Production deploys the immutable full-commit `sha-` tag, never the mutable `edge` tag. The deployer stops the existing container, asks RouterOS to update its configured image, starts it, waits for a running state, and restores the previous image automatically if an update or start gate fails. It never changes mounts, environment lists, interfaces, firewall rules, or persistent data. The workflow requires a protected `production` environment with the five RouterOS secrets documented in [DEPLOYMENT.md](docs/DEPLOYMENT.md). Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; enable them only after an isolated pull test on the installed RouterOS version. GitHub Actions receive only the minimum repository and package permissions required by each job.
+Production deploys the immutable full-commit `sha-` tag, never the mutable `edge` tag. Deployment is manual by default and requires an explicit `DEPLOY` confirmation in the protected **Deploy production to RouterOS** workflow. After a recorded canary and rollback validation, an owner may set `ENABLE_ROUTEROS_AUTODEPLOY=true` as a repository variable to opt into same-repository default-branch automation. Forks never inherit an owner router path or credentials. The deployer stops the existing container, asks RouterOS to update its configured image, starts it, waits for a running state, and restores the previous image automatically if an update or start gate fails. It never changes mounts, environment lists, interfaces, firewall rules, or persistent data. The workflow requires a protected `production` environment with the five RouterOS secrets documented in [DEPLOYMENT.md](docs/DEPLOYMENT.md). Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; enable them only after an isolated pull test on the installed RouterOS version. GitHub Actions receive only the minimum repository and package permissions required by each job.
 
 `/healthz` is a process-liveness check. `/readyz` adds a cached SQLite quick-check and writable transaction that is rolled back, and reports the full revision baked into the image. Promotion separately performs a full integrity check against the stopped checkpoint and requires the `/readyz` revision to match the selected workflow commit.
 
 `deploy_routeros_canary.py` is an offline plan renderer with no network or apply mode. It validates the full image commit, HTTPS origins, REST certificate SAN, RouterOS-safe names/paths, proxy sources, and an isolated canary subnet before printing commands for review. The old `update_routeros_app.py` filename remains only as a fail-closed tombstone: it exits without contacting RouterOS and explains the supported migration path.
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the one-time automation setup, private runner boundary, canary procedure, and rollback gates. The workflow is intentionally fail-closed until its production secrets and private REST path are configured; once the labeled management runner is online, every successful default-branch image publication can deploy automatically.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the one-time automation setup, private runner boundary, canary procedure, and rollback gates. The workflow is intentionally fail-closed until its production secrets and private REST path are configured. Even then, it remains manual unless the repository owner deliberately completes the documented automatic-deployment opt-in.
 
 ## Contributing
 
-Changes use pull requests and passing CI. A merge to `main` publishes and deploys the immutable image automatically after the protected production gates pass. See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports belong in a private GitHub security advisory as described in [SECURITY.md](SECURITY.md).
+Changes use pull requests and passing CI. A merge to `main` publishes immutable architecture-specific images; production deployment is a separate protected opt-in action. See [CONTRIBUTING.md](CONTRIBUTING.md) and [the release contract](docs/RELEASES.md). Security reports belong in a private GitHub security advisory as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

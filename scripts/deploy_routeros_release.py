@@ -25,7 +25,7 @@ from typing import Any
 
 
 _IMAGE_PATTERN = re.compile(
-    r"^(?:ghcr\.io/)?[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):sha-(?P<revision>[0-9a-f]{40})$"
+    r"^(?:ghcr\.io/)?[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):sha-(?P<revision>[0-9a-f]{40})(?:-(?P<architecture>arm64|amd64))?$"
 )
 _STATUS_FAILURES = {"failed", "invalid", "error", "unhealthy"}
 _LIFECYCLE_KEYS = (

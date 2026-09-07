@@ -1,14 +1,23 @@
 # RouterOS deployment from private GHCR
 
-This runbook uses GitHub as the source of application code and GHCR as the image registry. A merge to `main` builds an immutable image and, after the publish workflow succeeds, **Deploy production to RouterOS** pulls and runs the exact full-commit image through the RouterOS HTTPS REST API. The workflow is fail-closed until the private REST path and protected environment secrets are configured.
+This runbook uses GitHub as the source of application code and GHCR as the image registry. A merge to `main` builds commit-addressed images; it does **not** update a router by default. **Deploy production to RouterOS** is an explicit, protected operator action that pulls and runs one selected full-commit image through the RouterOS HTTPS REST API. Record the published digest with each promotion because a tag is not itself an immutable registry object. The workflow is fail-closed until the private REST path and protected environment secrets are configured.
 
-Routine application-only changes use the automated path. Schema, data, RouterOS-policy, or topology changes still require the canary-first procedure below and should not be merged until the canary and rollback gates are complete.
+Routine application-only changes use the explicit promotion path. Schema, data, RouterOS-policy, or topology changes still require the canary-first procedure below and should not be merged until the canary and rollback gates are complete.
 
 If the dashboard is not installed yet, complete the [first-time MikroTik installation guide](INSTALLATION.md) first. This runbook assumes the Container package, device-mode, networking, mounts, environment list, private GHCR access, and HTTPS reverse proxy already exist; it describes the post-merge update path only.
 
-## Automated post-merge deployment
+## Opt-in production deployment
 
-The workflow `.github/workflows/deploy-production.yml` listens for a successful **Publish container** run on `main`. It checks out the published commit, verifies the full SHA, stops the exact configured container, sets its `remote-image` to `<owner>/<repo>:sha-<full-sha>` relative to `/container/config registry-url`, invokes RouterOS `/container/update`, starts the container, and waits for `status=running`. If any update or start gate fails, it attempts to restore the previous immutable image and start it again. It never uploads source files or changes mounts, environment lists, interfaces, firewall rules, or persistent data.
+The workflow `.github/workflows/deploy-production.yml` checks out the trusted default branch, verifies that the selected full SHA is reachable from that branch, stops the exact configured container, sets its `remote-image` to `<owner>/<repo>:sha-<full-sha>-<architecture>` relative to `/container/config registry-url`, invokes RouterOS `/container/update`, starts it, and waits for `status=running`. If any update or start gate fails, it attempts to restore the previous immutable image and start it again. It never uploads source files or changes mounts, environment lists, interfaces, firewall rules, or persistent data.
+
+For every repository and fork, the safe default is manual release promotion:
+
+1. Open **Actions → Deploy production to RouterOS → Run workflow**.
+2. Enter the full 40-character SHA produced by **Publish container** and select the RouterOS container architecture (`arm64` for the validated target; `amd64` only after its own canary).
+3. Type `DEPLOY` in the confirmation field.
+4. Confirm the protected `production` environment approval, when enabled.
+
+Automatic deployment is deliberately disabled unless an owner sets the repository variable `ENABLE_ROUTEROS_AUTODEPLOY` to the exact string `true` **after** a canary and rollback exercise succeeds. The variable only permits successful default-branch image publications from the same repository; it never supplies credentials or makes forks target another router. Keep it unset for manual-only operation, including new public forks.
 
 Configure these as **environment secrets** under a protected GitHub environment named `production`:
 
@@ -22,7 +31,13 @@ Configure these as **environment secrets** under a protected GitHub environment 
 
 The deploy job runs on the repository-scoped Windows runner labeled `routeros-private` inside the management network. The runner must have Python 3.10 or newer already installed; the workflow validates the runtime instead of downloading a toolcache package on every first run. The deploy script uses only Python's standard library. GitHub-hosted runner IP addresses change; do not open RouterOS REST to all GitHub ranges. Keep that runner dedicated to this repository, online only on the trusted management workstation, and patched like a production administrator endpoint. If the runner is unavailable, use an approved narrowly scoped, authenticated deployment relay instead. Keep `www-ssl` enabled and `www` disabled, restrict the service to the runner's management path, and retain RouterOS firewall logging for denied attempts.
 
-Test the path with **workflow_dispatch** and an already-published full commit before relying on automatic post-merge updates. A missing secret, non-HTTPS URL, invalid CA, ambiguous container name, mutable image, or unreachable REST endpoint fails without changing RouterOS.
+Do not make a repository public while it can schedule this RouterOS-reachable
+self-hosted runner. Public-source releases require moving the deployment job
+and runner to a separate private relay repository or an equivalently isolated
+deployment service first. A workflow condition alone is not a sufficient
+boundary for a runner that can reach production management services.
+
+Test the path with **workflow_dispatch** and an already-published full commit before considering automatic post-merge updates. A missing secret, non-HTTPS URL, invalid CA, ambiguous container name, mutable image, invalid confirmation, or unreachable REST endpoint fails without changing RouterOS.
 
 Replace every value in angle brackets. Never commit the resulting commands, exports, or credentials.
 

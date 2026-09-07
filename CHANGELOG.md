@@ -4,7 +4,7 @@ Significant operator-visible changes are recorded here. This project follows the
 
 ## Unreleased
 
-- Route the post-publish RouterOS deployment job to the repository-scoped private Windows runner and use PowerShell-compatible validation, CA handling, and summaries.
+- RouterOS deployment is now manual and explicitly confirmed by default; same-repository automatic deployment is a documented post-canary opt-in.
 
 ### Added
 
@@ -16,6 +16,7 @@ Significant operator-visible changes are recorded here. This project follows the
 - A database-aware `/readyz` gate with baked release identity and ARM64 runtime smoke tests.
 - Post-merge immutable GHCR deployment workflow with RouterOS REST update, start gating, and automatic image rollback.
 - Pre-commit hooks covering repository hygiene, Python linting, JavaScript syntax, tests, compilation, and secret-pattern checks.
+- A fork-safe public image and release contract with architecture-specific tag guidance and a v1.0.0 release checklist.
 
 ### Changed
 
@@ -25,4 +26,4 @@ Significant operator-visible changes are recorded here. This project follows the
 - The legacy host-mounted source updater now exits without contacting RouterOS.
 - Blue/green promotion now requires separate frozen blue, immutable checkpoint, and green working data directories for deterministic rollback.
 - Readiness now uses a ten-second cached SQLite quick-check plus a rolled-back write probe; promotion still requires a full offline integrity check of the stopped checkpoint.
-- Routine application-only merges now deploy the exact full-commit image through the protected production workflow; mutable `edge` remains inspection-only.
+- Routine merges publish immutable images but do not deploy a router unless an operator explicitly promotes one or the owner has completed the documented automatic-deployment opt-in.
