@@ -47,8 +47,6 @@ jobs:
       ROUTEROS_DEPLOY_PASSWORD: ${{ secrets.CANARY_ROUTEROS_DEPLOY_PASSWORD }}
       ROUTEROS_CONTAINER_NAME: ${{ secrets.CANARY_ROUTEROS_CONTAINER_NAME }}
       ROUTEROS_REST_CA_B64: ${{ secrets.CANARY_ROUTEROS_REST_CA_B64 }}
-      CANARY_READY_URL: ${{ secrets.CANARY_READY_URL }}
-      CANARY_READY_CA_B64: ${{ secrets.CANARY_READY_CA_B64 }}
     steps:
       - name: Check out trusted default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,15 +61,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The selected release commit is not available in the trusted checkout' }
           git merge-base --is-ancestor $env:RELEASE_COMMIT "origin/${{ github.event.repository.default_branch }}"
           if ($LASTEXITCODE -ne 0) { throw 'The selected release commit must be reachable from the default branch' }
-          foreach ($name in @('ROUTEROS_REST_URL', 'ROUTEROS_DEPLOY_USERNAME', 'ROUTEROS_DEPLOY_PASSWORD', 'ROUTEROS_CONTAINER_NAME', 'ROUTEROS_REST_CA_B64', 'CANARY_READY_URL', 'CANARY_READY_CA_B64')) {
+          foreach ($name in @('ROUTEROS_REST_URL', 'ROUTEROS_DEPLOY_USERNAME', 'ROUTEROS_DEPLOY_PASSWORD', 'ROUTEROS_CONTAINER_NAME', 'ROUTEROS_REST_CA_B64')) {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing canary secret $name" }
           }
           $caDir = Join-Path $env:RUNNER_TEMP 'routeros-canary'
           New-Item -ItemType Directory -Path $caDir -Force | Out-Null
-          foreach ($pair in @(@('ROUTEROS_REST_CA_B64', 'routeros-ca.crt'), @('CANARY_READY_CA_B64', 'ready-ca.crt'))) {
-            $bytes = [Convert]::FromBase64String([Environment]::GetEnvironmentVariable($pair[0]).Trim().Trim('"') -replace '\s', '')
-            [IO.File]::WriteAllBytes((Join-Path $caDir $pair[1]), $bytes)
-          }
+          $bytes = [Convert]::FromBase64String($env:ROUTEROS_REST_CA_B64.Trim().Trim('"') -replace '\s', '')
+          [IO.File]::WriteAllBytes((Join-Path $caDir 'routeros-ca.crt'), $bytes)
       - name: Capture immutable canary baseline
         run: |
           $ErrorActionPreference = 'Stop'
@@ -86,21 +82,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $caPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/routeros-ca.crt'
-          $healthCaPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/ready-ca.crt'
           $env:ROUTEROS_REST_CA_PEM = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($caPath))
           $env:RELEASE_IMAGE = "${{ github.repository }}:sha-$env:RELEASE_COMMIT-$env:RELEASE_ARCHITECTURE"
           python scripts/deploy_routeros_release.py
-          python scripts/check_deployment_health.py --url "$env:CANARY_READY_URL" --expected-revision "$env:RELEASE_COMMIT" --ca-file "$healthCaPath"
       - name: Restore and verify canary baseline
         if: always() && env.CANARY_BASELINE_IMAGE != '' && env.CANARY_BASELINE_REVISION != ''
         run: |
           $ErrorActionPreference = 'Stop'
           $caPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/routeros-ca.crt'
-          $healthCaPath = Join-Path $env:RUNNER_TEMP 'routeros-canary/ready-ca.crt'
           $env:ROUTEROS_REST_CA_PEM = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($caPath))
           $env:RELEASE_IMAGE = $env:CANARY_BASELINE_IMAGE
           python scripts/deploy_routeros_release.py
-          python scripts/check_deployment_health.py --url "$env:CANARY_READY_URL" --expected-revision "$env:CANARY_BASELINE_REVISION" --ca-file "$healthCaPath"
       - name: Write canary summary
         if: always()
         run: |

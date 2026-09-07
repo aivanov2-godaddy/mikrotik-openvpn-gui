@@ -17,7 +17,7 @@ For every repository and fork, the safe default is manual release promotion:
 3. Type `DEPLOY` in the confirmation field.
 4. Confirm the protected `production` environment approval, when enabled.
 
-Automatic deployment is deliberately disabled unless an owner sets the repository variable `ENABLE_ROUTEROS_AUTODEPLOY` to the exact string `true` **after** the isolated canary has been provisioned and its rollback exercise succeeds. With that opt-in, a successful default-branch image publication runs **Validate RouterOS canary** first. The canary updates only the pre-provisioned canary container, proves `/readyz` reports the candidate's exact revision, restores its prior immutable image, and proves that baseline is ready again. Only a fully successful same-repository `push` canary run can start production promotion for the exact candidate SHA. A failed, cancelled, manual, stale, or foreign-repository run cannot promote production. The variable never supplies credentials or makes forks target another router. Keep it unset for manual-only operation, including new public forks.
+Automatic deployment is deliberately disabled unless an owner sets the repository variable `ENABLE_ROUTEROS_AUTODEPLOY` to the exact string `true` **after** the isolated canary has been provisioned and its rollback exercise succeeds. With that opt-in, a successful default-branch image publication runs **Validate RouterOS canary** first. The canary updates only the pre-provisioned canary container, verifies the exact trusted immutable tag plus RouterOS's local `/readyz` healthcheck state, restores its prior immutable image, and proves that baseline is healthy again. No public canary hostname, NAT rule, or direct runner-to-container route is required. Only a fully successful same-repository `push` canary run can start production promotion for the exact candidate SHA. A failed, cancelled, manual, stale, or foreign-repository run cannot promote production. The variable never supplies credentials or makes forks target another router. Keep it unset for manual-only operation, including new public forks.
 
 Create a protected `canary` GitHub environment before enabling the variable. It must contain these secrets for the **separate, non-public canary container**:
 
@@ -27,10 +27,8 @@ Create a protected `canary` GitHub environment before enabling the variable. It 
 | `CANARY_ROUTEROS_DEPLOY_USERNAME` / `CANARY_ROUTEROS_DEPLOY_PASSWORD` | Dedicated canary deployment credentials |
 | `CANARY_ROUTEROS_CONTAINER_NAME` | Exact isolated canary container name, never the production name |
 | `CANARY_ROUTEROS_REST_CA_B64` | Base64 PEM for the RouterOS REST server CA |
-| `CANARY_READY_URL` | Credential-free HTTPS URL ending exactly in `/readyz` for the private canary endpoint |
-| `CANARY_READY_CA_B64` | Base64 PEM for the canary endpoint CA |
 
-The canary's data mount, root directory, VETH, and proxy route must be distinct from production. Do not enable automatic deployment while the canary shares a database, container name, directory, or public proxy route with production.
+The canary's data mount, root directory, VETH, and proxy route must be distinct from production. Do not enable automatic deployment while the canary shares a database, container name, directory, or public proxy route with production. RouterOS executes the image healthcheck locally against `/readyz`, so keep the canary unexposed.
 
 Configure these as **environment secrets** under a protected GitHub environment named `production`:
 

@@ -25,8 +25,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.event == 'workflow_run'", workflow)
         self.assertIn('workflows: ["Publish container"]', canary)
         self.assertIn("CANARY_BASELINE_IMAGE", canary)
-        self.assertIn("check_deployment_health.py", canary)
-        self.assertIn("CANARY_READY_URL", canary)
+        self.assertIn("RouterOS canary gate", canary)
+        self.assertNotIn("CANARY_READY_URL", canary)
+        self.assertNotIn("check_deployment_health.py", canary)
 
         publish = (ROOT / ".github/workflows/container.yml").read_text(encoding="utf-8")
         self.assertNotIn('"scripts/deploy_routeros_release.py"', publish)
