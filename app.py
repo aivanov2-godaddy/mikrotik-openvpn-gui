@@ -38,6 +38,7 @@ DNS_VALUES = {"router", "cloudflare"}
 EXPIRY_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
 SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
+IMMUTABLE_IMAGE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._/-]*:sha-[a-f0-9]{40,64}(?:-(?:arm64|amd64))?$", re.I)
 
 
 def baked_release_value(name: str) -> str:
@@ -510,6 +511,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except RouterOSError as error:
                 self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
             return
+        if path == "/api/setup-preflight":
+            session = self._require_session(api=True)
+            if not session:
+                return
+            try:
+                credentials = self._credentials(session)
+                router = self.server.context.router.verify_credentials(credentials)
+                ovpn = self.server.context.router.get_ovpn_server_status(credentials)
+                self._json({
+                    "router": {
+                        "architecture": str(router.get("architecture-name", "unknown")),
+                        "version": str(router.get("version", "unknown")),
+                        "free_storage": str(router.get("free-hdd-space", "unknown")),
+                    },
+                    "openvpn": {"name": ovpn.get("name", ""), "enabled": bool(ovpn.get("enabled"))},
+                    "checks": [
+                        {"name": "RouterOS REST authentication", "status": "pass"},
+                        {"name": "OpenVPN server object", "status": "pass" if ovpn.get("name") else "fail"},
+                        {"name": "Container package and device mode", "status": "manual"},
+                    ],
+                })
+            except RouterOSError as error:
+                self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            return
         if path == "/api/audit.csv":
             if not self._require_session(api=True):
                 return
@@ -693,6 +718,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/users":
             self._create_user()
             return
+        if path == "/api/setup-plan":
+            self._setup_plan()
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/(suspend|restore)", path)
         if match:
             self._set_user_access(
@@ -713,6 +741,67 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._ack_alert(int(match.group(1)))
             return
         self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _setup_plan(self) -> None:
+        """Generate an intentionally non-executable installation review plan."""
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session):
+            return
+        try:
+            data = self._read_json()
+            origin = str(data.get("origin", "")).strip().rstrip("/")
+            image = str(data.get("image", "")).strip()
+            storage = str(data.get("storage", "")).strip()
+            subnet = ipaddress.ip_network(str(data.get("subnet", "")).strip(), strict=True)
+            lan = ipaddress.ip_network(str(data.get("lan", "")).strip(), strict=True)
+        except (ValueError, TypeError):
+            self._json({"error": "Use valid IPv4 CIDRs for the container and LAN networks."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if not origin.startswith(("https://", "http://")):
+            self._json({"error": "Dashboard origin must be an http:// or https:// URL."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if origin.startswith("http://") and not re.match(r"^http://(?:127\.0\.0\.1|localhost|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)", origin):
+            self._json({"error": "Public dashboard origins require HTTPS; plain HTTP is limited to private/local setup."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if not IMMUTABLE_IMAGE_PATTERN.fullmatch(image):
+            self._json({"error": "Use an immutable sha- image tag; mutable tags such as latest or edge are rejected."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if not storage.startswith("/") or ".." in storage or storage in {"/", "/flash"}:
+            self._json({"error": "Choose a dedicated absolute external-storage path, without '..' or /flash."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if (
+            subnet.version != 4
+            or lan.version != 4
+            or subnet.num_addresses < 4
+            or subnet.overlaps(lan)
+        ):
+            self._json(
+                {"error": "The container subnet must be IPv4, provide two usable addresses, and not overlap the LAN CIDR."},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+        plan = "\n".join([
+            "# REVIEW ONLY — do not paste until each placeholder is reviewed.",
+            "# This plan intentionally omits passwords, tokens, private keys, and profile files.",
+            f"# Dashboard origin: {origin}",
+            f"# Immutable image: {image}",
+            f"# Dedicated external storage: {storage}",
+            f"# Container subnet: {subnet} (non-overlapping with LAN {lan})",
+            "",
+            "# Manual gates before any apply:",
+            "# 1. Install the matching RouterOS Container package and complete physical device-mode confirmation.",
+            "# 2. Confirm free external storage, DNS, and HTTPS access to the chosen registry.",
+            "# 3. Review existing bridges, firewall rules, OpenVPN objects, certificates, and REST TLS.",
+            "",
+            "# Idempotent review skeleton (replace <...> only after a backup and maintenance window):",
+            f"/container/config/set tmpdir={storage}/tmp",
+            f"/interface/veth/add name=<veth-vpn-dashboard> address={list(subnet.hosts())[1]}/{subnet.prefixlen} gateway={list(subnet.hosts())[0]}",
+            "# Attach the veth to a reviewed dedicated bridge; do not change WAN firewall automatically.",
+            f"/container/add remote-image={image} interface=<veth-vpn-dashboard> root-dir={storage}/root",
+            f"# Mount persistent dashboard data at {storage}/data -> /data; configure non-secret environment values separately.",
+            "# Start the canary, verify /healthz over the local bridge, then publish HTTPS only after certificate validation.",
+        ])
+        self._json({"plan": plan, "origin": origin, "image": image})
 
     def do_PATCH(self) -> None:
         path = urllib.parse.urlsplit(self.path).path

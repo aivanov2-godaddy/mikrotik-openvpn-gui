@@ -201,6 +201,49 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["sessions"][0]["rx_packets"], 387)
         self.assertEqual(snapshot["sessions"][0]["tx_packets"], 825)
         self.assertEqual(snapshot["router"]["cpu-load"], "7")
+
+        status, _, payload = self.request("GET", "/api/setup-preflight")
+        self.assertEqual(status, 200)
+        preflight = json.loads(payload)
+        self.assertEqual(preflight["checks"][0]["status"], "pass")
+        self.assertEqual(preflight["checks"][-1]["status"], "manual")
+
+        status, _, payload = self.json_request(
+            "POST",
+            "/api/setup-plan",
+            {
+                "origin": "https://vpn.example.test",
+                "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64",
+                "storage": "/disk1/vpn-dashboard",
+                "subnet": "172.31.250.0/30",
+                "lan": "192.0.2.0/24",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("REVIEW ONLY", json.loads(payload)["plan"])
+
+        status, _, _ = self.json_request(
+            "POST",
+            "/api/setup-plan",
+            {
+                "origin": "https://vpn.example.test", "image": "ghcr.io/example/gui:latest",
+                "storage": "/disk1/vpn-dashboard", "subnet": "172.31.250.0/30", "lan": "192.0.2.0/24",
+            },
+        )
+        self.assertEqual(status, 400)
+
+        status, _, _ = self.json_request(
+            "POST",
+            "/api/setup-plan",
+            {
+                "origin": "https://vpn.example.test",
+                "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64",
+                "storage": "/disk1/vpn-dashboard",
+                "subnet": "172.31.250.0/31",
+                "lan": "192.0.2.0/24",
+            },
+        )
+        self.assertEqual(status, 400)
         self.assertEqual(snapshot["connections"][0]["vpn_user"], "null")
         self.assertEqual(
             {item["name"]: item["email"] for item in snapshot["users"]},

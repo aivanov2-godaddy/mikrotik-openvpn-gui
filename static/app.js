@@ -849,6 +849,59 @@ $('#delete-form')?.addEventListener('submit', async (event) => {
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
 });
 
+async function runSetupPreflight() {
+  const list = $('[data-setup-checks]');
+  if (!list) return;
+  list.innerHTML = '<li><i></i><span>Checking the connected router without making changes…</span></li>';
+  try {
+    const response = await resultOrError(await api('/api/setup-preflight'));
+    const result = await response.json();
+    const labels = { pass: 'Ready', fail: 'Needs attention', manual: 'Manual gate' };
+    list.replaceChildren(...result.checks.map((check) => {
+      const item = document.createElement('li');
+      item.className = `setup-check ${check.status}`;
+      item.innerHTML = '<i></i><span><strong></strong><small></small></span>';
+      $('strong', item).textContent = `${labels[check.status] || 'Unknown'} · ${check.name}`;
+      $('small', item).textContent = check.status === 'manual'
+        ? 'Confirm this in WinBox before applying any reviewed plan.'
+        : `RouterOS ${result.router.version} · ${result.router.architecture}`;
+      return item;
+    }));
+  } catch (error) {
+    list.innerHTML = '<li class="setup-check fail"><i></i><span><strong>Preflight unavailable</strong><small></small></span></li>';
+    $('small', list).textContent = error.message;
+  }
+}
+
+$('[data-setup-preflight]')?.addEventListener('click', runSetupPreflight);
+
+$('[data-setup-plan]')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  setBusy(form, true);
+  setStatus(form, 'Validating inputs and generating a review-only plan…');
+  try {
+    const response = await resultOrError(await api('/api/setup-plan', { method: 'POST', body: values }));
+    const result = await response.json();
+    const output = $('[data-setup-output]');
+    $('[data-setup-plan-output]', output).textContent = result.plan;
+    output.hidden = false;
+    setStatus(form, 'Plan generated. Review every placeholder before any manual apply.');
+  } catch (error) {
+    setStatus(form, error.message, true);
+  } finally {
+    setBusy(form, false);
+  }
+});
+
+$('[data-copy-setup]')?.addEventListener('click', async () => {
+  const plan = $('[data-setup-plan-output]')?.textContent || '';
+  if (!plan) return;
+  try { await copyText(plan); toast('Review plan copied. It contains no credentials or secrets.'); }
+  catch (_) { toast('Could not copy the plan automatically.', 'error'); }
+});
+
 document.addEventListener('click', (event) => {
   if (!event.target.closest('.action-menu')) $$('.action-menu[open]').forEach((item) => item.removeAttribute('open'));
 });
