@@ -21,6 +21,7 @@ class ConfigurationError(ValueError):
 
 _ROUTEROS_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_TRUSTED_PROXY_HEADERS = {"cf-connecting-ip": "CF-Connecting-IP", "x-forwarded-for": "X-Forwarded-For"}
 
 
 def _value(values: Mapping[str, str], name: str, default: str = "") -> str:
@@ -111,6 +112,21 @@ def _proxy_source(value: str) -> str:
         raise ConfigurationError("TRUSTED_PROXY_SOURCES must contain individual IP addresses") from error
 
 
+def _trusted_proxy_header(value: str) -> str:
+    header = _TRUSTED_PROXY_HEADERS.get(value.casefold())
+    if header is None:
+        allowed = ", ".join(_TRUSTED_PROXY_HEADERS.values())
+        raise ConfigurationError(f"TRUSTED_PROXY_HEADER must be one of: {allowed}")
+    return header
+
+
+def _access_layer_label(value: str, *, default: str) -> str:
+    label = value or default
+    if len(label) > 80 or any(ord(character) < 32 for character in label):
+        raise ConfigurationError("ACCESS_LAYER_LABEL must be a short, printable label")
+    return label
+
+
 @dataclass(frozen=True, slots=True)
 class OpenVPNTopology:
     """The RouterOS objects and network values needed to issue a client profile."""
@@ -192,6 +208,8 @@ class RuntimeConfig:
     database_path: str
     trust_cloudflare: bool
     trusted_proxy_sources: tuple[str, ...]
+    trusted_proxy_header: str | None
+    access_layer_label: str
     dashboard_name: str
     router_display_name: str
     topology: OpenVPNTopology
@@ -209,13 +227,28 @@ class RuntimeConfig:
             for item in _value(source, "TRUSTED_PROXY_SOURCES").split(",")
             if item.strip()
         )
+        configured_header = _value(source, "TRUSTED_PROXY_HEADER")
+        trusted_proxy_header = (
+            _trusted_proxy_header(configured_header) if configured_header else None
+        )
         if trust_cloudflare and not sources:
             raise ConfigurationError(
                 "TRUSTED_PROXY_SOURCES is required when TRUST_CLOUDFLARE is true"
             )
-        if sources and not trust_cloudflare:
+        if trust_cloudflare:
+            if trusted_proxy_header is None:
+                trusted_proxy_header = "CF-Connecting-IP"
+            elif trusted_proxy_header != "CF-Connecting-IP":
+                raise ConfigurationError(
+                    "TRUST_CLOUDFLARE requires TRUSTED_PROXY_HEADER=CF-Connecting-IP"
+                )
+        elif sources and trusted_proxy_header is None:
             raise ConfigurationError(
-                "TRUSTED_PROXY_SOURCES requires TRUST_CLOUDFLARE=true"
+                "TRUSTED_PROXY_HEADER is required when TRUSTED_PROXY_SOURCES is set"
+            )
+        elif trusted_proxy_header and not sources:
+            raise ConfigurationError(
+                "TRUSTED_PROXY_SOURCES is required when TRUSTED_PROXY_HEADER is set"
             )
         return cls(
             public_origin=public_origin,
@@ -225,6 +258,11 @@ class RuntimeConfig:
             database_path=_value(source, "DATABASE_PATH", "/data/dashboard.sqlite"),
             trust_cloudflare=trust_cloudflare,
             trusted_proxy_sources=sources,
+            trusted_proxy_header=trusted_proxy_header,
+            access_layer_label=_access_layer_label(
+                _value(source, "ACCESS_LAYER_LABEL"),
+                default="Cloudflare Access" if trust_cloudflare else "Direct HTTPS",
+            ),
             dashboard_name=_value(source, "DASHBOARD_NAME", "MikroTik OpenVPN GUI"),
             router_display_name=_value(source, "ROUTER_DISPLAY_NAME", "RouterOS"),
             topology=OpenVPNTopology.from_values(source),

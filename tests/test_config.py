@@ -37,6 +37,32 @@ class RuntimeConfigTests(unittest.TestCase):
             RuntimeConfig.from_environ({"ROUTEROS_REST_URL": "https://router.example.com/api"})
         with self.assertRaisesRegex(ConfigurationError, "TRUSTED_PROXY_SOURCES"):
             RuntimeConfig.from_environ({"TRUST_CLOUDFLARE": "true"})
+        with self.assertRaisesRegex(ConfigurationError, "TRUSTED_PROXY_HEADER"):
+            RuntimeConfig.from_environ({"TRUSTED_PROXY_SOURCES": "192.0.2.10"})
+        with self.assertRaisesRegex(ConfigurationError, "must be one of"):
+            RuntimeConfig.from_environ(
+                {
+                    "TRUSTED_PROXY_SOURCES": "192.0.2.10",
+                    "TRUSTED_PROXY_HEADER": "Forwarded",
+                }
+            )
+
+    def test_direct_https_proxy_and_legacy_cloudflare_modes_are_explicit(self) -> None:
+        direct = RuntimeConfig.from_environ(
+            {
+                "TRUSTED_PROXY_SOURCES": "192.0.2.10",
+                "TRUSTED_PROXY_HEADER": "x-forwarded-for",
+                "ACCESS_LAYER_LABEL": "Direct HTTPS via Caddy",
+            }
+        )
+        cloudflare = RuntimeConfig.from_environ(
+            {"TRUST_CLOUDFLARE": "true", "TRUSTED_PROXY_SOURCES": "192.0.2.11"}
+        )
+        self.assertFalse(direct.trust_cloudflare)
+        self.assertEqual(direct.trusted_proxy_header, "X-Forwarded-For")
+        self.assertEqual(direct.access_layer_label, "Direct HTTPS via Caddy")
+        self.assertEqual(cloudflare.trusted_proxy_header, "CF-Connecting-IP")
+        self.assertEqual(cloudflare.access_layer_label, "Cloudflare Access")
 
     def test_incomplete_topology_fails_closed_for_profile_issuing(self) -> None:
         topology = OpenVPNTopology.from_values(

@@ -52,14 +52,14 @@ def baked_release_value(name: str) -> str:
 
 def resolve_client_ip(
     peer: str,
-    cloudflare_header: str,
+    forwarded_header: str,
     *,
-    trust_cloudflare: bool,
+    trusted_proxy_header: str | None,
     trusted_proxy_sources: tuple[str, ...],
 ) -> str:
-    if trust_cloudflare and peer in trusted_proxy_sources:
+    if trusted_proxy_header and peer in trusted_proxy_sources:
         try:
-            return ipaddress.ip_address(cloudflare_header.strip()).compressed
+            return ipaddress.ip_address(forwarded_header.split(",", 1)[0].strip()).compressed
         except ValueError:
             pass
     return peer
@@ -160,10 +160,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _client_ip(self) -> str:
         peer = self.client_address[0]
         context = self.server.context
+        header = context.config.trusted_proxy_header
         return resolve_client_ip(
             peer,
-            self.headers.get("CF-Connecting-IP", ""),
-            trust_cloudflare=context.config.trust_cloudflare,
+            self.headers.get(header, "") if header else "",
+            trusted_proxy_header=header,
             trusted_proxy_sources=context.config.trusted_proxy_sources,
         )
 
@@ -703,7 +704,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 router_display_name=self.server.context.config.router_display_name,
                 vpn_host=self.server.context.config.topology.host,
                 router_dns=self.server.context.config.topology.router_dns,
-                access_protected_by_cloudflare=self.server.context.config.trust_cloudflare,
+                access_layer_label=self.server.context.config.access_layer_label,
             )
         )
 

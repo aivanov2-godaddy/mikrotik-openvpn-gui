@@ -633,24 +633,40 @@ class ProxyTrustTests(unittest.TestCase):
         expected = resolve_client_ip(
             "172.31.255.1",
             "2001:db8::1",
-            trust_cloudflare=True,
+            trusted_proxy_header="CF-Connecting-IP",
             trusted_proxy_sources=("172.31.255.1",),
         )
         spoofed = resolve_client_ip(
             "10.10.10.50",
             "203.0.113.90",
-            trust_cloudflare=True,
+            trusted_proxy_header="CF-Connecting-IP",
             trusted_proxy_sources=("172.31.255.1",),
         )
         invalid = resolve_client_ip(
             "172.31.255.1",
             "not-an-ip",
-            trust_cloudflare=True,
+            trusted_proxy_header="CF-Connecting-IP",
             trusted_proxy_sources=("172.31.255.1",),
         )
         self.assertEqual(expected, "2001:db8::1")
         self.assertEqual(spoofed, "10.10.10.50")
         self.assertEqual(invalid, "172.31.255.1")
+
+    def test_direct_proxy_honors_only_first_x_forwarded_for_from_exact_peer(self) -> None:
+        expected = resolve_client_ip(
+            "192.0.2.10",
+            "203.0.113.50, 192.0.2.200",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10",),
+        )
+        spoofed = resolve_client_ip(
+            "192.0.2.99",
+            "203.0.113.50",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10",),
+        )
+        self.assertEqual(expected, "203.0.113.50")
+        self.assertEqual(spoofed, "192.0.2.99")
 
 
 if __name__ == "__main__":

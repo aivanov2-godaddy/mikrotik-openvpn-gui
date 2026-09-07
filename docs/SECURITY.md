@@ -40,7 +40,7 @@ The GitHub deployment workflow uses a separate base64-encoded copy of that publi
 
 - Keep the dashboard and RouterOS REST endpoints on private container/management networks.
 - Restrict public origin ports to the approved reverse proxy or edge egress networks.
-- Permit forwarded client headers only from the exact RouterOS proxy addresses listed in `TRUSTED_PROXY_SOURCES`.
+- Permit a forwarded client-IP header only from the exact immediate reverse-proxy addresses in `TRUSTED_PROXY_SOURCES`; set `TRUSTED_PROXY_HEADER` to the one header that proxy supplies. The dashboard accepts only `CF-Connecting-IP` and `X-Forwarded-For`, and ignores either header from every other peer.
 - Keep OpenVPN data traffic separate from the web control plane.
 - Restrict WinBox, SSH, REST, and container management to explicitly approved management sources.
 
@@ -54,7 +54,7 @@ The GitHub deployment workflow uses a separate base64-encoded copy of that publi
 
 ## Administrator authorization
 
-The dashboard verifies the credentials presented at login against RouterOS. Prefer a dedicated RouterOS group with only the policy needed by dashboard operations after that policy has been tested against every supported action. Avoid routine use of a full RouterOS owner account. Cloudflare Access can provide an independent first factor and identity allowlist, but it does not replace RouterOS authorization.
+The dashboard verifies the credentials presented at login against RouterOS. Prefer a dedicated RouterOS group with only the policy needed by dashboard operations after that policy has been tested against every supported action. Avoid routine use of a full RouterOS owner account. An optional identity perimeter such as Cloudflare Access can provide an independent first factor and identity allowlist, but it does not replace RouterOS authorization.
 
 ## Build and release integrity
 

@@ -255,7 +255,7 @@ def dashboard_page(
     router_display_name: str = "RouterOS",
     vpn_host: str = "",
     router_dns: str = "",
-    access_protected_by_cloudflare: bool = False,
+    access_layer_label: str = "Direct HTTPS",
 ) -> str:
     device_counts: dict[str, int] = {}
     for device in devices:
@@ -522,7 +522,7 @@ def dashboard_page(
     router_display_name_safe = html.escape(router_display_name)
     vpn_host_safe = html.escape(vpn_host or "not configured")
     router_dns_safe = html.escape(router_dns or "not configured")
-    access_layer = "Cloudflare Access" if access_protected_by_cloudflare else "your configured access layer"
+    access_layer = html.escape(access_layer_label)
     warning_markup = ""
     if warnings:
         warning_items = "".join(f"<li>{html.escape(item)}</li>" for item in warnings)
@@ -571,7 +571,7 @@ def dashboard_page(
             <div class="health-item"><span>Storage used</span><strong data-router-storage>{storage_used}%</strong><progress data-router-storage-progress max="100" value="{storage_used}"></progress></div>
             <div class="health-item"><span>Router uptime</span><strong data-router-uptime>{html.escape(uptime)}</strong><small>No bad storage blocks detected</small></div>
           </div></article>
-          <article class="panel security-posture-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Security posture</strong><small>Controls verified against RouterOS now</small></span></div><span class="posture-score">{sum((server_enabled, client_certificates, strong_cipher, tls_restricted, full_tunnel))}/5 enforced</span></div><ul class="posture-list"><li class="{'pass' if client_certificates else 'fail'}"><i></i><span><strong>Device certificate required</strong><small>Stolen VPN passwords alone cannot connect.</small></span></li><li class="{'pass' if strong_cipher else 'fail'}"><i></i><span><strong>AES-256-GCM encryption</strong><small>Strong authenticated tunnel encryption is enforced.</small></span></li><li class="{'pass' if tls_restricted else 'fail'}"><i></i><span><strong>TLS restricted</strong><small>{html.escape(str(ovpn_server.get('tls_version', 'Unknown')))} accepted by the server.</small></span></li><li class="{'pass' if full_tunnel else 'fail'}"><i></i><span><strong>Full-tunnel routing</strong><small>Phone internet and LAN access travel through MikroTik.</small></span></li><li class="pass"><i></i><span><strong>Protected dashboard login</strong><small>{access_layer} plus RouterOS credentials.</small></span></li></ul></article>
+          <article class="panel security-posture-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Security posture</strong><small>Controls verified against RouterOS now</small></span></div><span class="posture-score">{sum((server_enabled, client_certificates, strong_cipher, tls_restricted, full_tunnel))}/5 enforced</span></div><ul class="posture-list"><li class="{'pass' if client_certificates else 'fail'}"><i></i><span><strong>Device certificate required</strong><small>Stolen VPN passwords alone cannot connect.</small></span></li><li class="{'pass' if strong_cipher else 'fail'}"><i></i><span><strong>AES-256-GCM encryption</strong><small>Strong authenticated tunnel encryption is enforced.</small></span></li><li class="{'pass' if tls_restricted else 'fail'}"><i></i><span><strong>TLS restricted</strong><small>{html.escape(str(ovpn_server.get('tls_version', 'Unknown')))} accepted by the server.</small></span></li><li class="{'pass' if full_tunnel else 'fail'}"><i></i><span><strong>Full-tunnel routing</strong><small>Phone internet and LAN access travel through MikroTik.</small></span></li><li class="pass"><i></i><span><strong>HTTPS dashboard access</strong><small>{access_layer}; RouterOS credentials authorize dashboard actions.</small></span></li></ul></article>
         </section>
         <section class="overview-grid">
           <article class="panel quick-start-panel"><div class="panel-heading"><div>{_icon('enable')}<span><strong>Connect a new phone</strong><small>Three simple steps</small></span></div></div><ol class="simple-steps"><li><strong>1</strong><span><b>Add the person</b><small>The dashboard creates everything automatically.</small></span></li><li><strong>2</strong><span><b>Download the profile</b><small>Send the downloaded file to the phone.</small></span></li><li><strong>3</strong><span><b>Open it with OpenVPN</b><small>Enter the VPN username and password, then connect.</small></span></li></ol>{add_phone_button}</article>

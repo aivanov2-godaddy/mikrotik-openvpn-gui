@@ -111,8 +111,12 @@ DATABASE_PATH=/data/dashboard.sqlite
 APP_PORT=8080
 REDIRECT_PORT=8081
 DROP_PRIVILEGES=true
-TRUST_CLOUDFLARE=true
-TRUSTED_PROXY_SOURCES=<approved-proxy-sources>
+# Choose one secure exposure mode from docs/EXPOSURE.md.
+# Direct HTTPS through an exact, private reverse-proxy peer:
+TRUST_CLOUDFLARE=false
+TRUSTED_PROXY_SOURCES=<reverse-proxy-address-seen-by-dashboard>
+TRUSTED_PROXY_HEADER=X-Forwarded-For
+ACCESS_LAYER_LABEL=Direct HTTPS
 OVPN_PPP_PROFILE=<existing-ppp-profile>
 OVPN_SERVER_NAME=<existing-openvpn-server>
 OVPN_CA_NAME=<existing-certificate-authority>
@@ -125,7 +129,7 @@ DASHBOARD_NAME=MikroTik OpenVPN GUI
 ROUTER_DISPLAY_NAME=RouterOS
 ```
 
-Keep `ROUTEROS_INSECURE_TLS=false` in production. `TRUST_CLOUDFLARE` is safe only when every request reaches the app through a trusted Cloudflare/reverse-proxy path. The `OVPN_*`, `VPN_LAN_CIDR`, and `VPN_ROUTER_DNS` values are required before the dashboard can create a user or issue a profile; the dashboard fails closed until they are present.
+Keep `ROUTEROS_INSECURE_TLS=false` in production. Choose exactly one supported exposure configuration in [EXPOSURE.md](EXPOSURE.md) before adding the environment list. The `OVPN_*`, `VPN_LAN_CIDR`, and `VPN_ROUTER_DNS` values are required before the dashboard can create a user or issue a profile; the dashboard fails closed until they are present.
 
 ## 8. Add and start the first container
 
@@ -147,7 +151,7 @@ The expected state is `status=running`, `healthy=true`, and a successful health 
 
 ## 9. Publish the HTTPS dashboard
 
-Keep the container address private. Configure the existing reverse proxy or RouterOS web proxy so your `PUBLIC_ORIGIN` terminates TLS on port 443 and proxies to the container's `8080`; redirect port 80 to HTTPS. Cloudflare may provide the public certificate and country/access policy, but it must not proxy RouterOS REST or OpenVPN UDP traffic. Never expose the container or REST endpoint directly to the public internet.
+Keep the container address private. Configure the selected reverse proxy so your `PUBLIC_ORIGIN` terminates TLS on port 443 and proxies to the container's `8080`; redirect port 80 to HTTPS. See [EXPOSURE.md](EXPOSURE.md) for direct HTTPS, optional Cloudflare, and local-development configurations. Cloudflare must not proxy RouterOS REST or OpenVPN UDP traffic. Never expose the container or REST endpoint directly to the public internet.
 
 ## 10. Validate the installation
 
