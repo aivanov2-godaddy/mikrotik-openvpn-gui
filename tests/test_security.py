@@ -63,10 +63,8 @@ class SecurityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"
             store = MetadataStore(str(database))
-            self.assertEqual(
-                store.user_emails(),
-                {"alex": "wanted@wanted.sx", "null": "wanted@wanted.sx"},
-            )
+            self.assertEqual(store.user_emails(), {})
+            self.assertEqual(store.all_user_controls(), {})
             store.set_user_email("maria", "maria@example.com")
             self.assertEqual(store.user_emails()["maria"], "maria@example.com")
             store.delete_user_email("maria")
@@ -81,6 +79,26 @@ class SecurityTests(unittest.TestCase):
             row = store.recent_audit(1)[0]
             self.assertNotIn("forbidden", row["details"])
             self.assertNotIn("password", database.read_bytes().decode("latin-1", errors="ignore"))
+
+    def test_existing_metadata_is_preserved_during_initialization(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            store.set_user_email("existing-user", "owner@example.com")
+            store.set_user_controls(
+                "existing-user",
+                policy="full-tunnel",
+                expires_at=None,
+                max_sessions=3,
+                rate_limit_kbps=0,
+                dns_mode="router",
+                notifications=True,
+            )
+
+            reopened = MetadataStore(str(database))
+
+            self.assertEqual(reopened.user_emails(), {"existing-user": "owner@example.com"})
+            self.assertEqual(reopened.user_controls("existing-user")["max_sessions"], 3)
 
     def test_database_readiness_write_is_rolled_back(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

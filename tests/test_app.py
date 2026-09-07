@@ -247,7 +247,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["connections"][0]["vpn_user"], "null")
         self.assertEqual(
             {item["name"]: item["email"] for item in snapshot["users"]},
-            {"alex": "wanted@wanted.sx", "null": "wanted@wanted.sx"},
+            {"alex": "", "null": ""},
         )
 
         status, headers, payload = self.request("GET", "/api/connections.csv")

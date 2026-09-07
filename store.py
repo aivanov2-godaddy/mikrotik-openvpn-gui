@@ -141,24 +141,6 @@ class MetadataStore:
             # now keeps the simple, bounded 1–5 device model and defaults
             # existing accounts to five concurrent sessions.
             connection.execute("UPDATE user_controls SET max_sessions=5 WHERE max_sessions=0")
-            now = int(time.time())
-            connection.executemany(
-                """
-                INSERT OR IGNORE INTO user_metadata(vpn_user, email, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    ("alex", "wanted@wanted.sx", now, now),
-                    ("null", "wanted@wanted.sx", now, now),
-                ),
-            )
-            connection.executemany(
-                """
-                INSERT OR IGNORE INTO user_controls(vpn_user, updated_at)
-                VALUES (?, ?)
-                """,
-                (("alex", now), ("null", now)),
-            )
 
     def verify_readiness(self) -> None:
         """Raise unless SQLite passes a quick check and a rolled-back write."""
