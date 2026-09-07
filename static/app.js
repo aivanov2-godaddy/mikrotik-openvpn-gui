@@ -477,7 +477,7 @@ function seedCounters() {
   $$('.session-card').forEach((card) => updateGraphs(card, { rxBytes: 0, txBytes: 0, rxPackets: 0, txPackets: 0 }));
 }
 
-const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'profile-security', 'audit-log']);
+const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'profile-security', 'policy-templates', 'audit-log', 'setup-planner']);
 
 function showView(requestedView, updateHash = true) {
   const view = viewIds.has(requestedView) ? requestedView : 'overview';
@@ -616,7 +616,18 @@ document.addEventListener('click', async (event) => {
   const button = event.target.closest('button');
   if (!button) return;
   const row = button.closest('[data-user-id]');
-  if (button.matches('[data-create-device]') || button.matches('[data-profile]') || button.matches('[data-download-profile]') || button.matches('[data-qr-profile]')) {
+  if (button.matches('[data-open-template-create]')) {
+    const form = $('#template-form');
+    form.reset();
+    form.notifications.checked = true;
+    openDialog('template-dialog');
+  } else if (button.matches('[data-select-template]')) {
+    const form = $('[data-template-apply]');
+    form.template_id.value = button.dataset.selectTemplate;
+    showView('policy-templates');
+    form.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    toast('Template selected. Choose users, then preview the differences.');
+  } else if (button.matches('[data-create-device]') || button.matches('[data-profile]') || button.matches('[data-download-profile]') || button.matches('[data-qr-profile]')) {
     const userId = button.dataset.userId || row?.dataset.userId;
     const userName = button.dataset.userName || row?.dataset.userName;
     if (!userId || !userName) {
@@ -797,6 +808,70 @@ $('#edit-form')?.addEventListener('submit', async (event) => {
     setStatus(form, 'Changes applied successfully.');
     toast('VPN user updated on RouterOS.');
     setTimeout(() => location.reload(), 500);
+  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+});
+
+$('#template-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  values.notifications = form.notifications.checked;
+  setBusy(form, true);
+  setStatus(form, 'Saving the reusable policy…');
+  try {
+    const response = await resultOrError(await api('/api/policy-templates', { method: 'POST', body: values }));
+    const payload = await response.json();
+    setStatus(form, 'Template saved.');
+    toast(`${payload.template.name} is ready to preview and apply.`);
+    setTimeout(() => location.reload(), 450);
+  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+});
+
+function selectedTemplateUsers(form) {
+  return $$('input[name="user_ids"]:checked', form).map((input) => input.value);
+}
+
+function showTemplatePreview(form, payload) {
+  const preview = $('[data-template-preview]', form);
+  const affected = payload.users.filter((user) => user.changes.length);
+  const safe = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  preview.innerHTML = `<strong>${safe(payload.template.name)} preview</strong><small>${affected.length} of ${payload.users.length} selected user(s) will change.</small><ul>${payload.users.map((user) => `<li><b>${safe(user.username)}</b><span>${user.changes.length ? safe(user.changes.join(', ')) : 'Already matches'}</span></li>`).join('')}</ul>`;
+  preview.hidden = false;
+  $('[data-template-apply-button]', form).disabled = false;
+}
+
+$('[data-template-preview-button]')?.addEventListener('click', async () => {
+  const form = $('[data-template-apply]');
+  const templateId = form.template_id.value;
+  const userIds = selectedTemplateUsers(form);
+  if (!templateId || !userIds.length) {
+    setStatus(form, 'Choose a template and at least one VPN user first.', true);
+    return;
+  }
+  setBusy(form, true);
+  setStatus(form, 'Comparing selected users with the template…');
+  try {
+    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/preview`, { method: 'POST', body: { user_ids: userIds } }));
+    showTemplatePreview(form, await response.json());
+    setStatus(form, 'Review the list, then apply if it is correct.');
+  } catch (error) { setStatus(form, error.message, true); }
+  finally { setBusy(form, false); }
+});
+
+$('[data-template-apply]')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const templateId = form.template_id.value;
+  const userIds = selectedTemplateUsers(form);
+  if (!templateId || !userIds.length || $('[data-template-apply-button]', form).disabled) return;
+  setBusy(form, true);
+  setStatus(form, 'Creating a RouterOS checkpoint and applying the reviewed policy…');
+  try {
+    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/apply`, { method: 'POST', body: { user_ids: userIds } }));
+    const payload = await response.json();
+    setStatus(form, `Applied to ${payload.selected} selected user(s).`);
+    toast('Policy template applied and recorded in Change History.');
+    setTimeout(() => location.reload(), 700);
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
 });
 

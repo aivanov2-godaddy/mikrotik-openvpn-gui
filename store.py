@@ -114,6 +114,25 @@ class MetadataStore:
                     created_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS policy_templates (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    description TEXT NOT NULL,
+                    group_name TEXT NOT NULL,
+                    controls TEXT NOT NULL,
+                    protected INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS user_policy_templates (
+                    vpn_user TEXT PRIMARY KEY,
+                    template_id TEXT NOT NULL REFERENCES policy_templates(id),
+                    overrides TEXT NOT NULL DEFAULT '[]',
+                    assigned_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_devices_vpn_user ON devices(vpn_user);
                 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_connection_history_connected ON connection_history(connected_at DESC);
@@ -141,6 +160,46 @@ class MetadataStore:
             # now keeps the simple, bounded 1–5 device model and defaults
             # existing accounts to five concurrent sessions.
             connection.execute("UPDATE user_controls SET max_sessions=5 WHERE max_sessions=0")
+            now = int(time.time())
+            for template in self._built_in_templates():
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO policy_templates(
+                        id, name, description, group_name, controls, protected, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (
+                        template["id"], template["name"], template["description"], template["group_name"],
+                        json.dumps(template["controls"], separators=(",", ":"), sort_keys=True), now, now,
+                    ),
+                )
+
+    @staticmethod
+    def _built_in_templates() -> tuple[dict[str, Any], ...]:
+        """Small, conservative defaults that administrators may copy but not overwrite."""
+        return (
+            {
+                "id": "standard", "name": "Standard", "group_name": "Employees",
+                "description": "Full VPN access with the normal five-device allowance.",
+                "controls": {"policy": "full-tunnel", "expires_at": None, "max_sessions": 5,
+                             "rate_limit_kbps": 0, "dns_mode": "router", "notifications": True,
+                             "quota_mb": 0, "schedule": "always"},
+            },
+            {
+                "id": "contractor", "name": "Contractor", "group_name": "Contractors",
+                "description": "Time-limited-style LAN access with a controlled device and speed allowance.",
+                "controls": {"policy": "lan-only", "expires_at": None, "max_sessions": 2,
+                             "rate_limit_kbps": 10240, "dns_mode": "router", "notifications": True,
+                             "quota_mb": 10240, "schedule": "weekdays"},
+            },
+            {
+                "id": "admin", "name": "Administrator", "group_name": "Administrators",
+                "description": "Unrestricted route and device policy for trusted administrators.",
+                "controls": {"policy": "full-tunnel", "expires_at": None, "max_sessions": 5,
+                             "rate_limit_kbps": 0, "dns_mode": "router", "notifications": True,
+                             "quota_mb": 0, "schedule": "always"},
+            },
+        )
 
     def verify_readiness(self) -> None:
         """Raise unless SQLite passes a quick check and a rolled-back write."""
@@ -292,9 +351,101 @@ class MetadataStore:
             )
             return {str(row["vpn_user"]): dict(row) for row in rows}
 
+    @staticmethod
+    def _template_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if not row:
+            return None
+        value = dict(row)
+        try:
+            value["controls"] = json.loads(str(value["controls"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            value["controls"] = {}
+        value["protected"] = bool(value.get("protected"))
+        return value
+
+    def list_policy_templates(self) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM policy_templates ORDER BY protected DESC, name COLLATE NOCASE"
+            ).fetchall()
+        return [value for row in rows if (value := self._template_row(row)) is not None]
+
+    def policy_template(self, template_id: str) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM policy_templates WHERE id=?", (str(template_id),)
+            ).fetchone()
+        return self._template_row(row)
+
+    def save_policy_template(
+        self,
+        *,
+        template_id: str,
+        name: str,
+        description: str,
+        group_name: str,
+        controls: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = int(time.time())
+        with self._lock, self._connection() as connection:
+            existing = connection.execute(
+                "SELECT protected FROM policy_templates WHERE id=?", (str(template_id),)
+            ).fetchone()
+            if existing and bool(existing["protected"]):
+                raise ValueError("Built-in templates cannot be changed; create a custom copy instead")
+            connection.execute(
+                """
+                INSERT INTO policy_templates(id, name, description, group_name, controls, protected, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name=excluded.name, description=excluded.description, group_name=excluded.group_name,
+                    controls=excluded.controls, updated_at=excluded.updated_at
+                """,
+                (
+                    str(template_id), str(name), str(description), str(group_name),
+                    json.dumps(controls, separators=(",", ":"), sort_keys=True), now, now,
+                ),
+            )
+        template = self.policy_template(str(template_id))
+        if template is None:
+            raise RuntimeError("Policy template could not be saved")
+        return template
+
+    def user_template_assignments(self) -> dict[str, dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute("SELECT * FROM user_policy_templates").fetchall()
+        values: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            value = dict(row)
+            try:
+                value["overrides"] = json.loads(str(value.get("overrides", "[]")))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                value["overrides"] = []
+            values[str(value["vpn_user"])] = value
+        return values
+
+    def assign_policy_template(self, vpn_user: str, template_id: str, *, overrides: list[str] | None = None) -> None:
+        now = int(time.time())
+        safe_overrides = [str(item) for item in (overrides or []) if str(item)]
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO user_policy_templates(vpn_user, template_id, overrides, assigned_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(vpn_user) DO UPDATE SET
+                    template_id=excluded.template_id, overrides=excluded.overrides, updated_at=excluded.updated_at
+                """,
+                (str(vpn_user), str(template_id), json.dumps(safe_overrides), now, now),
+            )
+
+    def clear_policy_template_assignment(self, vpn_user: str) -> None:
+        with self._lock, self._connection() as connection:
+            connection.execute("DELETE FROM user_policy_templates WHERE vpn_user=?", (str(vpn_user),))
+
     def delete_user_controls(self, vpn_user: str) -> None:
         with self._lock, self._connection() as connection:
             connection.execute("DELETE FROM user_controls WHERE vpn_user=?", (str(vpn_user),))
+            connection.execute("DELETE FROM user_policy_templates WHERE vpn_user=?", (str(vpn_user),))
 
     def add_alert(
         self,

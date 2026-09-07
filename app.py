@@ -409,13 +409,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self, credentials: RouterOSCredentials
     ) -> list[dict[str, Any]]:
         emails = self.server.context.store.user_emails()
+        assignments = self.server.context.store.user_template_assignments()
+        templates = {item["id"]: item for item in self.server.context.store.list_policy_templates()}
         period_start = DashboardServer._quota_period_start(int(time.time()))
         values = []
         for user in self.server.context.router.list_ovpn_users(credentials):
             username = str(user.get("name", ""))
             controls = self.server.context.store.user_controls(username)
             controls["quota_used_bytes"] = self.server.context.store.quota_usage(username, period_start)
-            values.append({**user, "email": emails.get(username, ""), "controls": controls})
+            assignment = assignments.get(username)
+            template = templates.get(str(assignment.get("template_id", ""))) if assignment else None
+            values.append({
+                **user, "email": emails.get(username, ""), "controls": controls,
+                "template": ({"id": template["id"], "name": template["name"],
+                              "group_name": template["group_name"], "overrides": assignment["overrides"]}
+                             if template and assignment else None),
+            })
         return values
 
     def do_GET(self) -> None:
@@ -478,6 +487,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/dashboard":
             self._dashboard()
+            return
+        if path == "/api/policy-templates":
+            session = self._require_session(api=True)
+            if not session:
+                return
+            self._json({
+                "templates": self.server.context.store.list_policy_templates(),
+                "assignments": self.server.context.store.user_template_assignments(),
+            })
             return
         if path == "/api/users":
             session = self._require_session(api=True)
@@ -698,6 +716,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 warnings=warnings,
                 audit=self.server.context.store.recent_audit(100),
                 alerts=self.server.context.store.recent_alerts(20),
+                policy_templates=self.server.context.store.list_policy_templates(),
                 admin_role=session.role,
                 router=router,
                 dashboard_name=self.server.context.config.dashboard_name,
@@ -721,6 +740,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/setup-plan":
             self._setup_plan()
+            return
+        if path == "/api/policy-templates":
+            self._create_policy_template()
+            return
+        match = re.fullmatch(r"/api/policy-templates/([A-Za-z0-9_-]{1,64})/(preview|apply)", path)
+        if match:
+            self._policy_template_action(match.group(1), match.group(2))
             return
         match = re.fullmatch(r"/api/users/([^/]+)/(suspend|restore)", path)
         if match:
@@ -806,6 +832,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_PATCH(self) -> None:
         path = urllib.parse.urlsplit(self.path).path
+        match = re.fullmatch(r"/api/policy-templates/([A-Za-z0-9_-]{1,64})", path)
+        if match:
+            self._update_policy_template(match.group(1))
+            return
         match = re.fullmatch(r"/api/users/([^/]+)", path)
         if not match:
             self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
@@ -1179,6 +1209,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if email is not None:
                 self.server.context.store.set_user_email(str(user["name"]), email)
             self.server.context.store.set_user_controls(str(user["name"]), **controls)
+            # A direct per-user edit is intentional. Keep the template link so
+            # the UI can show exactly which settings now override the group.
+            assignment = self.server.context.store.user_template_assignments().get(str(user["name"]))
+            if assignment:
+                template = self.server.context.store.policy_template(str(assignment["template_id"]))
+                if template:
+                    template_controls = dict(template.get("controls") or {})
+                    override_keys = [
+                        key for key in controls
+                        if controls.get(key) != template_controls.get(key)
+                    ]
+                    self.server.context.store.assign_policy_template(
+                        str(user["name"]), str(template["id"]), overrides=override_keys,
+                    )
             self.server.context.store.audit(
                 actor=session.username,
                 action="user.update",
@@ -1194,6 +1238,124 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             self._json({"ok": True})
         except (ValueError, RouterOSError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    @staticmethod
+    def _template_identity(data: dict[str, Any]) -> tuple[str, str, str]:
+        name = re.sub(r"\s+", " ", str(data.get("name", "")).strip())
+        description = str(data.get("description", "")).strip()
+        group_name = re.sub(r"\s+", " ", str(data.get("group_name", "")).strip())
+        if not 2 <= len(name) <= 48:
+            raise ValueError("Template name must be between 2 and 48 characters")
+        if not 1 <= len(description) <= 180:
+            raise ValueError("Give the template a short description")
+        if not 2 <= len(group_name) <= 48:
+            raise ValueError("Group name must be between 2 and 48 characters")
+        return name, description, group_name
+
+    def _create_policy_template(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        try:
+            data = self._read_json()
+            name, description, group_name = self._template_identity(data)
+            controls = self._parse_controls(data)
+            template = self.server.context.store.save_policy_template(
+                template_id=f"custom-{secrets.token_hex(8)}", name=name, description=description,
+                group_name=group_name, controls=controls,
+            )
+            self.server.context.store.audit(
+                actor=session.username, action="policy_template.create", target=template["id"],
+                status="success", details={"name": name, "group": group_name},
+            )
+            self._json({"template": template}, status=HTTPStatus.CREATED)
+        except (ValueError, RouterOSError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _update_policy_template(self, template_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        try:
+            data = self._read_json()
+            existing = self.server.context.store.policy_template(template_id)
+            if not existing:
+                raise ValueError("Policy template was not found")
+            name, description, group_name = self._template_identity(data)
+            controls = self._parse_controls(data, dict(existing.get("controls") or {}))
+            template = self.server.context.store.save_policy_template(
+                template_id=template_id, name=name, description=description,
+                group_name=group_name, controls=controls,
+            )
+            self.server.context.store.audit(
+                actor=session.username, action="policy_template.update", target=template_id,
+                status="success", details={"name": name, "group": group_name},
+            )
+            self._json({"template": template})
+        except (ValueError, RouterOSError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _policy_template_action(self, template_id: str, action: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        try:
+            data = self._read_json()
+            requested_ids = data.get("user_ids")
+            if not isinstance(requested_ids, list) or not requested_ids or len(requested_ids) > 100:
+                raise ValueError("Select between 1 and 100 VPN users before continuing")
+            requested = {str(value) for value in requested_ids if str(value)}
+            if len(requested) != len(requested_ids):
+                raise ValueError("Each selected VPN user must be unique")
+            template = self.server.context.store.policy_template(template_id)
+            if not template:
+                raise ValueError("Policy template was not found")
+            controls = dict(template.get("controls") or {})
+            # Re-use the exact same validation as the normal user editor.
+            controls = self._parse_controls(controls)
+            credentials = self._credentials(session)
+            users = {str(item.get("id", "")): item for item in self.server.context.router.list_ovpn_users(credentials)}
+            missing = requested.difference(users)
+            if missing:
+                raise ValueError("One or more selected VPN users no longer exist; refresh and try again")
+            preview = []
+            control_keys = ("policy", "expires_at", "max_sessions", "rate_limit_kbps", "dns_mode", "notifications", "quota_mb", "schedule")
+            for user_id in sorted(requested):
+                user = users[user_id]
+                current = self.server.context.store.user_controls(str(user["name"]))
+                changes = [key for key in control_keys if current.get(key) != controls.get(key)]
+                preview.append({"id": user_id, "username": str(user["name"]), "changes": changes})
+            if action == "preview":
+                self._json({"template": template, "users": preview, "changed_users": sum(bool(item["changes"]) for item in preview)})
+                return
+            if not self._checkpoint(session, "policy-template-apply"):
+                return
+            applied: list[str] = []
+            for item in preview:
+                if not item["changes"]:
+                    self.server.context.store.assign_policy_template(item["username"], template_id)
+                    continue
+                router_profile = self.server.context.router.ensure_rate_profile(
+                    credentials, username=item["username"], rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                )
+                self.server.context.router.update_user(
+                    credentials, user_id=item["id"], profile=router_profile,
+                )
+                self.server.context.store.set_enforcement_state(item["username"], "")
+                self.server.context.store.set_user_controls(item["username"], **controls)
+                self.server.context.store.assign_policy_template(item["username"], template_id)
+                applied.append(item["username"])
+            self.server.context.store.audit(
+                actor=session.username, action="policy_template.apply", target=template_id,
+                status="success", details={"group": template["group_name"], "users": applied, "selected": len(preview)},
+            )
+            self._json({"ok": True, "template": template, "applied": applied, "selected": len(preview)})
+        except (ValueError, RouterOSError) as error:
+            self.server.context.store.audit(
+                actor=session.username, action=f"policy_template.{action}", target=template_id,
+                status="failed", details={"reason": type(error).__name__},
+            )
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
     def _set_user_access(self, user_id: str, *, suspended: bool) -> None:

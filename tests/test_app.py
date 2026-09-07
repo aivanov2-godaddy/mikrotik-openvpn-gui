@@ -614,6 +614,38 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("user.restore", actions)
 
 
+    def test_policy_template_preview_and_explicit_apply(self) -> None:
+        self.login()
+        status, _, payload = self.request("GET", "/api/policy-templates")
+        self.assertEqual(status, 200)
+        templates = json.loads(payload)["templates"]
+        self.assertEqual({item["id"] for item in templates}, {"standard", "contractor", "admin"})
+
+        status, _, payload = self.json_request(
+            "POST", "/api/policy-templates",
+            {"name": "Field team", "description": "Limited field support access.", "group_name": "Field",
+             "policy": "lan-only", "max_sessions": 2, "rate_limit_kbps": 10240,
+             "quota_mb": 5120, "schedule": "weekdays", "dns_mode": "router", "notifications": True},
+        )
+        self.assertEqual(status, 201)
+        template = json.loads(payload)["template"]
+        users = self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+        target = next(item for item in users if item["name"] == "user-one")
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("rate_limit_kbps", json.loads(payload)["users"][0]["changes"])
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/apply", {"user_ids": [target["id"]]},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["applied"], ["user-one"])
+        self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 10240)
+        self.assertEqual(self.server.context.store.user_template_assignments()["user-one"]["template_id"], template["id"])
+        self.assertIn("policy_template.apply", [item["action"] for item in self.server.context.store.recent_audit(10)])
+
+
 class RedirectTests(unittest.TestCase):
     def test_http_redirect_drops_query_and_preserves_path(self) -> None:
         RedirectHandler.public_origin = "https://dashboard.example.test"
@@ -632,8 +664,6 @@ class RedirectTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
-
-
 class ProxyTrustTests(unittest.TestCase):
     def test_cloudflare_header_requires_the_expected_reverse_proxy(self) -> None:
         expected = resolve_client_ip(
