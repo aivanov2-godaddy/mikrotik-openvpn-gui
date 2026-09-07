@@ -14,7 +14,7 @@
       <text x="48" y="135" fill="#dceaf2" font-size="17" font-weight="700">Name / owner</text>
       <text x="382" y="135" fill="#dceaf2" font-size="17" font-weight="700">Status</text>
       <text x="510" y="135" fill="#dceaf2" font-size="17" font-weight="700">Actions</text>
-      <text x="48" y="197" fill="#f4f8fb" font-size="19" font-weight="700">alex</text>
+      <text x="48" y="197" fill="#f4f8fb" font-size="19" font-weight="700">demo-user</text>
       <text x="48" y="223" fill="#9db7c7" font-size="15">Device profile · 5 concurrent devices</text>
       <circle cx="389" cy="211" r="6" fill="#8b9da8"/><text x="404" y="217" fill="#b6cad5" font-size="15">Offline</text>
       <rect x="510" y="188" width="89" height="36" rx="4" fill="#294655"/><text x="525" y="212" fill="#edf5fa" font-size="14">Actions</text>
@@ -35,8 +35,8 @@
       <text x="28" y="44" fill="#f4f8fb" font-size="24" font-weight="700">▣  Device Profiles</text>
       <text x="28" y="72" fill="#9db7c7" font-size="16">Per-device certificates and downloads</text>
       <rect x="28" y="103" width="572" height="64" rx="4" fill="#213b49"/>
-      <text x="48" y="131" fill="#f4f8fb" font-size="18" font-weight="700">Samsung S26 Ultra</text>
-      <text x="48" y="153" fill="#9db7c7" font-size="14">alex · certificate protected</text>
+      <text x="48" y="131" fill="#f4f8fb" font-size="18" font-weight="700">Android phone</text>
+      <text x="48" y="153" fill="#9db7c7" font-size="14">demo-user · certificate protected</text>
       <rect x="445" y="118" width="70" height="32" rx="4" fill="#1b79ae"/><text x="459" y="140" fill="#fff" font-size="13">Download</text>
       <rect x="525" y="118" width="54" height="32" rx="4" fill="#294655"/><text x="542" y="140" fill="#fff" font-size="13">QR</text>
       <text x="28" y="225" fill="#9db7c7" font-size="15">Profiles are generated from the RouterOS source of truth.</text>

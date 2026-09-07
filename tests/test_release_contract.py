@@ -49,6 +49,21 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("manual promotion", installation)
         self.assertIn("canary", deployment.casefold())
 
+    def test_preview_assets_do_not_contain_instance_identities(self) -> None:
+        assets = (
+            ROOT / "docs/screenshots/dashboard-navigation.svg",
+            ROOT / "docs/screenshots/dashboard-sections.svg",
+        )
+        prohibited = (
+            "core" + ".wanted" + ".sx",
+            "al" + "ex",
+            "sam" + "sung s26 ultra",
+        )
+        rendered = "\n".join(asset.read_text(encoding="utf-8").lower() for asset in assets)
+        for marker in prohibited:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,7 @@
   <rect x="28" y="76" width="1384" height="8" fill="#174d73"/>
   <g font-family="Arial, sans-serif">
     <text x="54" y="64" fill="#f4f8fb" font-size="22" font-weight="700" letter-spacing="4">MIKROTIK</text>
-    <text x="248" y="63" fill="#bbd9ec" font-size="17">core.Wanted.sx</text>
+    <text x="248" y="63" fill="#bbd9ec" font-size="17">router.example.test</text>
     <text x="1135" y="63" fill="#f4f8fb" font-size="19">VPN Dashboard</text>
   </g>
   <rect x="28" y="84" width="248" height="748" fill="#14242e" stroke="#2c4351"/>
