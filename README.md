@@ -73,7 +73,11 @@ Then open `http://127.0.0.1:18080`. The mock does not contact a router or Cloudf
 
 ## Install on a new MikroTik
 
-For the supported platform matrix, Container package and device-mode setup, persistent storage, first image pull, HTTPS exposure, validation, and GitHub-driven updates, follow [First-time MikroTik installation](docs/INSTALLATION.md). Production remains ARM64 and has been validated on RouterOS 7.24.2 with an RB5009UPr+S+.
+For the supported platform matrix, Container package and device-mode setup,
+persistent storage, first image pull, HTTPS exposure, validation, and
+GitHub-driven updates, follow [First-time MikroTik installation](docs/INSTALLATION.md).
+ARM64 is the supported RouterOS production target; validate the exact RouterOS
+release and hardware with an isolated canary before promotion.
 
 ## Runtime configuration
 

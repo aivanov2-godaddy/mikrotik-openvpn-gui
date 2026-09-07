@@ -6,15 +6,20 @@ This guide installs the VPN Dashboard container on a new RouterOS device. It is 
 
 | Requirement | Supported target |
 | --- | --- |
-| RouterOS | RouterOS 7; validated in production on 7.24.2 |
-| CPU | `arm64` (the validated RouterOS container target) |
-| Known-good device | MikroTik RB5009UPr+S+ |
+| RouterOS | RouterOS 7; validate the exact installed release before promotion |
+| CPU | `arm64` (the supported RouterOS production target) |
+| Device | A container-capable ARM64 MikroTik with adequate RAM and storage |
 | Container package | Installed and enabled |
 | Device mode | `container=yes` |
 | Storage | External disk strongly recommended; reserve space for two image roots, temporary extraction, and SQLite data |
 | Network | An unused container subnet, DNS, and outbound HTTPS to GHCR |
 
-Other ARM64 MikroTik models may work if they have the Container package and adequate storage/RAM. The project also publishes an `amd64` image for x86/CHR evaluation, but it is not production-validated. RouterOS labels its 32-bit devices as `arm`; MikroTik's container documentation calls out ARM32/ARMv5 compatibility, so this project intentionally does not publish an `arm` (ARMv7) image. Other architectures remain outside this installation guide until a matching RouterOS container pull and runtime validation has been completed.
+The project also publishes an `amd64` image for x86/CHR evaluation, but it is
+not production-validated. RouterOS labels its 32-bit devices as `arm`;
+MikroTik's container documentation calls out ARM32/ARMv5 compatibility, so
+this project intentionally does not publish an `arm` (ARMv7) image. Other
+architectures remain outside this installation guide until a matching RouterOS
+container pull and runtime validation has been completed.
 
 ## Before you start
 
@@ -67,10 +72,10 @@ The following example uses an isolated subnet; replace it if it overlaps your LA
 
 ```routeros
 /interface/bridge/add name=containers
-/interface/veth/add name=veth-vpn-dashboard address=172.31.255.2/24 gateway=172.31.255.1
-/ip/address/add address=172.31.255.1/24 interface=containers
+/interface/veth/add name=veth-vpn-dashboard address=172.31.250.2/24 gateway=172.31.250.1
+/ip/address/add address=172.31.250.1/24 interface=containers
 /interface/bridge/port/add bridge=containers interface=veth-vpn-dashboard
-/ip/firewall/nat/add chain=srcnat action=masquerade src-address=172.31.255.0/24
+/ip/firewall/nat/add chain=srcnat action=masquerade src-address=172.31.250.0/24
 ```
 
 The application listens on container port `8080`; its redirect listener is `8081`. Keep the container network private and expose it through the existing reverse proxy, not by forwarding RouterOS management services to the internet.
@@ -81,15 +86,23 @@ Enable only `www-ssl` for management, keep `www` disabled, and restrict the serv
 
 Install a RouterOS HTTPS certificate whose Subject Alternative Name matches the REST hostname exactly. Export only the public CA certificate to the container's configuration directory; never export a private key. Confirm the OpenVPN server, PPP profile, CA, public endpoint, DNS, and LAN route that you recorded above. The dashboard does not replace RouterOS as the VPN source of truth.
 
-## 6. Configure private GHCR access
+## 6. Configure GHCR access
 
-The package is private. Create an expiring GitHub classic token with only `read:packages` and grant it access to this repository's package. Store it only in RouterOS's sensitive container configuration; never place it in Git, an issue, a workflow file, or a screenshot.
+If the package is private, create an expiring GitHub classic token with only
+`read:packages` and grant it access to the selected package. Store it only in
+RouterOS's sensitive container configuration; never place it in Git, an issue,
+a workflow file, or a screenshot. A public package does not need a pull token.
 
 ```routeros
 /container/config/set registry-url=https://ghcr.io username="<github-user>" password="<read-packages-token>" tmpdir="<external-disk>/containers/tmp"
 ```
 
-RouterOS resolves `remote-image` relative to this registry URL. Therefore use `aivanov2-godaddy/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>`, not a `ghcr.io/...`-prefixed value. For the production RB5009 ARM64 deployment, the legacy `sha-<full-commit-sha>` tag remains an ARM64 alias and is safe to keep using. Commit-addressed tags make selection reviewable, but record the published digest for an immutable audit record; do not use `edge` in production.
+RouterOS resolves `remote-image` relative to this registry URL. Therefore use
+`<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>`, not
+a `ghcr.io/...`-prefixed value. The legacy `sha-<full-commit-sha>` tag remains
+an ARM64 alias for compatible routers. Commit-addressed tags make selection
+reviewable, but record the published digest for an immutable audit record; do
+not use `edge` in production.
 
 ## 7. Create mounts and environment lists
 
@@ -136,7 +149,7 @@ Keep `ROUTEROS_INSECURE_TLS=false` in production. Choose exactly one supported e
 Choose the full SHA from a successful **Publish container** workflow run. Check the package digest and visibility before pulling. Then add the container (replace placeholders with reviewed, device-specific paths):
 
 ```routeros
-/container/add name=vpn-dashboard remote-image=aivanov2-godaddy/mikrotik-openvpn-gui:sha-<full-commit-sha> interface=veth-vpn-dashboard root-dir="<external-disk>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
+/container/add name=vpn-dashboard remote-image=<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-arm64 interface=veth-vpn-dashboard root-dir="<external-disk>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
 /container/print detail
 ```
 

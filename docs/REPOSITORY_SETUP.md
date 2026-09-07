@@ -8,11 +8,11 @@ Apply these settings after creating the repository. They are documentation, not 
 
 | Setting | Value |
 | --- | --- |
-| Owner | `aivanov2-godaddy` |
+| Owner | `<github-owner>` |
 | Repository | `mikrotik-openvpn-gui` |
 | Display title | MikroTik OpenVPN GUI |
-| Visibility | Private |
-| Description | Private RouterOS OpenVPN user, device-profile, and session management dashboard |
+| Visibility | Keep private until the public-release gates are complete |
+| Description | RouterOS OpenVPN user, device-profile, and session management dashboard |
 | Default branch | `main` |
 | Topics | `mikrotik`, `routeros`, `openvpn`, `vpn-dashboard`, `python`, `arm64`, `ghcr` |
 

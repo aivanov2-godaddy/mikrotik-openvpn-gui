@@ -64,6 +64,23 @@ class ReleaseContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertNotIn(marker, rendered)
 
+    def test_installation_documents_use_portable_examples(self) -> None:
+        documents = (
+            ROOT / "README.md",
+            ROOT / "docs/INSTALLATION.md",
+            ROOT / "docs/REPOSITORY_SETUP.md",
+        )
+        prohibited = (
+            "wanted" + ".sx",
+            "aivanov2" + "-godaddy",
+            "rb" + "5009upr+s+",
+            "172.31." + "255.",
+        )
+        rendered = "\n".join(document.read_text(encoding="utf-8").lower() for document in documents)
+        for marker in prohibited:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
