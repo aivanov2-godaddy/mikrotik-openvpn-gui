@@ -12,10 +12,11 @@ a RouterOS `.rsc` plan. It keeps Container package installation, device-mode
 physical confirmation, TLS, storage checks, firewall/DNS work, and applying
 commands explicitly manual.
 
-## v1.2 — Policy templates and groups
+## v1.2 — Policy templates and groups (implemented)
 
-Reusable access templates, previewed bulk assignments, and clear per-user
-overrides.
+Protected `standard`, `contractor`, and `administrator` templates, plus custom
+templates. Selected users receive a preview before an explicit, checkpointed
+apply; later direct edits are retained as visible per-user overrides.
 
 ## v1.3 — Health and actionable alerts
 

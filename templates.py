@@ -249,6 +249,7 @@ def dashboard_page(
     warnings: list[str],
     audit: list[dict[str, Any]],
     alerts: list[dict[str, Any]],
+    policy_templates: list[dict[str, Any]],
     admin_role: str,
     router: dict[str, Any],
     dashboard_name: str = "MikroTik OpenVPN GUI",
@@ -277,6 +278,24 @@ def dashboard_page(
         if can_mutate
         else '<span class="read-only-note">Read-only RouterOS account · changes are disabled</span>'
     )
+    template_options = "".join(
+        f'<option value="{html.escape(str(item["id"]), quote=True)}">'
+        f'{html.escape(str(item["name"]))} · {html.escape(str(item["group_name"]))}</option>'
+        for item in policy_templates
+    )
+    template_cards = "".join(
+        f'''<article class="policy-template" data-policy-template
+              data-template-id="{html.escape(str(item["id"]), quote=True)}"
+              data-template-name="{html.escape(str(item["name"]), quote=True)}"
+              data-template-controls="{html.escape(json.dumps(item["controls"], separators=(",", ":")), quote=True)}">
+          <header><div><strong>{html.escape(str(item["name"]))}</strong><small>{html.escape(str(item["group_name"]))}</small></div>
+          <span class="{'posture-badge' if item.get("protected") else 'template-custom'}">{'Built in' if item.get("protected") else 'Custom'}</span></header>
+          <p>{html.escape(str(item["description"]))}</p>
+          <dl><div><dt>Route</dt><dd>{html.escape(_policy_label(item["controls"].get("policy")))}</dd></div><div><dt>Devices</dt><dd>{int(item["controls"].get("max_sessions", 5))}</dd></div><div><dt>Speed</dt><dd>{'Unlimited' if not int(item["controls"].get("rate_limit_kbps", 0)) else str(int(item["controls"].get("rate_limit_kbps", 0)) // 1024) + ' Mbps'}</dd></div></dl>
+          <button type="button" class="quiet" data-select-template="{html.escape(str(item["id"]), quote=True)}">Use this template</button>
+        </article>'''
+        for item in policy_templates
+    ) or '<div class="empty"><strong>No policy templates yet</strong></div>'
     rows: list[str] = []
     for user in users:
         name = str(user.get("name", ""))
@@ -318,7 +337,7 @@ def dashboard_page(
             action_markup = '<span class="read-only-menu">Read-only access</span>'
         rows.append(
             f"""
-        <article class="user-card" data-user-id="{html.escape(user_id, quote=True)}" data-user-name="{html.escape(name, quote=True)}" data-user-comment="{html.escape(comment, quote=True)}" data-user-email="{html.escape(email, quote=True)}" data-user-disabled="{'true' if disabled else 'false'}" data-user-policy="{html.escape(policy, quote=True)}" data-user-expires="{expiry}" data-user-max-sessions="{max_sessions}" data-user-rate-limit="{int(controls.get('rate_limit_kbps', 0) or 0)}" data-user-dns="{html.escape(str(controls.get('dns_mode', 'router')), quote=True)}" data-user-notifications="{'true' if controls.get('notifications', True) else 'false'}" data-user-quota="{quota_mb}" data-user-schedule="{html.escape(schedule, quote=True)}">
+        <article class="user-card" data-user-id="{html.escape(user_id, quote=True)}" data-user-name="{html.escape(name, quote=True)}" data-user-comment="{html.escape(comment, quote=True)}" data-user-email="{html.escape(email, quote=True)}" data-user-disabled="{'true' if disabled else 'false'}" data-user-policy="{html.escape(policy, quote=True)}" data-user-expires="{expiry}" data-user-max-sessions="{max_sessions}" data-user-rate-limit="{int(controls.get('rate_limit_kbps', 0) or 0)}" data-user-dns="{html.escape(str(controls.get('dns_mode', 'router')), quote=True)}" data-user-notifications="{'true' if controls.get('notifications', True) else 'false'}" data-user-quota="{quota_mb}" data-user-schedule="{html.escape(schedule, quote=True)}" data-user-template-id="{html.escape(str((user.get('template') or {}).get('id', '')), quote=True)}">
           <header class="user-card-header">
             <div class="identity">
               <span class="avatar">{html.escape((name[:1] or "?").upper())}</span>
@@ -345,6 +364,7 @@ def dashboard_page(
             <div><span>Data quota</span><strong>{html.escape(_quota_label(quota_mb, quota_used))}</strong></div>
             <div><span>Schedule</span><strong>{html.escape(_schedule_label(schedule))}</strong></div>
             <div><span>Concurrent devices</span><strong>{max_sessions}</strong></div>
+            <div><span>Policy group</span><strong>{html.escape(str((user.get('template') or {}).get('group_name', 'Custom')))}</strong></div>
           </div>
         </article>"""
         )
@@ -545,6 +565,7 @@ def dashboard_page(
     <a href="#vpn-users" data-view-target="vpn-users">{_icon('users')}<span>VPN Users</span></a>
     <a href="#live-sessions" data-view-target="live-sessions">{_icon('session')}<span>Connections</span><strong class="nav-count" data-nav-session-count>{len(sessions)}</strong></a>
     <a href="#profile-security" data-view-target="profile-security">{_icon('device')}<span>Device Profiles</span></a>
+    <a href="#policy-templates" data-view-target="policy-templates">{_icon('shield')}<span>Policy Templates</span></a>
     <span class="nav-section-title">AUDIT LOG</span>
     <a href="#audit-log" class="nav-subitem" data-view-target="audit-log">{_icon('log')}<span>Change History</span></a>
     <span class="nav-section-title">SETUP</span>
@@ -602,6 +623,13 @@ def dashboard_page(
         <section class="panel protection-summary"><div class="panel-heading compact"><div>{_icon('shield')}<span><strong>Protection handled for you</strong><small>No certificate knowledge required</small></span></div></div><ul class="checks"><li><span>{_icon('check')}</span><div><strong>Separate protection per device</strong><small>Each downloaded profile receives a separate certificate.</small></div></li><li><span>{_icon('check')}</span><div><strong>Private key encrypted</strong><small>The password you choose protects the downloaded profile.</small></div></li><li><span>{_icon('check')}</span><div><strong>Correct server verified</strong><small>The profile accepts only {vpn_host_safe}.</small></div></li><li><span>{_icon('check')}</span><div><strong>Temporary files removed</strong><small>Setup files are cleaned automatically after download.</small></div></li><li class="{'ready' if crl_ready else 'warning'}"><span>{_icon('shield')}</span><div><strong>{'Certificate revocation enforced' if crl_ready else 'Per-device revocation needs CA migration'}</strong><small>{'RouterOS CRL checking is active.' if crl_ready else 'The current CA has no active CRL distribution point. A planned CA rotation is required before a lost profile can be reliably revoked.'}</small></div></li></ul></section>
       </section>
 
+      <section class="app-view" id="policy-templates" data-view="policy-templates" hidden>
+        <header class="view-heading"><div><p class="eyebrow">ACCESS GOVERNANCE</p><h1>Policy Templates</h1><p>Apply repeatable access settings to selected users after reviewing the exact differences.</p></div><button type="button" class="primary" data-open-template-create>{_icon('plus')}<span>New custom template</span></button></header>
+        <section class="policy-intro"><span>{_icon('shield')}</span><div><strong>Nothing changes until you apply it.</strong><small>Templates group users for easy management. Applying one creates a RouterOS checkpoint, updates the selected accounts only, and records the change history.</small></div></section>
+        <section class="policy-template-grid">{template_cards}</section>
+        <section class="panel template-apply-panel"><div class="panel-heading"><div>{_icon('users')}<span><strong>Preview and apply</strong><small>Select a template and the people it should affect. Direct user edits remain visible as overrides.</small></span></div></div><form data-template-apply><label><span>Template</span><select name="template_id" required><option value="">Select a template</option>{template_options}</select></label><fieldset><legend>Selected VPN users</legend><div class="template-user-list">{''.join(f'<label><input type="checkbox" name="user_ids" value="{html.escape(str(user.get("id", "")), quote=True)}"><span><strong>{html.escape(str(user.get("name", "")))}</strong><small>{html.escape(str((user.get("template") or {}).get("group_name", "No group")))}</small></span></label>' for user in users)}</div></fieldset><p class="form-status" role="status"></p><div class="template-preview" hidden data-template-preview></div><footer><button type="button" class="quiet" data-template-preview-button>Preview changes</button><button type="submit" class="primary" disabled data-template-apply-button>Apply to selected users</button></footer></form></section>
+      </section>
+
       <section class="app-view" id="audit-log" data-view="audit-log" hidden>
         <header class="view-heading"><div><p class="eyebrow">AUDIT LOG</p><h1>Change History</h1><p>A read-only record of dashboard sign-ins and every access change.</p></div><div class="heading-actions"><label class="page-search">{_icon('search')}<input type="search" data-history-search placeholder="Find a change" aria-label="Find a history entry"></label><a class="quiet" href="/api/audit.csv">{_icon('download')}<span>Export CSV</span></a></div></header>
         <section class="history-notice">{_icon('shield')}<span><strong>Passwords and private keys are never written here.</strong><small>History records the action, target, operator, result, and safe details only.</small></span></section>
@@ -638,6 +666,7 @@ def dashboard_page(
 
 <dialog id="delete-dialog"><form id="delete-form" method="dialog" class="dialog-card warning-dialog"><header><div><p class="eyebrow danger-text">ACCESS REMOVAL</p><h2>Remove VPN user?</h2><p>This action changes RouterOS and cannot be undone.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><input type="hidden" name="user_id"><div class="warning-summary"><span class="warning-symbol">!</span><div><strong data-delete-user></strong><small>User access and dashboard-managed certificates will be retired.</small></div></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="danger">Remove access</button></footer></form></dialog>
 <dialog id="qr-dialog"><form method="dialog" class="dialog-card qr-dialog"><header><div><p class="eyebrow">SECURE PROFILE</p><h2>Scan to download</h2><p data-qr-description>Scan this code with the phone camera to download the OpenVPN profile.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="qr-code-frame"><img data-qr-image alt="OpenVPN profile download QR code"></div><label class="share-link"><span>Download link</span><input type="text" data-qr-url readonly></label><p class="qr-help">The link expires in 10 minutes and can be downloaded up to three times. The archive contains the encrypted OpenVPN profile.</p><footer><button type="button" class="quiet" data-copy-share>{_icon('copy')}<span>Copy link</span></button><button type="button" class="primary" data-close>Done</button></footer></form></dialog>
+<dialog id="template-dialog"><form id="template-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">ACCESS GOVERNANCE</p><h2>Create custom policy template</h2><p>Save a reusable set of VPN access controls. It does not alter users yet.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="dialog-fields"><label><span>Template name</span><input name="name" required minlength="2" maxlength="48" placeholder="e.g. Field team"></label><label><span>Group name</span><input name="group_name" required minlength="2" maxlength="48" placeholder="e.g. Contractors"></label><label><span>Description</span><input name="description" required minlength="1" maxlength="180" placeholder="Explain who this policy is for"></label><label><span>Traffic policy</span><select name="policy"><option value="full-tunnel">Full tunnel</option><option value="lan-only">LAN only</option><option value="internet-only">Internet only</option></select></label><label><span>Concurrent devices</span><select name="max_sessions"><option value="1">1 device</option><option value="2">2 devices</option><option value="3">3 devices</option><option value="4">4 devices</option><option value="5" selected>5 devices</option></select></label><label><span>Speed limit</span><select name="rate_limit_kbps"><option value="0">Unlimited</option><option value="5120">5 Mbps</option><option value="10240">10 Mbps</option><option value="25600">25 Mbps</option><option value="51200">50 Mbps</option><option value="102400">100 Mbps</option></select></label><label><span>Data quota</span><select name="quota_mb"><option value="0">Unlimited</option><option value="1024">1 GB / month</option><option value="5120">5 GB / month</option><option value="10240">10 GB / month</option><option value="25600">25 GB / month</option><option value="51200">50 GB / month</option><option value="102400">100 GB / month</option></select></label><label><span>Schedule</span><select name="schedule"><option value="always">Always allowed</option><option value="weekdays">Weekdays · 09:00–18:00</option><option value="daytime">Every day · 08:00–22:00</option></select></label><label><span>VPN DNS</span><select name="dns_mode"><option value="router">RouterOS DNS</option><option value="cloudflare">Cloudflare DNS</option></select></label><label class="toggle"><input type="checkbox" name="notifications" checked><span><strong>Show automated alerts</strong><small>Keep quota, schedule, and access notices visible.</small></span></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="primary">Save template</button></footer></form></dialog>
 """
     # The edit dialog is an intentionally compact static fragment. Substitute
     # its RouterOS DNS label after construction so it always reflects the
