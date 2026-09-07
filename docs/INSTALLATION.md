@@ -1,6 +1,12 @@
 # First-time MikroTik installation
 
-This guide installs the VPN Dashboard container on a new RouterOS device. It is deliberately separate from [DEPLOYMENT.md](DEPLOYMENT.md): complete this guide once, then use its protected manual promotion path for later changes. Automatic deployment is an owner opt-in only after a canary and rollback validation.
+This guide installs the VPN Dashboard container on a new RouterOS device. Start
+with the offline [Installation Wizard](INSTALL_WIZARD.md): it asks for
+non-secret settings and prints a review-only `.rsc` plan. This guide remains the
+source of truth for the manual RouterOS gates and verification steps. After the
+first installation, use the private protected promotion path in
+[DEPLOYMENT.md](DEPLOYMENT.md) only after the required canary and rollback
+validation.
 
 ## Support matrix
 

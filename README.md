@@ -50,6 +50,13 @@ See [SECURITY.md](SECURITY.md) and [docs/SECURITY.md](docs/SECURITY.md) before d
 | `.github/workflows/` | CI, security analysis, and architecture-aware image publishing |
 | `docs/` | Deployment, rollback, security, and operations runbooks |
 
+## Get started
+
+1. Check the [supported RouterOS platform requirements](docs/INSTALLATION.md#1-check-the-platform).
+2. Run the offline [Installation Wizard](docs/INSTALL_WIZARD.md) and follow the [first-time installation guide](docs/INSTALLATION.md) to enable Container mode, create storage/networking, configure RouterOS REST trust, and start an immutable image.
+3. Expose the dashboard safely with the [HTTPS and reverse-proxy guide](docs/EXPOSURE.md). Direct TLS, a normal DNS name, local-only access, and optional Cloudflare are supported.
+4. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
+
 ## Local verification
 
 The project uses the Python standard library; no application dependencies need to be installed.
@@ -130,6 +137,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the one-time automation setup, 
 ## Contributing
 
 Changes use pull requests and passing CI. A merge to `main` publishes immutable architecture-specific images; production deployment is a separate protected opt-in action. See [CONTRIBUTING.md](CONTRIBUTING.md) and [the release contract](docs/RELEASES.md). Security reports belong in a private GitHub security advisory as described in [SECURITY.md](SECURITY.md).
+
+The planned public releases are tracked in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## License
 
