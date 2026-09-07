@@ -19,6 +19,43 @@ For every repository and fork, the safe default is manual release promotion:
 
 Automatic deployment is deliberately disabled unless an owner sets the repository variable `ENABLE_ROUTEROS_AUTODEPLOY` to the exact string `true` **after** the isolated canary has been provisioned and its rollback exercise succeeds. With that opt-in, a successful default-branch image publication runs **Validate RouterOS canary** first. The canary updates only the pre-provisioned canary container, verifies the exact trusted immutable tag plus RouterOS's local `/readyz` healthcheck state, restores its prior immutable image, and proves that baseline is healthy again. No public canary hostname, NAT rule, or direct runner-to-container route is required. Only a fully successful same-repository `push` canary run can start production promotion for the exact candidate SHA. A failed, cancelled, manual, stale, or foreign-repository run cannot promote production. The variable never supplies credentials or makes forks target another router. Keep it unset for manual-only operation, including new public forks.
 
+## Permanent target topology
+
+Provision two fixed RouterOS targets once, then let the workflows change only
+their immutable image tags. This makes every deployment reproducible and keeps
+the operational boundary clear:
+
+| Target | Required isolation | Workflow behavior |
+| --- | --- | --- |
+| Production | Stable container name, persistent database, production VETH/bridge, production environment and mount lists | Updated only after the canary workflow succeeds; remains running after a router reboot. |
+| Canary | Different container name, root directory, database directory, VETH, bridge, gateway subnet, environment list, and mount list | Receives the candidate image, proves RouterOS's local healthcheck, then restores its previous immutable image. It has no public proxy, NAT, or DNS route. |
+
+Use stable, descriptive names such as `vpn-dashboard-production` and
+`vpn-dashboard-canary`; never use an image tag or a human-facing display label
+as `ROUTEROS_CONTAINER_NAME`. The production and canary database directories
+must never overlap. A canary may share a configuration-only mount containing a
+public RouterOS CA certificate, but it must not share writable application data.
+
+The deployment runner connects using a dedicated RouterOS account and a REST
+certificate whose DNS SAN exactly matches `ROUTEROS_REST_URL`. Store the CA and
+the account password only as encrypted GitHub environment secrets. Do not use
+the router owner account, disable certificate verification, or expose RouterOS
+REST to GitHub-hosted runners.
+
+Before enabling `ENABLE_ROUTEROS_AUTODEPLOY=true`, run one manual canary
+workflow against an already-published full SHA and confirm all of these facts:
+
+- the candidate's local RouterOS healthcheck becomes healthy;
+- the canary workflow restores and rechecks its baseline image;
+- the production container, data, and public dashboard remain unchanged; and
+- the image registry credential is a current `read:packages` credential that
+  has never been pasted into a ticket, screenshot, shell history, or command
+  output.
+
+If any condition fails, leave automatic deployment disabled. Rotate the
+registry credential before retrying. This is intentionally a hard gate because
+RouterOS uses one global container-registry configuration for image pulls.
+
 Create a protected `canary` GitHub environment before enabling the variable. It must contain these secrets for the **separate, non-public canary container**:
 
 | Secret | Required value |
