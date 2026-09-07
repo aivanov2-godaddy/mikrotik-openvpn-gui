@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="860" viewBox="0 0 1440 860" role="img" aria-labelledby="title desc">
+  <title id="title">MikroTik OpenVPN GUI navigation</title>
+  <desc id="desc">Representative authenticated dashboard shell with the MikroTik-style navigation menu.</desc>
+  <defs>
+    <linearGradient id="header" x1="0" x2="1">
+      <stop offset="0" stop-color="#185a86"/>
+      <stop offset="1" stop-color="#174d73"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#050b10" flood-opacity=".42"/>
+    </filter>
+  </defs>
+  <rect width="1440" height="860" fill="#101c25"/>
+  <rect x="28" y="28" width="1384" height="804" rx="8" fill="#162630" stroke="#2c4351" filter="url(#shadow)"/>
+  <rect x="28" y="28" width="1384" height="56" rx="8" fill="url(#header)"/>
+  <rect x="28" y="76" width="1384" height="8" fill="#174d73"/>
+  <g font-family="Arial, sans-serif">
+    <text x="54" y="64" fill="#f4f8fb" font-size="22" font-weight="700" letter-spacing="4">MIKROTIK</text>
+    <text x="248" y="63" fill="#bbd9ec" font-size="17">router.example.test</text>
+    <text x="1135" y="63" fill="#f4f8fb" font-size="19">VPN Dashboard</text>
+  </g>
+  <rect x="28" y="84" width="248" height="748" fill="#14242e" stroke="#2c4351"/>
+  <g font-family="Arial, sans-serif" font-size="18">
+    <rect x="40" y="108" width="224" height="48" rx="4" fill="#1b5d87"/>
+    <text x="62" y="139" fill="#f7fbfd" font-weight="700">▦  Dashboard</text>
+    <text x="62" y="195" fill="#d4e6f1">♙  VPN Users</text>
+    <text x="62" y="247" fill="#d4e6f1">⇄  Connections</text>
+    <text x="62" y="299" fill="#d4e6f1">▣  Device Profiles</text>
+    <text x="48" y="350" fill="#75c8f6" font-size="12" font-weight="700" letter-spacing="2">AUDIT LOG</text>
+    <text x="62" y="394" fill="#d4e6f1">▤  Change History</text>
+  </g>
+  <rect x="302" y="112" width="1068" height="690" rx="6" fill="#1d2e38" stroke="#314955"/>
+  <g font-family="Arial, sans-serif">
+    <text x="338" y="160" fill="#53b9ed" font-size="13" font-weight="700" letter-spacing="2">VPN DASHBOARD</text>
+    <text x="338" y="205" fill="#f2f7fb" font-size="34" font-weight="700">VPN at a glance</text>
+    <text x="338" y="237" fill="#a6c1d2" font-size="18">Everything important, without RouterOS terminology.</text>
+    <rect x="338" y="275" width="310" height="150" rx="5" fill="#213540" stroke="#365361"/>
+    <text x="362" y="316" fill="#a6c1d2" font-size="16">VPN users</text>
+    <text x="362" y="368" fill="#f4f8fb" font-size="42" font-weight="700">3</text>
+    <text x="362" y="399" fill="#90afc1" font-size="16">Ready to connect</text>
+    <rect x="668" y="275" width="310" height="150" rx="5" fill="#213540" stroke="#365361"/>
+    <text x="692" y="316" fill="#a6c1d2" font-size="16">Connected now</text>
+    <text x="692" y="368" fill="#f4f8fb" font-size="42" font-weight="700">0</text>
+    <text x="692" y="399" fill="#90afc1" font-size="16">Live sessions</text>
+    <rect x="998" y="275" width="338" height="150" rx="5" fill="#213540" stroke="#365361"/>
+    <text x="1022" y="316" fill="#a6c1d2" font-size="16">Device profiles</text>
+    <text x="1022" y="368" fill="#f4f8fb" font-size="42" font-weight="700">1</text>
+    <text x="1022" y="399" fill="#90afc1" font-size="16">Protected individually</text>
+    <rect x="338" y="457" width="998" height="280" rx="5" fill="#182a34" stroke="#314955"/>
+    <text x="362" y="502" fill="#f4f8fb" font-size="23" font-weight="700">Service health</text>
+    <text x="362" y="531" fill="#9db7c7" font-size="16">Live MikroTik capacity and VPN availability</text>
+    <circle cx="377" cy="588" r="7" fill="#27c58b"/>
+    <text x="395" y="595" fill="#e4f8f0" font-size="24" font-weight="700">Online</text>
+    <text x="600" y="595" fill="#a6c1d2" font-size="16">Router CPU 3%</text>
+    <text x="810" y="595" fill="#a6c1d2" font-size="16">Memory 25%</text>
+    <text x="1010" y="595" fill="#a6c1d2" font-size="16">Storage 17%</text>
+    <text x="362" y="687" fill="#53b9ed" font-size="14" font-weight="700" letter-spacing="1.5">REPRESENTATIVE VIEW · LIVE USER DATA REDACTED</text>
+  </g>
+</svg>

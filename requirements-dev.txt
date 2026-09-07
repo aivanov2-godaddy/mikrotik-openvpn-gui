@@ -1,0 +1,2 @@
+# Developer-only tooling; never installed in the production image.
+pre-commit==4.6.2

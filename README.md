@@ -1,3 +1,114 @@
 # MikroTik OpenVPN GUI
 
-The public v1.0.0 source release is being prepared in issue #1.
+[![CI](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/actions/workflows/ci.yml/badge.svg)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/actions/workflows/ci.yml)
+
+MikroTik OpenVPN GUI is a self-hosted, WinBox-inspired web control plane for an
+existing OpenVPN service on RouterOS 7. It makes everyday VPN administration
+simple while RouterOS remains the source of truth for identities, certificates,
+sessions, and traffic policy.
+
+> [!IMPORTANT]
+> This project manages an OpenVPN service that you have already configured on
+> RouterOS. Review every generated RouterOS command before applying it and test
+> on an isolated canary device where practical.
+
+## Highlights
+
+- Authenticate administrators against RouterOS; no second dashboard-password database.
+- Add, edit, suspend, duplicate, and remove VPN users.
+- Issue separate client certificates and password-protected profile archives per device.
+- Onboard phones and tablets with short-lived QR hand-offs or ZIP downloads.
+- Inspect active sessions, traffic counters, source addresses, and connection history.
+- Apply simple access presets: device limits, expiry, schedule, speed, DNS, and quota.
+- Keep dashboard metadata and sanitized audit events in SQLite; do not store VPN passwords or private keys.
+- Deploy the same image on supported RouterOS container architectures: `arm64` is the validated target and `amd64` is available for CHR/x86 evaluation.
+
+## Dashboard preview
+
+Representative mock-data views show the dashboard navigation and main operator
+screens. They contain no production accounts, addresses, or credentials.
+
+![MikroTik-style dashboard navigation](docs/screenshots/dashboard-navigation.svg)
+
+![VPN dashboard sections](docs/screenshots/dashboard-sections.svg)
+
+## Quick start
+
+1. Check the [supported RouterOS platform requirements](docs/INSTALLATION.md#1-check-the-platform).
+2. Follow the [first-time installation guide](docs/INSTALLATION.md) to enable Container mode, create storage/networking, configure RouterOS REST trust, and start an immutable image.
+3. Expose the dashboard safely with the [HTTPS and reverse-proxy guide](docs/EXPOSURE.md). Direct TLS, a normal DNS name, local-only access, and optional Cloudflare are supported.
+4. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
+
+The public repository publishes architecture-specific GHCR images from `main`.
+Always pin an immutable `sha-<commit>-<architecture>` tag for RouterOS; never
+make a router follow the mutable `edge` tag automatically.
+
+## Runtime configuration
+
+Set values through a RouterOS container environment list. Never commit a
+populated environment file.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `PUBLIC_ORIGIN` | Yes | Public HTTPS origin, for example `https://vpn.example.com` |
+| `ROUTEROS_REST_URL` | Yes | RouterOS REST base URL ending in `/rest` |
+| `ROUTEROS_CA_FILE` | Yes | CA file used to verify RouterOS REST, recommended `/config/routeros-ca.crt` |
+| `ROUTEROS_INSECURE_TLS` | Yes | Keep `false` in production |
+| `DATABASE_PATH` | Yes | Persistent SQLite path, recommended `/data/dashboard.sqlite` |
+| `APP_PORT` | No | Dashboard listener; defaults to `8080` |
+| `REDIRECT_PORT` | No | HTTP redirect listener; defaults to `8081` |
+| `DROP_PRIVILEGES` | Yes | Keep `true` so the app drops to an unprivileged UID/GID |
+| `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
+| `TRUST_CLOUDFLARE` | Conditional | Enable only when every request reaches the app through a trusted Cloudflare origin proxy |
+| `TRUSTED_PROXY_SOURCES` | Conditional | Private proxy addresses allowed to set forwarded client headers |
+| `OVPN_PPP_PROFILE` | Yes for profile issuing | Existing RouterOS PPP profile for new OpenVPN users |
+| `OVPN_SERVER_NAME` | Yes for profile issuing | Existing RouterOS OpenVPN server name |
+| `OVPN_CA_NAME` | Yes for profile issuing | Existing RouterOS CA used to sign client certificates |
+| `OVPN_HOST` | Yes for profile issuing | Public OpenVPN DNS name or IP written into device profiles |
+| `OVPN_SERVER_IDENTITY` | No | Certificate identity verified by profiles; defaults to `OVPN_HOST` |
+| `VPN_LAN_CIDR` | Yes for LAN/full-tunnel profiles | IPv4 LAN route included in generated profiles |
+| `VPN_ROUTER_DNS` | Yes for RouterOS-DNS profiles | Router DNS server written into generated profiles |
+| `DASHBOARD_NAME`, `ROUTER_DISPLAY_NAME` | No | Optional presentation labels; generic defaults are used |
+
+Read-only router status remains available without the `OVPN_*` settings. User
+and profile actions fail closed until the OpenVPN topology is configured.
+
+## Development
+
+The runtime uses the Python standard library. To validate a checkout:
+
+```powershell
+python -m pip install pre-commit
+python -m pre_commit install
+python -m pre_commit run --all-files
+python scripts/check-secrets.py
+python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
+python -m unittest discover -s tests -v
+```
+
+For a local UI backed by the bundled mock RouterOS service:
+
+```powershell
+python tests/run_mock_app.py --port 18080
+```
+
+Then open `http://127.0.0.1:18080`. The mock never contacts a router or a
+Cloudflare account.
+
+## Release and deployment boundary
+
+This public repository builds and publishes images only. It has no RouterOS
+credentials, self-hosted runner, production environment, or automatic router
+deployment workflow. Operators choose their own management path and use the
+explicit, local update procedure in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+That separation prevents a pull request or a fork from modifying any router.
+
+See [docs/RELEASES.md](docs/RELEASES.md) for versioning and image tags,
+[SECURITY.md](SECURITY.md) for reporting guidance, and
+[CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
+
+## License and trademarks
+
+Licensed under the [Apache License 2.0](LICENSE). MikroTik and RouterOS are
+trademarks of MikroTikls SIA. This project is independent and is not affiliated
+with, endorsed by, or sponsored by MikroTikls SIA.

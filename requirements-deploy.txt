@@ -1,0 +1,2 @@
+# Local operator tooling only; not installed in the application image.
+RouterOS-api==0.21.0

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability privately
+    url: https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/security/advisories/new
+    about: Use a private security advisory; never put exploit details or credentials in an issue.
