@@ -257,6 +257,7 @@ def dashboard_page(
     vpn_host: str = "",
     router_dns: str = "",
     access_layer_label: str = "Direct HTTPS",
+    health: dict[str, Any] | None = None,
 ) -> str:
     device_counts: dict[str, int] = {}
     for device in devices:
@@ -531,7 +532,6 @@ def dashboard_page(
     memory_used = _used_percent(router.get("free-memory"), router.get("total-memory"))
     storage_used = _used_percent(router.get("free-hdd-space"), router.get("total-hdd-space"))
     uptime = _router_uptime(router.get("uptime", "unknown"))
-    bad_blocks = int(router.get("bad-blocks", 0) or 0)
     crl_ready = bool(certificate_settings.get("crl_use"))
     server_enabled = bool(ovpn_server.get("enabled"))
     client_certificates = bool(ovpn_server.get("require_client_certificate"))
@@ -548,6 +548,15 @@ def dashboard_page(
         warning_items = "".join(f"<li>{html.escape(item)}</li>" for item in warnings)
         warning_markup = f"""<section class="degraded-notice" role="status">{_icon('refresh')}<div><strong>You are connected, but some RouterOS data could not be loaded.</strong><ul>{warning_items}</ul><small>Refresh the page to try again. Your login remains active.</small></div></section>"""
     alert_markup_panel = f'<section class="panel alerts-panel"><div class="panel-heading"><div>{_icon("shield")}<span><strong>Security and access alerts</strong><small>Automated checks from the dashboard control plane</small></span></div><span class="muted-label">{len(alerts)} open</span></div><ul class="alert-list" data-alert-list>{alert_markup}</ul></section>' if alerts else ''
+    health = health or {"overall": "unavailable", "checks": []}
+    health_checks = list(health.get("checks") or [])
+    health_counts = {state: sum(1 for item in health_checks if item.get("status") == state) for state in ("healthy", "warning", "unavailable")}
+    health_overall = str(health.get("overall", "unavailable"))
+    health_overall_label = {"healthy": "Operational", "warning": "Attention needed", "unavailable": "Unavailable"}.get(health_overall, "Unavailable")
+    health_rows = "".join(
+        f'''<article class="service-health-check {html.escape(str(item.get("status", "unavailable")), quote=True)}"><span class="health-check-led" aria-hidden="true"></span><div><strong>{html.escape(str(item.get("name", "Health check")))}</strong><small>{html.escape(str(item.get("impact", "")))}</small><p><b>Safe next step:</b> {html.escape(str(item.get("remediation", "No action needed.")))}</p></div></article>'''
+        for item in health_checks
+    ) or '<div class="empty"><strong>No health data is available yet.</strong><span>Refresh this view to check the current router state.</span></div>'
 
     body = f"""
 <div class="winbox-shell">
@@ -566,6 +575,7 @@ def dashboard_page(
     <a href="#live-sessions" data-view-target="live-sessions">{_icon('session')}<span>Connections</span><strong class="nav-count" data-nav-session-count>{len(sessions)}</strong></a>
     <a href="#profile-security" data-view-target="profile-security">{_icon('device')}<span>Device Profiles</span></a>
     <a href="#policy-templates" data-view-target="policy-templates">{_icon('shield')}<span>Policy Templates</span></a>
+    <a href="#service-health" data-view-target="service-health">{_icon('system')}<span>Service Health</span></a>
     <span class="nav-section-title">AUDIT LOG</span>
     <a href="#audit-log" class="nav-subitem" data-view-target="audit-log">{_icon('log')}<span>Change History</span></a>
     <span class="nav-section-title">SETUP</span>
@@ -585,7 +595,7 @@ def dashboard_page(
         </section>
         {alert_markup_panel}
         <section class="enterprise-grid" aria-label="Service health and security posture">
-          <article class="panel operations-panel"><div class="panel-heading"><div>{_icon('system')}<span><strong>Service health</strong><small>Live MikroTik capacity and VPN availability</small></span></div><span class="posture-badge">{('Operational' if server_enabled and bad_blocks == 0 else 'Attention needed')}</span></div><div class="health-grid">
+          <article class="panel operations-panel"><div class="panel-heading"><div>{_icon('system')}<span><strong>Service health</strong><small>Live MikroTik capacity and VPN availability</small></span></div><div class="panel-heading-actions"><span class="posture-badge">{health_overall_label}</span><button type="button" class="quiet" data-view-target="service-health">Open checks</button></div></div><div class="health-grid">
             <div class="health-item"><span>VPN service</span><strong class="health-state {'good' if server_enabled else 'bad'}"><i></i>{'Online' if server_enabled else 'Offline'}</strong><small>{html.escape(str(ovpn_server.get('protocol', '')).upper())} {int(ovpn_server.get('port', 0) or 0)}</small></div>
             <div class="health-item"><span>Router CPU</span><strong data-router-cpu>{cpu_load}%</strong><progress data-router-cpu-progress max="100" value="{cpu_load}"></progress></div>
             <div class="health-item"><span>Memory used</span><strong data-router-memory>{memory_used}%</strong><progress data-router-memory-progress max="100" value="{memory_used}"></progress></div>
@@ -621,6 +631,17 @@ def dashboard_page(
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('device')}<span><strong>Managed devices</strong><small>Profiles created by this dashboard</small></span></div><span class="posture-badge">Protected automatically</span></div><div class="responsive-table"><table class="device-table"><thead><tr><th>Device / owner</th><th>Status</th><th>Protection ID</th><th>Created</th><th>Action</th></tr></thead><tbody>{device_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('certificate')}<span><strong>RouterOS certificate inventory</strong><small>All client identities accepted by this OpenVPN CA</small></span></div><span class="muted-label">{len(certificates)} certificates</span></div><div class="responsive-table"><table class="certificate-table"><thead><tr><th>Certificate / identity</th><th>Owner / device</th><th>Status</th><th>Expires</th><th>Fingerprint</th></tr></thead><tbody>{certificate_markup}</tbody></table></div></section>
         <section class="panel protection-summary"><div class="panel-heading compact"><div>{_icon('shield')}<span><strong>Protection handled for you</strong><small>No certificate knowledge required</small></span></div></div><ul class="checks"><li><span>{_icon('check')}</span><div><strong>Separate protection per device</strong><small>Each downloaded profile receives a separate certificate.</small></div></li><li><span>{_icon('check')}</span><div><strong>Private key encrypted</strong><small>The password you choose protects the downloaded profile.</small></div></li><li><span>{_icon('check')}</span><div><strong>Correct server verified</strong><small>The profile accepts only {vpn_host_safe}.</small></div></li><li><span>{_icon('check')}</span><div><strong>Temporary files removed</strong><small>Setup files are cleaned automatically after download.</small></div></li><li class="{'ready' if crl_ready else 'warning'}"><span>{_icon('shield')}</span><div><strong>{'Certificate revocation enforced' if crl_ready else 'Per-device revocation needs CA migration'}</strong><small>{'RouterOS CRL checking is active.' if crl_ready else 'The current CA has no active CRL distribution point. A planned CA rotation is required before a lost profile can be reliably revoked.'}</small></div></li></ul></section>
+      </section>
+
+      <section class="app-view" id="service-health" data-view="service-health" hidden>
+        <header class="view-heading"><div><p class="eyebrow">OPERATIONS</p><h1>Service health</h1><p>Read-only checks with clear impact and safe next steps. Nothing is repaired automatically.</p></div><div class="heading-actions"><button type="button" class="quiet" data-service-health-refresh>{_icon('refresh')}<span>Refresh checks</span></button></div></header>
+        <section class="metric-grid service-health-summary" aria-label="Service health summary">
+          <article class="metric"><div class="metric-icon">{_icon('system')}</div><div><small>Overall state</small><strong data-service-health-overall>{health_overall_label}</strong><span data-service-health-checked>{len(health_checks)} checks completed</span></div></article>
+          <article class="metric"><div class="metric-icon">{_icon('enable')}</div><div><small>Healthy</small><strong data-service-health-count="healthy">{health_counts['healthy']}</strong><span>Operating as expected</span></div></article>
+          <article class="metric"><div class="metric-icon">{_icon('shield')}</div><div><small>Needs review</small><strong data-service-health-count="warning">{health_counts['warning']}</strong><span>Review before changing RouterOS</span></div></article>
+          <article class="metric"><div class="metric-icon">{_icon('disable')}</div><div><small>Unavailable</small><strong data-service-health-count="unavailable">{health_counts['unavailable']}</strong><span>Could not be verified</span></div></article>
+        </section>
+        <section class="panel service-health-panel"><div class="panel-heading"><div>{_icon('system')}<span><strong>Current checks</strong><small>Fresh RouterOS and dashboard readiness, without configuration changes</small></span></div></div><div class="service-health-list" data-service-health-list>{health_rows}</div></section>
       </section>
 
       <section class="app-view" id="policy-templates" data-view="policy-templates" hidden>

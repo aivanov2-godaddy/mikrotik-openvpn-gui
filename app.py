@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
-from config import RuntimeConfig
+from config import ConfigurationError, RuntimeConfig
 from favicon import FAVICON_SVG, ico_bytes
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg
@@ -39,6 +39,107 @@ EXPIRY_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
 SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
 IMMUTABLE_IMAGE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._/-]*:sha-[a-f0-9]{40,64}(?:-(?:arm64|amd64))?$", re.I)
+
+
+def _used_percent(free: Any, total: Any) -> int:
+    """Return a bounded used percentage from RouterOS capacity fields."""
+    try:
+        total_value = int(total or 0)
+        free_value = int(free or 0)
+    except (TypeError, ValueError):
+        return 0
+    if total_value <= 0:
+        return 0
+    return max(0, min(100, round((total_value - free_value) * 100 / total_value)))
+
+
+def service_health_snapshot(
+    *,
+    router: dict[str, Any] | None,
+    ovpn_server: dict[str, Any] | None,
+    certificate_settings: dict[str, Any] | None,
+    certificates: list[dict[str, Any]] | None,
+    config: RuntimeConfig,
+    database_ready: bool,
+    unavailable_reason: str = "",
+) -> dict[str, Any]:
+    """Build a non-mutating readiness view from already-fetched state.
+
+    The response intentionally exposes useful operational guidance without
+    disclosing RouterOS errors, credentials, or local storage paths.
+    """
+    if unavailable_reason:
+        return {
+            "overall": "unavailable",
+            "checked_at": int(time.time()),
+            "checks": [{
+                "id": "routeros-rest",
+                "name": "RouterOS REST connection",
+                "status": "unavailable",
+                "impact": "Live VPN health cannot be verified until the router responds.",
+                "remediation": "Confirm the dashboard container can reach RouterOS REST over HTTPS, then refresh.",
+            }],
+        }
+
+    router = router or {}
+    ovpn_server = ovpn_server or {}
+    certificate_settings = certificate_settings or {}
+    certificates = certificates or []
+    checks: list[dict[str, str]] = []
+
+    def add(identifier: str, name: str, status: str, impact: str, remediation: str) -> None:
+        checks.append({"id": identifier, "name": name, "status": status, "impact": impact, "remediation": remediation})
+
+    add(
+        "routeros-rest", "RouterOS REST connection", "healthy",
+        "The dashboard can read the router and apply only reviewed changes.",
+        "No action needed.",
+    )
+    add(
+        "dashboard-storage", "Dashboard data store", "healthy" if database_ready else "unavailable",
+        "Profiles, user controls, alerts, and change history are persistent." if database_ready else "Dashboard changes cannot be stored safely.",
+        "No action needed." if database_ready else "Verify the container's persistent storage mount and available disk space, then refresh.",
+    )
+    if not ovpn_server.get("name"):
+        add("openvpn-service", "OpenVPN server", "unavailable", "New VPN connections cannot be accepted.", "Create or select the RouterOS OpenVPN server, then refresh.")
+    elif not ovpn_server.get("enabled"):
+        add("openvpn-service", "OpenVPN server", "warning", "The configured OpenVPN server is currently disabled.", "Enable the selected OpenVPN server in WinBox after reviewing its configuration.")
+    else:
+        add("openvpn-service", "OpenVPN server", "healthy", "The configured OpenVPN server is enabled.", "No action needed.")
+
+    try:
+        config.topology.require_profile_generation(policy="full-tunnel", dns_mode="router")
+    except ConfigurationError:
+        add("profile-issuing", "Profile issuing prerequisites", "warning", "The dashboard may be unable to generate a complete phone profile.", "Set the required OVPN topology values in the container environment, then restart the dashboard.")
+    else:
+        add("profile-issuing", "Profile issuing prerequisites", "healthy", "New device profiles can be generated from the configured topology.", "No action needed.")
+
+    if certificate_settings.get("crl_use"):
+        add("certificate-revocation", "Certificate revocation checks", "healthy", "RouterOS is configured to use certificate revocation information.", "No action needed.")
+    else:
+        add("certificate-revocation", "Certificate revocation checks", "warning", "Revoked client certificates may not be rejected automatically.", "Review Certificate Settings in WinBox and enable CRL use when your CA publishes a revocation list.")
+
+    if certificates:
+        add("certificate-inventory", "Client certificate inventory", "healthy", f"{len(certificates)} OpenVPN client certificate(s) are visible to the dashboard.", "No action needed.")
+    else:
+        add("certificate-inventory", "Client certificate inventory", "warning", "No OpenVPN client certificates were found for the configured CA.", "Issue a device profile or verify the configured CA name before distributing access.")
+
+    capacity = max(
+        _used_percent(router.get("free-memory"), router.get("total-memory")),
+        _used_percent(router.get("free-hdd-space"), router.get("total-hdd-space")),
+        max(0, min(100, int(router.get("cpu-load", 0) or 0))),
+    )
+    if capacity >= 95:
+        capacity_status, capacity_impact = "warning", "Router capacity is critically high and may affect VPN reliability."
+    elif capacity >= 85:
+        capacity_status, capacity_impact = "warning", "Router capacity is elevated; monitor VPN performance."
+    else:
+        capacity_status, capacity_impact = "healthy", "Router CPU, memory, and storage are within the dashboard threshold."
+    add("router-capacity", "Router capacity", capacity_status, capacity_impact, "Review CPU, memory, and storage in WinBox; reduce load or free storage before VPN users are affected." if capacity_status == "warning" else "No action needed.")
+
+    statuses = {item["status"] for item in checks}
+    overall = "unavailable" if "unavailable" in statuses else ("warning" if "warning" in statuses else "healthy")
+    return {"overall": overall, "checked_at": int(time.time()), "checks": checks}
 
 
 def baked_release_value(name: str) -> str:
@@ -427,6 +528,49 @@ class DashboardHandler(BaseHTTPRequestHandler):
             })
         return values
 
+    def _service_health(self, credentials: RouterOSCredentials) -> dict[str, Any]:
+        """Collect health inputs without changing RouterOS or dashboard state."""
+        try:
+            router = self.server.context.router.verify_credentials(credentials)
+        except RouterOSError:
+            return service_health_snapshot(
+                router=None,
+                ovpn_server=None,
+                certificate_settings=None,
+                certificates=None,
+                config=self.server.context.config,
+                database_ready=False,
+                unavailable_reason="router",
+            )
+
+        try:
+            self.server.context.store.verify_readiness()
+            database_ready = True
+        except Exception as error:
+            print(f"service health data store unavailable reason={type(error).__name__}")
+            database_ready = False
+
+        try:
+            ovpn_server = self.server.context.router.get_ovpn_server_status(credentials)
+        except RouterOSError:
+            ovpn_server = {}
+        try:
+            certificate_settings = self.server.context.router.get_certificate_settings(credentials)
+        except RouterOSError:
+            certificate_settings = {}
+        try:
+            certificates = self.server.context.router.list_ovpn_client_certificates(credentials)
+        except RouterOSError:
+            certificates = []
+        return service_health_snapshot(
+            router=router,
+            ovpn_server=ovpn_server,
+            certificate_settings=certificate_settings,
+            certificates=certificates,
+            config=self.server.context.config,
+            database_ready=database_ready,
+        )
+
     def do_GET(self) -> None:
         path = urllib.parse.urlsplit(self.path).path
         if path == "/healthz":
@@ -529,6 +673,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
             except RouterOSError as error:
                 self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            return
+        if path == "/api/service-health":
+            session = self._require_session(api=True)
+            if not session:
+                return
+            self._json(self._service_health(self._credentials(session)))
             return
         if path == "/api/setup-preflight":
             session = self._require_session(api=True)
@@ -701,6 +851,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             [],
             lambda: self.server.context.router.list_ovpn_client_certificates(credentials),
         )
+        try:
+            self.server.context.store.verify_readiness()
+            database_ready = True
+        except Exception as error:
+            print(f"dashboard data store health unavailable reason={type(error).__name__}")
+            warnings.append("Dashboard data store health is temporarily unavailable.")
+            database_ready = False
+        health = service_health_snapshot(
+            router=router,
+            ovpn_server=ovpn_server,
+            certificate_settings=certificate_settings,
+            certificates=certificates,
+            config=self.server.context.config,
+            database_ready=database_ready,
+        )
         self._html(
             dashboard_page(
                 actor=session.username,
@@ -724,6 +889,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 vpn_host=self.server.context.config.topology.host,
                 router_dns=self.server.context.config.topology.router_dns,
                 access_layer_label=self.server.context.config.access_layer_label,
+                health=health,
             )
         )
 

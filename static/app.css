@@ -181,6 +181,18 @@ label { color: #d0d7dc; }
 .enterprise-grid { display: grid; grid-template-columns: minmax(520px, 1.25fr) minmax(360px, .75fr); gap: 8px; }
 .operations-panel, .security-posture-panel { min-width: 0; }
 .health-grid { display: grid; grid-template-columns: repeat(5, minmax(105px, 1fr)); gap: 1px; padding: 8px; }
+.panel-heading-actions { display: flex; align-items: center; gap: 8px; }
+.service-health-list { display: grid; gap: 1px; padding: 8px; background: #172027; }
+.service-health-check { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 9px; padding: 11px; background: #25323a; }
+.service-health-check .health-check-led { width: 8px; height: 8px; margin-top: 4px; border-radius: 99px; background: #71808b; }
+.service-health-check.healthy .health-check-led { background: var(--green); }
+.service-health-check.warning .health-check-led { background: #e6ae55; }
+.service-health-check.unavailable .health-check-led { background: #df6670; }
+.service-health-check > div { display: grid; gap: 3px; }
+.service-health-check strong { color: #e2e9ec; font-size: 12px; }
+.service-health-check small { color: #aebac1; font-size: 11px; }
+.service-health-check p { margin: 3px 0 0; color: #8e9da6; font-size: 10px; line-height: 1.45; }
+.service-health-check p b { color: #c6d0d6; }
 .health-item { display: grid; min-width: 0; align-content: start; gap: 4px; padding: 8px; border: 1px solid #35424c; background: #202b34; }
 .health-item > span { color: #829099; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
 .health-item > strong { overflow: hidden; color: #e6ecef; font-size: 16px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
