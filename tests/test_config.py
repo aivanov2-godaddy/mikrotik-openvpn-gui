@@ -10,7 +10,13 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.routeros_rest_url, "https://127.0.0.1:8443/rest")
         self.assertEqual(config.dashboard_name, "MikroTik OpenVPN GUI")
         self.assertEqual(config.router_display_name, "RouterOS")
+        self.assertEqual(config.history_retention_days, 365)
         self.assertEqual(config.topology, OpenVPNTopology())
+
+    def test_history_retention_has_safe_bounds(self) -> None:
+        self.assertEqual(RuntimeConfig.from_environ({"HISTORY_RETENTION_DAYS": "30"}).history_retention_days, 30)
+        with self.assertRaisesRegex(ConfigurationError, "between 30 and 3650"):
+            RuntimeConfig.from_environ({"HISTORY_RETENTION_DAYS": "29"})
 
     def test_explicit_topology_is_normalized_and_complete_for_profiles(self) -> None:
         config = RuntimeConfig.from_environ(

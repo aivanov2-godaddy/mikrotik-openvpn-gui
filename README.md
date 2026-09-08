@@ -67,7 +67,40 @@ See [SECURITY.md](SECURITY.md) and [docs/SECURITY.md](docs/SECURITY.md) before d
 
 ## Local verification
 
-The project uses the Python standard library; no application dependencies need to be installed.
+## Runtime configuration
+
+Set values through a RouterOS container environment list. Never commit a
+populated environment file.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `PUBLIC_ORIGIN` | Yes | Public HTTPS origin, for example `https://vpn.example.com` |
+| `ROUTEROS_REST_URL` | Yes | RouterOS REST base URL ending in `/rest` |
+| `ROUTEROS_CA_FILE` | Yes | CA file used to verify RouterOS REST, recommended `/config/routeros-ca.crt` |
+| `ROUTEROS_INSECURE_TLS` | Yes | Keep `false` in production |
+| `DATABASE_PATH` | Yes | Persistent SQLite path, recommended `/data/dashboard.sqlite` |
+| `HISTORY_RETENTION_DAYS` | No | Keep sanitized dashboard audit and completed connection history for 30–3650 days; defaults to 365. It never deletes RouterOS configuration or active sessions. |
+| `APP_PORT` | No | Dashboard listener; defaults to `8080` |
+| `REDIRECT_PORT` | No | HTTP redirect listener; defaults to `8081` |
+| `DROP_PRIVILEGES` | Yes | Keep `true` so the app drops to an unprivileged UID/GID |
+| `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
+| `TRUST_CLOUDFLARE` | Conditional | Enable only when every request reaches the app through a trusted Cloudflare origin proxy |
+| `TRUSTED_PROXY_SOURCES` | Conditional | Private proxy addresses allowed to set forwarded client headers |
+| `OVPN_PPP_PROFILE` | Yes for profile issuing | Existing RouterOS PPP profile for new OpenVPN users |
+| `OVPN_SERVER_NAME` | Yes for profile issuing | Existing RouterOS OpenVPN server name |
+| `OVPN_CA_NAME` | Yes for profile issuing | Existing RouterOS CA used to sign client certificates |
+| `OVPN_HOST` | Yes for profile issuing | Public OpenVPN DNS name or IP written into device profiles |
+| `OVPN_SERVER_IDENTITY` | No | Certificate identity verified by profiles; defaults to `OVPN_HOST` |
+| `VPN_LAN_CIDR` | Yes for LAN/full-tunnel profiles | IPv4 LAN route included in generated profiles |
+| `VPN_ROUTER_DNS` | Yes for RouterOS-DNS profiles | Router DNS server written into generated profiles |
+| `DASHBOARD_NAME`, `ROUTER_DISPLAY_NAME` | No | Optional presentation labels; generic defaults are used |
+
+Read-only router status remains available without the `OVPN_*` settings. User
+and profile actions fail closed until the OpenVPN topology is configured.
+
+## Development
+
+The runtime uses the Python standard library. To validate a checkout:
 
 ```powershell
 python -m pip install pre-commit
