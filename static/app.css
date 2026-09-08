@@ -528,6 +528,48 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 .toast p { margin: 0; font-size: 11px; }
 .is-filtered-out { display: none !important; }
 
+/* Dense operational screens: preserve compact structure while making primary text readable on desktop. */
+.service-health-check strong { font-size: 14px; }
+.service-health-check small { font-size: 12px; }
+.service-health-check p { font-size: 11px; line-height: 1.5; }
+.health-item > span { font-size: 10px; }
+.health-item > strong { font-size: 18px; }
+.health-item > small { font-size: 11px; }
+.posture-list strong { font-size: 12px; }
+.posture-list small { font-size: 10px; }
+.architecture-paths article > header strong { font-size: 13px; }
+.architecture-paths article > header small { font-size: 11px; }
+.architecture-paths li span { font-size: 12px; }
+.architecture-panel > footer { padding: 8px 10px; font-size: 11px; }
+.simple-steps b { font-size: 14px; }
+.simple-steps small { font-size: 12px; }
+.panel-heading small { font-size: 11px; }
+.setup-form label { font-size: 13px; }
+.setup-form label small, .setup-check small { font-size: 11px; }
+.setup-check strong { font-size: 13px; }
+.connection-summary strong, .history-notice strong { font-size: 14px; }
+.connection-summary small, .history-notice small { font-size: 12px; }
+.responsive-table th { height: 37px; padding: 0 10px; font-size: 13px; }
+.responsive-table td { padding: 10px; font-size: 13px; }
+.device-name strong, .certificate-name { font-size: 14px; }
+.device-name small, .fingerprint { font: 11px/1.45 Consolas, monospace; }
+.table-secondary, .address-pair small { font-size: 11px; }
+.address-pair strong { font: 12px/1.45 Consolas, monospace; }
+.history-status { padding: 3px 7px; font-size: 11px; }
+.history-details span, .history-details strong { font-size: 11px; }
+.checks strong, .audit-list strong { font-size: 13px; }
+.checks small, .audit-list small { font-size: 11px; }
+.audit-list time { font-size: 11px; }
+.audit-empty { font-size: 12px; }
+.policy-intro strong { font-size: 13px; }
+.policy-intro small { font-size: 12px; }
+.policy-template header strong { font-size: 14px; }
+.policy-template header small { font-size: 11px; }
+.policy-template p { min-height: 34px; font-size: 12px; line-height: 1.5; }
+.policy-template dt { font-size: 10px; }
+.policy-template dd { font-size: 11px; }
+.template-apply-panel form > label { font-size: 13px; }
+
 @media (max-width: 1080px) {
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-grid { grid-template-columns: 1fr; }
