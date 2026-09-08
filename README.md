@@ -4,6 +4,13 @@ MikroTik OpenVPN GUI is a focused web control plane for an OpenVPN server runnin
 
 This is a private, proprietary project. Do not mirror the repository, publish its container package, or distribute its source without the owner's permission.
 
+This is not a visual-only UI: it deploys the dashboard control plane and applies
+selected OpenVPN user, device-profile, policy, rate-limit, schedule, and access
+changes through RouterOS. RouterOS remains the authority for live VPN identities,
+certificates, and sessions. The current installer expects the base OpenVPN
+server, PPP profile, and CA to exist; a zero-to-working base-server bootstrap is
+planned as a review-first expansion rather than an undocumented automatic change.
+
 ## What it does
 
 - Authenticates administrators directly against RouterOS rather than maintaining a second administrator password database.
