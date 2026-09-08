@@ -104,6 +104,8 @@ class State:
                 "encoding": "AES-256-GCM/[user-two-digest]",
                 "session-id": "0x81E0000B",
                 "comment": "Tablet test device",
+                "bytes": "200001/70001",
+                "packets": "901/401",
             }
         }
         self.interfaces: dict[str, dict[str, Any]] = {

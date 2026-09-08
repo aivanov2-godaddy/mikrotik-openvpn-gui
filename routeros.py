@@ -56,6 +56,14 @@ def _integer(value: Any) -> int:
         return 0
 
 
+def _counter_pair(value: Any) -> tuple[int, int] | None:
+    """Return a RouterOS ``transmitted/received`` counter pair when available."""
+    values = str(value or "").split("/", 1)
+    if len(values) != 2:
+        return None
+    return (_integer(values[0]), _integer(values[1]))
+
+
 def _slug(value: str, maximum: int = 42) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return (normalized or "device")[:maximum].rstrip("-")
@@ -367,11 +375,11 @@ class RouterOSClient:
     def list_active_ovpn_sessions(
         self, credentials: RouterOSCredentials
     ) -> list[dict[str, Any]]:
-        """Return live OpenVPN sessions enriched with cumulative interface counters.
+        """Return live OpenVPN sessions enriched with cumulative traffic counters.
 
-        RouterOS exposes authentication/session details under ``/ppp/active`` and
-        traffic counters under ``/interface``.  Joining both resources avoids the
-        continuous ``monitor-traffic`` command and keeps dashboard polling cheap.
+        ``/ppp/active`` is the authoritative per-session source for byte and
+        packet counts. Interface counters remain a compatibility fallback for
+        routers that do not expose the active-session statistics through REST.
         """
         active = _records(
             self._request(
@@ -381,7 +389,7 @@ class RouterOSClient:
                 query={
                     ".proplist": (
                         ".id,name,service,caller-id,address,uptime,encoding,"
-                        "session-id,comment"
+                        "session-id,comment,bytes,packets"
                     )
                 },
             )
@@ -411,6 +419,14 @@ class RouterOSClient:
             username = str(item.get("name", ""))
             interface_name = f"<ovpn-{username}>"
             interface = ovpn_interfaces.get(interface_name, {})
+            session_bytes = _counter_pair(item.get("bytes"))
+            session_packets = _counter_pair(item.get("packets"))
+            tx_bytes, rx_bytes = session_bytes or (
+                _integer(interface.get("tx-byte")), _integer(interface.get("rx-byte"))
+            )
+            tx_packets, rx_packets = session_packets or (
+                _integer(interface.get("tx-packet")), _integer(interface.get("rx-packet"))
+            )
             sessions.append(
                 {
                     "id": str(item.get(".id", "")),
@@ -423,10 +439,10 @@ class RouterOSClient:
                     "comment": str(item.get("comment", "")),
                     "interface": str(interface.get("name", interface_name)),
                     "mtu": _integer(interface.get("actual-mtu")),
-                    "rx_bytes": _integer(interface.get("rx-byte")),
-                    "tx_bytes": _integer(interface.get("tx-byte")),
-                    "rx_packets": _integer(interface.get("rx-packet")),
-                    "tx_packets": _integer(interface.get("tx-packet")),
+                    "rx_bytes": rx_bytes,
+                    "tx_bytes": tx_bytes,
+                    "rx_packets": rx_packets,
+                    "tx_packets": tx_packets,
                     "rx_drops": _integer(interface.get("rx-drop")),
                     "tx_drops": _integer(interface.get("tx-drop")),
                     "rx_errors": _integer(interface.get("rx-error")),
