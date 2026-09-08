@@ -19,6 +19,7 @@ planned as a review-first expansion rather than an undocumented automatic change
 - Provides short-lived QR hand-offs for phone and tablet onboarding.
 - Shows active OpenVPN sessions, traffic counters, byte/packet rate graphs, source addresses, and session termination controls.
 - Supports full-tunnel and access-policy presets, device limits, expiration, schedule, speed, DNS, and quota controls.
+- Provides a read-only service-health view for RouterOS REST, OpenVPN, profile issuing, certificates, storage, and capacity with safe next steps.
 - Stores only dashboard metadata and sanitized audit events in SQLite; RouterOS stays the VPN source of truth.
 - Uses Cloudflare Access and an origin allowlist as an optional first authentication and perimeter layer.
 

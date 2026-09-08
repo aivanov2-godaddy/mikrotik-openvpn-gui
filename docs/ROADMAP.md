@@ -17,10 +17,12 @@ commands explicitly manual.
 Reusable access templates, previewed bulk assignments, and clear per-user
 overrides.
 
-## v1.3 — Health and actionable alerts
+## v1.3 — Health and actionable alerts (implemented)
 
-Storage, certificate, REST reachability, profile-issuance, quota, and schedule
-signals with concise remediation guidance.
+The dashboard consolidates RouterOS REST reachability, dashboard storage,
+OpenVPN service, profile-issuance prerequisites, certificate state, and router
+capacity into one read-only view. Each result explains impact and a safe next
+step; it never changes RouterOS automatically.
 
 ## v1.4 — Reports and audit
 
