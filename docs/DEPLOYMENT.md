@@ -30,6 +30,12 @@ the operational boundary clear:
 | Production | Stable container name, persistent database, production VETH/bridge, production environment and mount lists | Updated only after the canary workflow succeeds; remains running after a router reboot. |
 | Canary | Different container name, root directory, database directory, VETH, bridge, gateway subnet, environment list, and mount list | Receives the candidate image, proves RouterOS's local healthcheck, then restores its previous immutable image. It has no public proxy, NAT, or DNS route. |
 
+Keep exactly these two dashboard containers in the normal deployment: one
+production container and one isolated GitHub-managed canary. Retire any older
+stopped dashboard container only after confirming it has no production data,
+proxy route, or deployment secret reference. Do not remove the canary merely
+because it is not publicly exposed; it is the promotion safety gate.
+
 Use stable, descriptive names such as `vpn-dashboard-production` and
 `vpn-dashboard-canary`; never use an image tag or a human-facing display label
 as `ROUTEROS_CONTAINER_NAME`. The production and canary database directories
