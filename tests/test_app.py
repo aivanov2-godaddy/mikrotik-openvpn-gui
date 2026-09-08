@@ -282,6 +282,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("vpn-change-history.csv", headers["content-disposition"])
         self.assertIn(b"operator,action,target,result", payload)
 
+        status, headers, payload = self.request("GET", "/api/audit.json?from=2000-01-01&to=2100-01-01")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
+        self.assertIn("vpn-change-history.json", headers["content-disposition"])
+        self.assertIn("entries", json.loads(payload))
+
+        status, _, payload = self.request("GET", "/api/audit.csv?from=not-a-date")
+        self.assertEqual(status, 400)
+        self.assertEqual(json.loads(payload)["error"], "from must be a date in YYYY-MM-DD format")
+
     def test_readiness_failure_is_generic_and_non_successful(self) -> None:
         with mock.patch.object(
             self.server.context.store,
