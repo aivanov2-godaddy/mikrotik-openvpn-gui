@@ -18,10 +18,13 @@ Protected `standard`, `contractor`, and `administrator` templates, plus custom
 templates. Selected users receive a preview before an explicit, checkpointed
 apply; later direct edits are retained as visible per-user overrides.
 
-## v1.3 — Health and actionable alerts
+## v1.3 — Health and actionable alerts (implemented)
 
-Storage, certificate, REST reachability, profile-issuance, quota, and schedule
-signals with concise remediation guidance.
+The dashboard now brings RouterOS REST reachability, dashboard storage,
+OpenVPN service, profile-issuance prerequisites, certificate state, and router
+capacity into one read-only view. Each result explains its impact and a safe
+next step; it never changes RouterOS automatically. Per-user quota and schedule
+alerts remain visible in the normal dashboard alert list.
 
 ## v1.4 — Reports and audit
 

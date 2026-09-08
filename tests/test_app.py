@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, resolve_client_ip
+from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials
 from security import LoginRateLimiter, SessionStore
@@ -170,10 +170,12 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'data-view="vpn-users"', page)
         self.assertIn(b'data-view="live-sessions"', page)
         self.assertIn(b'data-view="profile-security"', page)
+        self.assertIn(b'data-view="service-health"', page)
         self.assertIn(b'data-view="audit-log"', page)
         self.assertIn(b"Change History", page)
         self.assertIn(b"What changed", page)
         self.assertIn(b"Service health", page)
+        self.assertIn(b"Profile issuing prerequisites", page)
         self.assertIn(b"1d 06:12:00s", page)
         self.assertIn(b"Security posture", page)
         self.assertIn(b"Connection history", page)
@@ -204,6 +206,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["sessions"][0]["rx_packets"], 387)
         self.assertEqual(snapshot["sessions"][0]["tx_packets"], 825)
         self.assertEqual(snapshot["router"]["cpu-load"], "7")
+
+        status, _, payload = self.request("GET", "/api/service-health")
+        self.assertEqual(status, 200)
+        health = json.loads(payload)
+        self.assertEqual(health["overall"], "warning")
+        self.assertEqual(
+            {item["id"] for item in health["checks"]},
+            {"routeros-rest", "dashboard-storage", "openvpn-service", "profile-issuing", "certificate-revocation", "certificate-inventory", "router-capacity"},
+        )
 
         status, _, payload = self.request("GET", "/api/setup-preflight")
         self.assertEqual(status, 200)
@@ -282,6 +293,20 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertEqual(json.loads(payload), {"status": "unavailable"})
         self.assertNotIn(b"sensitive", payload)
+
+    def test_health_snapshot_is_safe_when_router_is_unavailable(self) -> None:
+        health = service_health_snapshot(
+            router=None,
+            ovpn_server=None,
+            certificate_settings=None,
+            certificates=None,
+            config=self.config,
+            database_ready=False,
+            unavailable_reason="router",
+        )
+        self.assertEqual(health["overall"], "unavailable")
+        self.assertEqual(health["checks"][0]["id"], "routeros-rest")
+        self.assertNotIn("routerpass", json.dumps(health))
 
     def test_favicon_variants_are_public_and_linked(self) -> None:
         status, headers, svg = self.request("GET", "/favicon.svg")

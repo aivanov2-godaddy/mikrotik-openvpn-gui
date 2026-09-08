@@ -477,7 +477,49 @@ function seedCounters() {
   $$('.session-card').forEach((card) => updateGraphs(card, { rxBytes: 0, txBytes: 0, rxPackets: 0, txPackets: 0 }));
 }
 
-const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'profile-security', 'policy-templates', 'audit-log', 'setup-planner']);
+const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'profile-security', 'policy-templates', 'service-health', 'audit-log', 'setup-planner']);
+
+function healthLabel(status) {
+  return ({ healthy: 'Operational', warning: 'Attention needed', unavailable: 'Unavailable' }[status] || 'Unavailable');
+}
+
+function renderServiceHealth(payload) {
+  const list = $('[data-service-health-list]');
+  if (!list) return;
+  const checks = Array.isArray(payload.checks) ? payload.checks : [];
+  list.replaceChildren(...checks.map((check) => {
+    const row = node('article', `service-health-check ${check.status || 'unavailable'}`);
+    row.append(node('span', 'health-check-led'));
+    const copy = node('div');
+    copy.append(node('strong', '', check.name || 'Health check'), node('small', '', check.impact || 'No detail available.'));
+    const next = node('p');
+    next.append(node('b', '', 'Safe next step: '), document.createTextNode(check.remediation || 'No action needed.'));
+    copy.append(next);
+    row.append(copy);
+    return row;
+  }));
+  if (!checks.length) list.append(node('div', 'empty', 'No health data is available yet.'));
+  $('[data-service-health-overall]').textContent = healthLabel(payload.overall);
+  $('[data-service-health-checked]').textContent = `${checks.length} checks completed just now`;
+  ['healthy', 'warning', 'unavailable'].forEach((status) => {
+    const counter = $(`[data-service-health-count="${status}"]`);
+    if (counter) counter.textContent = checks.filter((check) => check.status === status).length;
+  });
+}
+
+async function refreshServiceHealth() {
+  const button = $('[data-service-health-refresh]');
+  if (button) button.disabled = true;
+  try {
+    const response = await resultOrError(await api('/api/service-health'));
+    renderServiceHealth(await response.json());
+    toast('Service health checks refreshed.');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
 
 function showView(requestedView, updateHash = true) {
   const view = viewIds.has(requestedView) ? requestedView : 'overview';
@@ -949,6 +991,7 @@ async function runSetupPreflight() {
 }
 
 $('[data-setup-preflight]')?.addEventListener('click', runSetupPreflight);
+$('[data-service-health-refresh]')?.addEventListener('click', refreshServiceHealth);
 
 $('[data-setup-plan]')?.addEventListener('submit', async (event) => {
   event.preventDefault();
