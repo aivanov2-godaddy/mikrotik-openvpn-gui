@@ -42,5 +42,12 @@ audit rationale without a second administrator-password database.
 Signed generic webhook notifications and health endpoints. Provider-specific
 services remain optional adapters rather than hard dependencies.
 
+## Planned installation expansion — RouterOS OpenVPN bootstrap
+
+The current installation wizard deploys the dashboard but deliberately expects
+an existing OpenVPN server, PPP profile, and CA. A future review-first bootstrap
+will generate an explicit plan for those prerequisites, with no hidden network
+or certificate mutations and a required backup/checkpoint before apply.
+
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/issues/4).
