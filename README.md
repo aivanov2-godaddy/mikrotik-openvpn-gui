@@ -2,15 +2,19 @@
 
 [![CI](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/actions/workflows/ci.yml/badge.svg)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/actions/workflows/ci.yml)
 
-MikroTik OpenVPN GUI is a self-hosted, WinBox-inspired web control plane for an
-existing OpenVPN service on RouterOS 7. It makes everyday VPN administration
-simple while RouterOS remains the source of truth for identities, certificates,
-sessions, and traffic policy.
+MikroTik OpenVPN GUI is a self-hosted, WinBox-inspired control plane for an
+OpenVPN service on RouterOS 7. It is not a visual-only UI: it deploys the
+dashboard container, validates the router connection, and applies the selected
+user, device-profile, policy, rate-limit, schedule, and access changes through
+RouterOS while RouterOS remains the source of truth for identities,
+certificates, sessions, and traffic policy.
 
 > [!IMPORTANT]
-> This project manages an OpenVPN service that you have already configured on
-> RouterOS. Review every generated RouterOS command before applying it and test
-> on an isolated canary device where practical.
+> The current installer provisions and configures the dashboard around an
+> existing RouterOS OpenVPN server, PPP profile, and CA. It intentionally does
+> not yet create those cryptographic network foundations automatically. Review
+> every generated RouterOS command before applying it and test on an isolated
+> canary device where practical.
 
 ## Highlights
 
