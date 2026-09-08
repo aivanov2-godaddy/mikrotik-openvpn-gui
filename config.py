@@ -117,6 +117,20 @@ def _rest_url(value: str) -> str:
     return value.rstrip("/")
 
 
+def _webhook_url(value: str) -> str | None:
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    try:
+        parsed.port
+    except ValueError as error:
+        raise ConfigurationError("WEBHOOK_URL contains an invalid port") from error
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ConfigurationError("WEBHOOK_URL must be a credential-free HTTPS URL")
+    _hostname_or_ip(parsed.hostname, "WEBHOOK_URL hostname")
+    return value
+
+
 def _proxy_source(value: str) -> str:
     try:
         return ipaddress.ip_address(value).compressed
@@ -225,6 +239,8 @@ class RuntimeConfig:
     dashboard_name: str
     router_display_name: str
     history_retention_days: int
+    webhook_url: str | None
+    webhook_secret: str | None
     topology: OpenVPNTopology
 
     @classmethod
@@ -263,6 +279,12 @@ class RuntimeConfig:
             raise ConfigurationError(
                 "TRUSTED_PROXY_SOURCES is required when TRUSTED_PROXY_HEADER is set"
             )
+        webhook_url = _webhook_url(_value(source, "WEBHOOK_URL"))
+        webhook_secret = _value(source, "WEBHOOK_SIGNING_SECRET") or None
+        if bool(webhook_url) != bool(webhook_secret):
+            raise ConfigurationError("WEBHOOK_URL and WEBHOOK_SIGNING_SECRET must be set together")
+        if webhook_secret and len(webhook_secret) < 32:
+            raise ConfigurationError("WEBHOOK_SIGNING_SECRET must be at least 32 characters")
         return cls(
             public_origin=public_origin,
             routeros_rest_url=routeros_rest_url,
@@ -279,5 +301,7 @@ class RuntimeConfig:
             dashboard_name=_value(source, "DASHBOARD_NAME", "MikroTik OpenVPN GUI"),
             router_display_name=_value(source, "ROUTER_DISPLAY_NAME", "RouterOS"),
             history_retention_days=_retention_days(source),
+            webhook_url=webhook_url,
+            webhook_secret=webhook_secret,
             topology=OpenVPNTopology.from_values(source),
         )
