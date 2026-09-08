@@ -66,6 +66,8 @@ populated environment file.
 | `REDIRECT_PORT` | No | HTTP redirect listener; defaults to `8081` |
 | `DROP_PRIVILEGES` | Yes | Keep `true` so the app drops to an unprivileged UID/GID |
 | `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
+| `WEBHOOK_URL` | Optional | HTTPS endpoint for sanitized, signed audit events; disabled unless paired with `WEBHOOK_SIGNING_SECRET` |
+| `WEBHOOK_SIGNING_SECRET` | Optional | At least 32 characters; used only to calculate `X-VPN-Dashboard-Signature` and never displayed or audited |
 | `TRUST_CLOUDFLARE` | Conditional | Enable only when every request reaches the app through a trusted Cloudflare origin proxy |
 | `TRUSTED_PROXY_SOURCES` | Conditional | Private proxy addresses allowed to set forwarded client headers |
 | `OVPN_PPP_PROFILE` | Yes for profile issuing | Existing RouterOS PPP profile for new OpenVPN users |

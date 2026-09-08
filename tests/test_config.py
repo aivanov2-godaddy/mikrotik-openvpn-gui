@@ -18,6 +18,24 @@ class RuntimeConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigurationError, "between 30 and 3650"):
             RuntimeConfig.from_environ({"HISTORY_RETENTION_DAYS": "29"})
 
+    def test_webhook_is_opt_in_and_requires_a_complete_safe_pair(self) -> None:
+        disabled = RuntimeConfig.from_environ({})
+        self.assertIsNone(disabled.webhook_url)
+        self.assertIsNone(disabled.webhook_secret)
+        enabled = RuntimeConfig.from_environ(
+            {
+                "WEBHOOK_URL": "https://events.example.test/vpn/audit",
+                "WEBHOOK_SIGNING_SECRET": "0123456789abcdef0123456789abcdef",
+            }
+        )
+        self.assertEqual(enabled.webhook_url, "https://events.example.test/vpn/audit")
+        with self.assertRaisesRegex(ConfigurationError, "set together"):
+            RuntimeConfig.from_environ({"WEBHOOK_URL": "https://events.example.test"})
+        with self.assertRaisesRegex(ConfigurationError, "HTTPS"):
+            RuntimeConfig.from_environ(
+                {"WEBHOOK_URL": "http://events.example.test", "WEBHOOK_SIGNING_SECRET": "0123456789abcdef0123456789abcdef"}
+            )
+
     def test_explicit_topology_is_normalized_and_complete_for_profiles(self) -> None:
         config = RuntimeConfig.from_environ(
             {
