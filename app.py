@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 import json
 import mimetypes
@@ -310,6 +311,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
         self._bytes(payload, status=status, content_type="application/json; charset=utf-8")
 
+    def _json_download(self, filename: str, value: Any) -> None:
+        payload = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        self._bytes(
+            payload,
+            content_type="application/json; charset=utf-8",
+            extra={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     def _csv(self, filename: str, headers: list[str], rows: list[list[Any]]) -> None:
         stream = io.StringIO(newline="")
         writer = csv.writer(stream)
@@ -572,7 +581,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
 
     def do_GET(self) -> None:
-        path = urllib.parse.urlsplit(self.path).path
+        parsed_url = urllib.parse.urlsplit(self.path)
+        path = parsed_url.path
+        query = urllib.parse.parse_qs(parsed_url.query)
         if path == "/healthz":
             self._json({"status": "ok"})
             return
@@ -707,7 +718,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/audit.csv":
             if not self._require_session(api=True):
                 return
-            rows = self.server.context.store.recent_audit(100)
+            try:
+                start_at, end_at = self._report_range(query)
+            except ValueError as error:
+                self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+                return
+            rows = self.server.context.store.recent_audit(100, start_at=start_at, end_at=end_at)
             self._csv(
                 "vpn-change-history.csv",
                 ["timestamp", "operator", "action", "target", "result", "details"],
@@ -720,10 +736,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 ],
             )
             return
+        if path == "/api/audit.json":
+            if not self._require_session(api=True):
+                return
+            try:
+                start_at, end_at = self._report_range(query)
+            except ValueError as error:
+                self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+                return
+            rows = self.server.context.store.recent_audit(100, start_at=start_at, end_at=end_at)
+            self._json_download("vpn-change-history.json", {"entries": rows, "generated_at": int(time.time())})
+            return
         if path == "/api/connections.csv":
             if not self._require_session(api=True):
                 return
-            rows = self.server.context.store.recent_connections(250)
+            try:
+                start_at, end_at = self._report_range(query)
+            except ValueError as error:
+                self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+                return
+            rows = self.server.context.store.recent_connections(250, start_at=start_at, end_at=end_at)
             self._csv(
                 "vpn-connection-history.csv",
                 [
@@ -774,6 +806,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
         self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    @staticmethod
+    def _report_range(query: dict[str, list[str]]) -> tuple[int | None, int | None]:
+        """Parse inclusive calendar dates into a UTC range without accepting timestamps."""
+        def parse(name: str, *, inclusive_end: bool = False) -> int | None:
+            raw = (query.get(name) or [""])[0]
+            if not raw:
+                return None
+            try:
+                day = dt.date.fromisoformat(raw)
+            except ValueError as error:
+                raise ValueError(f"{name} must be a date in YYYY-MM-DD format") from error
+            if inclusive_end:
+                day += dt.timedelta(days=1)
+            return int(dt.datetime.combine(day, dt.time.min, tzinfo=dt.timezone.utc).timestamp())
+
+        start_at, end_at = parse("from"), parse("to", inclusive_end=True)
+        if start_at is not None and end_at is not None and start_at >= end_at:
+            raise ValueError("from must be on or before to")
+        return start_at, end_at
 
     def _serve_static(self, path: str) -> None:
         name = path.removeprefix("/static/")
@@ -1684,6 +1736,8 @@ class RedirectHandler(BaseHTTPRequestHandler):
 
 def build_context() -> AppContext:
     config = RuntimeConfig.from_environ()
+    store = MetadataStore(config.database_path)
+    store.prune_history(before=int(time.time()) - config.history_retention_days * 86400)
     router = RouterOSClient(
         config.routeros_rest_url,
         ca_file=config.routeros_ca_file,
@@ -1692,7 +1746,7 @@ def build_context() -> AppContext:
     )
     return AppContext(
         router=router,
-        store=MetadataStore(config.database_path),
+        store=store,
         sessions=SessionStore(),
         limiter=LoginRateLimiter(),
         config=config,

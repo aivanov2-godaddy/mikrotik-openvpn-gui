@@ -61,6 +61,7 @@ populated environment file.
 | `ROUTEROS_CA_FILE` | Yes | CA file used to verify RouterOS REST, recommended `/config/routeros-ca.crt` |
 | `ROUTEROS_INSECURE_TLS` | Yes | Keep `false` in production |
 | `DATABASE_PATH` | Yes | Persistent SQLite path, recommended `/data/dashboard.sqlite` |
+| `HISTORY_RETENTION_DAYS` | No | Keep sanitized dashboard audit and completed connection history for 30–3650 days; defaults to 365. It never deletes RouterOS configuration or active sessions. |
 | `APP_PORT` | No | Dashboard listener; defaults to `8080` |
 | `REDIRECT_PORT` | No | HTTP redirect listener; defaults to `8081` |
 | `DROP_PRIVILEGES` | Yes | Keep `true` so the app drops to an unprivileged UID/GID |

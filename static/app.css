@@ -368,6 +368,9 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .page-search .wb-icon { width: 15px; }
 .page-search input { min-height: 27px; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .page-search input:focus { border: 0; box-shadow: none; }
+.report-export { display: inline-flex; align-items: center; gap: 6px; }
+.report-export label { display: grid; gap: 1px; color: #8e9ca5; font-size: 10px; }
+.report-export input { width: 118px; min-height: 31px; padding: 3px 6px; font-size: 12px; }
 .responsive-table { width: 100%; overflow-x: auto; }
 .responsive-table table { width: 100%; border-collapse: collapse; }
 .responsive-table th { height: 37px; padding: 0 10px; color: #c2cbd0; border-bottom: 1px solid var(--line); background: #202b34; font-size: 13px; font-weight: 600; text-align: left; white-space: nowrap; }
@@ -610,6 +613,9 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .view-heading p:not(.eyebrow), .live-refresh { display: none; }
   .view-heading h1 { font-size: 20px; }
   .page-search { width: 100%; }
+  .report-export { width: 100%; flex-wrap: wrap; }
+  .report-export label { flex: 1 1 120px; }
+  .report-export input { width: 100%; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric { min-height: 70px; grid-template-columns: 29px minmax(0, 1fr); gap: 7px; padding: 7px; }
   .metric-icon { width: 28px; height: 28px; }

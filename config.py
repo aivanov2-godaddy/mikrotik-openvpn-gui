@@ -39,6 +39,18 @@ def _boolean(values: Mapping[str, str], name: str, default: bool = False) -> boo
     raise ConfigurationError(f"{name} must be true or false")
 
 
+def _retention_days(values: Mapping[str, str]) -> int:
+    """Return a deliberately bounded retention period for non-secret history."""
+    raw = _value(values, "HISTORY_RETENTION_DAYS", "365")
+    try:
+        days = int(raw)
+    except ValueError as error:
+        raise ConfigurationError("HISTORY_RETENTION_DAYS must be a whole number") from error
+    if not 30 <= days <= 3650:
+        raise ConfigurationError("HISTORY_RETENTION_DAYS must be between 30 and 3650")
+    return days
+
+
 def _hostname_or_ip(value: str, name: str) -> str:
     candidate = value.rstrip(".")
     try:
@@ -212,6 +224,7 @@ class RuntimeConfig:
     access_layer_label: str
     dashboard_name: str
     router_display_name: str
+    history_retention_days: int
     topology: OpenVPNTopology
 
     @classmethod
@@ -265,5 +278,6 @@ class RuntimeConfig:
             ),
             dashboard_name=_value(source, "DASHBOARD_NAME", "MikroTik OpenVPN GUI"),
             router_display_name=_value(source, "ROUTER_DISPLAY_NAME", "RouterOS"),
+            history_retention_days=_retention_days(source),
             topology=OpenVPNTopology.from_values(source),
         )

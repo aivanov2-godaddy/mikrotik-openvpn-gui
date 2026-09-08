@@ -595,12 +595,23 @@ class MetadataStore:
                 ),
             )
 
-    def recent_audit(self, limit: int = 25) -> list[dict[str, Any]]:
+    def recent_audit(
+        self, limit: int = 25, *, start_at: int | None = None, end_at: int | None = None
+    ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 100))
+        clauses: list[str] = []
+        values: list[int] = []
+        if start_at is not None:
+            clauses.append("created_at >= ?")
+            values.append(int(start_at))
+        if end_at is not None:
+            clauses.append("created_at < ?")
+            values.append(int(end_at))
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT actor, action, target, status, details, created_at FROM audit ORDER BY id DESC LIMIT ?",
-                (safe_limit,),
+                f"SELECT actor, action, target, status, details, created_at FROM audit{where} ORDER BY id DESC LIMIT ?",
+                [*values, safe_limit],
             )
             return [dict(row) for row in rows]
 
@@ -673,14 +684,35 @@ class MetadataStore:
                         (observed_at, int(row["id"])),
                     )
 
-    def recent_connections(self, limit: int = 50) -> list[dict[str, Any]]:
+    def recent_connections(
+        self, limit: int = 50, *, start_at: int | None = None, end_at: int | None = None
+    ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 250))
+        clauses: list[str] = []
+        values: list[int] = []
+        if start_at is not None:
+            clauses.append("connected_at >= ?")
+            values.append(int(start_at))
+        if end_at is not None:
+            clauses.append("connected_at < ?")
+            values.append(int(end_at))
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM connection_history ORDER BY connected_at DESC, id DESC LIMIT ?",
-                (safe_limit,),
+                f"SELECT * FROM connection_history{where} ORDER BY connected_at DESC, id DESC LIMIT ?",
+                [*values, safe_limit],
             )
             return [dict(row) for row in rows]
+
+    def prune_history(self, *, before: int) -> dict[str, int]:
+        """Prune dashboard metadata only; RouterOS users and certificates are untouched."""
+        with self._lock, self._connection() as connection:
+            audit = connection.execute("DELETE FROM audit WHERE created_at < ?", (int(before),)).rowcount
+            connections = connection.execute(
+                "DELETE FROM connection_history WHERE disconnected_at IS NOT NULL AND disconnected_at < ?",
+                (int(before),),
+            ).rowcount
+        return {"audit": max(0, audit), "connections": max(0, connections)}
 
     def connection_summaries(self) -> dict[str, dict[str, Any]]:
         with self._connection() as connection:
