@@ -25,6 +25,7 @@ from typing import Any
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from config import ConfigurationError, RuntimeConfig
 from favicon import FAVICON_SVG, ico_bytes
+from integrations import WebhookDispatcher
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg
 from security import LoginRateLimiter, SECURITY_HEADERS, Session, SessionStore, csrf_matches
@@ -1823,6 +1824,7 @@ class RedirectHandler(BaseHTTPRequestHandler):
 def build_context() -> AppContext:
     config = RuntimeConfig.from_environ()
     store = MetadataStore(config.database_path)
+    store.set_audit_hook(WebhookDispatcher(config.webhook_url, config.webhook_secret).publish)
     store.prune_history(before=int(time.time()) - config.history_retention_days * 86400)
     router = RouterOSClient(
         config.routeros_rest_url,

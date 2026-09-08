@@ -7,7 +7,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 
 class MetadataStore:
@@ -18,11 +18,15 @@ class MetadataStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._readiness_valid_until = 0.0
+        self._audit_hook: Callable[[dict[str, Any]], None] | None = None
         self._initialize()
         try:
             os.chmod(self.path, 0o600)
         except OSError:
             pass
+
+    def set_audit_hook(self, hook: Callable[[dict[str, Any]], None] | None) -> None:
+        self._audit_hook = hook
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=5)
@@ -612,6 +616,11 @@ class MetadataStore:
                     int(time.time()),
                 ),
             )
+        if self._audit_hook:
+            try:
+                self._audit_hook({"event": "audit", "actor": actor, "action": action, "target": target, "status": status, "details": sanitized, "created_at": int(time.time())})
+            except Exception:
+                pass
 
     def recent_audit(
         self, limit: int = 25, *, start_at: int | None = None, end_at: int | None = None

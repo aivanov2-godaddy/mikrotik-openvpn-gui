@@ -12,7 +12,7 @@ ARG REVISION
 WORKDIR /app
 
 # Runtime code is part of the immutable image. Production must not mount over /app.
-COPY app.py automation.py config.py favicon.py icons.py qr.py routeros.py security.py store.py templates.py ./
+COPY app.py automation.py config.py favicon.py icons.py integrations.py qr.py routeros.py security.py store.py templates.py ./
 COPY static ./static
 COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 
