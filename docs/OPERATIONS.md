@@ -23,6 +23,18 @@ Never follow `edge`, change mutable registry settings, or modify the container's
 
 The dashboard's **Download backup** control creates a self-verifying metadata-only ZIP. Its manifest contains the SHA-256 checksum for `metadata.json`; it never includes RouterOS configuration, credentials, private keys, issued profiles, or active sessions. Keep it in an operator-controlled location.
 
+## Administrator roles and destructive actions
+
+The dashboard reads the signed-in account's role from RouterOS; it never keeps a separate dashboard role list.
+
+| RouterOS role | Inspect dashboard and exports | Create or update VPN access | Suspend, terminate, or remove access |
+| --- | --- | --- | --- |
+| `read` (or another non-owner/non-operator group) | Yes | No | No |
+| `operator` | Yes | Yes | Yes, with exact target-name confirmation |
+| `owner` | Yes | Yes | Yes, with exact target-name confirmation |
+
+For an irreversible action, the dialog displays the exact RouterOS username that will be affected. The operator must type it exactly; the server validates that confirmation again before it creates the RouterOS checkpoint or changes anything. Suspending access is reversible. Removing access and terminating a live tunnel are not undoable by the dashboard.
+
 SQLite backups must be consistent:
 
 1. Stop the dashboard container during an approved maintenance window.

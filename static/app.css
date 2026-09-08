@@ -536,6 +536,9 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 .warning-summary small { color: #bd989b; font-size: 9px; }
 .warning-symbol { display: grid; width: 24px; height: 24px; place-items: center; color: #fff; border-radius: 50%; background: #b64c55; font-weight: 700; }
 .confirmation-steps { display: grid; gap: 4px; margin: 0; padding: 7px 9px 7px 28px; color: #aeb8be; border: 1px solid #3d4952; background: #202b33; font-size: 10px; }
+.confirmation-input { display: grid; gap: 4px; margin-top: 10px; }
+.confirmation-input span { color: #aeb8be; font-size: 11px; }
+.confirmation-input b { color: #edf5f7; }
 .danger-text { color: #ffd0d3 !important; }
 
 /* Feedback */

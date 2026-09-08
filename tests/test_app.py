@@ -440,7 +440,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.server.context.store.devices_for_user("maria")), 2)
 
         status, _, payload = self.json_request(
-            "DELETE", f"/api/users/{urllib.parse.quote(maria_id, safe='*')}"
+            "DELETE", f"/api/users/{urllib.parse.quote(maria_id, safe='*')}",
+            {"confirmation": "not-maria"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("exact target name", json.loads(payload)["error"])
+        self.assertIn("maria", [item["name"] for item in self.mock.state.users.values()])
+
+        status, _, payload = self.json_request(
+            "DELETE", f"/api/users/{urllib.parse.quote(maria_id, safe='*')}",
+            {"confirmation": "maria"},
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload), {"ok": True})
@@ -624,7 +633,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(session_id, self.mock.state.active_sessions)
 
         status, _, payload = self.json_request(
-            "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}"
+            "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+            {"confirmation": "user-two"},
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload), {"ok": True})
@@ -651,7 +661,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.active_sessions)
 
         status, _, payload = self.json_request(
-            "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/suspend"
+            "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/suspend",
+            {"confirmation": "user-two"},
         )
         self.assertEqual(status, 200)
         result = json.loads(payload)

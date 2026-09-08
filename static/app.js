@@ -743,6 +743,7 @@ document.addEventListener('click', async (event) => {
     form.reset();
     form.user_id.value = row.dataset.userId;
     $('[data-suspend-user]', form).textContent = row.dataset.userName;
+    $('[data-confirm-target]', form).textContent = row.dataset.userName;
     openDialog('suspend-dialog');
   } else if (button.matches('[data-restore]') && row) {
     button.disabled = true;
@@ -759,6 +760,7 @@ document.addEventListener('click', async (event) => {
     form.reset();
     form.user_id.value = row.dataset.userId;
     $('[data-delete-user]', form).textContent = row.dataset.userName;
+    $('[data-confirm-target]', form).textContent = row.dataset.userName;
     openDialog('delete-dialog');
   } else if (button.matches('[data-terminate]')) {
     const form = $('#terminate-form');
@@ -766,6 +768,7 @@ document.addEventListener('click', async (event) => {
     form.reset();
     form.session_id.value = button.dataset.sessionId;
     $('[data-terminate-user]', form).textContent = sessionCard.dataset.sessionUser || 'VPN device';
+    $('[data-confirm-target]', form).textContent = sessionCard.dataset.sessionUser || 'VPN device';
     const facts = $$('dd', sessionCard).map((item) => item.textContent.trim());
     $('[data-terminate-detail]', form).textContent = `${facts[0] || 'VPN session'} · ${facts[1] || 'unknown source'}`;
     openDialog('terminate-dialog');
@@ -920,11 +923,12 @@ $('[data-template-apply]')?.addEventListener('submit', async (event) => {
 $('#terminate-form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const sessionId = new FormData(form).get('session_id');
+  const data = new FormData(form);
+  const sessionId = data.get('session_id');
   setBusy(form, true);
   setStatus(form, 'Disconnecting the device…');
   try {
-    await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }));
+    await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation') } }));
     setStatus(form, 'Session terminated.');
     toast('OpenVPN session terminated.');
     setTimeout(() => { getDialog('terminate-dialog').close(); pollStatus(); }, 450);
@@ -934,11 +938,12 @@ $('#terminate-form')?.addEventListener('submit', async (event) => {
 $('#suspend-form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const userId = new FormData(form).get('user_id');
+  const data = new FormData(form);
+  const userId = data.get('user_id');
   setBusy(form, true);
   setStatus(form, 'Suspending access and checking live sessions…');
   try {
-    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST' }));
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST', body: { confirmation: data.get('confirmation') } }));
     const result = await response.json();
     const verification = result.remaining === null
       ? ' Access is blocked; live-session verification was unavailable.'
@@ -955,11 +960,12 @@ $('#suspend-form')?.addEventListener('submit', async (event) => {
 $('#delete-form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const userId = new FormData(form).get('user_id');
+  const data = new FormData(form);
+  const userId = data.get('user_id');
   setBusy(form, true);
   setStatus(form, 'Removing access and its managed device records…');
   try {
-    await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }));
+    await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation') } }));
     setStatus(form, 'Access removed.');
     toast('VPN user and managed access removed.');
     setTimeout(() => location.reload(), 500);
