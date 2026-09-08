@@ -213,6 +213,7 @@ class DeploymentPolicyTests(unittest.TestCase):
         containerfile = (Path(__file__).resolve().parents[1] / "Containerfile").read_text(encoding="utf-8")
         self.assertIn('"$VERSION" > /app/VERSION', containerfile)
         self.assertIn('"$REVISION" > /app/REVISION', containerfile)
+        self.assertIn("integrations.py", containerfile)
         self.assertIn("http://127.0.0.1:8080/readyz", containerfile)
         self.assertNotIn("http://127.0.0.1:8080/healthz", containerfile)
 
