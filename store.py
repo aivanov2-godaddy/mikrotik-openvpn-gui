@@ -510,6 +510,24 @@ class MetadataStore:
             rows = connection.execute("SELECT vpn_user, email FROM user_metadata")
             return {str(row["vpn_user"]): str(row["email"]) for row in rows}
 
+    def backup_snapshot(self) -> dict[str, Any]:
+        """Return portable dashboard metadata, never RouterOS credentials or profiles.
+
+        The database intentionally has no password or private-key columns.  This
+        explicit allow-list also prevents future operational tables from being
+        silently included in a recovery archive.
+        """
+        tables = (
+            "devices", "user_metadata", "user_controls", "alerts",
+            "policy_templates", "user_policy_templates", "audit", "connection_history",
+        )
+        with self._connection() as connection:
+            snapshot = {
+                table: [dict(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+                for table in tables
+            }
+        return {"format": "mikrotik-openvpn-gui-metadata", "version": 1, "tables": snapshot}
+
     def delete_user_email(self, vpn_user: str) -> None:
         with self._lock, self._connection() as connection:
             connection.execute("DELETE FROM user_metadata WHERE vpn_user=?", (vpn_user,))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import hashlib
 import io
 import json
 import mimetypes
@@ -747,6 +748,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             rows = self.server.context.store.recent_audit(100, start_at=start_at, end_at=end_at)
             self._json_download("vpn-change-history.json", {"entries": rows, "generated_at": int(time.time())})
             return
+        if path == "/api/backups/metadata.zip":
+            session = self._require_session(api=True)
+            if not session or not self._require_operator(session):
+                return
+            self._metadata_backup(session)
+            return
         if path == "/api/connections.csv":
             if not self._require_session(api=True):
                 return
@@ -826,6 +833,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if start_at is not None and end_at is not None and start_at >= end_at:
             raise ValueError("from must be on or before to")
         return start_at, end_at
+
+    def _metadata_backup(self, session: Session) -> None:
+        """Download a self-verifying backup without copying RouterOS secrets."""
+        created_at = int(time.time())
+        metadata = json.dumps(
+            self.server.context.store.backup_snapshot(), separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        manifest = json.dumps({
+            "format": "mikrotik-openvpn-gui-backup",
+            "version": 1,
+            "created_at": created_at,
+            "files": {"metadata.json": hashlib.sha256(metadata).hexdigest()},
+            "contains": "dashboard metadata only; no RouterOS configuration, passwords, keys, or profiles",
+        }, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", manifest)
+            archive.writestr("metadata.json", metadata)
+        self.server.context.store.audit(
+            actor=session.username, action="backup.export", target="dashboard-metadata", status="success",
+            details={"format_version": 1},
+        )
+        self._bytes(
+            stream.getvalue(), content_type="application/zip",
+            extra={"Content-Disposition": f'attachment; filename="vpn-dashboard-backup-{created_at}.zip"'},
+        )
 
     def _serve_static(self, path: str) -> None:
         name = path.removeprefix("/static/")
@@ -959,6 +992,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/setup-plan":
             self._setup_plan()
             return
+        if path == "/api/backups/preflight":
+            self._backup_preflight()
+            return
         if path == "/api/policy-templates":
             self._create_policy_template()
             return
@@ -1047,6 +1083,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# Start the canary, verify /healthz over the local bridge, then publish HTTPS only after certificate validation.",
         ])
         self._json({"plan": plan, "origin": origin, "image": image})
+
+    def _backup_preflight(self) -> None:
+        """Validate a backup manifest only; this route never restores data."""
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        try:
+            value = self._read_json()
+            manifest = value.get("manifest")
+            metadata_sha256 = str(value.get("metadata_sha256", ""))
+            if not isinstance(manifest, dict):
+                raise ValueError("Backup manifest is required")
+            if manifest.get("format") != "mikrotik-openvpn-gui-backup" or manifest.get("version") != 1:
+                raise ValueError("This backup format is not supported")
+            expected = str((manifest.get("files") or {}).get("metadata.json", ""))
+            if not re.fullmatch(r"[a-f0-9]{64}", expected) or not secrets.compare_digest(expected, metadata_sha256):
+                raise ValueError("Metadata checksum does not match the backup manifest")
+        except ValueError as error:
+            self._json({"compatible": False, "error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.server.context.store.audit(
+            actor=session.username, action="backup.preflight", target="dashboard-metadata", status="success",
+            details={"format_version": 1},
+        )
+        self._json({
+            "compatible": True,
+            "restore_available": False,
+            "message": "Backup is compatible. Restore remains review-first and is not applied automatically.",
+        })
 
     def do_PATCH(self) -> None:
         path = urllib.parse.urlsplit(self.path).path

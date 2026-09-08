@@ -408,6 +408,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .checks li.warning small { color: #b9a778; }
 .history-notice { border-color: #31546a; background: #20313c; }
 .history-notice > .wb-icon { width: 24px; height: 24px; color: #46aee4; }
+.backup-safety-note { margin: 0; padding: 10px 12px; color: #9eb0b9; font-size: 12px; }
 .history-table { min-width: 980px; }
 .history-action { display: inline-flex; min-width: 145px; align-items: center; gap: 7px; }
 .history-status { display: inline-flex; padding: 3px 7px; color: #afe3c8; border: 1px solid #35644f; border-radius: 2px; background: #244235; font-size: 11px; }

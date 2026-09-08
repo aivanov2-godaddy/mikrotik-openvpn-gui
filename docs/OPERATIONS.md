@@ -21,6 +21,8 @@ Never follow `edge`, change mutable registry settings, or modify the container's
 
 ## Database backup
 
+The dashboard's **Download backup** control creates a self-verifying metadata-only ZIP. Its manifest contains the SHA-256 checksum for `metadata.json`; it never includes RouterOS configuration, credentials, private keys, issued profiles, or active sessions. Keep it in an operator-controlled location.
+
 SQLite backups must be consistent:
 
 1. Stop the dashboard container during an approved maintenance window.

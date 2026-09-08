@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import hashlib
 import io
 import json
 import re
@@ -291,6 +292,31 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.request("GET", "/api/audit.csv?from=not-a-date")
         self.assertEqual(status, 400)
         self.assertEqual(json.loads(payload)["error"], "from must be a date in YYYY-MM-DD format")
+
+        status, headers, payload = self.request("GET", "/api/backups/metadata.zip")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["content-type"], "application/zip")
+        self.assertIn("vpn-dashboard-backup-", headers["content-disposition"])
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            self.assertEqual(set(archive.namelist()), {"manifest.json", "metadata.json"})
+            manifest = json.loads(archive.read("manifest.json"))
+            metadata = archive.read("metadata.json")
+        self.assertEqual(manifest["files"]["metadata.json"], hashlib.sha256(metadata).hexdigest())
+        self.assertNotIn(b"routerpass", metadata)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/backups/preflight",
+            {"manifest": manifest, "metadata_sha256": hashlib.sha256(metadata).hexdigest()},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["compatible"])
+
+        status, _, payload = self.json_request(
+            "POST", "/api/backups/preflight",
+            {"manifest": manifest, "metadata_sha256": "0" * 64},
+        )
+        self.assertEqual(status, 400)
+        self.assertFalse(json.loads(payload)["compatible"])
 
     def test_readiness_failure_is_generic_and_non_successful(self) -> None:
         with mock.patch.object(
