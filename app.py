@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import hashlib
+import hmac
 import io
 import json
 import mimetypes
@@ -393,6 +394,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if session.role in {"owner", "operator"}:
             return True
         self._json({"error": "This RouterOS account is read-only."}, status=HTTPStatus.FORBIDDEN)
+        return False
+
+    def _require_target_confirmation(self, data: dict[str, Any], target: str) -> bool:
+        """Require the exact RouterOS target name for an irreversible action."""
+        confirmation = str(data.get("confirmation", "")).strip()
+        if hmac.compare_digest(confirmation, target):
+            return True
+        self._json(
+            {"error": f"Type the exact target name '{target}' to confirm this action."},
+            status=HTTPStatus.BAD_REQUEST,
+        )
         return False
 
     def _checkpoint(self, session: Session, action: str) -> bool:
@@ -1647,8 +1659,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         credentials = self._credentials(session)
         try:
+            data = self._read_json()
             user = self._find_user(credentials, user_id)
             username = str(user["name"])
+            if suspended and not self._require_target_confirmation(data, username):
+                return
             if not self._checkpoint(session, "user.suspend" if suspended else "user.restore"):
                 return
             self.server.context.router.update_user(
@@ -1714,8 +1729,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         credentials = self._credentials(session)
         try:
+            data = self._read_json()
             user = self._find_user(credentials, user_id)
             username = str(user["name"])
+            if not self._require_target_confirmation(data, username):
+                return
             devices = self.server.context.store.devices_for_user(username)
             if not self._checkpoint(session, "user.delete"):
                 return
@@ -1749,7 +1767,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         credentials = self._credentials(session)
         try:
+            data = self._read_json()
             active = self._find_session(credentials, session_id)
+            if not self._require_target_confirmation(data, str(active["name"])):
+                return
             if not self._checkpoint(session, "session.terminate"):
                 return
             self.server.context.router.terminate_session(
