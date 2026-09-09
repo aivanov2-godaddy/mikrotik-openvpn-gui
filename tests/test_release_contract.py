@@ -35,6 +35,19 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("credentials, environment values, configuration, database data", installation)
         self.assertIn("canary", deployment.casefold())
 
+    def test_router_local_updater_fetch_is_static_and_redirect_bounded(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        self.assertIn("check-certificate=yes", executable)
+        self.assertIn("http-max-redirect-count=2", executable)
+        self.assertNotIn(":import", executable)
+        self.assertNotIn(":parse", executable)
+
     def test_preview_assets_do_not_contain_instance_identities(self) -> None:
         assets = (
             ROOT / "docs/screenshots/dashboard-navigation.svg",
