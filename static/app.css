@@ -180,7 +180,7 @@ label { color: #d0d7dc; }
 
 .enterprise-grid { display: grid; grid-template-columns: minmax(520px, 1.25fr) minmax(360px, .75fr); gap: 8px; }
 .operations-panel, .security-posture-panel { min-width: 0; }
-.health-grid { display: grid; grid-template-columns: minmax(240px, 1.8fr) repeat(4, minmax(105px, 1fr)); gap: 1px; padding: 8px; }
+.health-grid { display: grid; grid-template-columns: minmax(320px, 2fr) repeat(4, minmax(105px, 1fr)); gap: 1px; padding: 8px; }
 .panel-heading-actions { display: flex; align-items: center; gap: 8px; }
 .service-health-list { display: grid; gap: 1px; padding: 8px; background: #172027; }
 .service-health-check { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 9px; padding: 11px; background: #25323a; }
