@@ -218,6 +218,40 @@ class RouterOSClient:
             raise RouterOSError("RouterOS returned no system resource record")
         return records[0]
 
+    def get_bootstrap_inventory(self, credentials: RouterOSCredentials) -> dict[str, Any]:
+        """Read the non-secret RouterOS objects needed by the bootstrap wizard.
+
+        Every optional probe is isolated so restricted RouterOS accounts or older
+        builds produce an ``unavailable`` result instead of turning the whole
+        review into a write-capable operation.  This method never mutates state.
+        """
+        resource = self.verify_credentials(credentials)
+
+        def optional(path: str, *, proplist: str) -> list[dict[str, Any]] | None:
+            try:
+                return _records(self._request("GET", path, credentials, query={".proplist": proplist}))
+            except RouterOSError:
+                return None
+
+        return {
+            "resource": resource,
+            "packages": optional("/system/package", proplist="name,version,disabled") ,
+            "ovpn_servers": optional(
+                "/interface/ovpn-server/server",
+                proplist="name,disabled,protocol,port,certificate,require-client-certificate,tls-version",
+            ),
+            "ppp_profiles": optional("/ppp/profile", proplist="name,local-address,remote-address"),
+            "certificates": optional(
+                "/certificate",
+                proplist="name,common-name,ca,issuer,key-usage,private-key,invalid-after,revoked",
+            ),
+            "dns": optional("/ip/dns", proplist="servers,allow-remote-requests"),
+            "firewall": optional(
+                "/ip/firewall/filter",
+                proplist="chain,action,protocol,dst-port,disabled,comment",
+            ),
+        }
+
     def get_admin_role(self, credentials: RouterOSCredentials) -> str:
         try:
             records = _records(

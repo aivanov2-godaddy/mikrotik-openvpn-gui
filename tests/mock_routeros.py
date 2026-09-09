@@ -199,6 +199,8 @@ class MockHandler(BaseHTTPRequestHandler):
                     "free-hdd-space": "943718400", "total-hdd-space": "1073741824",
                     "uptime": "1d6h12m", "bad-blocks": "0",
                 }])
+            elif path == "/system/package":
+                self._json([{"name": "container", "version": "7.23.3", "disabled": "no"}])
             elif path == "/user":
                 self._json([{"name": "admin", "group": state.admin_group, "disabled": "no"}])
             elif path == "/ppp/secret":
@@ -227,6 +229,10 @@ class MockHandler(BaseHTTPRequestHandler):
                 if query.get("ca"):
                     records = [item for item in records if item.get("ca") == query["ca"][0]]
                 self._json(records)
+            elif path == "/ip/dns":
+                self._json([{"servers": "192.0.2.1", "allow-remote-requests": "yes"}])
+            elif path == "/ip/firewall/filter":
+                self._json([{"chain": "input", "action": "accept", "protocol": "udp", "dst-port": "1194", "disabled": "no", "comment": "OpenVPN"}])
             elif path == "/file":
                 records = list(state.files.values())
                 if query.get("name"):

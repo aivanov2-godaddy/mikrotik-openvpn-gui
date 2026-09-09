@@ -711,20 +711,87 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             try:
                 credentials = self._credentials(session)
-                router = self.server.context.router.verify_credentials(credentials)
-                ovpn = self.server.context.router.get_ovpn_server_status(credentials)
+                inventory = self.server.context.router.get_bootstrap_inventory(credentials)
+                router = inventory["resource"]
+                servers = inventory.get("ovpn_servers") or []
+                profiles = inventory.get("ppp_profiles") or []
+                certificates = inventory.get("certificates") or []
+                topology = self.server.context.config.topology
+                configured_server = next((item for item in servers if item.get("name") == topology.server_name), {})
+                configured_profile = next((item for item in profiles if item.get("name") == topology.ppp_profile), {})
+                ca_certificate = next(
+                    (
+                        item for item in certificates
+                        if item.get("name") == topology.ca_name
+                        and "key-cert-sign" in str(item.get("key-usage", ""))
+                    ),
+                    {},
+                )
+                server_certificate = next(
+                    (item for item in certificates if item.get("name") == configured_server.get("certificate")),
+                    {},
+                )
+                architecture = str(router.get("architecture-name", "unknown"))
+                version = str(router.get("version", "unknown"))
+                try:
+                    major_version = int(version.split(".", 1)[0])
+                except (TypeError, ValueError):
+                    major_version = 0
+                checks = [
+                    {
+                        "name": "RouterOS version",
+                        "status": "pass" if major_version >= 7 else "fail",
+                        "detail": f"Detected RouterOS {version}; version 7 or newer is required.",
+                    },
+                    {
+                        "name": "Container architecture",
+                        "status": "pass" if architecture in {"arm64", "amd64"} else "fail",
+                        "detail": f"Detected {architecture}; supported targets are arm64 and amd64.",
+                    },
+                    {
+                        "name": "Container package and device mode",
+                        "status": "manual",
+                        "detail": "Confirm the matching Container package is installed and device-mode is enabled in WinBox.",
+                    },
+                    {
+                        "name": "OpenVPN server",
+                        "status": "pass" if configured_server and str(configured_server.get("disabled", "no")).lower() not in {"yes", "true"} else "fail",
+                        "detail": "Configured server is enabled." if configured_server else "Configured OpenVPN server was not found.",
+                    },
+                    {
+                        "name": "PPP profile",
+                        "status": "pass" if configured_profile else "fail",
+                        "detail": "Configured profile exists." if configured_profile else "Configured PPP profile was not found.",
+                    },
+                    {
+                        "name": "Certificate authority",
+                        "status": "pass" if ca_certificate else "fail",
+                        "detail": "A signing CA is available." if ca_certificate else "Configured CA is missing or cannot sign client certificates.",
+                    },
+                    {
+                        "name": "OpenVPN server certificate",
+                        "status": "pass" if server_certificate else "fail",
+                        "detail": "The server certificate is present." if server_certificate else "The configured server certificate is missing.",
+                    },
+                    {
+                        "name": "DNS and firewall review",
+                        "status": "manual",
+                        "detail": "Confirm public DNS, UDP access to the OpenVPN port, and RouterOS firewall rules during the maintenance window.",
+                    },
+                    {
+                        "name": "Persistent storage",
+                        "status": "manual",
+                        "detail": "Confirm dedicated external storage for /data and /config with sufficient free space.",
+                    },
+                ]
                 self._json({
                     "router": {
-                        "architecture": str(router.get("architecture-name", "unknown")),
-                        "version": str(router.get("version", "unknown")),
+                        "architecture": architecture,
+                        "version": version,
                         "free_storage": str(router.get("free-hdd-space", "unknown")),
                     },
-                    "openvpn": {"name": ovpn.get("name", ""), "enabled": bool(ovpn.get("enabled"))},
-                    "checks": [
-                        {"name": "RouterOS REST authentication", "status": "pass"},
-                        {"name": "OpenVPN server object", "status": "pass" if ovpn.get("name") else "fail"},
-                        {"name": "Container package and device mode", "status": "manual"},
-                    ],
+                    "openvpn": {"name": configured_server.get("name", ""), "enabled": bool(configured_server)},
+                    "checks": checks,
                 })
             except RouterOSError as error:
                 self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
@@ -1086,14 +1153,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# 1. Install the matching RouterOS Container package and complete physical device-mode confirmation.",
             "# 2. Confirm free external storage, DNS, and HTTPS access to the chosen registry.",
             "# 3. Review existing bridges, firewall rules, OpenVPN objects, certificates, and REST TLS.",
+            "# 4. If an OpenVPN foundation is missing, create it deliberately in WinBox first:",
+            "#    - create/import a trusted CA and server certificate;",
+            "#    - create an enabled OpenVPN server bound to the intended UDP port;",
+            "#    - create a PPP profile with the intended address pool and DNS;",
+            "#    - add the required input/NAT rules, restricted to the chosen public endpoint.",
+            "# 5. Back up the router and test one disposable client before issuing real profiles.",
             "",
-            "# Idempotent review skeleton (replace <...> only after a backup and maintenance window):",
+            "# Idempotent dashboard container skeleton (replace <...> only after a backup and maintenance window):",
             f"/container/config/set tmpdir={storage}/tmp",
             f"/interface/veth/add name=<veth-vpn-dashboard> address={list(subnet.hosts())[1]}/{subnet.prefixlen} gateway={list(subnet.hosts())[0]}",
             "# Attach the veth to a reviewed dedicated bridge; do not change WAN firewall automatically.",
             f"/container/add remote-image={image} interface=<veth-vpn-dashboard> root-dir={storage}/root",
             f"# Mount persistent dashboard data at {storage}/data -> /data; configure non-secret environment values separately.",
-            "# Start the canary, verify /healthz over the local bridge, then publish HTTPS only after certificate validation.",
+            "# Start the canary, verify /healthz and /readyz over the local bridge, then publish HTTPS only after certificate validation.",
         ])
         self._json({"plan": plan, "origin": origin, "image": image})
 
