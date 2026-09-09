@@ -60,17 +60,16 @@ def _used_percent(free: Any, total: Any) -> int:
 
 
 def _reverse_dns_record(public_ip: str) -> str:
-    """Return a host(1)-style PTR result for a RouterOS-reported address."""
+    """Return the PTR hostname for a RouterOS-reported public address."""
     try:
         address = ipaddress.ip_address(str(public_ip).strip())
     except ValueError:
         return "Reverse DNS unavailable"
-    pointer = address.reverse_pointer
     try:
         hostname = socket.gethostbyaddr(str(address))[0].rstrip(".")
     except (OSError, ValueError):
-        return f"{pointer} no PTR record"
-    return f"{pointer} domain name pointer {hostname}."
+        return "Reverse DNS unavailable"
+    return hostname
 
 
 def _certificate_expiry_epoch(value: Any) -> int | None:
