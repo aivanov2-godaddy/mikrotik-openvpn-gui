@@ -55,6 +55,22 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
 
+    def test_router_local_updater_noop_paths_do_not_use_top_level_return(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        decision_flow = executable[executable.index(":local failedImage"):]
+
+        self.assertIn(":local skipUpdate false", decision_flow)
+        self.assertIn(":if (!$skipUpdate) do={", decision_flow)
+        self.assertNotIn(":return", decision_flow)
+        self.assertIn("candidate is locally quarantined", decision_flow)
+        self.assertIn("production already uses", decision_flow)
+        self.assertIn("dry-run accepted candidate", decision_flow)
+
     def test_public_distribution_examples_use_the_canonical_repository_name(self) -> None:
         documents = (
             ROOT / "README.md",
