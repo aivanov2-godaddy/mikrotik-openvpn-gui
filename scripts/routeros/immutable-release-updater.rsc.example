@@ -9,7 +9,7 @@
 # and test it manually with a known-good release.  Do not place router secrets,
 # certificates, domains, or IP addresses in a public repository.
 
-:local manifestUrl "https://github.com/CHANGE-ME/mikrotik-openvpn-gui-public/releases/latest/download/routeros-release.json"
+:local manifestUrl "https://github.com/CHANGE-ME/mikrotik-openvpn-gui-public/releases/download/routeros-stable/routeros-release.json"
 :local imagePrefix "ghcr.io/CHANGE-ME/mikrotik-openvpn-gui-public:sha-"
 :local canaryContainer "vpn-dashboard-canary"
 :local productionContainer "vpn-dashboard"
@@ -19,6 +19,42 @@
 :local pollAttempts 6
 :local pollDelay 10s
 :local dryRun false
+:local failureFile ($stateFile . ".failed")
+
+# Tiny file helpers. The local state files contain only public image tags,
+# commit IDs, counters, and timestamps. They are never copied to GitHub.
+:local writeState do={
+    :local fileName $1
+    :local contents $2
+    :local existing [/file/find where name=$fileName]
+    :if ([:len $existing] = 0) do={
+        /file/add name=$fileName contents=$contents
+    } else={
+        /file/set $existing contents=$contents
+    }
+}
+:local stateLine do={
+    :local contents $1
+    :local key $2
+    :local start [:find $contents $key]
+    :if ($start = nil) do={ :return "" }
+    :set start ($start + [:len $key])
+    :local ending [:find $contents "\n" $start]
+    :if ($ending = nil) do={ :return [:pick $contents $start [:len $contents]] }
+    :return [:pick $contents $start $ending]
+}
+:local recordFailure do={
+    :local candidate $1
+    :local previous ""
+    :do { :set previous [/file/get [find where name=$failureFile] contents] } on-error={}
+    :local count 1
+    :if (($stateLine $previous "failed-image=") = $candidate) do={
+        :local priorCount [$stateLine $previous "failure-count="]
+        :if ([:typeof [:tonum $priorCount]] = "num") do={ :set count ([:tonum $priorCount] + 1) }
+    }
+    :local failureState ("failed-image=" . $candidate . "\nfailure-count=" . $count . "\nfailed-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
+    $writeState $failureFile $failureState
+}
 
 # One in-memory lock prevents overlapping scheduler instances.  The known good
 # image is also written to a router-local external-storage file for operator
@@ -39,14 +75,14 @@
     }
     :local manifest [:deserialize from=json value=($fetched->"data")]
     :local schema ($manifest->"schema")
-    :local architecture ($manifest->"architecture")
-    :local image ($manifest->"image")
+    :local images ($manifest->"images")
+    :local image ($images->"arm64")
     :local commit ($manifest->"commit")
 
     # Fail closed unless the manifest names this format exactly:
     # ghcr.io/<configured public owner>/mikrotik-openvpn-gui-public:sha-<40 lowercase hex>-arm64
-    :if (($schema != 1) || ($architecture != "arm64")) do={
-        :error "manifest schema or architecture is not accepted"
+    :if ($schema != 1) do={
+        :error "manifest schema is not accepted"
     }
     :if (([:typeof $image] != "str") || ([:typeof $commit] != "str")) do={
         :error "manifest image or commit is not a string"
@@ -98,6 +134,7 @@
         /container/start $canaryId
     } on-error={
         :log error ("vpn-gui immutable updater: canary extraction/start failed; restoring " . $canaryCurrent)
+        $recordFailure $image
         :do {
             /container/stop $canaryId
             /container/set $canaryId remote-image=$canaryCurrent
@@ -120,6 +157,7 @@
     }
     :if (!$canaryHealthy) do={
         :log error ("vpn-gui immutable updater: canary rejected " . $image . "; restoring " . $canaryCurrent . "; production unchanged")
+        $recordFailure $image
         :do {
             /container/stop $canaryId
             /container/set $canaryId remote-image=$canaryCurrent
@@ -137,6 +175,7 @@
         /container/start $productionId
     } on-error={
         :log error ("vpn-gui immutable updater: production extraction/start failed; restoring " . $productionCurrent)
+        $recordFailure $image
         :do {
             /container/stop $productionId
             /container/set $productionId remote-image=$productionCurrent
@@ -160,15 +199,22 @@
 
     :if (!$productionHealthy) do={
         :log error ("vpn-gui immutable updater: production failed; restoring " . $productionCurrent)
-        /container/stop $productionId
-        /container/set $productionId remote-image=$productionCurrent
-        /container/update $productionId
-        /container/start $productionId
+        $recordFailure $image
+        :do {
+            /container/stop $productionId
+            /container/set $productionId remote-image=$productionCurrent
+            /container/update $productionId
+            /container/start $productionId
+            :local rollbackReady [/tool/fetch url=$productionReadyUrl mode=https check-certificate=yes output=user as-value]
+            :if ((($rollbackReady->"status") != "finished") || ([:find ($rollbackReady->"data") "\"status\":\"ready\""] = nil)) do={
+                :error "previous production image did not pass its readiness check"
+            }
+        } on-error={ :log error "vpn-gui immutable updater: production rollback failed readiness; operator action required" }
         :error "production readiness gate failed; previous immutable image restored"
     }
 
     :local state ("last-good-image=" . $image . "\ncommit=" . $commit . "\nupdated-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
-    :do { /file/set [find where name=$stateFile] contents=$state } on-error={ /file/add name=$stateFile contents=$state }
+    $writeState $stateFile $state
     :log info ("vpn-gui immutable updater: production promoted successfully to " . $image)
 } on-error={ :log error "vpn-gui immutable updater: update failed; see preceding log entry" }
 :set vpnGuiImmutableUpdateLock false
