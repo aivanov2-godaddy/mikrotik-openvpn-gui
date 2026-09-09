@@ -12,6 +12,10 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
+The current feature release is **v1.8.0**. It adds per-device certificate
+revocation and proactive certificate-expiry guidance while preserving the
+router-local data and immutable-image deployment model.
+
 ## Published images
 
 The public `Publish container` workflow verifies a `main` change, then publishes
