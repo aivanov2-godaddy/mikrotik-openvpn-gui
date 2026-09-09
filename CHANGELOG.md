@@ -6,6 +6,13 @@ semantic-version style release tags.
 
 ## Unreleased
 
+### Changed
+
+- Public distribution references now use the canonical
+  `mikrotik-openvpn-gui` repository and GHCR package name. The next published
+  immutable image and stable release manifest are therefore generated under
+  that package path.
+
 ### Security
 
 - Router-local automatic updates now permit a strictly validated private HTTP

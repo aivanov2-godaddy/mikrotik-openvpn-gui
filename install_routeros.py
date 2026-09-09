@@ -50,7 +50,7 @@ class InstallationSettings:
     ovpn_host: str
     vpn_lan_cidr: str
     vpn_router_dns: str
-    repository: str = "mikrotik-openvpn-gui-public"
+    repository: str = "mikrotik-openvpn-gui"
     ovpn_server_identity: str = ""
     trusted_proxy_sources: str = ""
     trusted_proxy_header: str = "X-Forwarded-For"
@@ -217,7 +217,7 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--ovpn-server-identity", default="")
     command.add_argument("--vpn-lan-cidr")
     command.add_argument("--vpn-router-dns")
-    command.add_argument("--repository", default="mikrotik-openvpn-gui-public")
+    command.add_argument("--repository", default="mikrotik-openvpn-gui")
     command.add_argument("--trusted-proxy-sources", default="")
     command.add_argument("--output", type=Path, help="Write the review-only .rsc plan to this path")
     return command

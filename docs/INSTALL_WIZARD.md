@@ -26,7 +26,7 @@ python install_routeros.py --interactive --output routeros-install.rsc
 It asks for the GitHub owner and immutable commit, supported architecture,
 dashboard/REST TLS names, storage path, container network, existing OpenVPN
 objects, and VPN network settings. The default public repository is
-`mikrotik-openvpn-gui-public`. Use `arm64` for the validated RouterOS target or
+`mikrotik-openvpn-gui`. Use `arm64` for the validated RouterOS target or
 `amd64` only for a separately tested CHR/x86 installation. RouterOS `arm` is
 not supported.
 

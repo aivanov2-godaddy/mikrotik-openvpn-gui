@@ -14,8 +14,8 @@ from scripts.deploy_routeros_release import (
 )
 
 
-OLD_IMAGE = "ghcr.io/example-owner/mikrotik-openvpn-gui-public:sha-" + "a" * 40
-NEW_IMAGE = "ghcr.io/example-owner/mikrotik-openvpn-gui-public:sha-" + "b" * 40
+OLD_IMAGE = "ghcr.io/example-owner/mikrotik-openvpn-gui:sha-" + "a" * 40
+NEW_IMAGE = "ghcr.io/example-owner/mikrotik-openvpn-gui:sha-" + "b" * 40
 NEW_ARM64_IMAGE = NEW_IMAGE + "-arm64"
 OLD_RELATIVE_IMAGE = OLD_IMAGE.removeprefix("ghcr.io/")
 NEW_RELATIVE_IMAGE = NEW_IMAGE.removeprefix("ghcr.io/")
@@ -172,7 +172,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn(("patch", "*1", {"remote-image": OLD_RELATIVE_IMAGE}), router.calls)
 
     def test_rejects_mutable_or_non_ghcr_image(self) -> None:
-        invalid = settings("ghcr.io/example-owner/mikrotik-openvpn-gui-public:edge")
+        invalid = settings("ghcr.io/example-owner/mikrotik-openvpn-gui:edge")
         with self.assertRaises(DeploymentError):
             invalid.validate()
 

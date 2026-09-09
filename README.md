@@ -1,6 +1,6 @@
 # MikroTik OpenVPN GUI
 
-[![CI](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/actions/workflows/ci.yml/badge.svg)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/actions/workflows/ci.yml)
+[![CI](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/workflows/ci.yml/badge.svg)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/workflows/ci.yml)
 
 MikroTik OpenVPN GUI is a self-hosted, WinBox-inspired control plane for an
 OpenVPN service on RouterOS 7. It is not a visual-only UI: it deploys the

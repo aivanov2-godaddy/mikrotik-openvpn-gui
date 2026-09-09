@@ -18,6 +18,7 @@ class ReleaseContractTests(unittest.TestCase):
         publish = (workflows / "container.yml").read_text(encoding="utf-8")
         self.assertIn("ghcr.io/${{ github.repository }}", publish)
         self.assertIn('".github/workflows/container.yml"', publish)
+        self.assertIn('"scripts/routeros/immutable-release-updater.rsc.example"', publish)
         self.assertIn("publish-stable-manifest", publish)
         self.assertNotIn("deploy_routeros_release.py", publish)
         self.assertNotIn("self-hosted", publish)
@@ -53,6 +54,19 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("productionCurrentCommit", executable)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
+
+    def test_public_distribution_examples_use_the_canonical_repository_name(self) -> None:
+        documents = (
+            ROOT / "README.md",
+            ROOT / "docs/DEPLOYMENT.md",
+            ROOT / "docs/ROADMAP.md",
+            ROOT / "docs/ROUTER_LOCAL_AUTOMATION.md",
+            ROOT / "scripts/routeros/immutable-release-updater.rsc.example",
+            ROOT / ".github/ISSUE_TEMPLATE/config.yml",
+        )
+        rendered = "\n".join(document.read_text(encoding="utf-8") for document in documents)
+        self.assertNotIn("mikrotik-openvpn-gui-public", rendered)
+        self.assertIn("mikrotik-openvpn-gui", rendered)
 
     def test_preview_assets_do_not_contain_instance_identities(self) -> None:
         assets = (
