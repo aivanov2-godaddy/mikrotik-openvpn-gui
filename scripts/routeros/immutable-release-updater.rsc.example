@@ -19,6 +19,7 @@
 :local pollAttempts 6
 :local pollDelay 10s
 :local dryRun false
+:local failureRetryLimit 3
 :local failureFile ($stateFile . ".failed")
 
 # Tiny file helpers. The local state files contain only public image tags,
@@ -102,6 +103,20 @@
         :if ([:find $hex $character] = nil) do={
             :error "manifest commit contains a non-lowercase-hex character"
         }
+    }
+
+    # Do not repeatedly disrupt a canary for the same previously rejected
+    # immutable candidate. A new SHA begins with a fresh failure count.
+    :local previousFailure ""
+    :do { :set previousFailure [/file/get [find where name=$failureFile] contents] } on-error={}
+    :local failedImage [$stateLine $previousFailure "failed-image="]
+    :local failedCountText [$stateLine $previousFailure "failure-count="]
+    :local failedCount 0
+    :do { :set failedCount [:tonum $failedCountText] } on-error={}
+    :if (($failedImage = $image) && ($failedCount >= $failureRetryLimit)) do={
+        :log error ("vpn-gui immutable updater: candidate is locally quarantined after failures: " . $image)
+        :set vpnGuiImmutableUpdateLock false
+        :return
     }
 
     :local canaryId [/container/find where name=$canaryContainer]
