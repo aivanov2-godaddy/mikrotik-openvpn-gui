@@ -762,6 +762,13 @@ document.addEventListener('click', async (event) => {
     $('[data-delete-user]', form).textContent = row.dataset.userName;
     $('[data-confirm-target]', form).textContent = row.dataset.userName;
     openDialog('delete-dialog');
+  } else if (button.matches('[data-device-revoke]')) {
+    const form = $('#revoke-device-form');
+    form.reset();
+    form.device_id.value = button.dataset.deviceId;
+    $('[data-revoke-device-name]', form).textContent = button.dataset.deviceName || 'This device';
+    $('[data-confirm-target]', form).textContent = button.dataset.deviceName || 'This device';
+    openDialog('revoke-device-dialog');
   } else if (button.matches('[data-terminate]')) {
     const form = $('#terminate-form');
     const sessionCard = button.closest('.session-card');
@@ -933,6 +940,27 @@ $('#terminate-form')?.addEventListener('submit', async (event) => {
     toast('OpenVPN session terminated.');
     setTimeout(() => { getDialog('terminate-dialog').close(); pollStatus(); }, 450);
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+});
+
+$('#revoke-device-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const deviceId = data.get('device_id');
+  setBusy(form, true);
+  setStatus(form, 'Revoking the device certificate…');
+  try {
+    const result = await resultOrError(await api(`/api/devices/${encodeURIComponent(deviceId)}/revoke`, {
+      method: 'POST', body: { confirmation: data.get('confirmation') },
+    }));
+    const payload = await result.json();
+    setStatus(form, 'Device revoked.');
+    toast(`${payload.device || 'Device'} revoked and recorded in Change History.`);
+    setTimeout(() => location.reload(), 700);
+  } catch (error) {
+    setStatus(form, error.message, true);
+    setBusy(form, false);
+  }
 });
 
 $('#suspend-form')?.addEventListener('submit', async (event) => {
