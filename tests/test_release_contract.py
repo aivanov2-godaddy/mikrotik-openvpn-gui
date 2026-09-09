@@ -40,10 +40,13 @@ class ReleaseContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("check-certificate=yes", updater)
-        self.assertIn("http-max-redirect-count=2", updater)
-        self.assertNotIn(":import", updater)
-        self.assertNotIn(":parse", updater)
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        self.assertIn("check-certificate=yes", executable)
+        self.assertIn("http-max-redirect-count=2", executable)
+        self.assertNotIn(":import", executable)
+        self.assertNotIn(":parse", executable)
 
     def test_preview_assets_do_not_contain_instance_identities(self) -> None:
         assets = (
