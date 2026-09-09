@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">MikroTik OpenVPN deployment architecture</title>
+  <desc id="desc">Public GitHub repository publishes an immutable GHCR image. A RouterOS scheduler downloads it, validates canary, and promotes production. Private configuration and data stay on the router.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#172631"/><stop offset="1" stop-color="#101b23"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity=".28"/></filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4cc2ff"/></marker>
+    <style>
+      .box{fill:#233541;stroke:#3b5362;stroke-width:2;rx:12}.public{fill:#1e4661;stroke:#4cc2ff}.private{fill:#263d35;stroke:#39c98a}.title{font:700 22px Arial,sans-serif;fill:#f3f7fa}.label{font:16px Arial,sans-serif;fill:#b8c9d3}.small{font:14px Arial,sans-serif;fill:#9eb2be}.arrow{stroke:#4cc2ff;stroke-width:4;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1200" height="620" fill="url(#bg)"/>
+  <text x="60" y="55" class="title" font-size="28">MikroTik OpenVPN — safe automatic delivery</text>
+  <text x="60" y="84" class="label">Only the application is public; the router keeps operational data and secrets.</text>
+
+  <rect x="60" y="125" width="220" height="105" class="box public" filter="url(#shadow)"/>
+  <text x="170" y="163" text-anchor="middle" class="title">Public GitHub repo</text>
+  <text x="170" y="192" text-anchor="middle" class="label">Source + CI checks</text>
+  <text x="170" y="215" text-anchor="middle" class="small">Issue → PR → merge</text>
+
+  <rect x="350" y="125" width="220" height="105" class="box public" filter="url(#shadow)"/>
+  <text x="460" y="163" text-anchor="middle" class="title">Public GHCR image</text>
+  <text x="460" y="192" text-anchor="middle" class="label">Architecture-specific</text>
+  <text x="460" y="215" text-anchor="middle" class="small">Immutable SHA tag</text>
+
+  <rect x="640" y="125" width="220" height="105" class="box private" filter="url(#shadow)"/>
+  <text x="750" y="163" text-anchor="middle" class="title">RouterOS scheduler</text>
+  <text x="750" y="192" text-anchor="middle" class="label">Runs on your router</text>
+  <text x="750" y="215" text-anchor="middle" class="small">Verifies approved SHA</text>
+
+  <path d="M280 178 H345" class="arrow"/><path d="M570 178 H635" class="arrow"/>
+
+  <rect x="790" y="300" width="220" height="105" class="box private" filter="url(#shadow)"/>
+  <text x="900" y="338" text-anchor="middle" class="title">Canary validation</text>
+  <text x="900" y="367" text-anchor="middle" class="label">Health + readiness checks</text>
+  <text x="900" y="390" text-anchor="middle" class="small">Production untouched if bad</text>
+
+  <rect x="500" y="475" width="220" height="105" class="box private" filter="url(#shadow)"/>
+  <text x="610" y="513" text-anchor="middle" class="title">Production update</text>
+  <text x="610" y="542" text-anchor="middle" class="label">Promote only when healthy</text>
+  <text x="610" y="565" text-anchor="middle" class="small">Previous image retained</text>
+
+  <path d="M750 230 V275 H900 V295" class="arrow"/><path d="M900 405 V450 H610 V470" class="arrow"/>
+  <text x="935" y="268" class="small">download</text><text x="735" y="442" class="small">pass</text>
+
+  <rect x="70" y="300" width="560" height="180" fill="#172b25" stroke="#39c98a" stroke-width="2" rx="12"/>
+  <text x="95" y="337" class="title">Private router-local state</text>
+  <text x="95" y="372" class="label">• RouterOS configuration, credentials, VPN users</text>
+  <text x="95" y="401" class="label">• Certificates, private keys, and generated profiles</text>
+  <text x="95" y="430" class="label">• Persistent /data SQLite database and audit history</text>
+  <text x="95" y="459" class="small">None of this is committed to GitHub or baked into the image.</text>
+</svg>

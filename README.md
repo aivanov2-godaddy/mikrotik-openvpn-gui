@@ -41,37 +41,24 @@ screens. They contain no production accounts, addresses, or credentials.
 ## Deployment architecture
 
 The project separates public software delivery from private VPN operation. The
-repository and its GHCR image contain only the application; the router remains
-the system of record for configuration, identities, certificates, sessions,
-and audit data. Updates are selected by an immutable commit digest, validated
-in canary, and then promoted to production without replacing the persistent
-router-local mounts.
+router scheduler is the deployment controller: it selects an immutable image,
+validates it in canary, and promotes it to production only after the checks
+pass. RouterOS remains the system of record for configuration, identities,
+certificates, sessions, and audit data.
 
 ```mermaid
-flowchart LR
-    Dev[Maintainer\nissue -> PR -> CI] --> Repo[Public GitHub repository]
-    Repo --> Image[Public GHCR image\narchitecture-specific, immutable SHA]
-    Image --> Controller[Router-local update controller\nverify digest + health checks]
-    Controller --> Canary[Canary container\nprivate test endpoint]
-    Canary -->|healthy| Prod[Production container\npublic HTTPS endpoint]
-
-    subgraph Router[MikroTik RouterOS container host]
-        Config[/RouterOS environment + VPN configuration/]
-        Data[/Persistent /data\nSQLite + audit history/]
-        Trust[/Persistent /config\nCA trust material/]
-        Config --> Canary
-        Config --> Prod
-        Data --> Canary
-        Data --> Prod
-        Trust --> Canary
-        Trust --> Prod
-        RouterOS[RouterOS API\nOpenVPN users, certificates, firewall, sessions]
-        Prod <--> RouterOS
-        Canary <--> RouterOS
-    end
-
-    Controller -->|promote only after checks| Prod
+flowchart TB
+    Repo[Public GitHub repo] --> Image[Public GHCR image\nimmutable SHA tag]
+    Image --> Scheduler[RouterOS scheduler\non your router]
+    Scheduler --> Canary[Canary validation]
+    Canary -->|healthy| Production[Production update]
 ```
+
+![Simple deployment architecture](docs/screenshots/deployment-architecture.svg)
+
+The scheduler operates against the router-local persistent mounts, so private
+configuration, VPN data, certificates, and audit history never enter GitHub or
+the public image.
 
 ### What stays private
 
