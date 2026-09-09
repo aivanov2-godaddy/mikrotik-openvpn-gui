@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -1075,6 +1076,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/backups/preflight":
             self._backup_preflight()
             return
+        if path == "/api/backups/validate":
+            self._backup_validate_archive()
+            return
         if path == "/api/policy-templates":
             self._create_policy_template()
             return
@@ -1197,6 +1201,47 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "compatible": True,
             "restore_available": False,
             "message": "Backup is compatible. Restore remains review-first and is not applied automatically.",
+        })
+
+    def _backup_validate_archive(self) -> None:
+        """Validate an uploaded local backup archive without restoring or persisting it."""
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        try:
+            value = self._read_json()
+            encoded = value.get("archive_base64")
+            if not isinstance(encoded, str) or not encoded:
+                raise ValueError("Backup archive is required")
+            if len(encoded) > 48 * 1024:
+                raise ValueError("Backup archive is too large")
+            archive_bytes = base64.b64decode(encoded, validate=True)
+            if len(archive_bytes) > 36 * 1024:
+                raise ValueError("Backup archive is too large")
+            with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+                names = set(archive.namelist())
+                if names != {"manifest.json", "metadata.json"}:
+                    raise ValueError("Backup must contain only manifest.json and metadata.json")
+                manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                metadata = archive.read("metadata.json")
+            if not isinstance(manifest, dict) or manifest.get("format") != "mikrotik-openvpn-gui-backup" or manifest.get("version") != 1:
+                raise ValueError("This backup format is not supported")
+            expected = str((manifest.get("files") or {}).get("metadata.json", ""))
+            actual = hashlib.sha256(metadata).hexdigest()
+            if not re.fullmatch(r"[a-f0-9]{64}", expected) or not secrets.compare_digest(expected, actual):
+                raise ValueError("Metadata checksum does not match the backup manifest")
+        except (ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError) as error:
+            self._json({"compatible": False, "error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.server.context.store.audit(
+            actor=session.username, action="backup.validate", target="dashboard-metadata", status="success",
+            details={"format_version": 1, "metadata_bytes": len(metadata)},
+        )
+        self._json({
+            "compatible": True,
+            "restore_available": False,
+            "metadata_bytes": len(metadata),
+            "message": "Backup is valid and compatible. No data was restored or changed.",
         })
 
     def do_PATCH(self) -> None:

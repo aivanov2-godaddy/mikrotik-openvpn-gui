@@ -33,10 +33,13 @@ JSON formats, in-page filtering, and bounded automatic retention. Exported
 records contain action metadata only; passwords, private keys, profiles, and
 RouterOS secrets are excluded.
 
-## v1.5 — Backup and restore safety
+## v1.5 — Backup and restore safety (implemented)
 
-Guided SQLite backup/restore checks, checksum verification, and compatibility
-preflight. Backups remain local to the operator.
+The setup planner can download a local metadata-only archive and verify an
+existing archive's structure, format, and SHA-256 checksum entirely in memory.
+Compatibility results are recorded in Change History; restore remains an
+explicit review-only operation and is never applied automatically. Backups
+remain local to the operator.
 
 ## v1.6 — Administrator guardrails
 
