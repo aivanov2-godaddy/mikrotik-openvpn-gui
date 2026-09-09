@@ -999,6 +999,28 @@ async function runSetupPreflight() {
 $('[data-setup-preflight]')?.addEventListener('click', runSetupPreflight);
 $('[data-service-health-refresh]')?.addEventListener('click', refreshServiceHealth);
 
+$('[data-backup-verify]')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const file = $('input[type="file"]', form)?.files?.[0];
+  if (!file) return;
+  setBusy(form, true);
+  setStatus(form, 'Checking archive structure and checksum…');
+  try {
+    const encoded = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',', 2)[1] || '');
+      reader.onerror = () => reject(new Error('Could not read the backup file.'));
+      reader.readAsDataURL(file);
+    });
+    const response = await resultOrError(await api('/api/backups/validate', { method: 'POST', body: { archive_base64: encoded } }));
+    const result = await response.json();
+    setStatus(form, `${result.message} (${result.metadata_bytes} bytes of metadata).`);
+    toast('Backup verified without changing dashboard data.');
+  } catch (error) { setStatus(form, error.message, true); }
+  finally { setBusy(form, false); }
+});
+
 $('[data-setup-plan]')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import base64
 import hashlib
 import io
 import json
@@ -310,6 +311,17 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.json_request(
             "POST", "/api/backups/preflight",
             {"manifest": manifest, "metadata_sha256": hashlib.sha256(metadata).hexdigest()},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["compatible"])
+
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", json.dumps(manifest))
+            archive.writestr("metadata.json", metadata)
+        status, _, payload = self.json_request(
+            "POST", "/api/backups/validate",
+            {"archive_base64": base64.b64encode(archive_bytes.getvalue()).decode("ascii")},
         )
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(payload)["compatible"])
