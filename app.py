@@ -58,6 +58,17 @@ def _used_percent(free: Any, total: Any) -> int:
     return max(0, min(100, round((total_value - free_value) * 100 / total_value)))
 
 
+def _certificate_expiry_epoch(value: Any) -> int | None:
+    """Parse the ISO-like expiry values returned by RouterOS certificates."""
+    raw = str(value or "").strip()
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return int(time.mktime(time.strptime(raw[:19 if " " in pattern else 10], pattern)))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return None
+
+
 def service_health_snapshot(
     *,
     router: dict[str, Any] | None,
@@ -125,7 +136,26 @@ def service_health_snapshot(
         add("certificate-revocation", "Certificate revocation checks", "warning", "Revoked client certificates may not be rejected automatically.", "Review Certificate Settings in WinBox and enable CRL use when your CA publishes a revocation list.")
 
     if certificates:
-        add("certificate-inventory", "Client certificate inventory", "healthy", f"{len(certificates)} OpenVPN client certificate(s) are visible to the dashboard.", "No action needed.")
+        now = int(time.time())
+        expiring = []
+        expired = []
+        for certificate in certificates:
+            if certificate.get("revoked"):
+                continue
+            expiry = _certificate_expiry_epoch(certificate.get("invalid_after") or certificate.get("expires_after"))
+            if expiry is None:
+                continue
+            days = (expiry - now) // 86400
+            if days < 0:
+                expired.append(str(certificate.get("name", "certificate")))
+            elif days <= 30:
+                expiring.append(str(certificate.get("name", "certificate")))
+        if expired:
+            add("certificate-inventory", "Client certificate inventory", "warning", f"{len(expired)} active client certificate(s) have expired.", "Open Device Profiles and use Add another device to issue a replacement profile, then revoke the expired device.")
+        elif expiring:
+            add("certificate-inventory", "Client certificate inventory", "warning", f"{len(expiring)} active client certificate(s) expire within 30 days.", "Open Device Profiles and use Add another device to issue a replacement profile before expiry.")
+        else:
+            add("certificate-inventory", "Client certificate inventory", "healthy", f"{len(certificates)} OpenVPN client certificate(s) are visible to the dashboard.", "No action needed.")
     else:
         add("certificate-inventory", "Client certificate inventory", "warning", "No OpenVPN client certificates were found for the configured CA.", "Issue a device profile or verify the configured CA name before distributing access.")
 

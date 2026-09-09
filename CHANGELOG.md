@@ -20,6 +20,17 @@ semantic-version style release tags.
   manifests remain HTTPS-only and certificate-validated; readiness must report
   the immutable candidate revision before promotion.
 
+## 1.8.0 - 2026-09-09
+
+### Added
+
+- Per-device certificate revocation with exact confirmation, RouterOS
+  checkpoint, and Change History recording.
+- Certificate inventory warnings for expired certificates and certificates
+  expiring within 30 days, with guided replacement-profile instructions.
+- Simple public-repository-to-RouterOS canary-to-production architecture
+  documentation and diagram.
+
 ## 1.0.0 - 2026-09-07
 
 ### Added
