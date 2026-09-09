@@ -1097,6 +1097,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._create_profile(urllib.parse.unquote(match.group(1)))
             return
+        match = re.fullmatch(r"/api/devices/([^/]+)/revoke", path)
+        if match:
+            self._revoke_device(urllib.parse.unquote(match.group(1)))
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/duplicate", path)
         if match:
             self._duplicate_user(urllib.parse.unquote(match.group(1)))
@@ -1877,6 +1881,40 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 details={"retired_devices": len(devices)},
             )
             self._json({"ok": True})
+        except (ValueError, RouterOSError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _revoke_device(self, device_id: str) -> None:
+        """Retire one dashboard-managed certificate after exact confirmation."""
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        credentials = self._credentials(session)
+        try:
+            data = self._read_json()
+            device = self.server.context.store.device_by_id(device_id)
+            if not device:
+                raise ValueError("Device profile was not found")
+            if device.get("revoked_at"):
+                raise ValueError("This device profile is already revoked")
+            device_name = str(device.get("device_name") or "Unnamed device")
+            if not self._require_target_confirmation(data, device_name):
+                return
+            certificate_id = str(device.get("certificate_id") or "")
+            if not certificate_id:
+                raise ValueError("This device has no revocable certificate identity")
+            if not self._checkpoint(session, "device.revoke"):
+                return
+            self.server.context.router.revoke_certificate(credentials, certificate_id=certificate_id)
+            self.server.context.store.mark_revoked(device_id)
+            self.server.context.store.audit(
+                actor=session.username,
+                action="device.revoke",
+                target=device_name,
+                status="success",
+                details={"vpn_user": str(device.get("vpn_user", "")), "certificate": str(device.get("certificate_name", ""))},
+            )
+            self._json({"ok": True, "device": device_name})
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
