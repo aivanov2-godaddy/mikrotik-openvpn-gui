@@ -22,6 +22,10 @@ on:
       - "static/**"
       - "Containerfile"
       - "LICENSE"
+      # The workflow itself defines the public release contract, including the
+      # immutable RouterOS manifest.  It must publish when that contract
+      # changes; otherwise a reviewed release change can never reach GHCR.
+      - ".github/workflows/container.yml"
   workflow_dispatch:
 
 permissions:
