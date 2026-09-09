@@ -74,7 +74,13 @@ production to the same SQLite file: one database must have one writer.
    backups; image rollback deliberately never restores or overwrites data.
 5. It updates the canary with the exact candidate image and waits for RouterOS
    lifecycle state plus the canary's `/readyz` response to report the same
-   revision.
+   revision. The manifest is always fetched over certificate-validated HTTPS.
+   The readiness endpoint may use the same HTTPS protection or a literal
+   RFC1918 address on the router's private VETH network over HTTP. The latter
+   is limited to port 8080 and the exact `/readyz` path; it cannot use a DNS
+   name, public address, loopback, link-local, multicast address, query, or
+   fragment. This allows a router-local probe where TLS is terminated by a
+   separate local proxy without weakening the public-release trust boundary.
 6. It runs the configured non-destructive canary checks. On failure, it restores
    the canary's last-known-good image, records the failure locally, and leaves
    production untouched.
@@ -121,6 +127,9 @@ Perform this once during a maintenance window:
   fork is intentionally private; a private token belongs only in RouterOS
   container configuration.
 - Keep RouterOS REST private, HTTPS-only, and certificate-validated.
+- Keep the public release-manifest URL HTTPS-only. If the dashboard's local
+  VETH health endpoint is HTTP, use only a literal RFC1918 container address
+  and the strict `:8080/readyz` form accepted by the controller.
 - Protect the public default branch and release workflow with review and required
   checks. Public source integrity is the release-controller trust boundary.
 - Review RouterOS scheduler output and the local journal after every promotion.
