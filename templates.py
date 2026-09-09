@@ -256,7 +256,6 @@ def dashboard_page(
     router_display_name: str = "RouterOS",
     vpn_host: str = "",
     public_ip: str = "",
-    reverse_dns: str = "",
     router_dns: str = "",
     access_layer_label: str = "Direct HTTPS",
     health: dict[str, Any] | None = None,
@@ -544,11 +543,9 @@ def dashboard_page(
     router_display_name_safe = html.escape(router_display_name)
     vpn_host_safe = html.escape(vpn_host or "not configured")
     endpoint_ip = public_ip or "Unavailable"
-    endpoint_rdns = reverse_dns or "Unavailable"
-    endpoint_copy_value = f"Public IP: {endpoint_ip}\nReverse DNS: {endpoint_rdns}"
+    endpoint_copy_value = f"Public IP: {endpoint_ip}"
     endpoint_copy = (
         f'<div class="vpn-endpoint"><span>Public IP address</span><code>{html.escape(endpoint_ip)}</code>'
-        f'<span>Reverse DNS</span><b>{html.escape(endpoint_rdns)}</b>'
         f'<button type="button" class="table-action" data-copy-vpn-endpoint="{html.escape(endpoint_copy_value, quote=True)}">{_icon("copy")}<span>Copy endpoint</span></button></div>'
         if vpn_host
         else '<div class="vpn-endpoint"><span>Public endpoint</span><strong>Not configured</strong></div>'

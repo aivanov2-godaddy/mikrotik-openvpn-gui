@@ -11,8 +11,6 @@ import mimetypes
 import os
 import re
 import secrets
-import socket
-import subprocess
 import threading
 import time
 import urllib.parse
@@ -58,37 +56,6 @@ def _used_percent(free: Any, total: Any) -> int:
     if total_value <= 0:
         return 0
     return max(0, min(100, round((total_value - free_value) * 100 / total_value)))
-
-
-def _reverse_dns_record(public_ip: str) -> str:
-    """Return the PTR hostname for a RouterOS-reported public address."""
-    try:
-        address = ipaddress.ip_address(str(public_ip).strip())
-    except ValueError:
-        return "Reverse DNS unavailable"
-    try:
-        hostname = socket.gethostbyaddr(str(address))[0].rstrip(".")
-        if hostname and hostname != str(address):
-            return hostname
-    except (OSError, ValueError):
-        pass
-    for command, args in (
-        ("nslookup", ["-type=PTR", str(address)]),
-        ("host", ["-t", "PTR", str(address)]),
-    ):
-        try:
-            result = subprocess.run(
-                [command, *args], capture_output=True, text=True, timeout=3, check=False
-            )
-        except (OSError, subprocess.SubprocessError):
-            continue
-        output = f"{result.stdout}\n{result.stderr}"
-        matches = re.findall(r"(?:name\s*=|domain name pointer)\s*([A-Za-z0-9.-]+)", output, re.I)
-        for candidate in matches:
-            candidate = candidate.rstrip(".")
-            if candidate and candidate != str(address):
-                return candidate
-    return "Reverse DNS unavailable"
 
 
 def _certificate_expiry_epoch(value: Any) -> int | None:
@@ -1123,7 +1090,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 router_display_name=self.server.context.config.router_display_name,
                 vpn_host=self.server.context.config.topology.host,
                 public_ip=public_ip,
-                reverse_dns=_reverse_dns_record(public_ip),
                 router_dns=self.server.context.config.topology.router_dns,
                 access_layer_label=self.server.context.config.access_layer_label,
                 health=health,
