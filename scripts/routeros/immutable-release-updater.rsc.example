@@ -70,7 +70,9 @@
 :do {
     # Fetch JSON only over certificate-validated HTTPS.  This value is data,
     # never passed to :parse, :execute, or :import.
-    :local fetched [/tool/fetch url=$manifestUrl mode=https check-certificate=yes output=user as-value]
+    # GitHub release assets redirect once to a signed asset host.  Keep that
+    # transport behaviour explicit and bounded; do not follow arbitrary chains.
+    :local fetched [/tool/fetch url=$manifestUrl mode=https check-certificate=yes http-max-redirect-count=2 output=user as-value]
     :if (($fetched->"status") != "finished") do={
         :error "release manifest fetch did not finish"
     }
