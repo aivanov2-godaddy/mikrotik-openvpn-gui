@@ -333,19 +333,18 @@ class RouterOSClient:
         }
 
     def get_public_endpoint(self, credentials: RouterOSCredentials) -> dict[str, str]:
-        """Read RouterOS Cloud's public address and DDNS name, if enabled."""
+        """Read the public address reported by RouterOS Cloud."""
         records = _records(
             self._request(
                 "GET",
                 "/ip/cloud",
                 credentials,
-                query={".proplist": "public-address,dns-name,ddns-enabled"},
+                query={".proplist": "public-address"},
             )
         )
         record = records[0] if records else {}
         return {
             "public_ip": str(record.get("public-address", "")),
-            "reverse_dns": str(record.get("dns-name", "")),
         }
 
     def list_ovpn_client_certificates(

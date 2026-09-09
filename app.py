@@ -11,6 +11,7 @@ import mimetypes
 import os
 import re
 import secrets
+import socket
 import threading
 import time
 import urllib.parse
@@ -56,6 +57,20 @@ def _used_percent(free: Any, total: Any) -> int:
     if total_value <= 0:
         return 0
     return max(0, min(100, round((total_value - free_value) * 100 / total_value)))
+
+
+def _reverse_dns_record(public_ip: str) -> str:
+    """Return a host(1)-style PTR result for a RouterOS-reported address."""
+    try:
+        address = ipaddress.ip_address(str(public_ip).strip())
+    except ValueError:
+        return "Reverse DNS unavailable"
+    pointer = address.reverse_pointer
+    try:
+        hostname = socket.gethostbyaddr(str(address))[0].rstrip(".")
+    except (OSError, ValueError):
+        return f"{pointer} no PTR record"
+    return f"{pointer} domain name pointer {hostname}."
 
 
 def _certificate_expiry_epoch(value: Any) -> int | None:
@@ -1052,6 +1067,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             {},
             lambda: self.server.context.router.get_public_endpoint(credentials),
         )
+        public_ip = str(endpoint.get("public_ip", ""))
         try:
             self.server.context.store.verify_readiness()
             database_ready = True
@@ -1088,8 +1104,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 dashboard_name=self.server.context.config.dashboard_name,
                 router_display_name=self.server.context.config.router_display_name,
                 vpn_host=self.server.context.config.topology.host,
-                public_ip=str(endpoint.get("public_ip", "")),
-                reverse_dns=str(endpoint.get("reverse_dns", "")),
+                public_ip=public_ip,
+                reverse_dns=_reverse_dns_record(public_ip),
                 router_dns=self.server.context.config.topology.router_dns,
                 access_layer_label=self.server.context.config.access_layer_label,
                 health=health,

@@ -545,9 +545,9 @@ def dashboard_page(
     vpn_host_safe = html.escape(vpn_host or "not configured")
     endpoint_ip = public_ip or "Unavailable"
     endpoint_rdns = reverse_dns or "Unavailable"
-    endpoint_copy_value = f"{endpoint_ip} / {endpoint_rdns}"
+    endpoint_copy_value = f"host {endpoint_ip}\n{endpoint_rdns}"
     endpoint_copy = (
-        f'<div class="vpn-endpoint"><span>Public IP address</span><strong>{html.escape(endpoint_ip)}</strong>'
+        f'<div class="vpn-endpoint"><span>Public IP address</span><code>host {html.escape(endpoint_ip)}</code>'
         f'<span>Reverse DNS</span><b>{html.escape(endpoint_rdns)}</b>'
         f'<button type="button" class="table-action" data-copy-vpn-endpoint="{html.escape(endpoint_copy_value, quote=True)}">{_icon("copy")}<span>Copy endpoint</span></button></div>'
         if vpn_host
