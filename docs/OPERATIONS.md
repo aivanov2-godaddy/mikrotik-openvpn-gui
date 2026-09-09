@@ -9,6 +9,18 @@
 - Dashboard users, connected sessions, and interface counters agree with WinBox for a sample identity.
 - Audit events contain no passwords, tokens, private keys, profile bodies, or raw authorization headers.
 
+## Optional integrations
+
+Set both `WEBHOOK_URL` and `WEBHOOK_SIGNING_SECRET` in the router-local
+environment to enable audit-event delivery. The URL must be HTTPS and the
+secret must be at least 32 characters; leaving either value unset disables the
+integration. Each JSON event is signed with
+`X-VPN-Dashboard-Signature: sha256=<hex>` using HMAC-SHA256 over the exact
+request body. Receivers should verify the signature before processing.
+Delivery is asynchronous with a bounded queue, so a slow receiver cannot block
+VPN administration. Use `/healthz` for liveness and `/readyz` for readiness;
+these endpoints never expose configuration or credentials.
+
 ## Safe update cadence
 
 1. Review dependency alerts and every available repository security signal.

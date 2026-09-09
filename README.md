@@ -38,6 +38,59 @@ screens. They contain no production accounts, addresses, or credentials.
 
 ![VPN dashboard sections](docs/screenshots/dashboard-sections.svg)
 
+## Deployment architecture
+
+The project separates public software delivery from private VPN operation. The
+repository and its GHCR image contain only the application; the router remains
+the system of record for configuration, identities, certificates, sessions,
+and audit data. Updates are selected by an immutable commit digest, validated
+in canary, and then promoted to production without replacing the persistent
+router-local mounts.
+
+```mermaid
+flowchart LR
+    Dev[Maintainer\nissue -> PR -> CI] --> Repo[Public GitHub repository]
+    Repo --> Image[Public GHCR image\narchitecture-specific, immutable SHA]
+    Image --> Controller[Router-local update controller\nverify digest + health checks]
+    Controller --> Canary[Canary container\nprivate test endpoint]
+    Canary -->|healthy| Prod[Production container\npublic HTTPS endpoint]
+
+    subgraph Router[MikroTik RouterOS container host]
+        Config[/RouterOS environment + VPN configuration/]
+        Data[/Persistent /data\nSQLite + audit history/]
+        Trust[/Persistent /config\nCA trust material/]
+        Config --> Canary
+        Config --> Prod
+        Data --> Canary
+        Data --> Prod
+        Trust --> Canary
+        Trust --> Prod
+        RouterOS[RouterOS API\nOpenVPN users, certificates, firewall, sessions]
+        Prod <--> RouterOS
+        Canary <--> RouterOS
+    end
+
+    Controller -->|promote only after checks| Prod
+```
+
+### What stays private
+
+- RouterOS credentials, environment values, domains, addresses, and Cloudflare settings.
+- VPN users, certificates, private keys, generated profiles, SQLite data, and audit history.
+- The controller's approved image digest and deployment state.
+
+### What is public
+
+- Source code, documentation, tests, and architecture-neutral container builds.
+- The GHCR image and its immutable release metadata; no router-specific
+  configuration is baked into the image.
+
+The router-local controller never follows a mutable branch or tag. It keeps the
+previous image and persistent mounts available for rollback, and a failed
+canary or readiness check leaves production untouched. See
+[ROUTER_LOCAL_AUTOMATION.md](docs/ROUTER_LOCAL_AUTOMATION.md) for the exact
+promotion and rollback procedure.
+
 ## Quick start
 
 1. Check the [supported RouterOS platform requirements](docs/INSTALLATION.md#1-check-the-platform).

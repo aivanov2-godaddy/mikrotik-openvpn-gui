@@ -46,9 +46,12 @@ remain local to the operator.
 Clear capability matrix, explicit destructive-action confirmations, and richer
 audit rationale without a second administrator-password database.
 
-## v1.7 — Opt-in integrations
+## v1.7 — Opt-in integrations (implemented)
 
-Signed generic webhook notifications and health endpoints. Provider-specific
+The dashboard supports provider-neutral HTTPS webhooks for sanitized audit
+events, signed with HMAC-SHA256 and delivered asynchronously through a bounded
+queue. `/healthz` and `/readyz` provide lightweight monitoring probes. Both
+integrations are disabled unless explicitly configured; provider-specific
 services remain optional adapters rather than hard dependencies.
 
 ## Planned installation expansion — RouterOS OpenVPN bootstrap (implemented)
