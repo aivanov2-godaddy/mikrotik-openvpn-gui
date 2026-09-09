@@ -170,11 +170,11 @@
     :local failedImage [$stateLine $previousFailure "failed-image="]
     :local failedCountText [$stateLine $previousFailure "failure-count="]
     :local failedCount 0
+    :local skipUpdate false
     :do { :set failedCount [:tonum $failedCountText] } on-error={}
     :if (($failedImage = $image) && ($failedCount >= $failureRetryLimit)) do={
         :log error ("vpn-gui immutable updater: candidate is locally quarantined after failures: " . $image)
-        :set vpnGuiImmutableUpdateLock false
-        :return
+        :set skipUpdate true
     }
 
     :local canaryId [/container/find where name=$canaryContainer]
@@ -190,21 +190,20 @@
     :local productionCurrentCommit [:pick $productionCurrent $prefixLength ($prefixLength + 40)]
     :if ($productionCurrent = $image) do={
         :log info ("vpn-gui immutable updater: production already uses " . $image)
-        :set vpnGuiImmutableUpdateLock false
-        :return
+        :set skipUpdate true
     }
     :if ($dryRun) do={
         :log warning ("vpn-gui immutable updater: dry-run accepted candidate " . $image . "; no container changed")
-        :set vpnGuiImmutableUpdateLock false
-        :return
+        :set skipUpdate true
     }
 
     # The script only changes remote-image and container lifecycle.  It never
     # writes mountlists, envlists, root-dir, interface, router configuration,
     # SQLite data, certificates, users, firewall, or proxy settings.
-    :log info ("vpn-gui immutable updater: testing canary " . $image)
-    :local canaryCurrent [/container/get $canaryId remote-image]
-    :do {
+    :if (!$skipUpdate) do={
+        :log info ("vpn-gui immutable updater: testing canary " . $image)
+        :local canaryCurrent [/container/get $canaryId remote-image]
+        :do {
         /container/stop $canaryId
         /container/set $canaryId remote-image=$image
         /container/update $canaryId
@@ -287,9 +286,10 @@
         :error "production readiness gate failed; previous immutable image restored"
     }
 
-    :local state ("last-good-image=" . $image . "\ncommit=" . $commit . "\nupdated-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
-    $writeState $stateFile $state
-    :log info ("vpn-gui immutable updater: production promoted successfully to " . $image)
+        :local state ("last-good-image=" . $image . "\ncommit=" . $commit . "\nupdated-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
+        $writeState $stateFile $state
+        :log info ("vpn-gui immutable updater: production promoted successfully to " . $image)
+    }
 } on-error={ :log error "vpn-gui immutable updater: update failed; see preceding log entry" }
 :set vpnGuiImmutableUpdateLock false
 
