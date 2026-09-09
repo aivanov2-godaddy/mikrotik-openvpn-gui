@@ -91,8 +91,11 @@ production to the same SQLite file: one database must have one writer.
    or overwrites `/data`; database restoration is a separate, explicit disaster
    recovery operation.
 
-The default polling cadence should be conservative (for example, every 15
-minutes). A run that finds no approved new release is intentionally a no-op.
+The recommended watchdog cadence is every **5 minutes**. The manifest is tiny,
+and an unchanged SHA is a no-op that never touches either container. A
+candidate that fails three times is quarantined locally, so a broken release
+cannot cause repeated disruptive restarts; the operator must review and clear
+that local failure marker before retrying it.
 
 ## Initial migration from an existing private image
 

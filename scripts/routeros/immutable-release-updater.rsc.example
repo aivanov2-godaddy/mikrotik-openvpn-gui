@@ -293,6 +293,10 @@
 } on-error={ :log error "vpn-gui immutable updater: update failed; see preceding log entry" }
 :set vpnGuiImmutableUpdateLock false
 
-# Example scheduler.  Import only after replacing CHANGE-ME values above, then
-# test by running the script manually.  The script is kept local on the router.
-# /system/scheduler/add name="vpn-gui-immutable-update" interval=15m start-time=startup on-event="/system/script/run vpn-gui-immutable-update" policy=read,write,policy,test,password,sensitive
+# Example watchdog scheduler. Import only after replacing CHANGE-ME values
+# above, then test by running the script manually. Five minutes gives fast
+# detection while the immutable SHA, single-run lock, canary gate, readiness
+# checks, rollback, and three-failure quarantine prevent unsafe promotion.
+# A quarantined candidate is skipped until the operator reviews it and removes
+# the local .failed state file. The script itself remains local on the router.
+# /system/scheduler/add name="vpn-gui-immutable-update" interval=5m start-time=startup on-event="/system/script/run vpn-gui-immutable-update" policy=read,write,policy,test,password,sensitive
