@@ -1,0 +1,178 @@
+# Router-local immutable release updater for MikroTik OpenVPN GUI.
+#
+# This is deliberately a static, reviewable RouterOS script.  It does NOT
+# download or execute RouterOS code from GitHub.  It only downloads a JSON
+# release manifest, validates one exact public ARM64 image tag, and updates two
+# pre-existing containers in order: canary, then production.
+#
+# Before importing: replace every CHANGE-ME value, create the scheduler below,
+# and test it manually with a known-good release.  Do not place router secrets,
+# certificates, domains, or IP addresses in a public repository.
+
+:local manifestUrl "https://github.com/CHANGE-ME/mikrotik-openvpn-gui-public/releases/latest/download/routeros-release.json"
+:local imagePrefix "ghcr.io/CHANGE-ME/mikrotik-openvpn-gui-public:sha-"
+:local canaryContainer "vpn-dashboard-canary"
+:local productionContainer "vpn-dashboard"
+:local canaryReadyUrl "https://CHANGE-ME/readyz"
+:local productionReadyUrl "https://CHANGE-ME/readyz"
+:local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
+:local pollAttempts 6
+:local pollDelay 10s
+:local dryRun false
+
+# One in-memory lock prevents overlapping scheduler instances.  The known good
+# image is also written to a router-local external-storage file for operator
+# review.  The state file contains no credentials or application data.
+:global vpnGuiImmutableUpdateLock
+:if ($vpnGuiImmutableUpdateLock = true) do={
+    :log warning "vpn-gui immutable updater: another run is active; skipping"
+    :error "vpn-gui immutable updater lock held"
+}
+:set vpnGuiImmutableUpdateLock true
+
+:do {
+    # Fetch JSON only over certificate-validated HTTPS.  This value is data,
+    # never passed to :parse, :execute, or :import.
+    :local fetched [/tool/fetch url=$manifestUrl mode=https check-certificate=yes output=user as-value]
+    :if (($fetched->"status") != "finished") do={
+        :error "release manifest fetch did not finish"
+    }
+    :local manifest [:deserialize from=json value=($fetched->"data")]
+    :local schema ($manifest->"schema")
+    :local architecture ($manifest->"architecture")
+    :local image ($manifest->"image")
+    :local commit ($manifest->"commit")
+
+    # Fail closed unless the manifest names this format exactly:
+    # ghcr.io/<configured public owner>/mikrotik-openvpn-gui-public:sha-<40 lowercase hex>-arm64
+    :if (($schema != 1) || ($architecture != "arm64")) do={
+        :error "manifest schema or architecture is not accepted"
+    }
+    :if (([:typeof $image] != "str") || ([:typeof $commit] != "str")) do={
+        :error "manifest image or commit is not a string"
+    }
+    :local prefixLength [:len $imagePrefix]
+    :local expectedLength ($prefixLength + 46)
+    :if (([:len $image] != $expectedLength) || ([:pick $image 0 $prefixLength] != $imagePrefix) || ([:pick $image ($prefixLength + 40) $expectedLength] != "-arm64")) do={
+        :error "manifest image is not an allowed immutable ARM64 image"
+    }
+    :local imageCommit [:pick $image $prefixLength ($prefixLength + 40)]
+    :if (([:len $commit] != 40) || ($commit != $imageCommit)) do={
+        :error "manifest commit does not match the immutable image tag"
+    }
+    :local hex "0123456789abcdef"
+    :for index from=0 to=39 do={
+        :local character [:pick $commit $index ($index + 1)]
+        :if ([:find $hex $character] = nil) do={
+            :error "manifest commit contains a non-lowercase-hex character"
+        }
+    }
+
+    :local canaryId [/container/find where name=$canaryContainer]
+    :local productionId [/container/find where name=$productionContainer]
+    :if ([:len $canaryId] != 1) do={ :error "exactly one named canary container is required" }
+    :if ([:len $productionId] != 1) do={ :error "exactly one named production container is required" }
+
+    # No-op if production already runs this exact immutable release.
+    :local productionCurrent [/container/get $productionId remote-image]
+    :if ($productionCurrent = $image) do={
+        :log info ("vpn-gui immutable updater: production already uses " . $image)
+        :set vpnGuiImmutableUpdateLock false
+        :return
+    }
+    :if ($dryRun) do={
+        :log warning ("vpn-gui immutable updater: dry-run accepted candidate " . $image . "; no container changed")
+        :set vpnGuiImmutableUpdateLock false
+        :return
+    }
+
+    # The script only changes remote-image and container lifecycle.  It never
+    # writes mountlists, envlists, root-dir, interface, router configuration,
+    # SQLite data, certificates, users, firewall, or proxy settings.
+    :log info ("vpn-gui immutable updater: testing canary " . $image)
+    :local canaryCurrent [/container/get $canaryId remote-image]
+    :do {
+        /container/stop $canaryId
+        /container/set $canaryId remote-image=$image
+        /container/update $canaryId
+        /container/start $canaryId
+    } on-error={
+        :log error ("vpn-gui immutable updater: canary extraction/start failed; restoring " . $canaryCurrent)
+        :do {
+            /container/stop $canaryId
+            /container/set $canaryId remote-image=$canaryCurrent
+            /container/update $canaryId
+            /container/start $canaryId
+        } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
+        :error "canary lifecycle gate failed"
+    }
+
+    :local canaryHealthy false
+    :for attempt from=1 to=$pollAttempts do={
+        :delay $pollDelay
+        :do {
+            :local ready [/tool/fetch url=$canaryReadyUrl mode=https check-certificate=yes output=user as-value]
+            :if ((($ready->"status") = "finished") && ([:find ($ready->"data") "\"status\":\"ready\""] != nil)) do={
+                :set canaryHealthy true
+            }
+        } on-error={ :log warning ("vpn-gui immutable updater: canary readiness attempt " . $attempt . " failed") }
+        :if ($canaryHealthy) do={ :break }
+    }
+    :if (!$canaryHealthy) do={
+        :log error ("vpn-gui immutable updater: canary rejected " . $image . "; restoring " . $canaryCurrent . "; production unchanged")
+        :do {
+            /container/stop $canaryId
+            /container/set $canaryId remote-image=$canaryCurrent
+            /container/update $canaryId
+            /container/start $canaryId
+        } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
+        :error "canary readiness gate failed"
+    }
+
+    :log info ("vpn-gui immutable updater: promoting validated canary " . $image)
+    :do {
+        /container/stop $productionId
+        /container/set $productionId remote-image=$image
+        /container/update $productionId
+        /container/start $productionId
+    } on-error={
+        :log error ("vpn-gui immutable updater: production extraction/start failed; restoring " . $productionCurrent)
+        :do {
+            /container/stop $productionId
+            /container/set $productionId remote-image=$productionCurrent
+            /container/update $productionId
+            /container/start $productionId
+        } on-error={ :log error "vpn-gui immutable updater: production rollback also failed; operator action required" }
+        :error "production lifecycle gate failed; previous immutable image restored"
+    }
+
+    :local productionHealthy false
+    :for attempt from=1 to=$pollAttempts do={
+        :delay $pollDelay
+        :do {
+            :local ready [/tool/fetch url=$productionReadyUrl mode=https check-certificate=yes output=user as-value]
+            :if ((($ready->"status") = "finished") && ([:find ($ready->"data") "\"status\":\"ready\""] != nil)) do={
+                :set productionHealthy true
+            }
+        } on-error={ :log warning ("vpn-gui immutable updater: production readiness attempt " . $attempt . " failed") }
+        :if ($productionHealthy) do={ :break }
+    }
+
+    :if (!$productionHealthy) do={
+        :log error ("vpn-gui immutable updater: production failed; restoring " . $productionCurrent)
+        /container/stop $productionId
+        /container/set $productionId remote-image=$productionCurrent
+        /container/update $productionId
+        /container/start $productionId
+        :error "production readiness gate failed; previous immutable image restored"
+    }
+
+    :local state ("last-good-image=" . $image . "\ncommit=" . $commit . "\nupdated-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
+    :do { /file/set [find where name=$stateFile] contents=$state } on-error={ /file/add name=$stateFile contents=$state }
+    :log info ("vpn-gui immutable updater: production promoted successfully to " . $image)
+} on-error={ :log error "vpn-gui immutable updater: update failed; see preceding log entry" }
+:set vpnGuiImmutableUpdateLock false
+
+# Example scheduler.  Import only after replacing CHANGE-ME values above, then
+# test by running the script manually.  The script is kept local on the router.
+# /system/scheduler/add name="vpn-gui-immutable-update" interval=15m start-time=startup on-event="/system/script/run vpn-gui-immutable-update" policy=read,write,policy,test,password,sensitive
