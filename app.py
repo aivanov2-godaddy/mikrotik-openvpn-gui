@@ -1047,6 +1047,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             [],
             lambda: self.server.context.router.list_ovpn_client_certificates(credentials),
         )
+        endpoint = optional_router_data(
+            "RouterOS public endpoint is temporarily unavailable.",
+            {},
+            lambda: self.server.context.router.get_public_endpoint(credentials),
+        )
         try:
             self.server.context.store.verify_readiness()
             database_ready = True
@@ -1083,6 +1088,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 dashboard_name=self.server.context.config.dashboard_name,
                 router_display_name=self.server.context.config.router_display_name,
                 vpn_host=self.server.context.config.topology.host,
+                public_ip=str(endpoint.get("public_ip", "")),
+                reverse_dns=str(endpoint.get("reverse_dns", "")),
                 router_dns=self.server.context.config.topology.router_dns,
                 access_layer_label=self.server.context.config.access_layer_label,
                 health=health,

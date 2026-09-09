@@ -255,6 +255,8 @@ def dashboard_page(
     dashboard_name: str = "MikroTik OpenVPN GUI",
     router_display_name: str = "RouterOS",
     vpn_host: str = "",
+    public_ip: str = "",
+    reverse_dns: str = "",
     router_dns: str = "",
     access_layer_label: str = "Direct HTTPS",
     health: dict[str, Any] | None = None,
@@ -541,11 +543,15 @@ def dashboard_page(
     dashboard_name_safe = html.escape(dashboard_name)
     router_display_name_safe = html.escape(router_display_name)
     vpn_host_safe = html.escape(vpn_host or "not configured")
+    endpoint_ip = public_ip or "Unavailable"
+    endpoint_rdns = reverse_dns or "Unavailable"
+    endpoint_copy_value = f"{endpoint_ip} / {endpoint_rdns}"
     endpoint_copy = (
-        f'<small class="vpn-endpoint"><span>Public endpoint / reverse DNS</span><strong>{vpn_host_safe}</strong>'
-        f'<button type="button" class="table-action" data-copy-vpn-endpoint="{html.escape(vpn_host, quote=True)}">{_icon("copy")}<span>Copy</span></button></small>'
+        f'<div class="vpn-endpoint"><span>Public IP address</span><strong>{html.escape(endpoint_ip)}</strong>'
+        f'<span>Reverse DNS</span><b>{html.escape(endpoint_rdns)}</b>'
+        f'<button type="button" class="table-action" data-copy-vpn-endpoint="{html.escape(endpoint_copy_value, quote=True)}">{_icon("copy")}<span>Copy endpoint</span></button></div>'
         if vpn_host
-        else '<small class="vpn-endpoint"><span>Public endpoint / reverse DNS</span><strong>Not configured</strong></small>'
+        else '<div class="vpn-endpoint"><span>Public endpoint</span><strong>Not configured</strong></div>'
     )
     router_dns_safe = html.escape(router_dns or "not configured")
     access_layer = html.escape(access_layer_label)
