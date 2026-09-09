@@ -204,7 +204,7 @@ label { color: #d0d7dc; }
 .vpn-endpoint code { color: #e4edf1; font-size: 18px; font-weight: 600; line-height: 1.1; white-space: nowrap; }
 .vpn-endpoint b { overflow: hidden; color: #e4edf1; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .vpn-endpoint b { color: #f06b73; }
-.vpn-endpoint .table-action { grid-column: 1 / -1; justify-self: start; min-height: 26px; padding: 2px 8px; font-size: 12px; }
+.vpn-endpoint .table-action { grid-column: 1 / -1; justify-self: start; min-height: 24px; padding: 1px 6px; gap: 4px; font-size: 12px; }
 .health-state { display: inline-flex; align-items: center; gap: 6px; color: #b9ead2 !important; }
 .health-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 1px #21543f; }
 .health-state.bad { color: #f4a5aa !important; }
