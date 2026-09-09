@@ -109,7 +109,7 @@ class CanarySettings:
     ovpn_server_identity: str = ""
     trust_cloudflare: bool = False
     trusted_proxy_sources: str = ""
-    repository: str = "mikrotik-openvpn-gui-public"
+    repository: str = "mikrotik-openvpn-gui"
 
     def validated(self) -> "ValidatedCanarySettings":
         owner = self.owner.casefold()
@@ -265,7 +265,7 @@ def argument_parser() -> argparse.ArgumentParser:
         description="Render an offline RouterOS plan for an immutable GHCR canary."
     )
     parser.add_argument("--owner", required=True, help="Lowercase GitHub owner with package read access")
-    parser.add_argument("--repository", default="mikrotik-openvpn-gui-public")
+    parser.add_argument("--repository", default="mikrotik-openvpn-gui")
     parser.add_argument("--commit", required=True, help="Full 40-character lowercase commit SHA")
     parser.add_argument("--public-origin", required=True, help="Credential-free HTTPS dashboard origin")
     parser.add_argument("--routeros-rest-url", required=True, help="Verified HTTPS RouterOS URL ending in /rest")

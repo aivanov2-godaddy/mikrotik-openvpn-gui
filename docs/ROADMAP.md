@@ -53,4 +53,4 @@ will generate an explicit plan for those prerequisites, with no hidden network
 or certificate mutations and a required backup/checkpoint before apply.
 
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
-merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui-public/issues/4).
+merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).

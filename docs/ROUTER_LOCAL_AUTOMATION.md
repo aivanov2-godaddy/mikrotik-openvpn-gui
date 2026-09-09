@@ -31,7 +31,7 @@ audit history, VPN user data, certificates, private keys, or issued profiles.
 Every promotable image is architecture-specific and pinned to a full Git commit:
 
 ```text
-ghcr.io/<owner>/mikrotik-openvpn-gui-public:sha-<40-character-commit>-arm64
+ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64
 ```
 
 The release manifest is declarative JSON, not RouterOS code. Its contract is a

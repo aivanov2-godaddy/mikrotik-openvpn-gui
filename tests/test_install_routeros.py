@@ -34,7 +34,7 @@ def settings(**changes: str) -> InstallationSettings:
 class InstallationWizardTests(unittest.TestCase):
     def test_plan_is_explicit_immutable_and_never_applies(self) -> None:
         plan = render_install_plan(settings())
-        self.assertIn("example-owner/mikrotik-openvpn-gui-public:sha-" + "a" * 40 + "-arm64", plan)
+        self.assertIn("example-owner/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64", plan)
         self.assertIn("dst=/data", plan)
         self.assertIn("dst=/config", plan)
         self.assertIn("ROUTEROS_INSECURE_TLS", plan)

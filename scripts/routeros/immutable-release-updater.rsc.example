@@ -9,8 +9,8 @@
 # and test it manually with a known-good release.  Do not place router secrets,
 # certificates, domains, or IP addresses in a public repository.
 
-:local manifestUrl "https://github.com/CHANGE-ME/mikrotik-openvpn-gui-public/releases/download/routeros-stable/routeros-release.json"
-:local imagePrefix "ghcr.io/CHANGE-ME/mikrotik-openvpn-gui-public:sha-"
+:local manifestUrl "https://github.com/CHANGE-ME/mikrotik-openvpn-gui/releases/download/routeros-stable/routeros-release.json"
+:local imagePrefix "ghcr.io/CHANGE-ME/mikrotik-openvpn-gui:sha-"
 :local canaryContainer "vpn-dashboard-canary"
 :local productionContainer "vpn-dashboard"
 # Readiness may use HTTPS, or a literal RFC1918 IPv4 address on the router's
@@ -137,7 +137,7 @@
     :local commit ($manifest->"commit")
 
     # Fail closed unless the manifest names this format exactly:
-    # ghcr.io/<configured public owner>/mikrotik-openvpn-gui-public:sha-<40 lowercase hex>-arm64
+    # ghcr.io/<configured public owner>/mikrotik-openvpn-gui:sha-<40 lowercase hex>-arm64
     :if ($schema != 1) do={
         :error "manifest schema is not accepted"
     }

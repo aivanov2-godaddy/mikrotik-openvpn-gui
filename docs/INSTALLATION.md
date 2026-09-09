@@ -103,7 +103,7 @@ a workflow file, or a screenshot. A public package does not need a pull token.
 ```
 
 RouterOS resolves `remote-image` relative to this registry URL. Therefore use
-`<github-owner>/mikrotik-openvpn-gui-public:sha-<full-commit-sha>-<architecture>`, not
+`<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>`, not
 a `ghcr.io/...`-prefixed value. The legacy `sha-<full-commit-sha>` tag remains
 an ARM64 alias for compatible routers. Commit-addressed tags make selection
 reviewable, but record the published digest for an immutable audit record; do
@@ -154,7 +154,7 @@ Keep `ROUTEROS_INSECURE_TLS=false` in production. Choose exactly one supported e
 Choose the full SHA from a successful **Publish container** workflow run. Check the package digest and visibility before pulling. Then add the container (replace placeholders with reviewed, device-specific paths):
 
 ```routeros
-/container/add name=vpn-dashboard remote-image=<github-owner>/mikrotik-openvpn-gui-public:sha-<full-commit-sha>-arm64 interface=veth-vpn-dashboard root-dir="<external-disk>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
+/container/add name=vpn-dashboard remote-image=<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-arm64 interface=veth-vpn-dashboard root-dir="<external-disk>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
 /container/print detail
 ```
 

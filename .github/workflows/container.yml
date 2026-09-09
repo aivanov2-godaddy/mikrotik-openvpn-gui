@@ -22,6 +22,10 @@ on:
       - "static/**"
       - "Containerfile"
       - "LICENSE"
+      # The static RouterOS controller validates the published immutable image
+      # package format. Publishing it with a matching manifest prevents a
+      # reviewed package-name transition from stranding router-local updates.
+      - "scripts/routeros/immutable-release-updater.rsc.example"
       # The workflow itself defines the public release contract, including the
       # immutable RouterOS manifest.  It must publish when that contract
       # changes; otherwise a reviewed release change can never reach GHCR.

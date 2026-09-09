@@ -18,8 +18,8 @@ router-local automatic procedure and migration plan, see
 Use an immutable tag from the public package, matching your architecture:
 
 ```text
-ghcr.io/<owner>/mikrotik-openvpn-gui-public:sha-<40-character-commit>-arm64
-ghcr.io/<owner>/mikrotik-openvpn-gui-public:sha-<40-character-commit>-amd64
+ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64
+ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-amd64
 ```
 
 `arm64` is the validated RouterOS target. `amd64` is intended for CHR/x86
@@ -54,7 +54,7 @@ python scripts/deploy_routeros_release.py `
   --ca-file .\routeros-ca.crt `
   --username deployer `
   --container-name vpn-dashboard `
-  --image ghcr.io/<owner>/mikrotik-openvpn-gui-public:sha-<commit>-arm64
+  --image ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<commit>-arm64
 ```
 
 The client requires TLS certificate validation and a full immutable `sha-` tag.

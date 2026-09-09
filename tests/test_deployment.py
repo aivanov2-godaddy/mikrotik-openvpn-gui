@@ -103,7 +103,7 @@ class DeploymentPolicyTests(unittest.TestCase):
     def test_canary_plan_uses_an_immutable_ghcr_image_and_separate_state(self) -> None:
         plan = render_canary_plan(self.canary_settings())
         self.assertIn(
-            f'remote-image="example-owner/mikrotik-openvpn-gui-public:sha-{"a" * 40}"',
+            f'remote-image="example-owner/mikrotik-openvpn-gui:sha-{"a" * 40}"',
             plan,
         )
         self.assertIn('mountlists="vpn-gui-canary-aaaaaaaaaaaa-mounts"', plan)
