@@ -13,8 +13,11 @@
 :local imagePrefix "ghcr.io/CHANGE-ME/mikrotik-openvpn-gui-public:sha-"
 :local canaryContainer "vpn-dashboard-canary"
 :local productionContainer "vpn-dashboard"
-:local canaryReadyUrl "https://CHANGE-ME/readyz"
-:local productionReadyUrl "https://CHANGE-ME/readyz"
+# Readiness may use HTTPS, or a literal RFC1918 IPv4 address on the router's
+# private container network. The release manifest itself always remains HTTPS
+# with certificate validation; local HTTP must never point to a public host.
+:local canaryReadyUrl "http://192.168.250.2:8080/readyz"
+:local productionReadyUrl "http://192.168.251.2:8080/readyz"
 :local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
 :local pollAttempts 6
 :local pollDelay 10s
@@ -55,6 +58,57 @@
     }
     :local failureState ("failed-image=" . $candidate . "\nfailure-count=" . $count . "\nfailed-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
     $writeState $failureFile $failureState
+}
+
+# A dashboard can terminate TLS at a separate router-local proxy. In that
+# design, the controller must probe the isolated VETH address directly. HTTPS
+# remains accepted for installations that expose a certificate-validated
+# readiness endpoint. Plain HTTP is intentionally restricted to a literal
+# RFC1918 IPv4 address, port 8080, and the exact /readyz path. It cannot use
+# DNS, loopback, link-local, multicast, public ranges, a query, or a fragment.
+:local readinessTransport do={
+    :local endpoint $1
+    :if (([:len $endpoint] > 8) && ([:pick $endpoint 0 8] = "https://")) do={
+        :return "https"
+    }
+    :if (([:len $endpoint] <= 7) || ([:pick $endpoint 0 7] != "http://")) do={
+        :error "readiness URL must use HTTPS or private router-local HTTP"
+    }
+    :local requiredSuffix ":8080/readyz"
+    :local suffixStart [:find $endpoint $requiredSuffix]
+    :if (($suffixStart = nil) || (($suffixStart + [:len $requiredSuffix]) != [:len $endpoint])) do={
+        :error "private HTTP readiness URL must use port 8080 and exact /readyz path"
+    }
+    :local host [:pick $endpoint 7 $suffixStart]
+    :local privatePrefix false
+    :foreach prefix in={"10.";"192.168.";"172.16.";"172.17.";"172.18.";"172.19.";"172.20.";"172.21.";"172.22.";"172.23.";"172.24.";"172.25.";"172.26.";"172.27.";"172.28.";"172.29.";"172.30.";"172.31."} do={
+        :if ([:pick $host 0 [:len $prefix]] = $prefix) do={ :set privatePrefix true }
+    }
+    :if (!$privatePrefix) do={
+        :error "plain HTTP readiness must use a private RFC1918 IPv4 address"
+    }
+    :local parsedIp ""
+    :do { :set parsedIp [:toip $host] } on-error={ :error "private HTTP readiness host is malformed" }
+    :if (([:typeof $parsedIp] != "ip") || ([:tostr $parsedIp] != $host)) do={
+        :error "private HTTP readiness host is malformed"
+    }
+    :return "http"
+}
+:local fetchReady do={
+    :local endpoint $1
+    :local transport $2
+    :local expectedCommit $3
+    :local result
+    :if ($transport = "https") do={
+        :set result [/tool/fetch url=$endpoint mode=https check-certificate=yes output=user as-value]
+    } else={
+        :set result [/tool/fetch url=$endpoint mode=http output=user as-value]
+    }
+    :local expectedRevision ("\"revision\":\"" . $expectedCommit . "\"")
+    :if ((($result->"status") = "finished") && (($result->"code") = 200) && ([:find ($result->"data") "\"status\":\"ready\""] != nil) && ([:find ($result->"data") $expectedRevision] != nil)) do={
+        :return true
+    }
+    :return false
 }
 
 # One in-memory lock prevents overlapping scheduler instances.  The known good
@@ -106,6 +160,8 @@
             :error "manifest commit contains a non-lowercase-hex character"
         }
     }
+    :local canaryReadyTransport [$readinessTransport $canaryReadyUrl]
+    :local productionReadyTransport [$readinessTransport $productionReadyUrl]
 
     # Do not repeatedly disrupt a canary for the same previously rejected
     # immutable candidate. A new SHA begins with a fresh failure count.
@@ -128,6 +184,10 @@
 
     # No-op if production already runs this exact immutable release.
     :local productionCurrent [/container/get $productionId remote-image]
+    :if (([:len $productionCurrent] != $expectedLength) || ([:pick $productionCurrent 0 $prefixLength] != $imagePrefix) || ([:pick $productionCurrent ($prefixLength + 40) $expectedLength] != "-arm64")) do={
+        :error "production must already use an allowed immutable ARM64 image before automatic updates are enabled"
+    }
+    :local productionCurrentCommit [:pick $productionCurrent $prefixLength ($prefixLength + 40)]
     :if ($productionCurrent = $image) do={
         :log info ("vpn-gui immutable updater: production already uses " . $image)
         :set vpnGuiImmutableUpdateLock false
@@ -165,8 +225,7 @@
     :for attempt from=1 to=$pollAttempts do={
         :delay $pollDelay
         :do {
-            :local ready [/tool/fetch url=$canaryReadyUrl mode=https check-certificate=yes output=user as-value]
-            :if ((($ready->"status") = "finished") && ([:find ($ready->"data") "\"status\":\"ready\""] != nil)) do={
+            :if ([$fetchReady $canaryReadyUrl $canaryReadyTransport $commit]) do={
                 :set canaryHealthy true
             }
         } on-error={ :log warning ("vpn-gui immutable updater: canary readiness attempt " . $attempt . " failed") }
@@ -206,8 +265,7 @@
     :for attempt from=1 to=$pollAttempts do={
         :delay $pollDelay
         :do {
-            :local ready [/tool/fetch url=$productionReadyUrl mode=https check-certificate=yes output=user as-value]
-            :if ((($ready->"status") = "finished") && ([:find ($ready->"data") "\"status\":\"ready\""] != nil)) do={
+            :if ([$fetchReady $productionReadyUrl $productionReadyTransport $commit]) do={
                 :set productionHealthy true
             }
         } on-error={ :log warning ("vpn-gui immutable updater: production readiness attempt " . $attempt . " failed") }
@@ -222,8 +280,7 @@
             /container/set $productionId remote-image=$productionCurrent
             /container/update $productionId
             /container/start $productionId
-            :local rollbackReady [/tool/fetch url=$productionReadyUrl mode=https check-certificate=yes output=user as-value]
-            :if ((($rollbackReady->"status") != "finished") || ([:find ($rollbackReady->"data") "\"status\":\"ready\""] = nil)) do={
+            :if (![$fetchReady $productionReadyUrl $productionReadyTransport $productionCurrentCommit]) do={
                 :error "previous production image did not pass its readiness check"
             }
         } on-error={ :log error "vpn-gui immutable updater: production rollback failed readiness; operator action required" }

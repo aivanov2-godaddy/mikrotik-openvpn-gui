@@ -6,7 +6,12 @@ semantic-version style release tags.
 
 ## Unreleased
 
-No unreleased changes.
+### Security
+
+- Router-local automatic updates now permit a strictly validated private HTTP
+  `/readyz` probe when TLS terminates at a separate local proxy. Public release
+  manifests remain HTTPS-only and certificate-validated; readiness must report
+  the immutable candidate revision before promotion.
 
 ## 1.0.0 - 2026-09-07
 

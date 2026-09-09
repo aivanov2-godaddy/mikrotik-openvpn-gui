@@ -45,6 +45,12 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn("check-certificate=yes", executable)
         self.assertIn("http-max-redirect-count=2", executable)
+        self.assertIn(":local readinessTransport do=", executable)
+        self.assertIn("mode=http", executable)
+        self.assertIn(":toip $host", executable)
+        self.assertIn('"http://192.168.250.2:8080/readyz"', updater)
+        self.assertIn('"\\\"revision\\\":\\\""', updater)
+        self.assertIn("productionCurrentCommit", executable)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
 
