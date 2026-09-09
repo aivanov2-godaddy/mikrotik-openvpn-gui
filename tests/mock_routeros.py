@@ -231,6 +231,8 @@ class MockHandler(BaseHTTPRequestHandler):
                 self._json(records)
             elif path == "/ip/dns":
                 self._json([{"servers": "192.0.2.1", "allow-remote-requests": "yes"}])
+            elif path == "/ip/cloud":
+                self._json([{"public-address": "198.51.100.10", "dns-name": "router.example.net", "ddns-enabled": "yes"}])
             elif path == "/ip/firewall/filter":
                 self._json([{"chain": "input", "action": "accept", "protocol": "udp", "dst-port": "1194", "disabled": "no", "comment": "OpenVPN"}])
             elif path == "/file":
