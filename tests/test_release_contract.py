@@ -17,6 +17,8 @@ class ReleaseContractTests(unittest.TestCase):
 
         publish = (workflows / "container.yml").read_text(encoding="utf-8")
         self.assertIn("ghcr.io/${{ github.repository }}", publish)
+        self.assertIn('".github/workflows/container.yml"', publish)
+        self.assertIn("publish-stable-manifest", publish)
         self.assertNotIn("deploy_routeros_release.py", publish)
         self.assertNotIn("self-hosted", publish)
         self.assertNotIn("ROUTEROS_", publish)
