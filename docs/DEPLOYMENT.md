@@ -1,14 +1,17 @@
 # Updating a RouterOS installation
 
-This repository publishes validated container images but never deploys them to
-your router. There are no RouterOS credentials, production environments, or
-self-hosted management runners in the public repository. That is intentional:
-a pull request, a fork, or a compromised GitHub workflow must not be able to
-change an operator's network.
+This repository publishes validated container images and a generic, public
+release manifest. It never receives a router address, RouterOS credential,
+production environment, or self-hosted management runner. The optional
+automatic path is a static scheduler script that runs **on the router** and
+uses only an approved immutable image. A pull request or fork has no direct
+network path to an operator's router.
 
 Use the documented local procedure below after you have completed the
 [first-time installation](INSTALLATION.md). Test on a canary router or an
-isolated second container before replacing a production dashboard.
+isolated second container before replacing a production dashboard. For the
+router-local automatic procedure and migration plan, see
+[ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md).
 
 ## 1. Pick a release image
 
@@ -95,3 +98,18 @@ python deploy_routeros_canary.py --help
 Never expose RouterOS REST or the container port directly to the public
 internet. Put the dashboard behind an HTTPS reverse proxy as described in
 [EXPOSURE.md](EXPOSURE.md).
+
+## Router-local automatic path
+
+Use the router-local controller only after its canary and rollback behavior has
+been tested. It may poll a public release manifest, but it must promote only a
+complete, architecture-qualified `sha-<40-character-commit>` image from this
+package. It must never follow `edge`, `latest`, a branch, an unsigned command,
+or an arbitrary registry URL.
+
+The controller preserves the production container's root directory, mounts,
+environment list, VETH, RouterOS configuration, and `/data` SQLite database.
+It validates canary first, promotes the exact same image to production, and
+records the previous image locally for rollback. See the full state boundary,
+promotion protocol, and private-to-public migration checklist in
+[ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md).

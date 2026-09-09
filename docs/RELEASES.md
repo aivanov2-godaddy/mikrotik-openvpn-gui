@@ -33,16 +33,18 @@ the exact RouterOS release and hardware before using any new architecture.
 
 ## Public-source boundary
 
-This repository contains public source and public image publishing only. It
-does not include a router address, production credentials, cloud credentials,
-configuration export, self-hosted runner, or automatic router-deployment
-workflow. A fork inherits no route to another operator's network.
+This repository contains public source, public image publishing, and a generic
+release manifest only. It does not include a router address, production
+credentials, cloud credentials, configuration export, self-hosted runner, or a
+remote router-deployment workflow. A fork inherits no route to another
+operator's network.
 
 Use the explicit local procedure in [DEPLOYMENT.md](DEPLOYMENT.md) for a
-router update. If an organization needs automated promotion, build it in a
-separate private operations repository with its own protected environment,
-least-privilege RouterOS account, canary, manual rollback procedure, and
-independent review. Never add those secrets or runners to this public source
+router update. The supported automated option is an operator-installed,
+router-local scheduler that validates the public manifest and promotes a
+pinned SHA image through canary. It keeps all router state and credentials
+local; see [ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md). Never add
+secrets, a router endpoint, or a remote deployment runner to this public source
 repository.
 
 ## Maintainer release checklist

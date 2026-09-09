@@ -187,9 +187,12 @@ Then open the configured `PUBLIC_ORIGIN`, authenticate through the configured pe
 A merge to the public default branch runs CI and publishes architecture-specific
 immutable images. It does not contact your router. Follow
 [DEPLOYMENT.md](DEPLOYMENT.md) to select, validate, and manually promote a
-specific immutable tag. For automated operations, build a separate private
-deployment repository with its own least-privilege RouterOS account, canary,
-approval gate, and rollback plan; do not add those credentials or runners here.
+specific immutable tag. For automatic promotion without a private deployment
+repository, install the router-local scheduler described in
+[ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md). It keeps all
+credentials, environment values, configuration, database data, certificates,
+and VPN users on the router; it promotes only a validated immutable SHA image
+through a separate canary.
 
 ## Troubleshooting
 

@@ -12,9 +12,10 @@
 
 ### GitHub
 
-- Keep operations repositories and deployment credentials private. The public
-  source repository and its image package may be public when anonymous pulls
-  are part of the operating model.
+- Keep instance configuration and deployment credentials on the router (or in
+  approved private recovery storage). The public source repository and its
+  image package may be public when anonymous pulls are part of the operating
+  model.
 - Require multi-factor authentication for every collaborator.
 - Protect the default branch with pull requests, review, required checks, conversation resolution, and blocked force pushes/deletions.
 - Keep Actions permissions read-only by default; grant `packages: write` only to the image-publish job. Public workflows must never receive RouterOS deployment permission.
@@ -30,6 +31,27 @@ For a private image package, use a separate, expiring token with
 `read:packages` only. Its account must have no RouterOS or Cloudflare privilege.
 Store it only in RouterOS container registry configuration and an approved
 password manager. Public packages do not require a registry token.
+
+### Router-local release controller
+
+The supported automatic updater is a reviewed static RouterOS scheduler script
+installed locally. It may fetch a public JSON release manifest over validated
+HTTPS, but it must not download, import, or execute RouterOS code from the
+network. It must accept only the configured GHCR package prefix and a complete
+architecture-qualified SHA tag, lock concurrent runs, validate a separate
+canary, and retain a local last-known-good production tag.
+
+The public manifest is an approval pointer, not a substitute for repository
+integrity. Protect the public default branch, release workflow, package
+visibility, and maintainer accounts because anyone able to publish a release
+can publish application code. The controller must not trust `edge`, `latest`,
+branches, abbreviated SHAs, arbitrary manifest fields, or any router-specific
+value supplied by the public repository.
+
+All of the following remain router-local: domain and IP data, RouterOS
+credentials and env lists, Cloudflare settings, webhook secrets, SQLite data
+and audit history, OpenVPN certificates/private keys/profiles, RouterOS
+configuration, and the update journal.
 
 ### RouterOS REST TLS
 
@@ -54,7 +76,7 @@ to your router or add GitHub-hosted runner ranges to a RouterOS allowlist.
 
 ### Container
 
-- Deploy an immutable GHCR `sha-` tag with RouterOS's built-in `update` command or the local deployment client. Preserve the current image as an explicit rollback point. Neither path should upload source or modify mounts, environment, interfaces, firewall rules, or persistent data during a routine application update.
+- Deploy an immutable GHCR `sha-` tag with RouterOS's built-in `update` command, the local deployment client, or the router-local controller. Preserve the current image as an explicit rollback point. Neither path should upload source or modify mounts, environment, interfaces, firewall rules, or persistent data during a routine application update.
 - Do not mount host content over `/app`.
 - Mount `/data` persistently and reserve `/config` for non-secret trust material; do not put private keys into application code or image layers.
 - Keep privilege dropping enabled and enforce RouterOS memory/storage limits.
@@ -66,7 +88,7 @@ The dashboard verifies the credentials presented at login against RouterOS. Pref
 
 ## Build and release integrity
 
-Pull requests run pre-commit hygiene and lint hooks, secret-pattern checks, tests, and a clean ARM64 build. CodeQL should be enabled when available; until then it is not represented as a passing control. The publishing workflow reruns the same checks before it can push. RouterOS deployment uses only a published full-commit image and happens outside this repository through an operator-controlled manual path. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; they may be evaluated only through an isolated canary on the installed RouterOS release. Operators must compare the selected workflow commit, immutable GHCR tag, and RouterOS deployment record after each promotion.
+Pull requests run pre-commit hygiene and lint hooks, secret-pattern checks, tests, and a clean ARM64 build. CodeQL should be enabled when available; until then it is not represented as a passing control. The publishing workflow reruns the same checks before it can push. RouterOS deployment uses only a published full-commit image and happens through an operator-controlled manual path or a router-local canary controller; public workflows never contact a router. Attached SBOM/provenance manifests are disabled on the deployable image because RouterOS 7 does not document support for the resulting OCI indexes; they may be evaluated only through an isolated canary on the installed RouterOS release. Operators must compare the selected workflow commit, immutable GHCR tag, and local RouterOS deployment record after each promotion.
 
 ## Secret exposure response
 
