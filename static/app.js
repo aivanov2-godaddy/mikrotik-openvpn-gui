@@ -986,8 +986,8 @@ async function runSetupPreflight() {
       item.innerHTML = '<i></i><span><strong></strong><small></small></span>';
       $('strong', item).textContent = `${labels[check.status] || 'Unknown'} · ${check.name}`;
       $('small', item).textContent = check.status === 'manual'
-        ? 'Confirm this in WinBox before applying any reviewed plan.'
-        : `RouterOS ${result.router.version} · ${result.router.architecture}`;
+        ? check.detail || 'Confirm this in WinBox before applying any reviewed plan.'
+        : (check.detail || `RouterOS ${result.router.version} · ${result.router.architecture}`);
       return item;
     }));
   } catch (error) {

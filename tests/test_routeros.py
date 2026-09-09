@@ -25,6 +25,13 @@ class RouterOSClientTests(unittest.TestCase):
             credentials = RouterOSCredentials("admin", "routerpass")
             resource = client.verify_credentials(credentials)
             self.assertEqual(resource["architecture-name"], "arm64")
+            inventory = client.get_bootstrap_inventory(credentials)
+            self.assertEqual(inventory["resource"]["version"], "7.23.3")
+            self.assertEqual(inventory["packages"][0]["name"], "container")
+            self.assertEqual(inventory["ovpn_servers"][0]["name"], "vpn-server")
+            self.assertEqual(inventory["ppp_profiles"][0]["name"], "vpn-full-tunnel")
+            self.assertEqual(inventory["dns"][0]["servers"], "192.0.2.1")
+            self.assertEqual(inventory["firewall"][0]["dst-port"], "1194")
             self.assertEqual(
                 [user["name"] for user in client.list_ovpn_users(credentials)],
                 ["user-one", "user-two"],

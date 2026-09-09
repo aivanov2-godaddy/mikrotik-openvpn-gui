@@ -221,6 +221,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         preflight = json.loads(payload)
         self.assertEqual(preflight["checks"][0]["status"], "pass")
+        self.assertEqual(len(preflight["checks"]), 9)
+        self.assertIn("Certificate authority", {item["name"] for item in preflight["checks"]})
+        self.assertIn("Persistent storage", {item["name"] for item in preflight["checks"]})
         self.assertEqual(preflight["checks"][-1]["status"], "manual")
 
         status, _, payload = self.json_request(
