@@ -27,10 +27,10 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
 
         self.assertIn("Public-source boundary", release_notes)
-        self.assertIn("never deploys them to", deployment)
-        self.assertIn("your router", deployment)
-        self.assertIn("separate private", installation)
-        self.assertIn("deployment repository", installation)
+        self.assertIn("router-local", deployment)
+        self.assertIn("immutable", deployment)
+        self.assertIn("router-local scheduler", installation)
+        self.assertIn("credentials, environment values, configuration, database data", installation)
         self.assertIn("canary", deployment.casefold())
 
     def test_preview_assets_do_not_contain_instance_identities(self) -> None:

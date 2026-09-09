@@ -106,11 +106,15 @@ Cloudflare account.
 
 ## Release and deployment boundary
 
-This public repository builds and publishes images only. It has no RouterOS
-credentials, self-hosted runner, production environment, or automatic router
-deployment workflow. Operators choose their own management path and use the
-explicit, local update procedure in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-That separation prevents a pull request or a fork from modifying any router.
+This public repository builds public images and a generic release manifest. It
+has no RouterOS credentials, self-hosted runner, production environment, or
+remote router-deployment workflow. Operators can use the explicit local update
+procedure in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), or install the supported
+router-local scheduler described in
+[docs/ROUTER_LOCAL_AUTOMATION.md](docs/ROUTER_LOCAL_AUTOMATION.md). That
+separation prevents a pull request or fork from directly modifying any router;
+the router retains its own configuration, credentials, certificates, users, and
+SQLite data.
 
 See [docs/RELEASES.md](docs/RELEASES.md) for versioning and image tags,
 [SECURITY.md](SECURITY.md) for reporting guidance, and

@@ -13,11 +13,11 @@
 
 1. Review dependency alerts and every available repository security signal.
 2. Merge through a pull request with the required pre-commit, secret, test, and ARM64 checks.
-3. Select and validate an immutable full-commit `sha-` tag using the local procedure in [DEPLOYMENT.md](DEPLOYMENT.md).
+3. Select and validate an immutable full-commit `sha-` tag using the local procedure in [DEPLOYMENT.md](DEPLOYMENT.md), or let the tested router-local controller validate the approved public release manifest.
 4. Confirm the selected image, RouterOS container status, dashboard `/readyz` revision, and the public login path.
 5. Retain the previous image and data checkpoint until the observation window ends.
 
-Never follow `edge`, change mutable registry settings, or modify the container's mounts and environment during a routine update. Use the canary-first procedure in [DEPLOYMENT.md](DEPLOYMENT.md) for schema, data, or RouterOS-policy migrations before promoting them.
+Never follow `edge`, `latest`, a branch, or another mutable reference; never modify the container's mounts and environment during a routine update. Use the canary-first procedure in [DEPLOYMENT.md](DEPLOYMENT.md) for schema, data, or RouterOS-policy migrations before promoting them. The complete router-local promotion and rollback protocol is documented in [ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md).
 
 ## Database backup
 
@@ -48,8 +48,8 @@ Apply retention appropriate to the sensitivity of email ownership, address, usag
 
 ## Credential and certificate rotation
 
-- Rotate the GHCR package-read token before expiry and after any suspected exposure.
-- Keep its scope to `read:packages`; validate the new token with a canary pull before revoking the old token.
+- A public GHCR package requires no pull token. If an organization intentionally uses a private fork, rotate its package-read token before expiry and after any suspected exposure.
+- Keep a private-fork token scoped to `read:packages`; validate the new token with a canary pull before revoking the old token.
 - Rotate the RouterOS REST server certificate with an overlap window: install the new public CA/config mount, canary the connection, then retire the old trust material.
 - Revoke device certificates through RouterOS and the dashboard; do not rely on deleting a downloaded profile.
 - Review Cloudflare and RouterOS administrator membership regularly.
