@@ -197,6 +197,10 @@ label { color: #d0d7dc; }
 .health-item > span { color: #829099; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
 .health-item > strong { overflow: hidden; color: #e6ecef; font-size: 18px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .health-item > small { overflow: hidden; color: #73818a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.health-item .vpn-endpoint { display: flex; align-items: center; gap: 6px; overflow: visible; white-space: normal; }
+.vpn-endpoint span { color: #73818a; }
+.vpn-endpoint strong { overflow: hidden; color: #b9c9d1; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.vpn-endpoint .table-action { min-height: 22px; padding: 1px 6px; font-size: 11px; }
 .health-state { display: inline-flex; align-items: center; gap: 6px; color: #b9ead2 !important; }
 .health-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 1px #21543f; }
 .health-state.bad { color: #f4a5aa !important; }

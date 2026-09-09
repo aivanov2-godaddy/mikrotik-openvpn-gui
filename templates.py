@@ -541,6 +541,12 @@ def dashboard_page(
     dashboard_name_safe = html.escape(dashboard_name)
     router_display_name_safe = html.escape(router_display_name)
     vpn_host_safe = html.escape(vpn_host or "not configured")
+    endpoint_copy = (
+        f'<small class="vpn-endpoint"><span>Public endpoint / reverse DNS</span><strong>{vpn_host_safe}</strong>'
+        f'<button type="button" class="table-action" data-copy-vpn-endpoint="{html.escape(vpn_host, quote=True)}">{_icon("copy")}<span>Copy</span></button></small>'
+        if vpn_host
+        else '<small class="vpn-endpoint"><span>Public endpoint / reverse DNS</span><strong>Not configured</strong></small>'
+    )
     router_dns_safe = html.escape(router_dns or "not configured")
     access_layer = html.escape(access_layer_label)
     warning_markup = ""
@@ -596,7 +602,7 @@ def dashboard_page(
         {alert_markup_panel}
         <section class="enterprise-grid" aria-label="Service health and security posture">
           <article class="panel operations-panel"><div class="panel-heading"><div>{_icon('system')}<span><strong>Service health</strong><small>Live MikroTik capacity and VPN availability</small></span></div><div class="panel-heading-actions"><span class="posture-badge">{health_overall_label}</span><button type="button" class="quiet" data-view-target="service-health">Open checks</button></div></div><div class="health-grid">
-            <div class="health-item"><span>VPN service</span><strong class="health-state {'good' if server_enabled else 'bad'}"><i></i>{'Online' if server_enabled else 'Offline'}</strong><small>{html.escape(str(ovpn_server.get('protocol', '')).upper())} {int(ovpn_server.get('port', 0) or 0)}</small></div>
+            <div class="health-item"><span>VPN service</span><strong class="health-state {'good' if server_enabled else 'bad'}"><i></i>{'Online' if server_enabled else 'Offline'}</strong><small>{html.escape(str(ovpn_server.get('protocol', '')).upper())} {int(ovpn_server.get('port', 0) or 0)}</small>{endpoint_copy}</div>
             <div class="health-item"><span>Router CPU</span><strong data-router-cpu>{cpu_load}%</strong><progress data-router-cpu-progress max="100" value="{cpu_load}"></progress></div>
             <div class="health-item"><span>Memory used</span><strong data-router-memory>{memory_used}%</strong><progress data-router-memory-progress max="100" value="{memory_used}"></progress></div>
             <div class="health-item"><span>Storage used</span><strong data-router-storage>{storage_used}%</strong><progress data-router-storage-progress max="100" value="{storage_used}"></progress></div>

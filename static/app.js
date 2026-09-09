@@ -728,6 +728,13 @@ document.addEventListener('click', async (event) => {
     } catch (_) {
       toast('The browser could not copy the download link.', 'error');
     }
+  } else if (button.matches('[data-copy-vpn-endpoint]')) {
+    try {
+      await copyText(button.dataset.copyVpnEndpoint || '');
+      toast('VPN endpoint copied.');
+    } catch (_) {
+      toast('The browser could not copy the VPN endpoint.', 'error');
+    }
   } else if (button.matches('[data-alert-ack]')) {
     button.disabled = true;
     try {
