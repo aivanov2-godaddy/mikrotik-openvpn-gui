@@ -26,9 +26,12 @@ capacity into one read-only view. Each result explains its impact and a safe
 next step; it never changes RouterOS automatically. Per-user quota and schedule
 alerts remain visible in the normal dashboard alert list.
 
-## v1.4 — Reports and audit
+## v1.4 — Reports and audit (implemented)
 
-Readable date-range reports, redacted CSV/JSON exports, and retention controls.
+The audit page now supports readable date-range exports in redacted CSV and
+JSON formats, in-page filtering, and bounded automatic retention. Exported
+records contain action metadata only; passwords, private keys, profiles, and
+RouterOS secrets are excluded.
 
 ## v1.5 — Backup and restore safety
 
@@ -45,12 +48,11 @@ audit rationale without a second administrator-password database.
 Signed generic webhook notifications and health endpoints. Provider-specific
 services remain optional adapters rather than hard dependencies.
 
-## Planned installation expansion — RouterOS OpenVPN bootstrap
+## Planned installation expansion — RouterOS OpenVPN bootstrap (implemented)
 
-The current installation wizard deploys the dashboard but deliberately expects
-an existing OpenVPN server, PPP profile, and CA. A future review-first bootstrap
-will generate an explicit plan for those prerequisites, with no hidden network
-or certificate mutations and a required backup/checkpoint before apply.
+The installation wizard provides a read-only preflight and explicit review plan
+for those prerequisites, with no hidden network or certificate mutations and a
+required backup/checkpoint before apply.
 
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).
