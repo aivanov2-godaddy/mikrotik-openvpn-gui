@@ -13,6 +13,7 @@ on:
       - "config.py"
       - "favicon.py"
       - "icons.py"
+      - "integrations.py"
       - "qr.py"
       - "routeros.py"
       - "security.py"
@@ -50,7 +51,7 @@ jobs:
       - name: Check for committed secret patterns
         run: python scripts/check-secrets.py
       - name: Compile application
-        run: python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py install_routeros.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
+        run: python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py install_routeros.py integrations.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py
       - name: Run unit and mock integration tests
         run: python -m unittest discover -s tests -v
 
@@ -143,3 +144,68 @@ jobs:
           test "${payload:-}" != ""
           printf '%s' "$payload" | grep -Fq '"revision":"${{ github.sha }}"'
           test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container_id")" = "${{ github.sha }}"
+
+  publish-stable-manifest:
+    name: Publish stable immutable manifest
+    needs: publish
+    # A release manifest is an approval pointer, not executable RouterOS code.
+    # It deliberately names the exact source commit and architecture-specific
+    # image tag. Router-local automation must reject mutable image tags.
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create generic release manifest
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+
+          repository = os.environ["REPOSITORY"]
+          revision = os.environ["REVISION"]
+          manifest = {
+              "schema": 1,
+              "channel": "stable",
+              "commit": revision,
+              "images": {
+                  "arm64": f"ghcr.io/{repository}:sha-{revision}-arm64",
+                  "amd64": f"ghcr.io/{repository}:sha-{revision}-amd64",
+              },
+              "source": {
+                  "repository": f"{os.environ['SERVER_URL']}/{repository}",
+                  "run": f"{os.environ['SERVER_URL']}/{repository}/actions/runs/{os.environ['RUN_ID']}",
+                  "attempt": int(os.environ["RUN_ATTEMPT"]),
+              },
+          }
+          with open("routeros-release.json", "w", encoding="utf-8") as output:
+              json.dump(manifest, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          python -m json.tool routeros-release.json >/dev/null
+      - name: Publish stable manifest asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          release_tag="routeros-stable"
+          if ! gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release create "$release_tag" \
+              --title "RouterOS stable immutable manifest" \
+              --notes "Machine-readable, generic public release pointer. Each manifest entry pins an architecture-specific commit SHA image; it contains no instance configuration." \
+              --prerelease
+          fi
+          gh release upload "$release_tag" routeros-release.json --clobber
+          echo "### Stable immutable manifest" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Asset: \`routeros-release.json\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ARM64: \`ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-arm64\`" >> "$GITHUB_STEP_SUMMARY"
