@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import socket
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -67,9 +68,27 @@ def _reverse_dns_record(public_ip: str) -> str:
         return "Reverse DNS unavailable"
     try:
         hostname = socket.gethostbyaddr(str(address))[0].rstrip(".")
+        if hostname and hostname != str(address):
+            return hostname
     except (OSError, ValueError):
-        return "Reverse DNS unavailable"
-    return hostname
+        pass
+    for command, args in (
+        ("nslookup", ["-type=PTR", str(address)]),
+        ("host", ["-t", "PTR", str(address)]),
+    ):
+        try:
+            result = subprocess.run(
+                [command, *args], capture_output=True, text=True, timeout=3, check=False
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        output = f"{result.stdout}\n{result.stderr}"
+        matches = re.findall(r"(?:name\s*=|domain name pointer)\s*([A-Za-z0-9.-]+)", output, re.I)
+        for candidate in matches:
+            candidate = candidate.rstrip(".")
+            if candidate and candidate != str(address):
+                return candidate
+    return "Reverse DNS unavailable"
 
 
 def _certificate_expiry_epoch(value: Any) -> int | None:
