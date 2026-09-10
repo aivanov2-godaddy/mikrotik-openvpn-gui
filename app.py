@@ -1312,7 +1312,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "",
             "# 6. Verify the certificate dates, server settings, route/NAT policy, and firewall position in WinBox.",
             "#    Enable the firewall rule first, then enable the server only after a maintenance-window test.",
-            f"# /ip/firewall/filter/enable [find comment=\"VPN Dashboard bootstrap: review placement before enable\"]",
+            "# /ip/firewall/filter/enable [find comment=\"VPN Dashboard bootstrap: review placement before enable\"]",
             f"# /interface/ovpn-server/server/enable [find name={names['server_name']}]",
             "",
             f"# Endpoint for generated profiles: {endpoint}:{port}/udp",
