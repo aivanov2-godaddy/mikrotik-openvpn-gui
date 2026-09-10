@@ -1031,7 +1031,90 @@ async function runSetupPreflight() {
   }
 }
 
+function postInstallActions(checks) {
+  const failed = checks.filter((check) => check.status === 'fail');
+  const manual = checks.filter((check) => check.status === 'manual');
+  if (failed.length) {
+    return [
+      `Resolve the failed checks: ${failed.map((check) => check.name).join(', ')}.`,
+      'Run post-install verification again before creating or distributing a VPN profile.',
+      'Keep the current production image pinned; do not promote a candidate with failed checks.',
+    ];
+  }
+  if (manual.length) {
+    return [
+      `Review the manual gates: ${manual.map((check) => check.name).join(', ')}.`,
+      'Record a redacted canary result before promoting an immutable candidate.',
+      'Keep RouterOS REST private and use the router-local controller for canary-to-production promotion.',
+    ];
+  }
+  return [
+    'Record the immutable image revision and this passing verification result.',
+    'Run the redacted canary acceptance checklist before production promotion.',
+    'Let the router-local controller promote only the validated immutable candidate.',
+  ];
+}
+
+async function runPostInstallVerification() {
+  const list = $('[data-post-install-checks]');
+  const summary = $('[data-post-install-summary]');
+  const next = $('[data-post-install-next]');
+  if (!list || !summary || !next) return;
+  list.innerHTML = '<li><i></i><span>Verifying the connected router without making changes…</span></li>';
+  summary.hidden = true;
+  next.hidden = true;
+  try {
+    const response = await resultOrError(await api('/api/setup-preflight'));
+    const result = await response.json();
+    const failed = result.checks.filter((check) => check.status === 'fail');
+    const manual = result.checks.filter((check) => check.status === 'manual');
+    const passed = result.checks.filter((check) => check.status === 'pass');
+    const state = failed.length ? 'fail' : (manual.length ? 'manual' : 'pass');
+    const headings = { pass: 'Ready for canary acceptance', manual: 'Review required before promotion', fail: 'Not ready for promotion' };
+    const details = {
+      pass: `${passed.length} checks passed. Record the result before promoting an immutable candidate.`,
+      manual: `${passed.length} checks passed; ${manual.length} manual gate${manual.length === 1 ? '' : 's'} remain.`,
+      fail: `${failed.length} failed check${failed.length === 1 ? '' : 's'} must be resolved before promotion.`,
+    };
+    summary.className = `post-install-summary ${state}`;
+    $('strong', summary).textContent = headings[state];
+    $('small', summary).textContent = details[state];
+    summary.hidden = false;
+    const labels = { pass: 'Ready', fail: 'Needs attention', manual: 'Manual gate' };
+    list.replaceChildren(...result.checks.map((check) => {
+      const item = document.createElement('li');
+      item.className = `setup-check ${check.status}`;
+      item.innerHTML = '<i></i><span><strong></strong><small></small></span>';
+      $('strong', item).textContent = `${labels[check.status] || 'Unknown'} · ${check.name}`;
+      $('small', item).textContent = check.detail || 'No further detail was returned.';
+      return item;
+    }));
+    const actions = postInstallActions(result.checks);
+    $('[data-post-install-actions]', next).replaceChildren(...actions.map((action) => {
+      const item = document.createElement('li');
+      item.textContent = action;
+      return item;
+    }));
+    next.hidden = false;
+  } catch (error) {
+    summary.className = 'post-install-summary fail';
+    $('strong', summary).textContent = 'Verification unavailable';
+    $('small', summary).textContent = error.message;
+    summary.hidden = false;
+    list.innerHTML = '<li class="setup-check fail"><i></i><span><strong>Verification unavailable</strong><small></small></span></li>';
+    $('small', list).textContent = error.message;
+  }
+}
+
 $('[data-setup-preflight]')?.addEventListener('click', runSetupPreflight);
+$('[data-post-install-verify]')?.addEventListener('click', runPostInstallVerification);
+$('[data-copy-post-install]')?.addEventListener('click', async () => {
+  const summary = $('[data-post-install-summary] strong')?.textContent || '';
+  const actions = $$('[data-post-install-actions] li').map((item) => `- ${item.textContent}`).join('\n');
+  if (!summary || !actions) return;
+  try { await copyText(`${summary}\n\n${actions}`); toast('Safe next steps copied. No router configuration was included.'); }
+  catch (_) { toast('Could not copy the next steps automatically.', 'error'); }
+});
 $('[data-service-health-refresh]')?.addEventListener('click', refreshServiceHealth);
 
 $('[data-backup-verify]')?.addEventListener('submit', async (event) => {
