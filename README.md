@@ -84,6 +84,7 @@ promotion and rollback procedure.
 ## Quick start
 
 1. Start with the illustrated [Getting Started guide](docs/GETTING_STARTED.md) and choose the right public-exposure path before changing the router.
+2. Before promoting a new public image, follow the [RouterOS canary acceptance guide](docs/ROUTEROS_ACCEPTANCE.md).
 2. Follow the complete [installation playbook](docs/INSTALLATION_PLAYBOOK.md): it includes reviewable RouterOS commands, validation, troubleshooting, rollback, and two explicit scenarios—domain HTTPS with optional Cloudflare, or IP-only OpenVPN with secure dashboard management.
 3. The offline [Installation Wizard](docs/INSTALL_WIZARD.md) generates only a non-secret, reviewable RouterOS plan; use it alongside the playbook rather than treating it as an unattended installer.
 4. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
