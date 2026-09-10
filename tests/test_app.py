@@ -185,6 +185,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Per-device revocation needs CA migration", page)
         self.assertIn(b"ovpn-user-one-device-a", page)
         self.assertIn(b"What happens under the hood", page)
+        self.assertIn(b"OpenVPN foundations", page)
         self.assertIn(b"Suspend access now", page)
         self.assertIn(b"Last activity", page)
         self.assertIn(b"Transferred", page)
@@ -332,6 +333,43 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(payload)["compatible"])
+
+    def test_openvpn_foundation_plan_is_review_only_and_conflict_aware(self) -> None:
+        self.login()
+        payload = {
+            "endpoint": "vpn.example.test",
+            "lan": "192.0.2.0/24",
+            "vpn_subnet": "10.254.0.0/24",
+            "dns_server": "192.0.2.1",
+            "port": "1194",
+            "ca_name": "ovpn-bootstrap-ca",
+            "server_certificate": "ovpn-bootstrap-server",
+            "server_name": "ovpn-bootstrap",
+            "ppp_profile": "ovpn-bootstrap",
+            "pool_name": "ovpn-bootstrap-pool",
+        }
+        status, _, response = self.json_request("POST", "/api/openvpn-foundation-plan", payload)
+        self.assertEqual(status, 409)
+        self.assertIn("no existing OpenVPN server", json.loads(response)["error"])
+
+        self.mock.state.ovpn_servers.clear()
+        self.mock.state.profiles.clear()
+        self.mock.state.certificates.clear()
+        status, _, response = self.json_request("POST", "/api/openvpn-foundation-plan", payload)
+        self.assertEqual(status, 200)
+        plan = json.loads(response)["plan"]
+        self.assertIn("REVIEW-ONLY OPENVPN FOUNDATION PLAN", plan)
+        self.assertIn("/certificate/sign ovpn-bootstrap-ca", plan)
+        self.assertIn("disabled=yes protocol=udp port=1194", plan)
+        self.assertIn("disabled=yes comment", plan)
+        self.assertNotIn("routerpass", plan)
+        self.assertEqual(self.mock.state.ovpn_servers, [])
+        self.assertEqual(self.mock.state.profiles, {})
+        self.assertEqual(self.mock.state.certificates, {})
+
+        payload["vpn_subnet"] = "192.0.2.0/24"
+        status, _, _ = self.json_request("POST", "/api/openvpn-foundation-plan", payload)
+        self.assertEqual(status, 400)
 
     def test_readiness_failure_is_generic_and_non_successful(self) -> None:
         with mock.patch.object(

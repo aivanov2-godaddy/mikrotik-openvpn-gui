@@ -44,6 +44,8 @@ EXPIRY_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
 SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
 IMMUTABLE_IMAGE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._/-]*:sha-[a-f0-9]{40,64}(?:-(?:arm64|amd64))?$", re.I)
+ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
+VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 
 
 def _used_percent(free: Any, total: Any) -> int:
@@ -1110,6 +1112,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/setup-plan":
             self._setup_plan()
             return
+        if path == "/api/openvpn-foundation-plan":
+            self._openvpn_foundation_plan()
+            return
         if path == "/api/backups/preflight":
             self._backup_preflight()
             return
@@ -1214,6 +1219,114 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# Start the canary, verify /healthz and /readyz over the local bridge, then publish HTTPS only after certificate validation.",
         ])
         self._json({"plan": plan, "origin": origin, "image": image})
+
+    def _openvpn_foundation_plan(self) -> None:
+        """Create a non-mutating OpenVPN-foundation plan for an empty router.
+
+        The normal container installation path deliberately remains separate.
+        This advanced helper returns copyable RouterOS commands only after
+        checking that it would not overwrite an existing VPN foundation.
+        """
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        try:
+            data = self._read_json()
+            endpoint = str(data.get("endpoint", "")).strip().rstrip(".")
+            lan = ipaddress.ip_network(str(data.get("lan", "")).strip(), strict=True)
+            vpn_subnet = ipaddress.ip_network(str(data.get("vpn_subnet", "")).strip(), strict=True)
+            dns_server = ipaddress.ip_address(str(data.get("dns_server", "")).strip())
+            port = int(str(data.get("port", "1194")).strip())
+            names = {
+                key: str(data.get(key, "")).strip()
+                for key in ("ca_name", "server_certificate", "server_name", "ppp_profile", "pool_name")
+            }
+        except (TypeError, ValueError):
+            self._json({"error": "Use a valid endpoint, IPv4 LAN/VPN CIDRs, DNS server, and UDP port."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if not VPN_ENDPOINT_PATTERN.fullmatch(endpoint) or endpoint.startswith(("-", ".")):
+            self._json({"error": "VPN endpoint must be a hostname or IP address without a URL scheme."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if any(not ROUTEROS_NAME_PATTERN.fullmatch(value) for value in names.values()):
+            self._json({"error": "RouterOS object names may contain only letters, numbers, dot, dash, and underscore (maximum 48 characters)."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if (
+            lan.version != 4
+            or vpn_subnet.version != 4
+            or vpn_subnet.num_addresses < 8
+            or lan.overlaps(vpn_subnet)
+            or dns_server.version != 4
+            or not 1 <= port <= 65535
+        ):
+            self._json({"error": "Use non-overlapping IPv4 LAN/VPN CIDRs, a VPN subnet with at least six usable addresses, an IPv4 DNS server, and a valid UDP port."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            credentials = self._credentials(session)
+            inventory = self.server.context.router.get_bootstrap_inventory(credentials)
+        except RouterOSError as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            return
+        existing_servers = inventory.get("ovpn_servers") or []
+        existing_profiles = {str(item.get("name", "")) for item in inventory.get("ppp_profiles") or []}
+        existing_certificates = {str(item.get("name", "")) for item in inventory.get("certificates") or []}
+        if existing_servers:
+            self._json({"error": "OpenVPN bootstrap is available only when the router has no existing OpenVPN server. Use the normal installer for an existing VPN."}, status=HTTPStatus.CONFLICT)
+            return
+        conflicts = sorted(
+            set(names.values()).intersection(existing_profiles | existing_certificates)
+        )
+        if conflicts:
+            self._json({"error": f"Bootstrap would reuse existing RouterOS objects: {', '.join(conflicts)}. Choose different names or review the router manually."}, status=HTTPStatus.CONFLICT)
+            return
+        # Avoid materialising ``network.hosts()``: a valid IPv4 network can
+        # contain millions of addresses, while this plan needs only its edges.
+        local_address = ipaddress.IPv4Address(int(vpn_subnet.network_address) + 1)
+        pool_start = ipaddress.IPv4Address(int(vpn_subnet.network_address) + 2)
+        pool_end = ipaddress.IPv4Address(int(vpn_subnet.broadcast_address) - 1)
+        checkpoint = f"vpn-bootstrap-before-{int(time.time())}"
+        plan = "\n".join([
+            "# REVIEW-ONLY OPENVPN FOUNDATION PLAN — no command is executed by the dashboard.",
+            "# Supported only for an otherwise unconfigured OpenVPN router.",
+            "# This plan contains no passwords, private keys, tokens, user accounts, or dashboard data.",
+            "",
+            "# 1. Make a rollback checkpoint before changing RouterOS.",
+            f"/export file={checkpoint} compact",
+            "",
+            "# 2. Create the dedicated client-address pool and PPP profile.",
+            f"/ip/pool/add name={names['pool_name']} ranges={pool_start}-{pool_end} comment=\"VPN Dashboard bootstrap\"",
+            f"/ppp/profile/add name={names['ppp_profile']} local-address={local_address} remote-address={names['pool_name']} dns-server={dns_server} only-one=yes comment=\"VPN Dashboard bootstrap\"",
+            "",
+            "# 3. Create a local CA and server certificate. Keep private keys on the router.",
+            f"/certificate/add name={names['ca_name']} common-name={names['ca_name']} key-usage=key-cert-sign,crl-sign days-valid=3650 key-size=2048 digest-algorithm=sha256",
+            f"/certificate/sign {names['ca_name']}",
+            f"/certificate/set {names['ca_name']} trusted=yes",
+            f"/certificate/add name={names['server_certificate']} common-name={endpoint} key-usage=tls-server days-valid=1825 key-size=2048 digest-algorithm=sha256",
+            f"/certificate/sign {names['server_certificate']} ca={names['ca_name']}",
+            f"/certificate/set {names['server_certificate']} trusted=yes",
+            "",
+            "# 4. Create the OpenVPN server disabled. Inspect it before enabling it.",
+            f"/interface/ovpn-server/server/add name={names['server_name']} disabled=yes protocol=udp port={port} mode=ip certificate={names['server_certificate']} default-profile={names['ppp_profile']} require-client-certificate=yes tls-version=only-1.2 auth=null cipher=aes256-gcm redirect-gateway=def1",
+            "",
+            "# 5. Firewall placement is topology-specific. Add this disabled rule, then move it above the reviewed WAN drop rule before enabling it.",
+            f"/ip/firewall/filter/add chain=input action=accept protocol=udp dst-port={port} disabled=yes comment=\"VPN Dashboard bootstrap: review placement before enable\"",
+            "",
+            "# 6. Verify the certificate dates, server settings, route/NAT policy, and firewall position in WinBox.",
+            "#    Enable the firewall rule first, then enable the server only after a maintenance-window test.",
+            f"# /ip/firewall/filter/enable [find comment=\"VPN Dashboard bootstrap: review placement before enable\"]",
+            f"# /interface/ovpn-server/server/enable [find name={names['server_name']}]",
+            "",
+            f"# Endpoint for generated profiles: {endpoint}:{port}/udp",
+            f"# LAN route to review: {lan}; VPN client network: {vpn_subnet}.",
+            "# If the router does not already masquerade this VPN pool to WAN, add a reviewed source-NAT rule manually.",
+        ])
+        self.server.context.store.audit(
+            actor=session.username,
+            action="bootstrap.foundation-plan",
+            target=names["server_name"],
+            status="success",
+            details={"port": port, "vpn_subnet": str(vpn_subnet), "endpoint": endpoint},
+        )
+        self._json({"plan": plan, "checkpoint": checkpoint, "server_name": names["server_name"]})
 
     def _backup_preflight(self) -> None:
         """Validate a backup manifest only; this route never restores data."""

@@ -11,10 +11,13 @@ certificates, sessions, and traffic policy.
 
 > [!IMPORTANT]
 > The current installer provisions and configures the dashboard around an
-> existing RouterOS OpenVPN server, PPP profile, and CA. It intentionally does
-> not yet create those cryptographic network foundations automatically. Review
-> every generated RouterOS command before applying it and test on an isolated
-> canary device where practical.
+> existing RouterOS OpenVPN server, PPP profile, and CA. For an otherwise empty
+> supported router, the optional **OpenVPN foundations** planner can generate a
+> reviewable CA, server-certificate, address-pool, PPP-profile, and OpenVPN
+> server plan. It never applies commands automatically, changes the normal
+> installation path, or stores secrets in the public project. Review every
+> generated RouterOS command before applying it and test on an isolated canary
+> device where practical.
 
 ## Highlights
 

@@ -69,3 +69,18 @@ New Terminal. Do not start the dashboard until container extraction and logs
 have been inspected.
 
 After starting it, follow the [validation checklist](INSTALLATION.md#10-validate-the-installation). For later image changes, use [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Optional OpenVPN foundations plan
+
+The dashboard's **Setup Planner → OpenVPN foundations** form is separate from
+this compact installer. Use it only for a supported router that has no existing
+OpenVPN server. It reads the current RouterOS inventory and refuses to generate
+a plan if it would overlap an existing OpenVPN server, PPP profile, or named
+certificate.
+
+Its output is still review-only: it creates a RouterOS export checkpoint first,
+then shows commands for a CA, server certificate, client-address pool, PPP
+profile, disabled OpenVPN server, and disabled firewall rule. Firewall ordering
+and WAN source-NAT are topology-specific, so they remain an explicit operator
+review before the server is enabled. This preserves the normal fast install
+experience for already-configured routers.
