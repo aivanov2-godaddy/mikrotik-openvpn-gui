@@ -83,9 +83,9 @@ promotion and rollback procedure.
 
 ## Quick start
 
-1. Check the [supported RouterOS platform requirements](docs/INSTALLATION.md#1-check-the-platform).
-2. Run the offline [Installation Wizard](docs/INSTALL_WIZARD.md) and follow the [first-time installation guide](docs/INSTALLATION.md) to enable Container mode, create storage/networking, configure RouterOS REST trust, and start an immutable image.
-3. Expose the dashboard safely with the [HTTPS and reverse-proxy guide](docs/EXPOSURE.md). Direct TLS, a normal DNS name, local-only access, and optional Cloudflare are supported.
+1. Start with the illustrated [Getting Started guide](docs/GETTING_STARTED.md) and choose the right public-exposure path before changing the router.
+2. Follow the complete [installation playbook](docs/INSTALLATION_PLAYBOOK.md): it includes reviewable RouterOS commands, validation, troubleshooting, rollback, and two explicit scenarios—domain HTTPS with optional Cloudflare, or IP-only OpenVPN with secure dashboard management.
+3. The offline [Installation Wizard](docs/INSTALL_WIZARD.md) generates only a non-secret, reviewable RouterOS plan; use it alongside the playbook rather than treating it as an unattended installer.
 4. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
 
 The public repository publishes architecture-specific GHCR images from `main`.
