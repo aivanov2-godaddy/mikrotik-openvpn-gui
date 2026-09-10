@@ -54,11 +54,15 @@ queue. `/healthz` and `/readyz` provide lightweight monitoring probes. Both
 integrations are disabled unless explicitly configured; provider-specific
 services remain optional adapters rather than hard dependencies.
 
-## Planned installation expansion — RouterOS OpenVPN bootstrap (implemented)
+## v1.9 — Review-first OpenVPN foundations (in progress)
 
-The installation wizard provides a read-only preflight and explicit review plan
-for those prerequisites, with no hidden network or certificate mutations and a
-required backup/checkpoint before apply.
+The installer retains its short path for routers that already run OpenVPN. An
+opt-in advanced planner is being added for a supported router with no existing
+OpenVPN server: it validates that boundary and creates a copyable, non-secret
+plan for the CA, server certificate, address pool, PPP profile, OpenVPN server,
+and a disabled firewall rule. The plan includes a RouterOS checkpoint command
+and requires the operator to review firewall placement, NAT, and enabling the
+server in a maintenance window. It never changes RouterOS automatically.
 
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).

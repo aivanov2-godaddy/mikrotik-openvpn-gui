@@ -1076,6 +1076,26 @@ $('[data-setup-plan]')?.addEventListener('submit', async (event) => {
   }
 });
 
+$('[data-foundation-plan]')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  setBusy(form, true);
+  setStatus(form, 'Checking for existing OpenVPN objects and generating a review-only foundation plan…');
+  try {
+    const response = await resultOrError(await api('/api/openvpn-foundation-plan', { method: 'POST', body: values }));
+    const result = await response.json();
+    const output = $('[data-setup-output]');
+    $('[data-setup-plan-output]', output).textContent = result.plan;
+    output.hidden = false;
+    setStatus(form, 'Foundation plan generated. It does not modify RouterOS; review and apply only in a maintenance window.');
+  } catch (error) {
+    setStatus(form, error.message, true);
+  } finally {
+    setBusy(form, false);
+  }
+});
+
 $('[data-copy-setup]')?.addEventListener('click', async () => {
   const plan = $('[data-setup-plan-output]')?.textContent || '';
   if (!plan) return;
