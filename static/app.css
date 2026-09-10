@@ -322,8 +322,18 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .setup-check.pass > i { background: var(--green); }.setup-check.fail > i { background: #df6670; }.setup-check.manual > i { background: #e6ae55; }
 .setup-check strong, .setup-check small { display: block; }
 .setup-check strong { font-size: 13px; }
+.post-install-summary { display: flex; gap: 10px; align-items: flex-start; margin: 12px 16px 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 4px; }
+.post-install-summary > i { width: 10px; height: 10px; flex: 0 0 auto; margin-top: 5px; border-radius: 99px; background: #71808b; }
+.post-install-summary strong, .post-install-summary small { display: block; }
+.post-install-summary strong { font-size: 14px; }.post-install-summary small { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.post-install-summary.pass { border-color: #286044; }.post-install-summary.pass > i { background: var(--green); }
+.post-install-summary.manual { border-color: #6e592f; }.post-install-summary.manual > i { background: #e6ae55; }
+.post-install-summary.fail { border-color: #7f3941; }.post-install-summary.fail > i { background: #df6670; }
+.post-install-next { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; margin: 0 16px 14px; padding: 12px; border: 1px solid var(--line); background: #1b252d; }
+.post-install-next strong { display: block; font-size: 13px; }.post-install-next ol { margin: 6px 0 0; padding-left: 19px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.post-install-actions { display: flex; flex: 0 0 auto; gap: 8px; align-items: center; }.post-install-actions .quiet { text-decoration: none; }
 .setup-plan-output { margin: 0; padding: 16px; overflow: auto; color: #d4e0e8; background: #151d24; border-top: 1px solid var(--line); white-space: pre-wrap; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
-@media (max-width: 720px) { .setup-form { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .setup-form { grid-template-columns: 1fr; }.post-install-next { flex-direction: column; }.post-install-actions { flex-wrap: wrap; } }
 .read-only-menu { display: block; padding: 8px; color: #8c9aa3; font-size: 10px; }
 .read-only-note { align-items: center; border: 1px solid var(--line); border-radius: 4px; color: #8c9aa3; display: inline-flex; font-size: 12px; min-height: 30px; padding: 0 10px; }
 .user-activity { display: grid; grid-template-columns: 1.15fr 1fr .6fr .75fr 1fr 1fr 1fr 1fr 1.15fr; gap: 1px; padding: 0 9px 8px 53px; }
