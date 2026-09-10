@@ -12,9 +12,10 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The current feature release is **v1.8.0**. It adds per-device certificate
-revocation and proactive certificate-expiry guidance while preserving the
-router-local data and immutable-image deployment model.
+The current feature release is **v1.9.0**. It adds review-first OpenVPN
+foundation planning, administrator guardrails, an illustrated installation
+playbook, and a reproducible real-router canary acceptance procedure while
+preserving the router-local data and immutable-image deployment model.
 
 ## Published images
 

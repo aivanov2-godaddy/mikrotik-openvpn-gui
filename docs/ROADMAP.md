@@ -41,7 +41,7 @@ Compatibility results are recorded in Change History; restore remains an
 explicit review-only operation and is never applied automatically. Backups
 remain local to the operator.
 
-## v1.6 — Administrator guardrails
+## v1.6 — Administrator guardrails (implemented)
 
 Clear capability matrix, explicit destructive-action confirmations, and richer
 audit rationale without a second administrator-password database.
@@ -54,7 +54,7 @@ queue. `/healthz` and `/readyz` provide lightweight monitoring probes. Both
 integrations are disabled unless explicitly configured; provider-specific
 services remain optional adapters rather than hard dependencies.
 
-## v1.9 — Review-first OpenVPN foundations (in progress)
+## v1.9 — Review-first OpenVPN foundations (implemented)
 
 The installer retains its short path for routers that already run OpenVPN. An
 opt-in advanced planner is being added for a supported router with no existing
@@ -62,7 +62,10 @@ OpenVPN server: it validates that boundary and creates a copyable, non-secret
 plan for the CA, server certificate, address pool, PPP profile, OpenVPN server,
 and a disabled firewall rule. The plan includes a RouterOS checkpoint command
 and requires the operator to review firewall placement, NAT, and enabling the
-server in a maintenance window. It never changes RouterOS automatically.
+server in a maintenance window. It never changes RouterOS automatically. The
+release also includes a full first-install playbook and a redacted real-router
+canary acceptance procedure, so a maintainer can verify the public image before
+it is promoted by their router-local deployment controller.
 
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).

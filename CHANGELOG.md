@@ -20,6 +20,19 @@ semantic-version style release tags.
   manifests remain HTTPS-only and certificate-validated; readiness must report
   the immutable candidate revision before promotion.
 
+## 1.9.0 - 2026-09-10
+
+### Added
+
+- Review-first OpenVPN foundation planning for supported routers that do not
+  yet have an OpenVPN server, including a copyable non-secret configuration
+  plan and an explicit firewall review boundary.
+- Administrator capability guidance and destructive-action guardrails that
+  keep audit history useful without storing another administrator-password
+  database.
+- An illustrated, first-install RouterOS playbook for HTTPS/domain and
+  direct-IP deployments, plus a redacted real-router canary acceptance guide.
+
 ## 1.8.0 - 2026-09-09
 
 ### Added
