@@ -126,7 +126,16 @@
     # never passed to :parse, :execute, or :import.
     # GitHub release assets redirect once to a signed asset host.  Keep that
     # transport behaviour explicit and bounded; do not follow arbitrary chains.
-    :local fetched [/tool/fetch url=$manifestUrl mode=https check-certificate=yes http-max-redirect-count=2 output=user as-value]
+    # GitHub's release-asset endpoint may be served by an intermediary cache
+    # after an asset is replaced in place.  Make each read URL distinct without
+    # making the release data executable: the response is still JSON-only,
+    # HTTPS-only, certificate-validated, and redirect-bounded below.  Date and
+    # time contain no secrets and never leave the router except as a cache key.
+    :local manifestQuerySeparator "?"
+    :if ([:find $manifestUrl "?"] != nil) do={ :set manifestQuerySeparator "&" }
+    :local manifestCacheBust ([/system/clock/get date] . "-" . [/system/clock/get time])
+    :local manifestRequestUrl ($manifestUrl . $manifestQuerySeparator . "routeros-cache-bust=" . $manifestCacheBust)
+    :local fetched [/tool/fetch url=$manifestRequestUrl mode=https check-certificate=yes http-max-redirect-count=2 output=user as-value]
     :if (($fetched->"status") != "finished") do={
         :error "release manifest fetch did not finish"
     }

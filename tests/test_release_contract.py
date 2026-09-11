@@ -36,7 +36,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("credentials, environment values, configuration, database data", installation)
         self.assertIn("canary", deployment.casefold())
 
-    def test_router_local_updater_fetch_is_static_and_redirect_bounded(self) -> None:
+    def test_router_local_updater_fetch_is_cache_fresh_and_redirect_bounded(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
             encoding="utf-8"
         )
@@ -46,6 +46,10 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn("check-certificate=yes", executable)
         self.assertIn("http-max-redirect-count=2", executable)
+        self.assertIn("routeros-cache-bust=", executable)
+        self.assertIn("manifestRequestUrl", executable)
+        self.assertIn("/system/clock/get date", executable)
+        self.assertIn("/system/clock/get time", executable)
         self.assertIn(":local readinessTransport do=", executable)
         self.assertIn("mode=http", executable)
         self.assertIn(":toip $host", executable)
