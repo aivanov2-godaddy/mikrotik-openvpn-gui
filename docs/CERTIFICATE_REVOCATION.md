@@ -4,7 +4,8 @@ RouterOS can reject a revoked OpenVPN client certificate only when all of the
 following are true:
 
 1. the OpenVPN CA has a Certificate Revocation List (CRL) distribution point;
-2. RouterOS can obtain an active CRL for that exact CA;
+2. the active CA either has a RouterOS-hosted CRL endpoint or RouterOS can
+   obtain a current downloaded CRL for that exact CA;
 3. CRL download and use are enabled; and
 4. the list is retained in persistent RouterOS storage.
 
@@ -41,8 +42,10 @@ purpose; do not expose management services just to publish a CRL.
    is embedded while signing and cannot be retrofitted into the existing CA.
 3. Create a replacement server certificate and a test client certificate from
    the new CA. Do not point the live OVPN server at it yet.
-4. Enable `crl-download=yes`, `crl-store=system`, and `crl-use=yes`; confirm
-   `/certificate/crl/print where cert=<new-ca>` contains a current entry.
+4. Enable `crl-download=yes`, `crl-store=system`, and `crl-use=yes`. For a
+   CA signed on RouterOS with `ca-crl-host`, confirm the CA shows the `L` flag
+   in Terminal/WinBox and a non-empty `ca-crl-host`; it is normal for
+   `/certificate/crl/print` to list only downloaded CRLs, not this local CRL.
 5. Revoke the test certificate and confirm that it cannot authenticate. Keep a
    separate non-revoked test certificate to prove normal authentication still
    works.
@@ -61,13 +64,14 @@ Run these in RouterOS Terminal, substituting only router-local names:
 
 ```routeros
 /certificate/settings/print
-/certificate/crl/print detail where cert=<new-ca>
+/certificate/print detail where name=<new-ca>
 /certificate/print where akid=<new-ca-skid>
 /interface/ovpn-server/server/print
 ```
 
 The expected healthy state includes `crl-download: yes`, `crl-use: yes`,
-`crl-store: system`, and a non-expired CRL record for `<new-ca>`.
+`crl-store: system`, and either a trusted `<new-ca>` with a non-empty
+`ca-crl-host` and `L` flag, or a non-expired downloaded CRL record for it.
 
 ## Rollback
 

@@ -45,6 +45,10 @@ class RouterOSClientTests(unittest.TestCase):
             self.assertFalse(certificate_settings["crl_use"])
             self.assertFalse(certificate_settings["crl_ready"])
             mock.state.certificate_settings[0]["crl-use"] = "true"
+            mock.state.certificates["*CA"]["ca-crl-host"] = "crl.router.example.test"
+            self.assertTrue(client.get_certificate_settings(credentials)["router_hosted_ovpn_ca_crl"])
+            self.assertTrue(client.get_certificate_settings(credentials)["crl_ready"])
+            mock.state.certificates["*CA"].pop("ca-crl-host")
             mock.state.certificate_crls = [{
                 "cert": "vpn-ca",
                 "revoked": "0",
