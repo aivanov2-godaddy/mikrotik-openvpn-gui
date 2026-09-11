@@ -66,7 +66,10 @@ production to the same SQLite file: one database must have one writer.
 1. The scheduler takes a local lock so two runs cannot overlap.
 2. It fetches the approved public manifest through HTTPS with certificate
    validation and checks its schema, architecture, image prefix, and complete
-   SHA-tag format.
+   SHA-tag format. The request carries a router-clock cache-busting query so a
+   replaced GitHub release asset cannot be served stale by an intermediary;
+   this query contains no configuration or credentials, and the response is
+   still data-only and redirect-bounded.
 3. If production already runs the candidate, it exits without changing either
    container.
 4. It records the current production image in memory before any container
