@@ -41,7 +41,17 @@ class RouterOSClientTests(unittest.TestCase):
             self.assertTrue(server["require_client_certificate"])
             self.assertEqual(server["cipher"], "aes256-gcm")
             self.assertEqual(server["redirect_gateway"], "def1")
-            self.assertFalse(client.get_certificate_settings(credentials)["crl_use"])
+            certificate_settings = client.get_certificate_settings(credentials)
+            self.assertFalse(certificate_settings["crl_use"])
+            self.assertFalse(certificate_settings["crl_ready"])
+            mock.state.certificate_settings[0]["crl-use"] = "true"
+            mock.state.certificate_crls = [{
+                "cert": "vpn-ca",
+                "revoked": "0",
+                "last-update": "2026-09-11 12:00:00",
+                "next-update": "2026-09-12 12:00:00",
+            }]
+            self.assertTrue(client.get_certificate_settings(credentials)["crl_ready"])
             certificates = client.list_ovpn_client_certificates(credentials)
             self.assertEqual(
                 [item["name"] for item in certificates],

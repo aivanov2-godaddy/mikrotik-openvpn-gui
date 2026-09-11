@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from config import ConfigurationError, OpenVPNTopology
@@ -54,6 +55,14 @@ def _integer(value: Any) -> int:
         return max(0, int(str(value or "0")))
     except (TypeError, ValueError):
         return 0
+
+
+def _crl_is_current(value: Any) -> bool:
+    """Treat missing or malformed CRL expiry data as unsafe."""
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S") > datetime.now()
+    except (TypeError, ValueError):
+        return False
 
 
 def _slug(value: str, maximum: int = 42) -> str:
@@ -326,10 +335,29 @@ class RouterOSClient:
     def get_certificate_settings(self, credentials: RouterOSCredentials) -> dict[str, Any]:
         records = _records(self._request("GET", "/certificate/settings", credentials))
         record = records[0] if records else {}
+        crl_records = _records(
+            self._request(
+                "GET",
+                "/certificate/crl",
+                credentials,
+                query={".proplist": "cert,revoked,next-update,last-update"},
+            )
+        )
+        active_ca_crl = any(
+            str(item.get("cert", "")) == self.ovpn_ca
+            and str(item.get("revoked", "")).casefold() != "unknown"
+            and _crl_is_current(item.get("next-update"))
+            for item in crl_records
+        )
+        crl_download = _yes(record.get("crl-download", "no"))
+        crl_use = _yes(record.get("crl-use", "no"))
+        crl_store = str(record.get("crl-store", ""))
         return {
-            "crl_download": _yes(record.get("crl-download", "no")),
-            "crl_use": _yes(record.get("crl-use", "no")),
-            "crl_store": str(record.get("crl-store", "")),
+            "crl_download": crl_download,
+            "crl_use": crl_use,
+            "crl_store": crl_store,
+            "active_ovpn_ca_crl": active_ca_crl,
+            "crl_ready": crl_download and crl_use and crl_store == "system" and active_ca_crl,
         }
 
     def get_public_endpoint(self, credentials: RouterOSCredentials) -> dict[str, str]:

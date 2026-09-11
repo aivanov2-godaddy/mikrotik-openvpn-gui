@@ -91,6 +91,7 @@ class State:
             "crl-use": "false",
             "crl-store": "system",
         }]
+        self.certificate_crls: list[dict[str, Any]] = []
         self.fail_certificate_inventory = False
         self.certificate_queries: list[dict[str, list[str]]] = []
         self.active_sessions: dict[str, dict[str, Any]] = {
@@ -218,6 +219,8 @@ class MockHandler(BaseHTTPRequestHandler):
                 self._json(state.ovpn_servers)
             elif path == "/certificate/settings":
                 self._json(state.certificate_settings)
+            elif path == "/certificate/crl":
+                self._json(state.certificate_crls)
             elif path == "/certificate":
                 state.certificate_queries.append(query)
                 if state.fail_certificate_inventory and query.get("ca"):

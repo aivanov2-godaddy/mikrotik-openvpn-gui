@@ -64,6 +64,7 @@ Apply retention appropriate to the sensitivity of email ownership, address, usag
 - Keep a private-fork token scoped to `read:packages`; validate the new token with a canary pull before revoking the old token.
 - Rotate the RouterOS REST server certificate with an overlap window: install the new public CA/config mount, canary the connection, then retire the old trust material.
 - Revoke device certificates through RouterOS and the dashboard; do not rely on deleting a downloaded profile.
+- For OpenVPN client-certificate revocation, use the staged [certificate revocation migration](CERTIFICATE_REVOCATION.md). Do not enable CRL enforcement until the configured OpenVPN CA has a verifiable, current CRL.
 - Review Cloudflare and RouterOS administrator membership regularly.
 
 ## Capacity
