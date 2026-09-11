@@ -132,8 +132,10 @@ def service_health_snapshot(
     else:
         add("profile-issuing", "Profile issuing prerequisites", "healthy", "New device profiles can be generated from the configured topology.", "No action needed.")
 
-    if certificate_settings.get("crl_use"):
-        add("certificate-revocation", "Certificate revocation checks", "healthy", "RouterOS is configured to use certificate revocation information.", "No action needed.")
+    if certificate_settings.get("crl_ready"):
+        add("certificate-revocation", "Certificate revocation checks", "healthy", "RouterOS is enforcing revocation using an active CRL for the configured OpenVPN CA.", "No action needed.")
+    elif certificate_settings.get("crl_use"):
+        add("certificate-revocation", "Certificate revocation checks", "warning", "CRL enforcement is enabled but no usable CRL is available for the configured OpenVPN CA.", "Restore the CA's CRL publication path before relying on certificate revocation.")
     else:
         add("certificate-revocation", "Certificate revocation checks", "warning", "Revoked client certificates may not be rejected automatically.", "Review Certificate Settings in WinBox and enable CRL use when your CA publishes a revocation list.")
 
