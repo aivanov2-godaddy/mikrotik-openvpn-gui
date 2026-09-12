@@ -75,6 +75,15 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("production already uses", decision_flow)
         self.assertIn("dry-run accepted candidate", decision_flow)
 
+    def test_updater_supports_a_bounded_local_maintenance_window(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(":local maintenanceWindowEnabled false", updater)
+        self.assertIn("maintenanceStartHour", updater)
+        self.assertIn("outside maintenance window", updater)
+        self.assertIn("currentHour", updater)
+
     def test_public_distribution_examples_use_the_canonical_repository_name(self) -> None:
         documents = (
             ROOT / "README.md",

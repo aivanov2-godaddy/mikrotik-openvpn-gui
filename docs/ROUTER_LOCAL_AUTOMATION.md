@@ -100,6 +100,14 @@ candidate that fails three times is quarantined locally, so a broken release
 cannot cause repeated disruptive restarts; the operator must review and clear
 that local failure marker before retrying it.
 
+To restrict promotions to a maintenance window, set
+`maintenanceWindowEnabled` to `true` in the reviewed local script and choose
+`maintenanceStartHour`/`maintenanceEndHour` in RouterOS local time. The start
+hour is inclusive, the end hour is exclusive, and equal hours mean a window
+that is open all day. Windows that cross midnight are supported. Outside the
+window the scheduler exits before fetching or changing a container, then tries
+again on its next five-minute run.
+
 ## Initial migration from an existing private image
 
 Perform this once during a maintenance window:
