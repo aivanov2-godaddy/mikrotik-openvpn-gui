@@ -34,6 +34,12 @@ Before onboarding users, record the existing OpenVPN PPP profile name, OpenVPN s
 
 In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for the validated ARM64 target and `amd64` for x86/CHR evaluation. Do not use an ARMv7 image for a RouterOS `arm` device: MikroTik documents ARM32/ARMv5 constraints for that target, and this project does not publish an ARM image until it has been verified there. In **System → Packages**, record the exact RouterOS version. From New Terminal:
 
+The dashboard's **Installation planner → Read-only preflight** repeats this gate
+from the connected router and reports the exact image suffix to use. `arm64`
+maps to the production `-arm64` image; RouterOS `x86`/`amd64` maps to the
+evaluation-only `-amd64` image. Any other architecture is a hard stop: the
+preflight will not suggest an image tag, and you must not guess one.
+
 ```routeros
 /system/resource/print
 /system/package/print
