@@ -398,6 +398,27 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, _ = self.json_request("POST", "/api/openvpn-foundation-plan", payload)
         self.assertEqual(status, 400)
 
+    def test_setup_plan_accepts_ipv6_without_materialising_the_network(self) -> None:
+        self.login()
+        payload = {
+            "origin": "https://dashboard.example.test",
+            "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64",
+            "storage": "/disk1/vpn-dashboard",
+            "subnet": "2001:db8:1234:1::/120",
+            "lan": "2001:db8:1234:2::/64",
+        }
+        status, _, response = self.json_request("POST", "/api/setup-plan", payload)
+        self.assertEqual(status, 200)
+        plan = json.loads(response)["plan"]
+        self.assertIn("IPv6", plan)
+        self.assertIn("address=2001:db8:1234:1::2/120", plan)
+        self.assertIn("gateway=2001:db8:1234:1::1", plan)
+
+        payload["lan"] = "192.0.2.0/24"
+        status, _, response = self.json_request("POST", "/api/setup-plan", payload)
+        self.assertEqual(status, 400)
+        self.assertIn("same IPv4 or IPv6 family", json.loads(response)["error"])
+
     def test_readiness_failure_is_generic_and_non_successful(self) -> None:
         with mock.patch.object(
             self.server.context.store,

@@ -1250,7 +1250,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             subnet = ipaddress.ip_network(str(data.get("subnet", "")).strip(), strict=True)
             lan = ipaddress.ip_network(str(data.get("lan", "")).strip(), strict=True)
         except (ValueError, TypeError):
-            self._json({"error": "Use valid IPv4 CIDRs for the container and LAN networks."}, status=HTTPStatus.BAD_REQUEST)
+            self._json({"error": "Use valid IPv4 or IPv6 CIDRs for the container and LAN networks."}, status=HTTPStatus.BAD_REQUEST)
             return
         if not origin.startswith(("https://", "http://")):
             self._json({"error": "Dashboard origin must be an http:// or https:// URL."}, status=HTTPStatus.BAD_REQUEST)
@@ -1265,23 +1265,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"error": "Choose a dedicated absolute external-storage path, without '..' or /flash."}, status=HTTPStatus.BAD_REQUEST)
             return
         if (
-            subnet.version != 4
-            or lan.version != 4
+            subnet.version != lan.version
             or subnet.num_addresses < 4
             or subnet.overlaps(lan)
         ):
             self._json(
-                {"error": "The container subnet must be IPv4, provide two usable addresses, and not overlap the LAN CIDR."},
+                {"error": "The container and LAN CIDRs must use the same IPv4 or IPv6 family, provide two usable addresses, and not overlap."},
                 status=HTTPStatus.BAD_REQUEST,
             )
             return
+        # Do not materialise ``network.hosts()``: IPv6 /64 networks are
+        # enormous.  RouterOS needs only deterministic gateway/veth addresses.
+        gateway_address = subnet.network_address + 1
+        veth_address = subnet.network_address + 2
         plan = "\n".join([
             "# REVIEW ONLY — do not paste until each placeholder is reviewed.",
             "# This plan intentionally omits passwords, tokens, private keys, and profile files.",
             f"# Dashboard origin: {origin}",
             f"# Immutable image: {image}",
             f"# Dedicated external storage: {storage}",
-            f"# Container subnet: {subnet} (non-overlapping with LAN {lan})",
+            f"# Container subnet: {subnet} ({'IPv6' if subnet.version == 6 else 'IPv4'}; non-overlapping with LAN {lan})",
             "",
             "# Manual gates before any apply:",
             "# 1. Install the matching RouterOS Container package and complete physical device-mode confirmation.",
@@ -1296,7 +1299,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "",
             "# Idempotent dashboard container skeleton (replace <...> only after a backup and maintenance window):",
             f"/container/config/set tmpdir={storage}/tmp",
-            f"/interface/veth/add name=<veth-vpn-dashboard> address={list(subnet.hosts())[1]}/{subnet.prefixlen} gateway={list(subnet.hosts())[0]}",
+            f"/interface/veth/add name=<veth-vpn-dashboard> address={veth_address}/{subnet.prefixlen} gateway={gateway_address}",
             "# Attach the veth to a reviewed dedicated bridge; do not change WAN firewall automatically.",
             f"/container/add remote-image={image} interface=<veth-vpn-dashboard> root-dir={storage}/root",
             f"# Mount persistent dashboard data at {storage}/data -> /data; configure non-secret environment values separately.",
