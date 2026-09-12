@@ -84,12 +84,16 @@ production to the same SQLite file: one database must have one writer.
    name, public address, loopback, link-local, multicast address, query, or
    fragment. This allows a router-local probe where TLS is terminated by a
    separate local proxy without weakening the public-release trust boundary.
-6. It runs the configured non-destructive canary checks. On failure, it restores
+6. It keeps the canary healthy for the configured stability window (60 seconds
+   in the example script), then probes `/readyz` again immediately before
+   promotion. Set `canaryValidationSeconds` to the locally appropriate value;
+   use `0` only for an explicitly reviewed emergency rollout.
+7. It runs the configured non-destructive canary checks. On failure, it restores
    the canary's last-known-good image, records the failure locally, and leaves
    production untouched.
-7. On success, it updates production with that same immutable image, verifies
+8. On success, it updates production with that same immutable image, verifies
    production `/readyz`, and records it as last known good locally.
-8. If production cannot start or become ready, it restores the previously
+9. If production cannot start or become ready, it restores the previously
    recorded production image and rechecks it. Restoring an image never restores
    or overwrites `/data`; database restoration is a separate, explicit disaster
    recovery operation.

@@ -21,6 +21,9 @@
 :local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
 :local pollAttempts 6
 :local pollDelay 10s
+# Keep a healthy canary under observation before promotion. This is deliberately
+# configurable per router; use 0 only for a manually reviewed emergency rollout.
+:local canaryValidationSeconds 60
 :local dryRun false
 :local failureRetryLimit 3
 :local failureFile ($stateFile . ".failed")
@@ -271,6 +274,23 @@
             /container/start $canaryId
         } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
         :error "canary readiness gate failed"
+    }
+
+    # A single successful /readyz response is not enough to promote. Keep the
+    # exact immutable candidate running for the configured stability window and
+    # probe it again immediately before changing production.
+    :if ($canaryValidationSeconds < 0) do={ :error "canary validation window cannot be negative" }
+    :if ($canaryValidationSeconds > 0) do={ :delay ($canaryValidationSeconds . "s") }
+    :if (![$fetchReady $canaryReadyUrl $canaryReadyTransport $commit]) do={
+        :log error ("vpn-gui immutable updater: canary lost readiness during validation window; restoring " . $canaryCurrent)
+        $recordFailure $image
+        :do {
+            /container/stop $canaryId
+            /container/set $canaryId remote-image=$canaryCurrent
+            /container/update $canaryId
+            /container/start $canaryId
+        } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
+        :error "canary stability gate failed"
     }
 
     :log info ("vpn-gui immutable updater: promoting validated canary " . $image)
