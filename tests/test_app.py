@@ -413,6 +413,21 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(health["checks"][0]["id"], "routeros-rest")
         self.assertNotIn("routerpass", json.dumps(health))
 
+    def test_service_health_persists_certificate_expiry_alerts(self) -> None:
+        """A soon-to-expire RouterOS certificate becomes a durable dashboard alert."""
+        self.login()
+        self.mock.state.certificates["*CL1"]["invalid-after"] = "2026-09-20 00:00:00"
+        status, _, payload = self.request("GET", "/api/service-health")
+        self.assertEqual(status, 200)
+        self.assertIn("certificate-inventory", {item["id"] for item in json.loads(payload)["checks"]})
+        alerts = self.server.context.store.recent_alerts()
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["action"], "certificate.expiring")
+        self.assertIn("ovpn-user-one-device-a", alerts[0]["details"])
+        # Repeated five-second polls are deduplicated by the metadata store.
+        self.request("GET", "/api/service-health")
+        self.assertEqual(len(self.server.context.store.recent_alerts()), 1)
+
     def test_favicon_variants_are_public_and_linked(self) -> None:
         status, headers, svg = self.request("GET", "/favicon.svg")
         self.assertEqual(status, 200)
