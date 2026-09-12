@@ -35,7 +35,11 @@ button { color: inherit; cursor: pointer; }
 button:disabled, input:disabled { cursor: wait; opacity: .55; }
 a { color: inherit; text-decoration: none; }
 h1, h2, h3, p { margin-top: 0; }
-:focus-visible { outline: 1px solid #49b9ff; outline-offset: 1px; }
+:focus-visible {
+  outline: 3px solid #49b9ff;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 1px var(--chrome), 0 0 0 4px rgba(73, 185, 255, .28);
+}
 .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 .wb-icon { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .status-led { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 1px #0f5035; }
@@ -662,5 +666,16 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { scroll-behavior: auto !important; transition: none !important; }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    transition-delay: 0ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid CanvasText; box-shadow: none; }
+  button, input, select, textarea, .panel, .metric { border-color: ButtonText; }
 }
