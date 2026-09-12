@@ -75,6 +75,15 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("production already uses", decision_flow)
         self.assertIn("dry-run accepted candidate", decision_flow)
 
+    def test_manual_rollback_helper_is_immutable_and_data_safe(self) -> None:
+        helper = (ROOT / "scripts" / "routeros" / "rollback-last-good.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("last-good-image=", helper)
+        self.assertIn("/container/update", helper)
+        self.assertIn("persistent data was not modified", helper)
+        self.assertNotIn("/file/remove", helper)
+
     def test_public_distribution_examples_use_the_canonical_repository_name(self) -> None:
         documents = (
             ROOT / "README.md",

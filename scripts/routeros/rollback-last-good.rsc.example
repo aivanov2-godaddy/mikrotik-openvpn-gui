@@ -1,0 +1,51 @@
+# Router-local manual rollback helper for MikroTik OpenVPN GUI.
+# Run only after reviewing the private updater journal.
+
+:local productionContainer "vpn-dashboard"
+:local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
+:local imagePrefix "ghcr.io/CHANGE-ME/mikrotik-openvpn-gui:sha-"
+:local productionReadyUrl "http://192.168.251.2:8080/readyz"
+:local pollAttempts 6
+:local pollDelay 10s
+
+:local stateLine do={
+    :local contents $1
+    :local key $2
+    :local start [:find $contents $key]
+    :if ($start = nil) do={ :return "" }
+    :set start ($start + [:len $key])
+    :local ending [:find $contents "\n" $start]
+    :if ($ending = nil) do={ :return [:pick $contents $start [:len $contents]] }
+    :return [:pick $contents $start $ending]
+}
+
+:local state [/file/get [find where name=$stateFile] contents]
+:local image [$stateLine $state "last-good-image="]
+:local prefixLength [:len $imagePrefix]
+:local expectedLength ($prefixLength + 46)
+:if (([:len $image] != $expectedLength) || ([:pick $image 0 $prefixLength] != $imagePrefix) || ([:pick $image ($prefixLength + 40) $expectedLength] != "-arm64")) do={
+    :error "local journal does not contain a valid immutable ARM64 image"
+}
+
+:local productionId [/container/find where name=$productionContainer]
+:if ([:len $productionId] != 1) do={ :error "exactly one production container is required" }
+:local current [/container/get $productionId remote-image]
+:if ($current = $image) do={ :log info ("vpn-gui rollback: production already uses " . $image); :error "rollback is a no-op" }
+
+:log warning ("vpn-gui rollback: restoring " . $image)
+/container/stop $productionId
+/container/set $productionId remote-image=$image
+/container/update $productionId
+/container/start $productionId
+
+:local healthy false
+:for attempt from=1 to=$pollAttempts do={
+    :delay $pollDelay
+    :do {
+        :local result [/tool/fetch url=$productionReadyUrl mode=http output=user as-value]
+        :if ((($result->"status") = "finished") && (($result->"code") = 200) && ([:find ($result->"data") "\"status\":\"ready\""] != nil)) do={ :set healthy true }
+    } on-error={ :log warning ("vpn-gui rollback: readiness attempt " . $attempt . " failed") }
+    :if ($healthy) do={ :break }
+}
+:if (!$healthy) do={ :error "rollback image started but did not pass readiness" }
+:log info "vpn-gui rollback: completed; persistent data was not modified"
