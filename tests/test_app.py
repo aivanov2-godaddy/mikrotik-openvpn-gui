@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, container_image_target, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials
 from security import LoginRateLimiter, SessionStore
@@ -38,6 +38,19 @@ def test_runtime_config() -> RuntimeConfig:
             "ROUTER_DISPLAY_NAME": "router.example.test",
         }
     )
+
+
+class ContainerImageTargetTests(unittest.TestCase):
+    def test_supported_router_architectures_map_to_published_suffixes(self) -> None:
+        self.assertEqual(container_image_target("arm64")["image_suffix"], "arm64")
+        self.assertEqual(container_image_target("amd64")["image_suffix"], "amd64")
+        self.assertEqual(container_image_target("x86")["image_suffix"], "amd64")
+
+    def test_unknown_architecture_is_a_hard_stop(self) -> None:
+        result = container_image_target("arm")
+        self.assertFalse(result["supported"])
+        self.assertEqual(result["status"], "fail")
+        self.assertIsNone(result["image_suffix"])
 
 
 class DashboardIntegrationTests(unittest.TestCase):
