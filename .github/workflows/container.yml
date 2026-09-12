@@ -159,7 +159,13 @@ jobs:
     # A release manifest is an approval pointer, not executable RouterOS code.
     # It deliberately names the exact source commit and architecture-specific
     # image tag. Router-local automation must reject mutable image tags.
-    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # Refresh the approval pointer for normal main builds and for version-tag
+    # releases. Tag pushes are the immutable release path used by RouterOS;
+    # branch pushes retain the existing edge/stable development behavior.
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')))
     runs-on: ubuntu-latest
     permissions:
       contents: write
