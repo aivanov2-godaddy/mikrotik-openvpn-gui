@@ -33,6 +33,34 @@ The router's built-in web server supports a CRL-only mode. Disable its index,
 WebFig, graph, REST, SCEP and ACME sub-services when using it solely for this
 purpose; do not expose management services just to publish a CRL.
 
+### RouterOS 7.24 endpoint check
+
+When a CA is signed with `ca-crl-host=<router-address>`, RouterOS embeds a
+versioned URL such as `http://10.10.10.1/crl/227.crl` in the CA certificate.
+The URL must return a DER/PEM CRL over plain HTTP. A `Connection reset`,
+`remote disconnected while in HTTP exchange`, or an empty browser response is
+not a healthy result; it means the web server is not currently publishing the
+CRL path (or the request is blocked by the service's allowed-source policy).
+
+Validate from a separate LAN host and from RouterOS without changing the live
+OpenVPN server:
+
+```routeros
+/tool fetch url="http://<router-address>/crl/<sequence>.crl" output=user
+```
+
+Then request the same URL from a browser or `curl` on the LAN. If both tests
+fail, open **IP → Services → Web server properties** in WebFig and confirm the
+plain-HTTP CRL service is enabled (`crl-plain=yes`) and that the `www`
+service's `available-from` list permits the validator. Keep WebFig, REST and
+the index disabled on any CRL-only listener. On RouterOS builds that do not
+expose the web-server property in the CLI, use WebFig or upgrade to a current
+stable build before proceeding; do not mark the migration healthy based only
+on the CA's `L` flag.
+
+Only after the URL returns a CRL should you enable `crl-use=yes` and continue
+with disposable-certificate revocation and canary validation.
+
 ## Staged procedure
 
 1. Choose a CRL URL reachable from the router. A loopback-restricted endpoint
