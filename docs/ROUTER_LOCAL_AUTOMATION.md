@@ -86,12 +86,16 @@ production to the same SQLite file: one database must have one writer.
    name, public address, loopback, link-local, multicast address, query, or
    fragment. This allows a router-local probe where TLS is terminated by a
    separate local proxy without weakening the public-release trust boundary.
-6. It runs the configured non-destructive canary checks. On failure, it restores
+6. It keeps the canary healthy for the configured stability window (60 seconds
+   in the example script), then probes `/readyz` again immediately before
+   promotion. Set `canaryValidationSeconds` to the locally appropriate value;
+   use `0` only for an explicitly reviewed emergency rollout.
+7. It runs the configured non-destructive canary checks. On failure, it restores
    the canary's last-known-good image, records the failure locally, and leaves
    production untouched.
-7. On success, it updates production with that same immutable image, verifies
+8. On success, it updates production with that same immutable image, verifies
    production `/readyz`, and records it as last known good locally.
-8. If production cannot start or become ready, it restores the previously
+9. If production cannot start or become ready, it restores the previously
    recorded production image and rechecks it. Restoring an image never restores
    or overwrites `/data`; database restoration is a separate, explicit disaster
    recovery operation.
@@ -103,6 +107,14 @@ cannot cause repeated disruptive restarts; the operator must review and clear
 that local failure marker before retrying it. The example also keeps a bounded
 `routeros-update-history.log` on the router's external storage for review and
 incident recovery; it never uploads this journal to GitHub.
+
+To restrict promotions to a maintenance window, set
+`maintenanceWindowEnabled` to `true` in the reviewed local script and choose
+`maintenanceStartHour`/`maintenanceEndHour` in RouterOS local time. The start
+hour is inclusive, the end hour is exclusive, and equal hours mean a window
+that is open all day. Windows that cross midnight are supported. Outside the
+window the scheduler exits before fetching or changing a container, then tries
+again on its next five-minute run.
 
 ## Initial migration from an existing private image
 
@@ -145,6 +157,17 @@ Perform this once during a maintenance window:
 - Review RouterOS scheduler output and the local journal after every promotion.
 - Keep the previous known-good image and an encrypted data checkpoint through
   the observation window.
+
+### Manual one-click rollback
+
+The updater writes the last successful immutable image to the router-only
+`routeros-update-state.txt` journal. If a promotion later needs to be undone,
+copy `scripts/routeros/rollback-last-good.rsc.example` to the router, replace
+only its public package prefix and private readiness address, review it, and
+run it from the RouterOS terminal. It validates the full SHA-tagged ARM64
+image, changes only the production container, and requires a healthy `/readyz`
+response before reporting success. Mounts, environment lists, certificates,
+RouterOS configuration, and `/data` are never changed.
 
 For manual recovery and the compatibility update path, see
 [DEPLOYMENT.md](DEPLOYMENT.md) and [ROLLBACK.md](ROLLBACK.md).

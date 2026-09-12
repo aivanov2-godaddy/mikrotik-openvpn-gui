@@ -22,9 +22,17 @@
 :local historyFile "disk1/vpn-dashboard/routeros-update-history.log"
 :local pollAttempts 6
 :local pollDelay 10s
+# Keep a healthy canary under observation before promotion. This is deliberately
+# configurable per router; use 0 only for a manually reviewed emergency rollout.
+:local canaryValidationSeconds 60
 :local dryRun false
 :local failureRetryLimit 3
 :local failureFile ($stateFile . ".failed")
+# Optional local maintenance window. Hours are RouterOS local time, start
+# inclusive and end exclusive. A window that crosses midnight is supported.
+:local maintenanceWindowEnabled false
+:local maintenanceStartHour 2
+:local maintenanceEndHour 5
 
 # Tiny file helpers. The local state files contain only public image tags,
 # commit IDs, counters, and timestamps. They are never copied to GitHub.
@@ -137,6 +145,23 @@
 :set vpnGuiImmutableUpdateLock true
 
 :do {
+    :if (($maintenanceStartHour < 0) || ($maintenanceStartHour > 23) || ($maintenanceEndHour < 0) || ($maintenanceEndHour > 23)) do={
+        :error "maintenance window hours must be between 0 and 23"
+    }
+    :if ($maintenanceWindowEnabled) do={
+        :local currentHour [:tonum [:pick [/system/clock/get time] 0 2]]
+        :local inWindow false
+        :if ($maintenanceStartHour = $maintenanceEndHour) do={ :set inWindow true }
+        :if ($maintenanceStartHour < $maintenanceEndHour) do={
+            :if (($currentHour >= $maintenanceStartHour) && ($currentHour < $maintenanceEndHour)) do={ :set inWindow true }
+        } else={
+            :if (($currentHour >= $maintenanceStartHour) || ($currentHour < $maintenanceEndHour)) do={ :set inWindow true }
+        }
+        :if (!$inWindow) do={
+            :log info ("vpn-gui immutable updater: outside maintenance window; next run will retry")
+            :error "outside maintenance window"
+        }
+    }
     # Fetch JSON only over certificate-validated HTTPS.  This value is data,
     # never passed to :parse, :execute, or :import.
     # GitHub release assets redirect once to a signed asset host.  Keep that
@@ -264,6 +289,23 @@
             /container/start $canaryId
         } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
         :error "canary readiness gate failed"
+    }
+
+    # A single successful /readyz response is not enough to promote. Keep the
+    # exact immutable candidate running for the configured stability window and
+    # probe it again immediately before changing production.
+    :if ($canaryValidationSeconds < 0) do={ :error "canary validation window cannot be negative" }
+    :if ($canaryValidationSeconds > 0) do={ :delay ($canaryValidationSeconds . "s") }
+    :if (![$fetchReady $canaryReadyUrl $canaryReadyTransport $commit]) do={
+        :log error ("vpn-gui immutable updater: canary lost readiness during validation window; restoring " . $canaryCurrent)
+        $recordFailure $image
+        :do {
+            /container/stop $canaryId
+            /container/set $canaryId remote-image=$canaryCurrent
+            /container/update $canaryId
+            /container/start $canaryId
+        } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
+        :error "canary stability gate failed"
     }
 
     :log info ("vpn-gui immutable updater: promoting validated canary " . $image)

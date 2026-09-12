@@ -59,6 +59,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("historyFile", executable)
         self.assertIn('event=" . $event', executable)
         self.assertIn('$recordHistory "promoted"', updater)
+        self.assertIn("canaryValidationSeconds", executable)
+        self.assertIn("canary stability gate failed", executable)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
 
@@ -77,6 +79,24 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("candidate is locally quarantined", decision_flow)
         self.assertIn("production already uses", decision_flow)
         self.assertIn("dry-run accepted candidate", decision_flow)
+
+    def test_updater_supports_a_bounded_local_maintenance_window(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(":local maintenanceWindowEnabled false", updater)
+        self.assertIn("maintenanceStartHour", updater)
+        self.assertIn("outside maintenance window", updater)
+        self.assertIn("currentHour", updater)
+
+    def test_manual_rollback_helper_is_immutable_and_data_safe(self) -> None:
+        helper = (ROOT / "scripts" / "routeros" / "rollback-last-good.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("last-good-image=", helper)
+        self.assertIn("/container/update", helper)
+        self.assertIn("persistent data was not modified", helper)
+        self.assertNotIn("/file/remove", helper)
 
     def test_public_distribution_examples_use_the_canonical_repository_name(self) -> None:
         documents = (
