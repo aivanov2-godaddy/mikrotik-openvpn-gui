@@ -56,6 +56,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('"http://192.168.250.2:8080/readyz"', updater)
         self.assertIn('"\\\"revision\\\":\\\""', updater)
         self.assertIn("productionCurrentCommit", executable)
+        self.assertIn("historyFile", executable)
+        self.assertIn('event=" . $event', executable)
+        self.assertIn('$recordHistory "promoted"', updater)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
 

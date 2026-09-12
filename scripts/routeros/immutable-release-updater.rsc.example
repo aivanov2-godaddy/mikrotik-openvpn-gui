@@ -19,6 +19,7 @@
 :local canaryReadyUrl "http://192.168.250.2:8080/readyz"
 :local productionReadyUrl "http://192.168.251.2:8080/readyz"
 :local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
+:local historyFile "disk1/vpn-dashboard/routeros-update-history.log"
 :local pollAttempts 6
 :local pollDelay 10s
 :local dryRun false
@@ -36,6 +37,19 @@
     } else={
         /file/set $existing contents=$contents
     }
+}
+:local recordHistory do={
+    :local event $1
+    :local candidate $2
+    :local detail $3
+    :local previous ""
+    :do { :set previous [/file/get [find where name=$historyFile] contents] } on-error={}
+    # Keep the journal bounded on router storage. It contains only public image
+    # identity and lifecycle outcomes, never credentials or application data.
+    :if ([:len $previous] > 12000) do={ :set previous "" }
+    :local line=([/system/clock/get date] . " " . [/system/clock/get time] . " event=" . $event . " image=" . $candidate . " detail=" . $detail)
+    :if ([:len $previous] > 0) do={ :set line ($previous . "\n" . $line) }
+    $writeState $historyFile $line
 }
 :local stateLine do={
     :local contents $1
@@ -58,6 +72,7 @@
     }
     :local failureState ("failed-image=" . $candidate . "\nfailure-count=" . $count . "\nfailed-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
     $writeState $failureFile $failureState
+    $recordHistory "failed" $candidate ("attempt=" . $count)
 }
 
 # A dashboard can terminate TLS at a separate router-local proxy. In that
@@ -297,6 +312,7 @@
 
         :local state ("last-good-image=" . $image . "\ncommit=" . $commit . "\nupdated-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
         $writeState $stateFile $state
+        $recordHistory "promoted" $image "canary-and-production-ready"
         :log info ("vpn-gui immutable updater: production promoted successfully to " . $image)
     }
 } on-error={ :log error "vpn-gui immutable updater: update failed; see preceding log entry" }

@@ -53,7 +53,9 @@ The controller keeps all state on the router or its approved external storage:
 - `/config` trust material, such as the public RouterOS REST CA;
 - RouterOS OpenVPN configuration, users, certificates, firewall, and proxy;
 - a local update journal containing the last-known-good image, commit, and
-  successful-promotion timestamp.
+  successful-promotion timestamp;
+- a bounded local history log containing only release image identities and
+  lifecycle outcomes (`promoted` or `failed`).
 
 Routine releases change only `remote-image` and run the RouterOS container
 update/start lifecycle. They do not recreate containers or change mounts,
@@ -98,7 +100,9 @@ The recommended watchdog cadence is every **5 minutes**. The manifest is tiny,
 and an unchanged SHA is a no-op that never touches either container. A
 candidate that fails three times is quarantined locally, so a broken release
 cannot cause repeated disruptive restarts; the operator must review and clear
-that local failure marker before retrying it.
+that local failure marker before retrying it. The example also keeps a bounded
+`routeros-update-history.log` on the router's external storage for review and
+incident recovery; it never uploads this journal to GitHub.
 
 ## Initial migration from an existing private image
 
