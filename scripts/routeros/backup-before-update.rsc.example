@@ -1,0 +1,54 @@
+# Router-local rotating backup helper for MikroTik OpenVPN GUI.
+#
+# Copy this example to the router's private script store and replace the
+# placeholder password there. Never commit the configured script. It creates
+# an encrypted RouterOS binary backup and a redacted export in one of three
+# fixed slots. Only its own prefix is rotated.
+
+:local backupDirectory "disk1/vpn-dashboard/backups"
+:local backupPrefix "vpn-dashboard-predeploy"
+:local backupPassword "CHANGE-ME-IN-ROUTER"
+:local slotStateFile ($backupDirectory . "/next-slot.txt")
+:local slotCount 3
+
+:if ($backupPassword = "CHANGE-ME-IN-ROUTER") do={
+    :error "configure a private backup password on the router before running"
+}
+
+:local directory [/file/find where name=$backupDirectory]
+:if ([:len $directory] = 0) do={
+    /file/add name=$backupDirectory type=directory
+}
+
+:local state "0"
+:do { :set state [/file/get [/file/find where name=$slotStateFile] contents] } on-error={}
+:local slot [:tonum $state]
+:if (($slot < 0) || ($slot >= $slotCount)) do={ :set slot 0 }
+:local base ($backupDirectory . "/" . $backupPrefix . "-" . $slot)
+:local binary ($base . ".backup")
+:local exported ($base . ".rsc")
+
+# Replace only this slot. The other two remain available if a write fails.
+:local oldBinary [/file/find where name=$binary]
+:if ([:len $oldBinary] > 0) do={ /file/remove $oldBinary }
+:local oldExport [/file/find where name=$exported]
+:if ([:len $oldExport] > 0) do={ /file/remove $oldExport }
+
+:do {
+    /system/backup/save name=$base password=$backupPassword
+    /export file=$base hide-sensitive=yes
+} on-error={
+    :error ("backup slot " . $slot . " failed; previous slots were preserved")
+}
+
+# Advance only after both backup commands complete successfully.
+:local nextSlot ($slot + 1)
+:if ($nextSlot >= $slotCount) do={ :set nextSlot 0 }
+:local stateEntry ("" . $nextSlot)
+:local existingState [/file/find where name=$slotStateFile]
+:if ([:len $existingState] = 0) do={
+    /file/add name=$slotStateFile contents=$stateEntry
+} else={
+    /file/set $existingState contents=$stateEntry
+}
+:log info ("vpn-gui: encrypted pre-deploy backup completed in slot " . $slot)

@@ -98,6 +98,20 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("persistent data was not modified", helper)
         self.assertNotIn("/file/remove", helper)
 
+    def test_router_local_backup_helper_is_private_and_rotating(self) -> None:
+        helper = (ROOT / "scripts" / "routeros" / "backup-before-update.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("/system/backup/save", helper)
+        self.assertIn("/export file=", helper)
+        self.assertIn("hide-sensitive=yes", helper)
+        self.assertIn("slotCount 3", helper)
+        self.assertIn("CHANGE-ME-IN-ROUTER", helper)
+        self.assertIn("previous slots were preserved", helper)
+        self.assertIn("backupPassword", helper)
+        self.assertNotIn("wanted.sx", helper)
+        self.assertNotIn("/file/remove [find", helper)
+
     def test_public_distribution_examples_use_the_canonical_repository_name(self) -> None:
         documents = (
             ROOT / "README.md",
