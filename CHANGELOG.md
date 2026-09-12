@@ -6,6 +6,12 @@ semantic-version style release tags.
 
 ## Unreleased
 
+### Added
+
+- Central `VERSION` metadata and a protected-tag release-notes workflow with a
+  dry-run preview. Release tags are checked against the repository version and
+  notes record the immutable source commit without changing router deployment.
+
 ### Changed
 
 - Public distribution references now use the canonical

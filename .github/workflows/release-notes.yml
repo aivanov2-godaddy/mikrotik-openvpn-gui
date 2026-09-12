@@ -1,0 +1,66 @@
+name: Release notes
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing or planned release tag (for example v1.10.0)"
+        required: true
+        type: string
+      dry_run:
+        description: "Generate notes only; do not create or update a release"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Validate and generate release notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Validate release metadata
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: python scripts/validate_release.py --tag "$RELEASE_TAG"
+      - name: Generate notes preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GH_REPO/releases/generate-notes" \
+            -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="${{ github.sha }}" \
+            --jq '.body' | tee release-notes-preview.md
+      - name: Publish release
+        if: github.event_name == 'push' || inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: gh release create "$RELEASE_TAG" --repo "$GH_REPO" --title "MikroTik OpenVPN GUI $RELEASE_TAG" --generate-notes --verify-tag
+      - name: Summarize immutable source
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          {
+            echo "### Release metadata"
+            echo "- Version: \`$RELEASE_TAG\`"
+            echo "- Source commit: \`${{ github.sha }}\`"
+            echo "- Dry run: \`${{ github.event_name != 'push' && inputs.dry_run || false }}\`"
+            echo "- Router deployment: unchanged; canary approval remains a separate router-local step."
+          } >> "$GITHUB_STEP_SUMMARY"
