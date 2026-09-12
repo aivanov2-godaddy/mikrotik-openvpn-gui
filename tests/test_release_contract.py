@@ -20,6 +20,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('".github/workflows/container.yml"', publish)
         self.assertIn('"scripts/routeros/immutable-release-updater.rsc.example"', publish)
         self.assertIn("publish-stable-manifest", publish)
+        self.assertIn("github.ref_type == 'tag'", publish)
+        self.assertIn("startsWith(github.ref_name, 'v')", publish)
         self.assertNotIn("deploy_routeros_release.py", publish)
         self.assertNotIn("self-hosted", publish)
         self.assertNotIn("ROUTEROS_", publish)
