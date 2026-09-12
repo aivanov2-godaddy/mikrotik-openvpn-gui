@@ -35,6 +35,14 @@ Never follow `edge`, `latest`, a branch, or another mutable reference; never mod
 
 The dashboard's **Download backup** control creates a self-verifying metadata-only ZIP. Its manifest contains the SHA-256 checksum for `metadata.json`; it never includes RouterOS configuration, credentials, private keys, issued profiles, or active sessions. Keep it in an operator-controlled location.
 
+After selecting **Verify backup**, the setup planner can generate a **review-only
+restore plan**. The plan displays the verified SHA-256, metadata size, user
+count, and the exact maintenance sequence. It never writes the archive to
+`/data`, changes RouterOS, or stores the uploaded bytes. Treat it as a runbook
+for an approved maintenance window: make a fresh encrypted RouterOS backup,
+checkpoint the current `/data`, perform the reviewed restore manually, then
+verify `/readyz`, user counts, and Change History before retiring the checkpoint.
+
 ### Router-local pre-deploy backups
 
 For an automated deployment safety net, copy
