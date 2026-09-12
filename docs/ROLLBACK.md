@@ -13,6 +13,13 @@ Read this runbook before the first GHCR promotion. A rollback is successful only
 
 ## Fast application rollback
 
+For the normal immutable deployment path, the fastest safe option is the
+reviewed router-local helper `scripts/routeros/rollback-last-good.rsc.example`.
+It reads only the last-known-good full SHA from the private update journal,
+restores that image, and waits for readiness. It does not restore or overwrite
+the SQLite volume. Use it after confirming the journal entry and keep the
+manual steps below as the recovery fallback.
+
 1. Stop new write activity and announce the maintenance state through the private operator channel.
 2. Start the retained blue container against its separate, frozen data directory and require its private `/readyz` before changing traffic.
 3. Point the HTTPS reverse proxy and HTTP redirect NAT target back to blue, preserving every other field and rule position.

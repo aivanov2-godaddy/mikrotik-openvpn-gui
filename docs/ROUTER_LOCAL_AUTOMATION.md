@@ -150,5 +150,16 @@ Perform this once during a maintenance window:
 - Keep the previous known-good image and an encrypted data checkpoint through
   the observation window.
 
+### Manual one-click rollback
+
+The updater writes the last successful immutable image to the router-only
+`routeros-update-state.txt` journal. If a promotion later needs to be undone,
+copy `scripts/routeros/rollback-last-good.rsc.example` to the router, replace
+only its public package prefix and private readiness address, review it, and
+run it from the RouterOS terminal. It validates the full SHA-tagged ARM64
+image, changes only the production container, and requires a healthy `/readyz`
+response before reporting success. Mounts, environment lists, certificates,
+RouterOS configuration, and `/data` are never changed.
+
 For manual recovery and the compatibility update path, see
 [DEPLOYMENT.md](DEPLOYMENT.md) and [ROLLBACK.md](ROLLBACK.md).
