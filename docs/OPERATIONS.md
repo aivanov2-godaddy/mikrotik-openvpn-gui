@@ -35,6 +35,23 @@ Never follow `edge`, `latest`, a branch, or another mutable reference; never mod
 
 The dashboard's **Download backup** control creates a self-verifying metadata-only ZIP. Its manifest contains the SHA-256 checksum for `metadata.json`; it never includes RouterOS configuration, credentials, private keys, issued profiles, or active sessions. Keep it in an operator-controlled location.
 
+### Router-local pre-deploy backups
+
+For an automated deployment safety net, copy
+[`backup-before-update.rsc.example`](../scripts/routeros/backup-before-update.rsc.example)
+to the router's private script store, replace its placeholder with a strong
+password kept only on the router, and run it before canary promotion. The
+helper rotates three fixed slots on external storage. Each slot contains an
+encrypted RouterOS binary backup and a `hide-sensitive=yes` configuration
+export. It rotates only files with its own prefix and advances the slot
+pointer only after both backup commands complete.
+
+This is a RouterOS configuration backup, not a dashboard-data restore. The
+dashboard metadata ZIP and a consistent private `/data` checkpoint remain
+separate operations. Never commit the configured script or password to the
+public repository. Periodically copy a slot to encrypted off-router storage
+and test it in an isolated canary.
+
 ## Administrator roles and destructive actions
 
 The dashboard reads the signed-in account's role from RouterOS; it never keeps a separate dashboard role list.
