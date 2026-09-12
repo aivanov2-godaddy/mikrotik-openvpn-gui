@@ -26,6 +26,7 @@ PYTHON_FILES = [
     "scripts/check-secrets.py",
     "scripts/deploy_routeros_release.py",
     "scripts/pre_commit_checks.py",
+    "scripts/validate_release.py",
     "tests/mock_routeros.py",
 ]
 

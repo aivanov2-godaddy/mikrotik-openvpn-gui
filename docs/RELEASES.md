@@ -12,7 +12,10 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The current feature release is **v1.9.0**. It adds review-first OpenVPN
+The next planned feature release is **v1.10.0**. It adds release metadata
+validation and generated release notes while preserving the router-local data
+and immutable-image deployment model. The current published feature release is
+**v1.9.0**. It adds review-first OpenVPN
 foundation planning, administrator guardrails, an illustrated installation
 playbook, and a reproducible real-router canary acceptance procedure while
 preserving the router-local data and immutable-image deployment model.
@@ -63,6 +66,13 @@ repository.
 6. Perform a canary validation outside this repository before any production
    router update.
 7. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
+
+The repository's next release version is kept in [`VERSION`](../VERSION). Run
+`python scripts/validate_release.py --tag v1.10.0` before creating a tag. The
+`Release notes` workflow previews GitHub-generated notes without changing a
+release when run manually with `dry_run=true`; a pushed, matching `v*` tag is
+the only event that publishes a release. Notes contain commit and pull-request
+metadata only—never router state or credentials.
 
 ## Fresh public history
 
