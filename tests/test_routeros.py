@@ -53,7 +53,9 @@ class RouterOSClientTests(unittest.TestCase):
                 "cert": "vpn-ca",
                 "revoked": "0",
                 "last-update": "2026-09-11 12:00:00",
-                "next-update": "2026-09-12 12:00:00",
+                # Keep the fixture safely in the future so the test remains
+                # deterministic when the suite runs on or after today's date.
+                "next-update": "2036-08-03 00:00:00",
             }]
             self.assertTrue(client.get_certificate_settings(credentials)["crl_ready"])
             certificates = client.list_ovpn_client_certificates(credentials)
