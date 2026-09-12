@@ -75,6 +75,15 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("production already uses", decision_flow)
         self.assertIn("dry-run accepted candidate", decision_flow)
 
+    def test_updater_supports_a_bounded_local_maintenance_window(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(":local maintenanceWindowEnabled false", updater)
+        self.assertIn("maintenanceStartHour", updater)
+        self.assertIn("outside maintenance window", updater)
+        self.assertIn("currentHour", updater)
+
     def test_manual_rollback_helper_is_immutable_and_data_safe(self) -> None:
         helper = (ROOT / "scripts" / "routeros" / "rollback-last-good.rsc.example").read_text(
             encoding="utf-8"

@@ -24,6 +24,11 @@
 :local dryRun false
 :local failureRetryLimit 3
 :local failureFile ($stateFile . ".failed")
+# Optional local maintenance window. Hours are RouterOS local time, start
+# inclusive and end exclusive. A window that crosses midnight is supported.
+:local maintenanceWindowEnabled false
+:local maintenanceStartHour 2
+:local maintenanceEndHour 5
 
 # Tiny file helpers. The local state files contain only public image tags,
 # commit IDs, counters, and timestamps. They are never copied to GitHub.
@@ -122,6 +127,23 @@
 :set vpnGuiImmutableUpdateLock true
 
 :do {
+    :if (($maintenanceStartHour < 0) || ($maintenanceStartHour > 23) || ($maintenanceEndHour < 0) || ($maintenanceEndHour > 23)) do={
+        :error "maintenance window hours must be between 0 and 23"
+    }
+    :if ($maintenanceWindowEnabled) do={
+        :local currentHour [:tonum [:pick [/system/clock/get time] 0 2]]
+        :local inWindow false
+        :if ($maintenanceStartHour = $maintenanceEndHour) do={ :set inWindow true }
+        :if ($maintenanceStartHour < $maintenanceEndHour) do={
+            :if (($currentHour >= $maintenanceStartHour) && ($currentHour < $maintenanceEndHour)) do={ :set inWindow true }
+        } else={
+            :if (($currentHour >= $maintenanceStartHour) || ($currentHour < $maintenanceEndHour)) do={ :set inWindow true }
+        }
+        :if (!$inWindow) do={
+            :log info ("vpn-gui immutable updater: outside maintenance window; next run will retry")
+            :error "outside maintenance window"
+        }
+    }
     # Fetch JSON only over certificate-validated HTTPS.  This value is data,
     # never passed to :parse, :execute, or :import.
     # GitHub release assets redirect once to a signed asset host.  Keep that
