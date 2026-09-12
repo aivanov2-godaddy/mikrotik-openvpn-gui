@@ -56,6 +56,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('"http://192.168.250.2:8080/readyz"', updater)
         self.assertIn('"\\\"revision\\\":\\\""', updater)
         self.assertIn("productionCurrentCommit", executable)
+        self.assertIn("canaryValidationSeconds", executable)
+        self.assertIn("canary stability gate failed", executable)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
 
