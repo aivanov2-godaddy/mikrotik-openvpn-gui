@@ -56,6 +56,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("mode=http", executable)
         self.assertIn(":toip $host", executable)
         self.assertIn('"http://192.168.250.2:8080/readyz"', updater)
+        self.assertIn(':local canaryContainer "vpn-dashboard-canary"', updater)
+        self.assertIn(':local productionContainer "vpn-dashboard-production"', updater)
         self.assertIn('"\\\"revision\\\":\\\""', updater)
         self.assertIn("productionCurrentCommit", executable)
         self.assertIn("historyFile", executable)
