@@ -48,6 +48,44 @@ ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 
 
+def container_image_target(architecture: Any) -> dict[str, Any]:
+    """Describe the published image target for a RouterOS architecture.
+
+    RouterOS reports several architecture names, but the public image is only
+    validated for ARM64 hardware and x86/CHR (published as AMD64).  Keeping
+    this mapping server-side prevents the installation wizard from suggesting
+    an image tag that the router cannot execute.
+    """
+    detected = str(architecture or "unknown").strip().lower()
+    targets = {
+        "arm64": ("arm64", "ARM64 production image"),
+        "amd64": ("amd64", "AMD64 evaluation image"),
+        "x86": ("amd64", "AMD64 evaluation image"),
+    }
+    target = targets.get(detected)
+    if target:
+        suffix, label = target
+        return {
+            "architecture": detected,
+            "image_suffix": suffix,
+            "supported": True,
+            "status": "pass",
+            "label": label,
+            "detail": f"Use the immutable image tag ending in -{suffix}.",
+        }
+    return {
+        "architecture": detected,
+        "image_suffix": None,
+        "supported": False,
+        "status": "fail",
+        "label": "Unsupported container target",
+        "detail": (
+            f"RouterOS reports {detected}; this release publishes only arm64 and amd64 images. "
+            "Do not install a different architecture tag."
+        ),
+    }
+
+
 def _used_percent(free: Any, total: Any) -> int:
     """Return a bounded used percentage from RouterOS capacity fields."""
     try:
@@ -620,6 +658,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             certificates = self.server.context.router.list_ovpn_client_certificates(credentials)
         except RouterOSError:
             certificates = []
+        self._record_certificate_expiry_alerts(certificates)
         return service_health_snapshot(
             router=router,
             ovpn_server=ovpn_server,
@@ -628,6 +667,44 @@ class DashboardHandler(BaseHTTPRequestHandler):
             config=self.server.context.config,
             database_ready=database_ready,
         )
+
+    def _record_certificate_expiry_alerts(self, certificates: list[dict[str, Any]]) -> None:
+        """Persist actionable certificate expiry alerts without storing secrets.
+
+        Service health is polled by the dashboard, so this is the right place
+        to turn RouterOS inventory data into a durable alert.  The metadata
+        store deduplicates an alert for an hour; repeated live polls therefore
+        remain cheap while an operator still sees the warning after a refresh.
+        Only the certificate name and expiry date are recorded.
+        """
+        now = int(time.time())
+        for certificate in certificates or []:
+            expiry = _certificate_expiry_epoch(
+                certificate.get("invalid_after") or certificate.get("expires_after")
+            )
+            if expiry is None:
+                continue
+            name = str(certificate.get("name") or "unnamed certificate")
+            expiry_text = time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(expiry))
+            days = (expiry - now) // 86400
+            if expiry <= now:
+                self.server.context.store.add_alert(
+                    severity="critical",
+                    action="certificate.expired",
+                    target=name,
+                    title="OpenVPN certificate expired",
+                    details=f"{name} expired on {expiry_text}. Issue a replacement profile and revoke the expired device.",
+                    now=now,
+                )
+            elif days <= 30:
+                self.server.context.store.add_alert(
+                    severity="warning",
+                    action="certificate.expiring",
+                    target=name,
+                    title="OpenVPN certificate expires soon",
+                    details=f"{name} expires on {expiry_text} ({max(0, days)} days remaining). Issue a replacement profile before expiry.",
+                    now=now,
+                )
 
     def do_GET(self) -> None:
         parsed_url = urllib.parse.urlsplit(self.path)
@@ -768,6 +845,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 architecture = str(router.get("architecture-name", "unknown"))
                 version = str(router.get("version", "unknown"))
+                image_target = container_image_target(architecture)
                 try:
                     major_version = int(version.split(".", 1)[0])
                 except (TypeError, ValueError):
@@ -780,8 +858,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     },
                     {
                         "name": "Container architecture",
-                        "status": "pass" if architecture in {"arm64", "amd64"} else "fail",
-                        "detail": f"Detected {architecture}; supported targets are arm64 and amd64.",
+                        "status": image_target["status"],
+                        "detail": image_target["detail"],
                     },
                     {
                         "name": "Container package and device mode",
@@ -825,6 +903,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "version": version,
                         "free_storage": str(router.get("free-hdd-space", "unknown")),
                     },
+                    "image_target": image_target,
                     "openvpn": {"name": configured_server.get("name", ""), "enabled": bool(configured_server)},
                     "checks": checks,
                 })
