@@ -1117,6 +1117,7 @@ $('[data-copy-post-install]')?.addEventListener('click', async () => {
 });
 $('[data-service-health-refresh]')?.addEventListener('click', refreshServiceHealth);
 
+let verifiedBackupArchive = '';
 $('[data-backup-verify]')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1131,12 +1132,27 @@ $('[data-backup-verify]')?.addEventListener('submit', async (event) => {
       reader.onerror = () => reject(new Error('Could not read the backup file.'));
       reader.readAsDataURL(file);
     });
+    verifiedBackupArchive = encoded;
     const response = await resultOrError(await api('/api/backups/validate', { method: 'POST', body: { archive_base64: encoded } }));
     const result = await response.json();
     setStatus(form, `${result.message} (${result.metadata_bytes} bytes of metadata).`);
+    $('[data-backup-plan]', form).disabled = false;
     toast('Backup verified without changing dashboard data.');
   } catch (error) { setStatus(form, error.message, true); }
   finally { setBusy(form, false); }
+});
+
+$('[data-backup-plan]')?.addEventListener('click', async (event) => {
+  const form = event.currentTarget.closest('[data-backup-verify]');
+  const output = $('[data-backup-plan-output]', form);
+  if (!verifiedBackupArchive) return;
+  event.currentTarget.disabled = true;
+  try {
+    const response = await resultOrError(await api('/api/backups/restore-plan', { method: 'POST', body: { archive_base64: verifiedBackupArchive } }));
+    const result = await response.json();
+    output.textContent = `Review-only restore plan\n\n${result.message}\n\n${result.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}\n\nMetadata: ${result.summary.users} user record(s), ${result.metadata_bytes} bytes\nSHA-256: ${result.metadata_sha256}`;
+    output.hidden = false;
+  } catch (error) { setStatus(form, error.message, true); event.currentTarget.disabled = false; }
 });
 
 $('[data-setup-plan]')?.addEventListener('submit', async (event) => {

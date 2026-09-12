@@ -344,6 +344,17 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(json.loads(payload)["compatible"])
 
         status, _, payload = self.json_request(
+            "POST", "/api/backups/restore-plan",
+            {"archive_base64": base64.b64encode(archive_bytes.getvalue()).decode("ascii")},
+        )
+        self.assertEqual(status, 200)
+        restore_plan = json.loads(payload)
+        self.assertTrue(restore_plan["compatible"])
+        self.assertFalse(restore_plan["restore_available"])
+        self.assertGreaterEqual(len(restore_plan["steps"]), 4)
+        self.assertIn("No data was restored", restore_plan["message"])
+
+        status, _, payload = self.json_request(
             "POST", "/api/backups/preflight",
             {"manifest": manifest, "metadata_sha256": "0" * 64},
         )

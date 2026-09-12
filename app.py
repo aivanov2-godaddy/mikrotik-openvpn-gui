@@ -1202,6 +1202,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/backups/validate":
             self._backup_validate_archive()
             return
+        if path == "/api/backups/restore-plan":
+            self._backup_restore_plan()
+            return
         if path == "/api/policy-templates":
             self._create_policy_template()
             return
@@ -1477,6 +1480,65 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "restore_available": False,
             "metadata_bytes": len(metadata),
             "message": "Backup is valid and compatible. No data was restored or changed.",
+        })
+
+    def _backup_restore_plan(self) -> None:
+        """Return a review-only restore plan for a validated metadata archive.
+
+        The public dashboard never restores automatically.  This endpoint is
+        intentionally limited to safe metadata counts and explicit operator
+        steps; the archive is decoded in memory and discarded after the
+        response is built.
+        """
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_operator(session):
+            return
+        try:
+            value = self._read_json()
+            encoded = value.get("archive_base64")
+            if not isinstance(encoded, str) or not encoded:
+                raise ValueError("Backup archive is required")
+            if len(encoded) > 48 * 1024:
+                raise ValueError("Backup archive is too large")
+            archive_bytes = base64.b64decode(encoded, validate=True)
+            if len(archive_bytes) > 36 * 1024:
+                raise ValueError("Backup archive is too large")
+            with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+                if set(archive.namelist()) != {"manifest.json", "metadata.json"}:
+                    raise ValueError("Backup must contain only manifest.json and metadata.json")
+                manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                metadata_bytes = archive.read("metadata.json")
+            if not isinstance(manifest, dict) or manifest.get("format") != "mikrotik-openvpn-gui-backup" or manifest.get("version") != 1:
+                raise ValueError("This backup format is not supported")
+            expected = str((manifest.get("files") or {}).get("metadata.json", ""))
+            actual = hashlib.sha256(metadata_bytes).hexdigest()
+            if not re.fullmatch(r"[a-f0-9]{64}", expected) or not secrets.compare_digest(expected, actual):
+                raise ValueError("Metadata checksum does not match the backup manifest")
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+            if not isinstance(metadata, dict):
+                raise ValueError("Backup metadata must be an object")
+        except (ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError) as error:
+            self._json({"compatible": False, "error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        users = metadata.get("users") if isinstance(metadata.get("users"), list) else []
+        self.server.context.store.audit(
+            actor=session.username, action="backup.restore-plan", target="dashboard-metadata", status="success",
+            details={"format_version": 1, "metadata_bytes": len(metadata_bytes), "user_count": len(users)},
+        )
+        self._json({
+            "compatible": True,
+            "restore_available": False,
+            "metadata_sha256": actual,
+            "metadata_bytes": len(metadata_bytes),
+            "summary": {"users": len(users)},
+            "steps": [
+                "Create a fresh encrypted RouterOS backup and stop the dashboard container.",
+                "Copy the current /data directory to a private rollback checkpoint.",
+                "Restore metadata.json into the router-local /data store using a reviewed maintenance script.",
+                "Start the container and verify /readyz, user counts, and Change History.",
+                "Keep the pre-restore checkpoint until the observation window closes.",
+            ],
+            "message": "Plan generated. No data was restored or persisted.",
         })
 
     def do_PATCH(self) -> None:
