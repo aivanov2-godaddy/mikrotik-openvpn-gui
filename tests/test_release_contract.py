@@ -65,6 +65,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('$recordHistory "promoted"', updater)
         self.assertIn("canaryValidationSeconds", executable)
         self.assertIn("canary stability gate failed", executable)
+        self.assertIn("github.com/aivanov2-godaddy/mikrotik-openvpn-gui/releases/download/routeros-stable/routeros-release.json", updater)
+        self.assertIn("ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-", updater)
+        self.assertNotIn("github.com/CHANGE-ME/mikrotik-openvpn-gui", updater)
+        self.assertNotIn("ghcr.io/CHANGE-ME/mikrotik-openvpn-gui", updater)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
 
