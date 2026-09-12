@@ -84,3 +84,18 @@ profile, disabled OpenVPN server, and disabled firewall rule. Firewall ordering
 and WAN source-NAT are topology-specific, so they remain an explicit operator
 review before the server is enabled. This preserves the normal fast install
 experience for already-configured routers.
+## IPv6 topology planning
+
+The review-only installation planner accepts IPv4 or IPv6 for the container
+subnet and the existing LAN. Both CIDRs must use the same address family and
+must not overlap. For example, `2001:db8:1234:1::/120` for the dedicated
+container network and `2001:db8:1234:2::/64` for the LAN produce a plan with
+bounded deterministic gateway/veth addresses; the planner never enumerates an
+IPv6 `/64`.
+
+This is a planning and validation capability only. It does not enable IPv6,
+change firewall policy, create routes, or apply RouterOS commands. Review the
+generated commands against the router's IPv6 package, bridge, firewall, and
+upstream-prefix policy during a maintenance window. The advanced OpenVPN
+foundation planner remains IPv4-only until RouterOS IPv6 address-pool and
+OpenVPN semantics are verified separately.
