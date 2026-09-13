@@ -36,21 +36,29 @@ purpose; do not expose management services just to publish a CRL.
 ### RouterOS 7.24 endpoint check
 
 When a CA is signed with `ca-crl-host=<router-address>`, RouterOS embeds a
-versioned URL such as `http://10.10.10.1/crl/227.crl` in the CA certificate.
-The URL must return a DER/PEM CRL over plain HTTP. A `Connection reset`,
-`remote disconnected while in HTTP exchange`, or an empty browser response is
-not a healthy result; it means the web server is not currently publishing the
-CRL path (or the request is blocked by the service's allowed-source policy).
-
-Validate from a separate LAN host and from RouterOS without changing the live
-OpenVPN server:
+versioned URL such as `http://router.example.test/crl/227.crl` in the **CA
+certificate**. The numeric suffix is derived from RouterOS' internal
+certificate ID; it is not the row number shown by `/certificate print`. Do not
+guess it. Export the public CA certificate and inspect its CRL Distribution
+Points extension to obtain the exact URL:
 
 ```routeros
-/tool fetch url="http://<router-address>/crl/<sequence>.crl" output=user
+/certificate/export-certificate <new-ca> file-name=<new-ca-public>
 ```
 
-Then request the same URL from a browser or `curl` on the LAN. If both tests
-fail, open **IP → Services → Web server properties** in WebFig and confirm the
+```sh
+openssl x509 -in <new-ca-public>.crt -noout -text
+```
+
+The URL must return a non-empty DER or PEM CRL over plain HTTP. Validate it
+from a **separate management-network host** with a browser or `curl`. A
+RouterOS `/tool fetch` request to the router's own address is useful only as a
+supplementary check: some RouterOS service/firewall combinations reject that
+self-fetch even when an independent LAN request succeeds. Conversely, a
+successful self-fetch does not prove that another verifier can reach the URL.
+
+If an independent LAN check fails, open **IP → Services → Web server
+properties** in WebFig and confirm the
 plain-HTTP CRL service is enabled (`crl-plain=yes`) and that the `www`
 service's `available-from` list permits the validator. Keep WebFig, REST and
 the index disabled on any CRL-only listener. On RouterOS builds that do not
@@ -58,8 +66,10 @@ expose the web-server property in the CLI, use WebFig or upgrade to a current
 stable build before proceeding; do not mark the migration healthy based only
 on the CA's `L` flag.
 
-Only after the URL returns a CRL should you enable `crl-use=yes` and continue
-with disposable-certificate revocation and canary validation.
+Only after the URL returns a CRL should you continue with the staged
+revocation test. Do not enable `crl-use=yes` merely because a replacement CA
+is ready: this RouterOS setting is global. Keep it disabled during preparation
+if the currently active OpenVPN CA has no working CRL distribution point.
 
 ## Staged procedure
 
@@ -70,19 +80,20 @@ with disposable-certificate revocation and canary validation.
    is embedded while signing and cannot be retrofitted into the existing CA.
 3. Create a replacement server certificate and a test client certificate from
    the new CA. Do not point the live OVPN server at it yet.
-4. Enable `crl-download=yes`, `crl-store=system`, and `crl-use=yes`. For a
-   CA signed on RouterOS with `ca-crl-host`, confirm the CA shows the `L` flag
-   in Terminal/WinBox and a non-empty `ca-crl-host`; it is normal for
+4. Enable `crl-download=yes` and `crl-store=system`. For a CA signed on
+   RouterOS with `ca-crl-host`, confirm the CA shows the `L` flag in
+   Terminal/WinBox and a non-empty `ca-crl-host`; it is normal for
    `/certificate/crl/print` to list only downloaded CRLs, not this local CRL.
-5. Revoke the test certificate and confirm that it cannot authenticate. Keep a
-   separate non-revoked test certificate to prove normal authentication still
-   works.
+5. Revoke the disposable test certificate and verify that the published CRL
+   contains its serial number. Keep a separate non-revoked test certificate to
+   prove normal authentication later.
 6. Generate replacement profiles for every user from the new CA and have them
    install the replacements while the old server certificate remains live.
 7. In the maintenance window, point the OVPN server at the replacement server
    certificate, switch the dashboard's router-local `OVPN_CA_NAME` to the new
-   CA, then restart only the dashboard container(s) through the canary-first
-   deployment process.
+   CA, then enable `crl-use=yes`. Validate that the revoked test profile is
+   rejected and the non-revoked test profile succeeds. Restart only the
+   dashboard container(s) through the canary-first deployment process.
 8. Verify the dashboard reports **Certificate revocation checks — Healthy**.
    Retain the old chain for the documented rollback window before retiring it.
 
