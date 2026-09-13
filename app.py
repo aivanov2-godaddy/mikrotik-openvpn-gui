@@ -1130,6 +1130,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             [],
             lambda: self.server.context.router.list_ovpn_client_certificates(credentials),
         )
+        # Preserve the regular CA-scoped inventory as the availability gate.
+        # A second, broader read is only for discovering profiles issued by a
+        # predecessor CA during migration; failure there never blocks normal
+        # certificate visibility.
+        if certificates:
+            legacy_certificates = optional_router_data(
+                "Legacy certificate discovery is temporarily unavailable.",
+                [],
+                lambda: self.server.context.router.list_ovpn_client_certificates(
+                    credentials, include_legacy=True
+                ),
+            )
+            certificates = list({
+                str(item.get("name", "")): item
+                for item in [*certificates, *legacy_certificates]
+                if item.get("name")
+            }.values())
         endpoint = optional_router_data(
             "RouterOS public endpoint is temporarily unavailable.",
             {},
@@ -1161,6 +1178,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 connections=self.server.context.store.recent_connections(50),
                 connection_summaries=self.server.context.store.connection_summaries(),
                 certificates=certificates,
+                profile_migrations=self.server.context.store.profile_migrations(),
+                current_ca=str(self.server.context.router.ovpn_ca or ""),
                 ovpn_server=ovpn_server,
                 certificate_settings=certificate_settings,
                 warnings=warnings,
@@ -1859,6 +1878,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if delivery not in {"ovpn", "zip", "qr"}:
                 raise ValueError("Choose a valid profile delivery method")
             user = self._find_user(credentials, user_id)
+            legacy_certificate_name = str(data.get("legacy_certificate", "")).strip()
+            if legacy_certificate_name:
+                legacy = next(
+                    (
+                        item for item in self.server.context.router.list_ovpn_client_certificates(
+                            credentials, include_legacy=True
+                        )
+                        if str(item.get("name", "")) == legacy_certificate_name
+                    ),
+                    None,
+                )
+                username = str(user["name"])
+                common_name = str((legacy or {}).get("common_name", "")).casefold()
+                is_current_ca = str((legacy or {}).get("certificate_authority", "")) == str(
+                    self.server.context.router.ovpn_ca or ""
+                )
+                if not legacy or is_current_ca or bool(legacy.get("revoked")):
+                    raise ValueError("Choose an active profile issued by a previous CA")
+                managed = self.server.context.store.device_by_certificate(legacy_certificate_name)
+                owned_by_user = common_name.startswith(f"{username.casefold()}-") or (
+                    bool(managed) and str(managed.get("vpn_user", "")) == username
+                )
+                if not owned_by_user:
+                    raise ValueError("The legacy profile does not belong to this VPN user")
             controls = self.server.context.store.user_controls(str(user["name"]))
             self.server.context.config.topology.require_profile_generation(
                 policy=str(controls.get("policy", "full-tunnel")),
@@ -1880,6 +1923,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 device_name=device_name,
                 profile=profile,
             )
+            if legacy_certificate_name:
+                self.server.context.store.record_profile_migration(
+                    legacy_certificate_name=legacy_certificate_name,
+                    vpn_user=str(user["name"]),
+                    replacement_certificate_name=profile.certificate_name,
+                )
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="profile.migrate",
+                    target=legacy_certificate_name,
+                    status="success",
+                    details={"replacement_certificate": profile.certificate_name},
+                )
             self._deliver_profile(profile, f"{user['name']}-{device_name}.ovpn", delivery)
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)

@@ -609,6 +609,42 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, _ = self.request("GET", share_path)
         self.assertEqual(status, 410)
 
+    def test_profile_migration_issues_replacement_without_retiring_legacy_profile(self) -> None:
+        self.mock.state.certificates["*OLD"] = {
+            ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.login()
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Certificate migration", page)
+        self.assertIn(b"legacy-user-one-phone", page)
+        self.assertIn(b"Issue replacement", page)
+
+        user_one_id = next(
+            user["id"] for user in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if user["name"] == "user-one"
+        )
+        status, _, payload = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_one_id, safe='*')}/profiles",
+            {
+                "device_name": "Replacement phone", "key_passphrase": "replacement-passphrase",
+                "legacy_certificate": "legacy-user-one-phone",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(b"BEGIN CERTIFICATE", payload)
+        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
+        self.assertEqual(migration["vpn_user"], "user-one")
+        self.assertIn("legacy-user-one-phone", [
+            item["name"] for item in self.server.context.router.list_ovpn_client_certificates(
+                RouterOSCredentials("admin", "routerpass"), include_legacy=True
+            )
+        ])
+
     def test_incomplete_instance_topology_fails_before_profile_mutation(self) -> None:
         self.login()
         self.server.context.config = RuntimeConfig.from_environ(

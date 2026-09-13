@@ -558,17 +558,28 @@ function deferFreshData(reason) {
   });
 }
 
-function prepareProfileDialog({ userId, userName, delivery = 'zip' }) {
+function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertificate = '', legacyDevice = '' }) {
   const form = $('#profile-form');
   form.reset();
   form.user_id.value = userId;
   form.delivery.value = delivery;
+  form.legacy_certificate.value = legacyCertificate;
   $('[data-profile-user]', form).textContent = userName;
   $('[data-profile-title]', form).textContent = delivery === 'qr' ? 'Create QR code' : 'Download profile';
   $('[data-profile-description]', form).textContent = delivery === 'qr'
     ? 'Generate a protected profile link that the phone can open after scanning.'
     : 'A ZIP archive with the protected OpenVPN profile will download automatically.';
   $('[data-profile-submit]', form).textContent = delivery === 'qr' ? 'Create and show QR' : 'Create and download .zip';
+  const migrationNote = $('[data-migration-note]', form);
+  if (legacyCertificate) {
+    $('[data-profile-title]', form).textContent = 'Replace legacy profile';
+    $('[data-profile-description]', form).textContent = 'Issue a replacement first. The old profile stays active until you test and revoke it.';
+    form.device_name.value = `${legacyDevice || 'Replacement'} replacement`.slice(0, 64);
+    migrationNote.hidden = false;
+    migrationNote.textContent = `Replacing certificate ${legacyCertificate}. No connection will be interrupted.`;
+  } else {
+    migrationNote.hidden = true;
+  }
   openDialog('profile-dialog');
 }
 
@@ -669,7 +680,7 @@ document.addEventListener('click', async (event) => {
     showView('policy-templates');
     form.scrollIntoView({ block: 'center', behavior: 'smooth' });
     toast('Template selected. Choose users, then preview the differences.');
-  } else if (button.matches('[data-create-device]') || button.matches('[data-profile]') || button.matches('[data-download-profile]') || button.matches('[data-qr-profile]')) {
+  } else if (button.matches('[data-create-device]') || button.matches('[data-profile]') || button.matches('[data-download-profile]') || button.matches('[data-qr-profile]') || button.matches('[data-migrate-profile]')) {
     const userId = button.dataset.userId || row?.dataset.userId;
     const userName = button.dataset.userName || row?.dataset.userName;
     if (!userId || !userName) {
@@ -680,6 +691,8 @@ document.addEventListener('click', async (event) => {
       userId,
       userName,
       delivery: button.matches('[data-qr-profile]') ? 'qr' : 'zip',
+      legacyCertificate: button.dataset.legacyCertificate || '',
+      legacyDevice: button.dataset.legacyDevice || '',
     });
   } else if (button.matches('[data-duplicate]') && row) {
     const form = $('#duplicate-form');
@@ -822,7 +835,7 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
   setStatus(form, 'Preparing a secure file for this device…');
   try {
     const delivery = data.get('delivery') || 'zip';
-    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/profiles`, { method: 'POST', body: { device_name: data.get('device_name'), key_passphrase: data.get('key_passphrase'), delivery } }));
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/profiles`, { method: 'POST', body: { device_name: data.get('device_name'), key_passphrase: data.get('key_passphrase'), delivery, legacy_certificate: data.get('legacy_certificate') || '' } }));
     if (delivery === 'qr') {
       const payload = await response.json();
       const username = $('[data-profile-user]', form).textContent;
@@ -833,7 +846,7 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
     }
     await downloadResponse(response, 'openvpn-profile.zip');
     setStatus(form, 'Profile ZIP downloaded successfully.');
-    toast('New device profile generated and downloaded.');
+    toast(data.get('legacy_certificate') ? 'Replacement profile generated. Import and test it before revoking the old certificate.' : 'New device profile generated and downloaded.');
     setTimeout(() => location.reload(), 700);
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
 });
