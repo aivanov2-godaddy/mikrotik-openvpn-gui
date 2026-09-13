@@ -398,15 +398,22 @@ class RouterOSClient:
         }
 
     def list_ovpn_client_certificates(
-        self, credentials: RouterOSCredentials
+        self, credentials: RouterOSCredentials, *, include_legacy: bool = False
     ) -> list[dict[str, Any]]:
+        """List OpenVPN client identities.
+
+        The normal inventory is deliberately limited to the configured CA.
+        During a CA migration the dashboard must also discover identities
+        issued by the previous CA, so the caller can opt into the broader,
+        still TLS-client-only, inventory.
+        """
         query: dict[str, Any] = {
             ".proplist": (
                 ".id,name,common-name,fingerprint,issuer,invalid-after,"
                 "expires-after,revoked,key-usage,trusted,ca"
             )
         }
-        if self.ovpn_ca:
+        if self.ovpn_ca and not include_legacy:
             query["ca"] = self.ovpn_ca
         records = _records(
             self._request(
@@ -421,7 +428,9 @@ class RouterOSClient:
             key_usage = str(item.get("key-usage", ""))
             issuer = str(item.get("issuer", ""))
             certificate_authority = str(item.get("ca", ""))
-            if "tls-client" not in key_usage or (self.ovpn_ca and certificate_authority != self.ovpn_ca):
+            if "tls-client" not in key_usage or (
+                self.ovpn_ca and not include_legacy and certificate_authority != self.ovpn_ca
+            ):
                 continue
             clients.append(
                 {

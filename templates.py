@@ -244,6 +244,8 @@ def dashboard_page(
     connections: list[dict[str, Any]],
     connection_summaries: dict[str, dict[str, Any]],
     certificates: list[dict[str, Any]],
+    profile_migrations: dict[str, dict[str, Any]],
+    current_ca: str,
     ovpn_server: dict[str, Any],
     certificate_settings: dict[str, Any],
     warnings: list[str],
@@ -414,6 +416,7 @@ def dashboard_page(
         "user.restore": "Restored VPN access",
         "user.delete": "Removed VPN user",
         "profile.create": "Added device profile",
+        "profile.migrate": "Issued replacement profile",
         "session.terminate": "Disconnected device",
         "session.multiple_sources": "Detected multiple active sources",
         "login.failure": "Failed dashboard sign-in",
@@ -490,6 +493,9 @@ def dashboard_page(
         if item.get("certificate_name")
     }
     certificate_rows: list[str] = []
+    migration_rows: list[str] = []
+    legacy_profile_count = 0
+    migrated_profile_count = 0
     for certificate in certificates:
         certificate_name = str(certificate.get("name", "")) or "—"
         metadata = devices_by_certificate.get(certificate_name, {})
@@ -509,6 +515,33 @@ def dashboard_page(
         short_fingerprint = fingerprint if len(fingerprint) <= 30 else f"{fingerprint[:14]}…{fingerprint[-10:]}"
         expiry = str(certificate.get("invalid_after", "")) or str(certificate.get("expires_after", "")) or "Unknown"
         revoked = bool(certificate.get("revoked"))
+        certificate_authority = str(certificate.get("certificate_authority", ""))
+        legacy = bool(current_ca and certificate_authority and certificate_authority != current_ca)
+        migration = profile_migrations.get(certificate_name)
+        if legacy and not revoked:
+            legacy_profile_count += 1
+            if migration:
+                migrated_profile_count += 1
+                migration_status = "Replacement issued"
+                migration_action = f'<span class="device-status"><i></i>{html.escape(migration_status)}</span>'
+            elif owner in user_ids:
+                migration_status = "Replacement needed"
+                migration_action = (
+                    f'<button type="button" class="table-action" data-migrate-profile '
+                    f'data-user-id="{html.escape(user_ids[owner], quote=True)}" '
+                    f'data-user-name="{html.escape(owner, quote=True)}" '
+                    f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}" '
+                    f'data-legacy-device="{html.escape(device_label, quote=True)}">'
+                    f'{_icon("refresh")}<span>Issue replacement</span></button>'
+                )
+            else:
+                migration_status = "Match owner manually"
+                migration_action = '<span class="muted-label">No matching VPN user</span>'
+            migration_rows.append(
+                f'''<tr><td><strong>{html.escape(certificate_name)}</strong><small class="table-secondary">{html.escape(device_label)}</small></td>
+                <td><strong>{html.escape(owner)}</strong><small class="table-secondary">Issued by {html.escape(certificate_authority or 'previous CA')}</small></td>
+                <td><span class="device-status warning"><i></i>{html.escape(migration_status)}</span></td><td>{migration_action}</td></tr>'''
+            )
         lifecycle_label, lifecycle_state = _certificate_expiry(expiry)
         certificate_state = "revoked" if revoked else lifecycle_state
         certificate_state_label = "Revoked" if revoked else lifecycle_label
@@ -522,6 +555,7 @@ def dashboard_page(
             </tr>"""
         )
     certificate_markup = "".join(certificate_rows) or '<tr><td colspan="5" class="table-empty">No OpenVPN client certificates were found.</td></tr>'
+    migration_markup = "".join(migration_rows) or '<tr><td colspan="4" class="table-empty">No legacy client profiles need migration.</td></tr>'
 
     version = html.escape(str(router.get("version", "unknown")))
     board = html.escape(str(router.get("board-name", "MikroTik")))
@@ -637,8 +671,9 @@ def dashboard_page(
 
       <section class="app-view" id="profile-security" data-view="profile-security" hidden>
         <header class="view-heading"><div><p class="eyebrow">DEVICES</p><h1>Device Profiles</h1><p>Each phone gets its own protected OpenVPN profile.</p></div><button class="primary" type="button" data-view-target="vpn-users">{_icon('plus')}<span>Add a device</span></button></header>
+        <section class="panel table-panel migration-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Certificate migration</strong><small>Replace profiles issued by a previous CA before retiring them.</small></span></div><span class="posture-badge">{migrated_profile_count}/{legacy_profile_count} replacements issued</span></div><div class="migration-guidance"><strong>Safe order:</strong> issue a replacement, import and test it on the device, then revoke the old certificate. Issuing a replacement never disconnects or revokes the existing profile.</div><div class="responsive-table"><table class="migration-table"><thead><tr><th>Legacy certificate / device</th><th>Owner / issuer</th><th>Migration state</th><th>Action</th></tr></thead><tbody>{migration_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('device')}<span><strong>Managed devices</strong><small>Profiles created by this dashboard</small></span></div><span class="posture-badge">Protected automatically</span></div><div class="responsive-table"><table class="device-table"><thead><tr><th>Device / owner</th><th>Status</th><th>Protection ID</th><th>Created</th><th>Action</th></tr></thead><tbody>{device_markup}</tbody></table></div></section>
-        <section class="panel table-panel"><div class="panel-heading"><div>{_icon('certificate')}<span><strong>RouterOS certificate inventory</strong><small>All client identities accepted by this OpenVPN CA</small></span></div><span class="muted-label">{len(certificates)} certificates</span></div><div class="responsive-table"><table class="certificate-table"><thead><tr><th>Certificate / identity</th><th>Owner / device</th><th>Status</th><th>Expires</th><th>Fingerprint</th></tr></thead><tbody>{certificate_markup}</tbody></table></div></section>
+        <section class="panel table-panel"><div class="panel-heading"><div>{_icon('certificate')}<span><strong>RouterOS certificate inventory</strong><small>Current and legacy OpenVPN client identities discovered on this router</small></span></div><span class="muted-label">{len(certificates)} certificates</span></div><div class="responsive-table"><table class="certificate-table"><thead><tr><th>Certificate / identity</th><th>Owner / device</th><th>Status</th><th>Expires</th><th>Fingerprint</th></tr></thead><tbody>{certificate_markup}</tbody></table></div></section>
         <section class="panel protection-summary"><div class="panel-heading compact"><div>{_icon('shield')}<span><strong>Protection handled for you</strong><small>No certificate knowledge required</small></span></div></div><ul class="checks"><li><span>{_icon('check')}</span><div><strong>Separate protection per device</strong><small>Each downloaded profile receives a separate certificate.</small></div></li><li><span>{_icon('check')}</span><div><strong>Private key encrypted</strong><small>The password you choose protects the downloaded profile.</small></div></li><li><span>{_icon('check')}</span><div><strong>Correct server verified</strong><small>The profile accepts only {vpn_host_safe}.</small></div></li><li><span>{_icon('check')}</span><div><strong>Temporary files removed</strong><small>Setup files are cleaned automatically after download.</small></div></li><li class="{'ready' if crl_ready else 'warning'}"><span>{_icon('shield')}</span><div><strong>{'Certificate revocation enforced' if crl_ready else 'Per-device revocation needs CA migration'}</strong><small>{'RouterOS CRL enforcement and an active CA-specific list are verified.' if crl_ready else 'The current CA has no active, verifiable CRL. A planned CA rotation is required before a lost profile can be reliably revoked.'}</small></div></li></ul></section>
       </section>
 
@@ -688,7 +723,7 @@ def dashboard_page(
 
 <dialog id="add-dialog"><form id="add-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">NEW ACCESS</p><h2>Add a person and phone</h2><p>The dashboard prepares the secure profile automatically.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="dialog-fields"><label><span>VPN username</span><input name="username" required maxlength="64" pattern="[A-Za-z0-9_.@-]+" placeholder="e.g. maria"></label><label><span>Owner email</span><input type="email" name="email" required maxlength="254" autocomplete="email" placeholder="maria@example.com"><small>Used to identify who owns this access.</small></label><label><span>VPN password</span><input type="password" name="password" required minlength="8" maxlength="256" autocomplete="new-password"><small>The same password protects the downloaded file automatically.</small></label><label><span>Phone or device</span><input name="device_name" required maxlength="64" placeholder="Pixel 10 Pro XL"></label><label><span>Note <i>Optional</i></span><input name="comment" maxlength="96" placeholder="Owner or purpose"></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="quiet" data-delivery="qr">Create and show QR</button><button type="submit" class="primary" data-delivery="zip">Create and download .zip</button></footer></form></dialog>
 
-<dialog id="profile-dialog"><form id="profile-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">NEW DEVICE</p><h2 data-profile-title>Add another device</h2><p data-profile-description>A ready-to-import OpenVPN file will download automatically.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><input type="hidden" name="user_id"><input type="hidden" name="delivery" value="zip"><div class="selected-user">Adding a device for <strong data-profile-user></strong></div><div class="dialog-fields"><label><span>Phone or device</span><input name="device_name" required maxlength="64" placeholder="Work tablet"></label><label><span>Protect file with</span><input type="password" name="key_passphrase" required minlength="8" maxlength="256" autocomplete="new-password"><small>OpenVPN asks for this password when the file is imported. It is never stored.</small></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="primary" data-profile-submit>Create and download .zip</button></footer></form></dialog>
+<dialog id="profile-dialog"><form id="profile-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">NEW DEVICE</p><h2 data-profile-title>Add another device</h2><p data-profile-description>A ready-to-import OpenVPN file will download automatically.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><input type="hidden" name="user_id"><input type="hidden" name="delivery" value="zip"><input type="hidden" name="legacy_certificate"><div class="selected-user">Adding a device for <strong data-profile-user></strong></div><p class="migration-dialog-note" data-migration-note hidden></p><div class="dialog-fields"><label><span>Phone or device</span><input name="device_name" required maxlength="64" placeholder="Work tablet"></label><label><span>Protect file with</span><input type="password" name="key_passphrase" required minlength="8" maxlength="256" autocomplete="new-password"><small>OpenVPN asks for this password when the file is imported. It is never stored.</small></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="primary" data-profile-submit>Create and download .zip</button></footer></form></dialog>
 
 <dialog id="duplicate-dialog"><form id="duplicate-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">COPY ACCESS</p><h2>Add someone with the same access</h2><p>The new person receives separate credentials and a separate device file.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><input type="hidden" name="source_id"><div class="selected-user">Using the same settings as <strong data-duplicate-source></strong></div><div class="dialog-fields"><label><span>New username</span><input name="username" required maxlength="64" pattern="[A-Za-z0-9_.@-]+"></label><label><span>Owner email</span><input type="email" name="email" required maxlength="254" autocomplete="email"></label><label><span>VPN password</span><input type="password" name="password" required minlength="8" maxlength="256" autocomplete="new-password"></label><label><span>Phone or device</span><input name="device_name" required maxlength="64"></label><label><span>Note <i>Optional</i></span><input name="comment" maxlength="96"></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="primary">Create and download</button></footer></form></dialog>
 

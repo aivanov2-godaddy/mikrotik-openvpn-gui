@@ -24,6 +24,9 @@ certificates, sessions, and traffic policy.
 - Authenticate administrators against RouterOS; no second dashboard-password database.
 - Add, edit, suspend, duplicate, and remove VPN users.
 - Issue separate client certificates and password-protected profile archives per device.
+- Migrate a CA safely: discover legacy client certificates, issue a replacement
+  without disconnecting the device, track the replacement locally, then revoke
+  the legacy identity only after the new profile has been tested.
 - Onboard phones and tablets with short-lived QR hand-offs or ZIP downloads.
 - Inspect active sessions, traffic counters, source addresses, and connection history.
 - Apply simple access presets: device limits, expiry, schedule, speed, DNS, and quota.

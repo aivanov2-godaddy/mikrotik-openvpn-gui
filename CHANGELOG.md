@@ -8,6 +8,9 @@ semantic-version style release tags.
 
 ### Added
 
+- A router-local certificate migration center that discovers legacy client
+  profiles, issues tracked replacements, and keeps revocation explicitly
+  operator-controlled after the replacement has been tested.
 - Central `VERSION` metadata and a protected-tag release-notes workflow with a
   dry-run preview. Release tags are checked against the repository version and
   notes record the immutable source commit without changing router deployment.

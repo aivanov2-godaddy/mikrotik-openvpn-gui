@@ -679,3 +679,15 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   :focus-visible { outline: 2px solid CanvasText; box-shadow: none; }
   button, input, select, textarea, .panel, .metric { border-color: ButtonText; }
 }
+
+/* CA rotation is deliberately review-first: issuing a replacement never retires
+   an old profile automatically. Keep the state readable on narrow screens. */
+.migration-panel { border-color: rgba(42, 167, 225, .42); }
+.migration-guidance { padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.migration-guidance strong { color: var(--text); }
+.migration-table td:last-child { white-space: nowrap; }
+.migration-dialog-note { margin: 0 0 12px; padding: 10px 12px; border: 1px solid rgba(42, 167, 225, .45); background: rgba(42, 167, 225, .10); color: var(--text); font-size: 13px; }
+@media (max-width: 700px) {
+  .migration-table td:last-child { white-space: normal; }
+  .migration-guidance { font-size: 12px; }
+}

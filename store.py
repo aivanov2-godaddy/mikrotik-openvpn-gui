@@ -137,11 +137,19 @@ class MetadataStore:
                     updated_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS profile_migrations (
+                    legacy_certificate_name TEXT PRIMARY KEY,
+                    vpn_user TEXT NOT NULL,
+                    replacement_certificate_name TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_devices_vpn_user ON devices(vpn_user);
                 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_connection_history_connected ON connection_history(connected_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_connection_history_open ON connection_history(session_id, disconnected_at);
                 CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_profile_migrations_user ON profile_migrations(vpn_user);
                 """
             )
             # Existing RouterOS dashboard databases predate quota/schedule
@@ -522,7 +530,7 @@ class MetadataStore:
         silently included in a recovery archive.
         """
         tables = (
-            "devices", "user_metadata", "user_controls", "alerts",
+            "devices", "profile_migrations", "user_metadata", "user_controls", "alerts",
             "policy_templates", "user_policy_templates", "audit", "connection_history",
         )
         with self._connection() as connection:
@@ -585,12 +593,44 @@ class MetadataStore:
             row = connection.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
             return dict(row) if row else None
 
+    def device_by_certificate(self, certificate_name: str) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM devices WHERE certificate_name=?", (certificate_name,)
+            ).fetchone()
+            return dict(row) if row else None
+
     def mark_revoked(self, device_id: str) -> None:
         with self._lock, self._connection() as connection:
             connection.execute(
                 "UPDATE devices SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
                 (int(time.time()), device_id),
             )
+
+    def record_profile_migration(
+        self, *, legacy_certificate_name: str, vpn_user: str, replacement_certificate_name: str
+    ) -> None:
+        """Record a replacement without storing any profile material or secrets."""
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO profile_migrations(
+                    legacy_certificate_name, vpn_user, replacement_certificate_name, created_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(legacy_certificate_name) DO UPDATE SET
+                    vpn_user=excluded.vpn_user,
+                    replacement_certificate_name=excluded.replacement_certificate_name,
+                    created_at=excluded.created_at
+                """,
+                (legacy_certificate_name, vpn_user, replacement_certificate_name, int(time.time())),
+            )
+
+    def profile_migrations(self) -> dict[str, dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM profile_migrations ORDER BY created_at DESC"
+            )
+            return {str(row["legacy_certificate_name"]): dict(row) for row in rows}
 
     def audit(
         self,
