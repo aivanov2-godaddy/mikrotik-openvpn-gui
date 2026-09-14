@@ -670,25 +670,45 @@ class RouterOSClient:
             pass
 
     def _ensure_ca_export(self, credentials: RouterOSCredentials) -> str:
-        filename = f"{self.ovpn_ca}.crt"
-        if filename not in self._files(credentials):
-            certs = _records(
-                self._request(
-                    "GET",
-                    "/certificate",
-                    credentials,
-                    query={"name": self.ovpn_ca, ".proplist": ".id,name"},
-                )
-            )
-            if len(certs) != 1:
-                raise RouterOSError("Configured OpenVPN CA certificate was not found")
+        files = self._files(credentials)
+        # RouterOS normally prefixes certificate exports with
+        # ``cert_export_``.  Older installations may already contain an
+        # explicitly named ``<ca>.crt`` export, so accept either form.
+        candidates = (f"{self.ovpn_ca}.crt", f"cert_export_{self.ovpn_ca}.crt")
+        for filename in candidates:
+            if filename in files:
+                return filename
+
+        before = set(files)
+        certs = _records(
             self._request(
-                "POST",
-                "/certificate/export-certificate",
+                "GET",
+                "/certificate",
                 credentials,
-                body={"numbers": certs[0].get(".id", self.ovpn_ca), "type": "pem"},
+                query={"name": self.ovpn_ca, ".proplist": ".id,name"},
             )
-        return filename
+        )
+        if len(certs) != 1:
+            raise RouterOSError("Configured OpenVPN CA certificate was not found")
+        self._request(
+            "POST",
+            "/certificate/export-certificate",
+            credentials,
+            body={"numbers": certs[0].get(".id", self.ovpn_ca), "type": "pem"},
+        )
+        files_after = self._files(credentials)
+        for filename in candidates:
+            if filename in files_after:
+                return filename
+        # Fall back to the newly-created .crt file if RouterOS uses a
+        # version-specific export prefix.
+        created = [
+            name for name, record in files_after.items()
+            if name not in before and name.lower().endswith(".crt")
+        ]
+        if len(created) == 1:
+            return created[0]
+        raise RouterOSError("RouterOS did not export the configured OpenVPN CA certificate")
 
     def provision_profile(
         self,
