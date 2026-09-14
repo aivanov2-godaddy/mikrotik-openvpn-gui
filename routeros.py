@@ -675,11 +675,17 @@ class RouterOSClient:
         # ``cert_export_``.  Older installations may already contain an
         # explicitly named ``<ca>.crt`` export, so accept either form.
         candidates = (f"{self.ovpn_ca}.crt", f"cert_export_{self.ovpn_ca}.crt")
+        # Never trust an existing export solely by filename.  RouterOS keeps
+        # exported files across certificate rotations, so a same-named file
+        # can contain the previous CA and cause clients to reject the server
+        # certificate.  Remove only the dashboard's known CA export names,
+        # then create a fresh export for the configured CA.
         for filename in candidates:
-            if filename in files:
-                return filename
+            record = files.get(filename)
+            if record and record.get(".id"):
+                self._delete_file(credentials, str(record[".id"]))
 
-        before = set(files)
+        before = set(self._files(credentials))
         certs = _records(
             self._request(
                 "GET",
