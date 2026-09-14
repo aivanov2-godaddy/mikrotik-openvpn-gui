@@ -1097,11 +1097,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         warnings: list[str] = []
 
-        def optional_router_data(label: str, default: Any, operation: Any) -> Any:
+        def optional_router_data(
+            label: str, default: Any, operation: Any, *, report_warning: bool = True
+        ) -> Any:
             try:
                 return operation()
             except RouterOSError:
-                warnings.append(label)
+                if report_warning:
+                    warnings.append(label)
                 return default
 
         users = optional_router_data(
@@ -1141,6 +1144,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 lambda: self.server.context.router.list_ovpn_client_certificates(
                     credentials, include_legacy=True
                 ),
+                # Legacy discovery is an optional migration enhancement.  A
+                # RouterOS permission/version limitation must not present as a
+                # dashboard outage when the configured-CA inventory is healthy.
+                report_warning=False,
             )
             certificates = list({
                 str(item.get("name", "")): item
