@@ -1760,6 +1760,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             username = self._validate_username(str(data.get("username", "")))
             password = self._validate_secret(str(data.get("password", "")), "VPN password")
+            # Keep VPN authentication and private-key protection independent.
+            # The fallback preserves compatibility for older API clients that
+            # did not send the newly-separated field yet.
+            key_passphrase = self._validate_secret(
+                str(data.get("key_passphrase") or password), "Private-key passphrase"
+            )
             device_name = self._validate_device(str(data.get("device_name", "")))
             email = self._validate_email(str(data.get("email", "")))
             delivery = str(data.get("delivery", "ovpn"))
@@ -1796,7 +1802,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 credentials,
                 vpn_user=username,
                 device_name=device_name,
-                key_passphrase=password,
+                key_passphrase=key_passphrase,
                 policy=controls["policy"],
                 dns_mode=controls["dns_mode"],
             )
