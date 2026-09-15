@@ -4,6 +4,7 @@ const histories = new Map();
 const HISTORY_LIMIT = 60;
 let pollingFailures = 0;
 let pendingDataRefresh = false;
+let pollingInFlight = false;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -49,7 +50,14 @@ async function api(url, options = {}) {
     headers.set('Content-Type', 'application/json');
     options.body = JSON.stringify(options.body);
   }
-  const response = await fetch(url, { ...options, headers, credentials: 'same-origin' });
+  // Status is a live telemetry endpoint.  Explicitly bypass intermediary and
+  // browser caches so cumulative RouterOS counters are sampled on every poll.
+  const response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: 'same-origin',
+    ...(url === '/api/status' ? { cache: 'no-store' } : {}),
+  });
   if (response.status === 401) {
     location.assign('/login');
     throw new Error('Your session expired. Please sign in again.');
@@ -441,7 +449,8 @@ function updateDashboard(payload) {
 }
 
 async function pollStatus() {
-  if (document.hidden) return;
+  if (document.hidden || pollingInFlight) return;
+  pollingInFlight = true;
   const indicators = $$('[data-live-indicator]');
   try {
     const response = await resultOrError(await api('/api/status'));
@@ -462,6 +471,8 @@ async function pollStatus() {
       $('span', indicator).textContent = 'Connection data delayed';
     });
     if (pollingFailures === 2) toast('Live RouterOS data is temporarily unavailable. Retrying automatically.', 'error');
+  } finally {
+    pollingInFlight = false;
   }
 }
 
