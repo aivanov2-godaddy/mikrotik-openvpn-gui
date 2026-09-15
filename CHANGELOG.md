@@ -30,6 +30,9 @@ semantic-version style release tags.
 
 ### Changed
 
+- Unified the dashboard visual hierarchy with contextual navigation icons,
+  mobile-friendly icon tooltips, and a consistent readable type scale for
+  user cards, health checks, planner panels, policy templates, and audit data.
 - Public distribution references now use the canonical
   `mikrotik-openvpn-gui` repository and GHCR package name. The next published
   immutable image and stable release manifest are therefore generated under

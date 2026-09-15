@@ -1234,3 +1234,43 @@ html[data-theme-resolved="light"] .login-security { color: var(--muted); }
   .theme-menu summary span:not(.wb-icon) { display: none; }
   .theme-popover { top: 64px; }
 }
+
+/* Unified visual hierarchy: keep labels, values, and actions readable across
+   every view. This is presentation-only; it does not change API calls,
+   RouterOS state, certificates, CA material, credentials, or dashboard data. */
+body { font-size: 14px; line-height: 1.45; }
+.winbox-sidebar a { min-height: 38px; font-size: 14px; }
+.nav-section-title { font-size: 11px; }
+.panel-heading strong { font-size: 14px; }
+.panel-heading small { font-size: 12px; }
+.user-panel .panel-heading strong { font-size: 18px; }
+.user-panel .panel-heading small { font-size: 12px; }
+.user-card-header { min-height: 82px; padding: 11px 12px; }
+.avatar { width: 40px; height: 40px; flex-basis: 40px; font-size: 16px; }
+.identity-title > strong { font-size: 17px; }
+.identity-copy > small { font-size: 13px; line-height: 1.35; }
+.account-badge { padding: 2px 6px; font-size: 11px; }
+.connection-badge { font-size: 14px; }
+.profile-count strong { font-size: 17px; }
+.profile-count span { font-size: 12px; }
+.action-menu summary { min-height: 34px; font-size: 13px; }
+.action-popover button { min-height: 34px; }
+.action-popover button span { font-size: 13px; }
+.user-activity { padding: 0 11px 10px 57px; }
+.user-activity > div { gap: 3px; padding: 7px 8px; }
+.user-activity span { color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1.25; }
+.user-activity strong { font-size: 13px; line-height: 1.3; }
+.metric small { font-size: 11px; }
+.metric span { font-size: 11px; }
+.live-refresh { font-size: 12px; }
+
+@media (max-width: 760px) {
+  .user-card-header { min-height: 86px; padding: 12px; }
+  .user-activity { padding: 0 11px 10px; }
+  .user-activity span { font-size: 11px; }
+  .user-activity strong { font-size: 14px; }
+  .profile-count span { font-size: 12px; }
+  .action-menu summary { min-height: 44px; font-size: 14px; }
+  .action-popover button { min-height: 40px; }
+  .action-popover button span { font-size: 14px; }
+}
