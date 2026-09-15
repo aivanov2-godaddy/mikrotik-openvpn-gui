@@ -80,6 +80,27 @@ class SecurityTests(unittest.TestCase):
             self.assertNotIn("forbidden", row["details"])
             self.assertNotIn("password", database.read_bytes().decode("latin-1", errors="ignore"))
 
+    def test_observability_ledgers_are_local_and_secret_free(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            store.record_deployment_event(
+                version="1.2.3",
+                revision="a" * 40,
+                details={"source": "container-start", "authorization": "must-not-persist"},
+                now=100,
+            )
+            store.record_health_snapshot(
+                {"overall": "warning", "checks": [{"id": "router-capacity", "status": "warning", "remediation": "safe"}]},
+                now=100,
+            )
+            deployments = store.recent_deployment_events()
+            health = store.recent_health_snapshots()
+            self.assertEqual(deployments[0]["revision"], "a" * 40)
+            self.assertNotIn("authorization", deployments[0]["details"])
+            self.assertEqual(health[0]["warning_count"], 1)
+            self.assertNotIn("must-not-persist", database.read_bytes().decode("latin-1", errors="ignore"))
+
     def test_existing_metadata_is_preserved_during_initialization(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"

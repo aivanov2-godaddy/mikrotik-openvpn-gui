@@ -629,7 +629,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             router = self.server.context.router.verify_credentials(credentials)
         except RouterOSError:
-            return service_health_snapshot(
+            health = service_health_snapshot(
                 router=None,
                 ovpn_server=None,
                 certificate_settings=None,
@@ -638,6 +638,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 database_ready=False,
                 unavailable_reason="router",
             )
+            self._record_health_snapshot(health)
+            return health
 
         try:
             self.server.context.store.verify_readiness()
@@ -659,7 +661,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except RouterOSError:
             certificates = []
         self._record_certificate_expiry_alerts(certificates)
-        return service_health_snapshot(
+        health = service_health_snapshot(
             router=router,
             ovpn_server=ovpn_server,
             certificate_settings=certificate_settings,
@@ -667,6 +669,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
             config=self.server.context.config,
             database_ready=database_ready,
         )
+        self._record_health_snapshot(health)
+        return health
+
+    def _record_health_snapshot(self, health: dict[str, Any]) -> None:
+        """Persist one compact service-health observation for operators."""
+        try:
+            self.server.context.store.record_health_snapshot(health)
+        except Exception as error:
+            # Observability must never turn a healthy dashboard into an outage;
+            # the current check response remains available even if the timeline
+            # store is temporarily locked or read-only.
+            print(f"health timeline write unavailable reason={type(error).__name__}")
+
+    def _observability(self) -> dict[str, Any]:
+        """Return local deployment history, health timeline, and rollback state."""
+        events = self.server.context.store.recent_deployment_events(20)
+        current = {
+            "version": self.server.context.release_version,
+            "revision": self.server.context.release_revision,
+            "status": "running",
+        }
+        previous = next(
+            (
+                item for item in events
+                if str(item.get("revision")) not in {"", "unknown", str(current["revision"])}
+                and str(item.get("status", "")) in {"running", "promoted", "healthy"}
+            ),
+            None,
+        )
+        return {
+            "current": current,
+            "deployments": events,
+            "health_timeline": self.server.context.store.recent_health_snapshots(30),
+            "rollback": {
+                "available": bool(previous),
+                "revision": previous.get("revision") if previous else None,
+                "version": previous.get("version") if previous else None,
+                "message": (
+                    "A previous immutable release is recorded locally and can be selected by the router watchdog."
+                    if previous else
+                    "No previous immutable release has been observed by this container yet."
+                ),
+                "data_preserved": True,
+            },
+            "generated_at": int(time.time()),
+        }
 
     def _record_certificate_expiry_alerts(self, certificates: list[dict[str, Any]]) -> None:
         """Persist actionable certificate expiry alerts without storing secrets.
@@ -805,6 +853,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "alerts": self.server.context.store.recent_alerts(20),
                         "role": session.role,
                         "router": router,
+                        "observability": self._observability(),
                         "generated_at": int(time.time()),
                     }
                 )
@@ -816,6 +865,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not session:
                 return
             self._json(self._service_health(self._credentials(session)))
+            return
+        if path == "/api/observability":
+            session = self._require_session(api=True)
+            if not session:
+                return
+            self._json(self._observability())
             return
         if path == "/api/setup-preflight":
             session = self._require_session(api=True)
@@ -1175,6 +1230,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             config=self.server.context.config,
             database_ready=database_ready,
         )
+        self._record_health_snapshot(health)
         self._html(
             dashboard_page(
                 actor=session.username,
@@ -1202,6 +1258,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 router_dns=self.server.context.config.topology.router_dns,
                 access_layer_label=self.server.context.config.access_layer_label,
                 health=health,
+                observability=self._observability(),
             )
         )
 
@@ -2359,7 +2416,7 @@ def build_context() -> AppContext:
         insecure_tls=config.routeros_insecure_tls,
         topology=config.topology,
     )
-    return AppContext(
+    context = AppContext(
         router=router,
         store=store,
         sessions=SessionStore(),
@@ -2368,6 +2425,17 @@ def build_context() -> AppContext:
         release_version=baked_release_value("VERSION"),
         release_revision=baked_release_value("REVISION"),
     )
+    # Keep a local, non-secret release breadcrumb so the UI can show what is
+    # actually running and whether a previous immutable release is available
+    # for rollback. This does not contact RouterOS or alter any VPN state.
+    store.record_deployment_event(
+        version=context.release_version,
+        revision=context.release_revision,
+        status="running",
+        channel="runtime",
+        details={"source": "container-start"},
+    )
+    return context
 
 
 def drop_runtime_privileges(database_path: Path) -> None:

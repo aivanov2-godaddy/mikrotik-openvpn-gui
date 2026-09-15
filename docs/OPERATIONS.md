@@ -4,6 +4,10 @@
 
 - Container status is running without restart churn.
 - `/healthz` reports process liveness, `/readyz` reports cached SQLite readiness and the deployed revision, and the public path follows the configured HTTPS access flow.
+- `/api/observability` (authenticated) reports the local deployment ledger,
+  health timeline, and rollback visibility without exposing router credentials
+  or VPN material. The same object is included in `/api/status` for the live
+  dashboard refresh.
 - RouterOS REST certificate validation succeeds; `ROUTEROS_INSECURE_TLS` remains `false`.
 - SQLite storage, RouterOS container storage, CPU, and memory stay below local alert thresholds.
 - Dashboard users, connected sessions, and interface counters agree with WinBox for a sample identity.

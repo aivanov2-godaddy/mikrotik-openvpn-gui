@@ -77,5 +77,14 @@ marked **Needs review** with an explanatory reason. This is deliberately
 read-only: it does not rotate the CA, alter certificates, or change RouterOS.
 Explicit device revocation remains the separate, confirmed action.
 
+## v2.0 — Production observability (implemented)
+
+Service Health now includes a local deployment history, a compact health
+timeline, and rollback visibility for immutable releases. The authenticated
+`/api/observability` endpoint and the normal live-status payload expose the same
+metadata to the UI. Observations stay on the router-hosted database, are
+retention-pruned, and never include CA material, credentials, profiles, or
+RouterOS configuration.
+
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).
