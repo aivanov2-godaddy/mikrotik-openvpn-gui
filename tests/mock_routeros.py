@@ -39,7 +39,7 @@ class State:
                 ".id": "*CA",
                 "name": "vpn-ca",
                 "common-name": "vpn-ca",
-                "fingerprint": "CA:FAKE",
+                "fingerprint": "ED:05:A6:34:F6:D6:58:90:0A:06:0D:73:DB:84:C3:C6:8D:01:5B:10:CC:71:C3:A9:88:5F:97:33:C1:DA:46:2D",
                 "trusted": "yes",
                 "key-usage": "key-cert-sign,crl-sign",
                 "invalid-after": "2036-08-03 00:00:00",
@@ -131,7 +131,7 @@ class State:
                 "name": "vpn-ca.crt",
                 "type": ".crt file",
                 "size": "64",
-                "contents": "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----\n",
+                "contents": "-----BEGIN CERTIFICATE-----\nRkFLRS1DQQ==\n-----END CERTIFICATE-----\n",
             }
         }
         self.next_user = 3
@@ -346,7 +346,7 @@ class MockHandler(BaseHTTPRequestHandler):
                 cert = state.certificates[body["numbers"]]
                 name = cert["name"]
                 if name == "vpn-ca":
-                    state.file("vpn-ca.crt", "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----\n", ".crt file")
+                    state.file("vpn-ca.crt", "-----BEGIN CERTIFICATE-----\nRkFLRS1DQQ==\n-----END CERTIFICATE-----\n", ".crt file")
                 else:
                     state.file(f"cert_export_{name}.crt", f"-----BEGIN CERTIFICATE-----\n{name}\n-----END CERTIFICATE-----\n", ".crt file")
                     mock_key = (

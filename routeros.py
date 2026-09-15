@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import binascii
+import hashlib
 import ipaddress
 import json
 import re
@@ -115,6 +117,7 @@ def harden_profile(
             and line == f"route {network.network_address} {network.netmask}"
         )
         and not line.startswith("dhcp-option DNS ")
+        and not line.startswith("verify-x509-name ")
     ]
     header = "\n".join(lines)
     existing = set(lines)
@@ -691,11 +694,14 @@ class RouterOSClient:
                 "GET",
                 "/certificate",
                 credentials,
-                query={"name": self.ovpn_ca, ".proplist": ".id,name"},
+                query={"name": self.ovpn_ca, ".proplist": ".id,name,fingerprint"},
             )
         )
         if len(certs) != 1:
             raise RouterOSError("Configured OpenVPN CA certificate was not found")
+        expected_fingerprint = str(certs[0].get("fingerprint", "")).replace(":", "").lower()
+        if len(expected_fingerprint) != 64:
+            raise RouterOSError("Configured OpenVPN CA certificate has no usable fingerprint")
         self._request(
             "POST",
             "/certificate/export-certificate",
@@ -705,6 +711,20 @@ class RouterOSClient:
         files_after = self._files(credentials)
         for filename in candidates:
             if filename in files_after:
+                ca_pem = self._file_contents(credentials, filename)
+                encoded = "".join(
+                    line.strip()
+                    for line in ca_pem.splitlines()
+                    if not line.startswith("---")
+                )
+                try:
+                    actual_fingerprint = hashlib.sha256(base64.b64decode(encoded)).hexdigest()
+                except (ValueError, binascii.Error) as error:
+                    raise RouterOSError("RouterOS exported an invalid OpenVPN CA certificate") from error
+                if actual_fingerprint != expected_fingerprint:
+                    raise RouterOSError(
+                        "RouterOS exported a CA that does not match the configured OpenVPN CA"
+                    )
                 return filename
         # Fall back to the newly-created .crt file if RouterOS uses a
         # version-specific export prefix.
@@ -713,6 +733,16 @@ class RouterOSClient:
             if name not in before and name.lower().endswith(".crt")
         ]
         if len(created) == 1:
+            ca_pem = self._file_contents(credentials, created[0])
+            encoded = "".join(
+                line.strip() for line in ca_pem.splitlines() if not line.startswith("---")
+            )
+            try:
+                actual_fingerprint = hashlib.sha256(base64.b64decode(encoded)).hexdigest()
+            except (ValueError, binascii.Error) as error:
+                raise RouterOSError("RouterOS exported an invalid OpenVPN CA certificate") from error
+            if actual_fingerprint != expected_fingerprint:
+                raise RouterOSError("RouterOS exported a CA that does not match the configured OpenVPN CA")
             return created[0]
         raise RouterOSError("RouterOS did not export the configured OpenVPN CA certificate")
 
@@ -839,11 +869,17 @@ class RouterOSClient:
                     credentials,
                     query={
                         "name": certificate_name,
-                        ".proplist": ".id,name,fingerprint",
+                        ".proplist": ".id,name,fingerprint,ca",
                     },
                 )
             )
             fingerprint = certificate_records[0].get("fingerprint") if certificate_records else None
+            certificate_ca = str(certificate_records[0].get("ca", "")) if certificate_records else ""
+            if certificate_ca != self.ovpn_ca:
+                raise RouterOSError(
+                    f"Generated client certificate is signed by {certificate_ca or 'an unknown CA'}, "
+                    f"not the configured OpenVPN CA {self.ovpn_ca}"
+                )
             succeeded = True
             return ProvisionedProfile(
                 profile=hardened.encode("utf-8"),
