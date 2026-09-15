@@ -268,6 +268,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["sessions"][0]["name"], "user-two")
         self.assertEqual(snapshot["sessions"][0]["tx_bytes"], 192455)
         self.assertEqual(snapshot["sessions"][0]["rx_packets"], 387)
+        self.assertEqual(snapshot["role"], "owner")
+        self.assertEqual(snapshot["role_label"], "Owner")
+        self.assertIn("*", snapshot["capabilities"])
+
         self.assertEqual(snapshot["sessions"][0]["tx_packets"], 825)
         self.assertEqual(snapshot["router"]["cpu-load"], "7")
         self.assertIn("observability", snapshot)
@@ -416,6 +420,31 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(payload)["compatible"])
+
+    def test_auth_audit_events_are_detailed_but_secret_free(self) -> None:
+        bad_login = urllib.parse.urlencode({"username": "admin", "password": "wrong"}).encode()
+        self.request(
+            "POST", "/login", body=bad_login,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        failed = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(failed["action"], "login.failure")
+        self.assertIn("auth_method", failed["details"])
+        self.assertNotIn("wrong", failed["details"])
+
+        self.login()
+        actions = [item["action"] for item in self.server.context.store.recent_audit(10)]
+        self.assertIn("login", actions)
+        self.assertIn("role.assigned", actions)
+        logout = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+        status, _, _ = self.request(
+            "POST", "/logout", body=logout,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        self.assertEqual(status, 303)
+        revoked = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(revoked["action"], "session.revoked")
+        self.assertNotIn(self.cookie, revoked["details"])
 
     def test_openvpn_foundation_plan_is_review_only_and_conflict_aware(self) -> None:
         self.login()
@@ -758,6 +787,28 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 403)
         self.assertNotIn("blocked", [item["name"] for item in self.mock.state.users.values()])
+        denied = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(denied["action"], "role.denied")
+        self.assertIn("users.manage", denied["details"])
+        status, _, _ = self.request("GET", "/api/audit.csv")
+        self.assertEqual(status, 403)
+
+    def test_security_operator_role_is_scoped_to_security_workflows(self) -> None:
+        self.mock.state.admin_group = "security-operator"
+        self.login()
+        status, _, payload = self.request("GET", "/api/status")
+        self.assertEqual(status, 200)
+        snapshot = json.loads(payload)
+        self.assertEqual(snapshot["role"], "security_operator")
+        self.assertIn("device.manage", snapshot["capabilities"])
+        self.assertNotIn("users.manage", snapshot["capabilities"])
+        status, _, _ = self.json_request(
+            "POST", "/api/users", {
+                "username": "blocked", "email": "blocked@example.com",
+                "password": "blocked-pass", "device_name": "Phone",
+            },
+        )
+        self.assertEqual(status, 403)
 
     def test_schedule_presets_and_quota_validation(self) -> None:
         monday_morning = 1785747600  # 2026-08-03 10:00 local in the test environment

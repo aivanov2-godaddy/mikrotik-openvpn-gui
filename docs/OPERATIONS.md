@@ -66,13 +66,29 @@ and test it in an isolated canary.
 
 ## Administrator roles and destructive actions
 
-The dashboard reads the signed-in account's role from RouterOS; it never keeps a separate dashboard role list.
+The dashboard reads the signed-in account's RouterOS group and maps it to one
+of five explicit dashboard roles. It never keeps a second password or role
+database. Unknown groups fail closed to read-only; older RouterOS versions that
+cannot expose `/user` retain the existing owner compatibility behavior so a
+known deployment does not unexpectedly lose access.
 
-| RouterOS role | Inspect dashboard and exports | Create or update VPN access | Suspend, terminate, or remove access |
-| --- | --- | --- | --- |
-| `read` (or another non-owner/non-operator group) | Yes | No | No |
-| `operator` | Yes | Yes | Yes, with exact target-name confirmation |
-| `owner` | Yes | Yes | Yes, with exact target-name confirmation |
+| Dashboard role | Intended responsibility | Typical capabilities |
+| --- | --- | --- |
+| **Owner** | Full control, including security and destructive actions | All dashboard capabilities |
+| **Security operator** | Certificates, devices, sessions, and security settings | Device/profile security, session termination, health and audit reads |
+| **Administrator** | Users, policies, profiles, and routine operations | User/profile/policy management, backups, alerts, session controls |
+| **Auditor** | Compliance and investigation | Read-only dashboard, reports, and Change History exports |
+| **Read-only** | Situational awareness | Dashboard status and read-only VPN data |
+
+The built-in RouterOS groups map as follows: `full`/`owner` → Owner,
+`write`/`operator`/`policy` → Administrator, `security`/`security-operator` →
+Security operator, `audit`/`auditor` → Auditor, and `read`/`readonly` →
+Read-only. Capability checks run in the API as well as the UI, so hiding a
+button is never the security boundary.
+
+Every denied capability creates a `role.denied` Change History event with the
+actor, required capability, role, and route. It does not include cookies,
+passwords, private keys, or profile contents.
 
 For an irreversible action, the dialog displays the exact RouterOS username that will be affected. The operator must type it exactly; the server validates that confirmation again before it creates the RouterOS checkpoint or changes anything. Suspending access is reversible. Removing access and terminating a live tunnel are not undoable by the dashboard.
 

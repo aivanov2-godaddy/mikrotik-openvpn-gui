@@ -107,5 +107,16 @@ Standard preserves the slate WinBox baseline, Dark is tuned for low-light use,
 Light provides a high-contrast daylight surface, and System follows the device
 preference. The choice is browser-local and presentation-only.
 
+## v2.2 — Administrator roles and authentication audit (in progress)
+
+RouterOS groups map to Owner, Security operator, Administrator, Auditor, and
+Read-only roles. A shared capability matrix is enforced by every API mutation
+and mirrored by the UI, while the router remains the identity source and no
+second dashboard-password database is introduced. Change History records
+successful and failed sign-ins, role assignment, denied capabilities, and
+dashboard-session revocation with safe metadata only. This release does not
+modify CA material, certificates, issued profiles, RouterOS configuration, or
+router-hosted VPN data.
+
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).

@@ -279,12 +279,21 @@ class RouterOSClient:
             # Authentication already succeeded, so retain backwards-compatible owner access.
             return "owner"
         record = records[0] if records else {}
-        group = str(record.get("group", "full")).lower()
+        group = str(record.get("group", "full")).strip().lower()
+        # RouterOS groups are the identity source.  The additional named
+        # groups are optional custom groups; unknown groups fail closed in the
+        # dashboard's role normalizer rather than inheriting owner access.
         if group in {"read", "readonly", "read-only"}:
-            return "viewer"
-        if group in {"write", "operator", "policy"}:
-            return "operator"
-        return "owner"
+            return "read_only"
+        if group in {"audit", "auditor"}:
+            return "auditor"
+        if group in {"security", "security-operator", "security_operator"}:
+            return "security_operator"
+        if group in {"write", "operator", "policy", "administrator", "admin"}:
+            return "administrator"
+        if group in {"full", "owner"}:
+            return "owner"
+        return "read_only"
 
     def create_configuration_export(
         self, credentials: RouterOSCredentials, *, name: str
