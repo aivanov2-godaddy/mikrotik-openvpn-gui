@@ -6,13 +6,38 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from security import LoginRateLimiter, SessionStore, csrf_matches
+from security import (
+    LoginRateLimiter,
+    SessionStore,
+    csrf_matches,
+    has_capability,
+    normalize_role,
+    role_label,
+)
 from store import MetadataStore
 from templates import _certificate_expiry, _router_uptime
 from app import simultaneous_session_sources
 
 
 class SecurityTests(unittest.TestCase):
+    def test_dashboard_role_capability_matrix_fails_closed(self) -> None:
+        self.assertEqual(normalize_role("operator"), "administrator")
+        self.assertEqual(normalize_role("viewer"), "read_only")
+        self.assertEqual(normalize_role("unrecognised-group"), "read_only")
+        self.assertEqual(role_label("security-operator"), "Security operator")
+        self.assertTrue(has_capability("owner", "anything.new"))
+        self.assertTrue(has_capability("security_operator", "device.manage"))
+        self.assertFalse(has_capability("security_operator", "users.manage"))
+        self.assertTrue(has_capability("administrator", "users.manage"))
+        self.assertFalse(has_capability("administrator", "device.manage"))
+        self.assertTrue(has_capability("auditor", "audit.read"))
+        self.assertFalse(has_capability("auditor", "users.manage"))
+        self.assertFalse(has_capability("read_only", "audit.read"))
+
+    def test_session_store_normalizes_legacy_roles(self) -> None:
+        session = SessionStore().create("admin", "secret", role="operator")
+        self.assertEqual(session.role, "administrator")
+
     def test_router_uptime_display(self) -> None:
         self.assertEqual(_router_uptime("1d22h44m45s"), "1d 22:44:45s")
         self.assertEqual(_router_uptime("1w2d3h4m5s"), "9d 03:04:05s")

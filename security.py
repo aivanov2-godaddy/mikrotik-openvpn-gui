@@ -11,6 +11,75 @@ from dataclasses import dataclass
 SESSION_IDLE_SECONDS = 30 * 60
 SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60
 
+# Dashboard roles are deliberately derived from the authenticated RouterOS
+# account.  They are capabilities, not another password database, so the
+# router remains the source of truth for identity and account membership.
+ROLE_LABELS = {
+    "owner": "Owner",
+    "security_operator": "Security operator",
+    "administrator": "Administrator",
+    "auditor": "Auditor",
+    "read_only": "Read-only",
+}
+
+ROLE_ALIASES = {
+    "operator": "administrator",
+    "viewer": "read_only",
+    "read": "read_only",
+    "readonly": "read_only",
+    "read-only": "read_only",
+    "security-operator": "security_operator",
+    "security": "security_operator",
+    "audit": "auditor",
+}
+
+# Keep the matrix small and explicit.  ``*`` is reserved for the owner and is
+# checked in ``has_capability`` so adding a new capability cannot accidentally
+# remove owner access.
+ROLE_CAPABILITIES = {
+    "owner": frozenset({"*"}),
+    "security_operator": frozenset({
+        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read",
+        "security.manage", "device.manage", "profiles.manage", "session.manage",
+    }),
+    "administrator": frozenset({
+        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read",
+        "users.manage", "profiles.manage", "policies.manage", "backup.manage",
+        "session.manage", "alert.manage",
+    }),
+    "auditor": frozenset({
+        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read",
+    }),
+    "read_only": frozenset({
+        "health.read", "users.read", "profiles.read", "sessions.read",
+    }),
+}
+
+
+def normalize_role(role: str) -> str:
+    """Return one of the five public dashboard roles.
+
+    Unknown values fail closed to ``read_only``.  RouterOS authentication has
+    already succeeded at this point, but an unrecognised group must never gain
+    owner privileges because of a spelling mistake or a future RouterOS group.
+    """
+    candidate = str(role or "").strip().casefold().replace(" ", "_")
+    candidate = ROLE_ALIASES.get(candidate, candidate)
+    return candidate if candidate in ROLE_CAPABILITIES else "read_only"
+
+
+def role_label(role: str) -> str:
+    return ROLE_LABELS[normalize_role(role)]
+
+
+def role_capabilities(role: str) -> frozenset[str]:
+    return ROLE_CAPABILITIES[normalize_role(role)]
+
+
+def has_capability(role: str, capability: str) -> bool:
+    capabilities = role_capabilities(role)
+    return "*" in capabilities or capability in capabilities
+
 
 @dataclass(slots=True)
 class Session:
@@ -51,7 +120,7 @@ class SessionStore:
             csrf_token=secrets.token_urlsafe(32),
             created_at=current,
             last_seen=current,
-            role=role,
+            role=normalize_role(role),
         )
         with self._lock:
             self._sessions[session.session_id] = session

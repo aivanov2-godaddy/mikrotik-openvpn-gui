@@ -35,6 +35,22 @@ certificates, sessions, and traffic policy.
 - Keep dashboard metadata and sanitized audit events in SQLite; do not store VPN passwords or private keys.
 - Deploy the same image on supported RouterOS container architectures: `arm64` is the validated target and `amd64` is available for CHR/x86 evaluation.
 
+### Administrator roles
+
+RouterOS remains the identity source. After a successful sign-in, the dashboard
+maps the RouterOS group to one of five roles: **Owner** (full control),
+**Security operator** (certificates, devices, sessions, and security settings),
+**Administrator** (users, policies, profiles, and routine operations),
+**Auditor** (read-only reports and compliance history), or **Read-only**
+(dashboard status). The same capability matrix is enforced by every API route,
+not only by the visible buttons. Change History records sign-in success/failure,
+role assignment, denied actions, and dashboard-session revocation without
+recording passwords, tokens, private keys, certificates, or profile contents.
+
+See [Administrator roles and audit events](docs/OPERATIONS.md#administrator-roles-and-destructive-actions)
+and [authentication authorization guidance](docs/SECURITY.md#administrator-authorization)
+for the mapping and operational controls.
+
 ## Dashboard preview
 
 Representative mock-data views show the dashboard navigation and main operator

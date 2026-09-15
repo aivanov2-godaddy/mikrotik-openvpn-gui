@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from icons import icon_sprite
+from security import has_capability, normalize_role, role_label
 
 
 def _icon(name: str, extra_class: str = "") -> str:
@@ -242,7 +243,7 @@ def _relative_time(timestamp: Any, now: int | None = None) -> str:
     return time.strftime("%d %b %Y", time.localtime(value))
 
 
-def _session_card(session: dict[str, Any]) -> str:
+def _session_card(session: dict[str, Any], *, can_terminate: bool = True) -> str:
     session_id = html.escape(str(session.get("id", "")), quote=True)
     source = html.escape(str(session.get("source_address", "—")) or "—")
     address = html.escape(str(session.get("vpn_address", "—")) or "—")
@@ -253,6 +254,11 @@ def _session_card(session: dict[str, Any]) -> str:
     rx_packets = int(session.get("rx_packets", 0) or 0)
     tx_packets = int(session.get("tx_packets", 0) or 0)
     username = html.escape(str(session.get("name", "Unknown user")) or "Unknown user")
+    terminate = (
+        f'<button class="terminate-button" type="button" data-terminate data-session-id="{session_id}">{_icon("remove")}<span>Terminate</span></button>'
+        if can_terminate
+        else '<span class="read-only-note session-read-only">Session control restricted</span>'
+    )
     return f"""
     <article class="session-card" data-session-id="{session_id}" data-session-user="{html.escape(str(session.get('name', '')), quote=True)}" data-rx="{rx_bytes}" data-tx="{tx_bytes}" data-rx-packets="{rx_packets}" data-tx-packets="{tx_packets}">
       <div class="session-main">
@@ -265,7 +271,7 @@ def _session_card(session: dict[str, Any]) -> str:
         <div><dt>Uptime</dt><dd data-session-uptime>{uptime}</dd></div>
         <div><dt>Traffic</dt><dd><span class="rx-rate" data-rx-rate>↓ 0 bps</span> · <span class="tx-rate" data-tx-rate>↑ 0 bps</span><small class="traffic-totals">↓ {_bytes(rx_bytes)} · ↑ {_bytes(tx_bytes)}</small></dd></div>
       </dl>
-      <button class="terminate-button" type="button" data-terminate data-session-id="{session_id}">{_icon('remove')}<span>Terminate</span></button>
+      {terminate}
       <div class="session-graphs" aria-label="Live connection traffic">
         <section class="traffic-graph">
           <header><strong>Byte Graph</strong><span>Live · 5 second samples</span></header>
@@ -350,15 +356,21 @@ def dashboard_page(
     for active in sessions:
         sessions_by_user.setdefault(str(active.get("name", "")), []).append(active)
 
-    can_mutate = admin_role in {"owner", "operator"}
+    normalized_role = normalize_role(admin_role)
+    can_manage_users = has_capability(normalized_role, "users.manage")
+    can_manage_profiles = has_capability(normalized_role, "profiles.manage")
+    can_manage_devices = has_capability(normalized_role, "device.manage")
+    can_manage_sessions = has_capability(normalized_role, "session.manage")
+    can_manage_alerts = has_capability(normalized_role, "alert.manage")
+    can_manage_policies = has_capability(normalized_role, "policies.manage")
     add_user_button = (
         f'<button class="primary" type="button" data-open-add>{_icon("plus")}<span>Add VPN user</span></button>'
-        if can_mutate
+        if can_manage_users
         else '<span class="read-only-note">Read-only RouterOS account</span>'
     )
     add_phone_button = (
         f'<button class="primary wide" type="button" data-open-add>{_icon("plus")} Add a person and phone</button>'
-        if can_mutate
+        if can_manage_users
         else '<span class="read-only-note">Read-only RouterOS account · changes are disabled</span>'
     )
     template_options = "".join(
@@ -401,21 +413,27 @@ def dashboard_page(
         last_source = str(activity.get("last_source_address", "")) or "No source recorded"
         last_activity = "Connected now" if connected else _relative_time(activity.get("last_seen_at"))
         access_health = "Suspended" if disabled else ("Online" if connected else ("Ready · never used" if not connection_count else "Ready"))
-        if can_mutate:
+        action_parts = []
+        if can_manage_profiles:
+            action_parts.extend([
+                f'<button type="button" data-profile>{_icon("plus")}<span>Add another device</span></button>',
+                f'<button type="button" data-download-profile>{_icon("download")}<span>Download profile (.zip)</span></button>',
+                f'<button type="button" data-qr-profile>{_icon("qr")}<span>Show QR code</span></button>',
+            ])
+        if can_manage_users:
             access_action = (
                 f'<button type="button" class="restore-item" data-restore>{_icon("enable")}<span>Restore access</span></button>'
                 if disabled
                 else f'<button type="button" class="danger-item" data-suspend>{_icon("disable")}<span>Suspend access now</span></button>'
             )
-            action_markup = (
-                f'<button type="button" data-profile>{_icon("plus")}<span>Add another device</span></button>'
-                f'<button type="button" data-download-profile>{_icon("download")}<span>Download profile (.zip)</span></button>'
-                f'<button type="button" data-qr-profile>{_icon("qr")}<span>Show QR code</span></button>'
-                f'<button type="button" data-duplicate>{_icon("copy")}<span>Add similar user</span></button>'
-                f'{access_action}'
-                f'<button type="button" data-edit>{_icon("edit")}<span>Edit user</span></button>'
-                f'<button type="button" class="danger-item" data-delete>{_icon("trash")}<span>Remove user</span></button>'
-            )
+            action_parts.extend([
+                f'<button type="button" data-duplicate>{_icon("copy")}<span>Add similar user</span></button>',
+                access_action,
+                f'<button type="button" data-edit>{_icon("edit")}<span>Edit user</span></button>',
+                f'<button type="button" class="danger-item" data-delete>{_icon("trash")}<span>Remove user</span></button>',
+            ])
+        if action_parts:
+            action_markup = "".join(action_parts)
         else:
             action_markup = '<span class="read-only-menu">Read-only access</span>'
         rows.append(
@@ -454,7 +472,7 @@ def dashboard_page(
     user_markup = "".join(rows) or """
       <div class="empty"><span>{_icon('users')}</span><strong>No OpenVPN users yet</strong><p>Create your first identity and download its device profile.</p></div>"""
 
-    live_session_markup = "".join(_session_card(item) for item in sessions)
+    live_session_markup = "".join(_session_card(item, can_terminate=can_manage_sessions) for item in sessions)
     if not live_session_markup:
         live_session_markup = f"""
         <div class="empty session-empty"><span>{_icon('session')}</span><strong>No devices connected</strong><p>Connections will appear here automatically. Nothing needs to be refreshed manually.</p></div>"""
@@ -500,6 +518,9 @@ def dashboard_page(
         "session.multiple_sources": "Detected multiple active sources",
         "login.failure": "Failed dashboard sign-in",
         "login.rate_limited": "Rate-limited dashboard sign-in",
+        "role.assigned": "Assigned administrator role",
+        "role.denied": "Denied role capability",
+        "session.revoked": "Revoked dashboard session",
         "checkpoint.create": "Created safety checkpoint",
         "user.expire": "Expired VPN access",
         "session.limit": "Applied connection limit",
@@ -542,8 +563,12 @@ def dashboard_page(
         title = str(alert.get("title", "VPN alert"))
         details = str(alert.get("details", ""))
         created = time.strftime("%d %b %Y · %H:%M", time.localtime(int(alert.get("created_at", 0) or 0)))
+        acknowledge = (
+            f'<button type="button" class="table-action" data-alert-ack="{alert_id}">Acknowledge</button>'
+            if can_manage_alerts else '<span class="muted-label">Read-only</span>'
+        )
         alert_rows.append(
-            f'<li class="alert-item {html.escape(severity, quote=True)}" data-alert-id="{alert_id}"><i></i><div><strong>{html.escape(title)}</strong><small>{html.escape(details)}</small></div><time>{html.escape(created)}</time><button type="button" class="table-action" data-alert-ack="{alert_id}">Acknowledge</button></li>'
+            f'<li class="alert-item {html.escape(severity, quote=True)}" data-alert-id="{alert_id}"><i></i><div><strong>{html.escape(title)}</strong><small>{html.escape(details)}</small></div><time>{html.escape(created)}</time>{acknowledge}</li>'
         )
     alert_markup = "".join(alert_rows) or '<li class="alert-empty">No active alerts. Automated checks will appear here when action is needed.</li>'
 
@@ -569,13 +594,23 @@ def dashboard_page(
             },
         )
         posture_class = "" if posture["state"] == "approved" else f" {posture['state']}"
+        device_actions = []
+        if can_manage_profiles:
+            device_actions.append(
+                f'<button type="button" class="table-action" data-create-device data-user-id="{html.escape(user_ids.get(owner, ""), quote=True)}" data-user-name="{html.escape(owner, quote=True)}">{_icon("plus")}<span>Add another device</span></button>'
+            )
+        if can_manage_devices:
+            device_actions.append(
+                f'<button type="button" class="table-action danger" data-device-revoke data-device-id="{html.escape(str(device.get("id", "")), quote=True)}" data-device-name="{html.escape(device_name, quote=True)}">{_icon("remove")}<span>Revoke device</span></button>'
+            )
+        device_action_markup = "".join(device_actions) or '<span class="muted-label">Read-only</span>'
         device_rows.append(
             f"""<tr>
               <td><span class="device-name">{_icon('device')}<span><strong>{html.escape(device_name)}</strong><small>{html.escape(owner)}</small></span></span></td>
               <td><span class="device-status{posture_class}" title="{html.escape(posture['reason'], quote=True)}"><i></i>{html.escape(posture['label'])}<small class="table-secondary">{html.escape(posture['reason'])}</small></span></td>
               <td><strong class="certificate-name">{html.escape(certificate)}</strong><small class="fingerprint">{html.escape(short_fingerprint)}</small></td>
               <td>{html.escape(created)}</td>
-              <td><button type="button" class="table-action" data-create-device data-user-id="{html.escape(user_ids.get(owner, ''), quote=True)}" data-user-name="{html.escape(owner, quote=True)}">{_icon('plus')}<span>Add another device</span></button><button type="button" class="table-action danger" data-device-revoke data-device-id="{html.escape(str(device.get('id', '')), quote=True)}" data-device-name="{html.escape(device_name, quote=True)}">{_icon('remove')}<span>Revoke device</span></button></td>
+              <td>{device_action_markup}</td>
             </tr>"""
         )
     device_markup = "".join(device_rows) or f'<tr><td colspan="5" class="table-empty">{_icon("device")}<strong>No dashboard-managed devices yet</strong><span>Add a device from the OpenVPN Users page.</span><button type="button" class="primary" data-view-target="vpn-users">Open users</button></td></tr>'
@@ -631,6 +666,7 @@ def dashboard_page(
                     f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}" '
                     f'data-legacy-device="{html.escape(device_label, quote=True)}">'
                     f'{_icon("refresh")}<span>Issue replacement</span></button>'
+                    if can_manage_profiles else '<span class="muted-label">Read-only</span>'
                 )
             else:
                 migration_status = "Match owner manually"
@@ -684,6 +720,11 @@ def dashboard_page(
     )
     router_dns_safe = html.escape(router_dns or "not configured")
     access_layer = html.escape(access_layer_label)
+    backup_action = (
+        f'<a class="quiet" href="/api/backups/metadata.zip">{_icon("download")}<span>Download backup</span></a>'
+        if has_capability(normalized_role, "backup.manage")
+        else '<span class="muted-label">Backup controls restricted</span>'
+    )
     warning_markup = ""
     if warnings:
         warning_items = "".join(f"<li>{html.escape(item)}</li>" for item in warnings)
@@ -733,7 +774,7 @@ def dashboard_page(
     <a class="mikrotik-wordmark" href="/dashboard"><span class="mikrotik-mark">{_icon('logo')}</span><strong>MIKROTIK</strong><span class="brand-host">{router_display_name_safe}</span></a>
     <div class="menubar-spacer"></div>
     <span class="safe-mode">{_icon('shield')} Access protected</span>
-    <span class="router-pill"><i></i><span>{board}</span><small>RouterOS {version} · {html.escape(admin_role.title())}</small></span>
+    <span class="router-pill"><i></i><span>{board}</span><small>RouterOS {version} · {html.escape(role_label(normalized_role))}</small></span>
     <details class="theme-menu">
       <summary aria-label="Choose appearance">{_icon('appearance')}<span>Theme</span></summary>
       <div class="theme-popover" role="group" aria-label="Theme options">
@@ -806,7 +847,7 @@ def dashboard_page(
       </section>
 
       <section class="app-view" id="profile-security" data-view="profile-security" hidden>
-        <header class="view-heading"><div><p class="eyebrow">DEVICES</p><h1>Device Profiles</h1><p>Each phone gets its own protected OpenVPN profile.</p></div><button class="primary" type="button" data-view-target="vpn-users">{_icon('plus')}<span>Add a device</span></button></header>
+         <header class="view-heading"><div><p class="eyebrow">DEVICES</p><h1>Device Profiles</h1><p>Each phone gets its own protected OpenVPN profile.</p></div>{f'<button class="primary" type="button" data-view-target="vpn-users">{_icon("plus")}<span>Add a device</span></button>' if can_manage_profiles else ''}</header>
         {posture_panel}
         <section class="panel table-panel migration-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Certificate migration</strong><small>Replace profiles issued by a previous CA before retiring them.</small></span></div><span class="posture-badge">{migrated_profile_count}/{legacy_profile_count} replacements issued</span></div><div class="migration-guidance"><strong>Safe order:</strong> issue a replacement, import and test it on the device, then revoke the old certificate. Issuing a replacement never disconnects or revokes the existing profile.</div><div class="responsive-table"><table class="migration-table"><thead><tr><th>Legacy certificate / device</th><th>Owner / issuer</th><th>Migration state</th><th>Action</th></tr></thead><tbody>{migration_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('device')}<span><strong>Managed devices</strong><small>Profiles created by this dashboard</small></span></div><span class="posture-badge">Protected automatically</span></div><div class="responsive-table"><table class="device-table"><thead><tr><th>Device / owner</th><th>Status</th><th>Protection ID</th><th>Created</th><th>Action</th></tr></thead><tbody>{device_markup}</tbody></table></div></section>
@@ -831,7 +872,7 @@ def dashboard_page(
       </section>
 
       <section class="app-view" id="policy-templates" data-view="policy-templates" hidden>
-        <header class="view-heading"><div><p class="eyebrow">ACCESS GOVERNANCE</p><h1>Policy Templates</h1><p>Apply repeatable access settings to selected users after reviewing the exact differences.</p></div><button type="button" class="primary" data-open-template-create>{_icon('plus')}<span>New custom template</span></button></header>
+         <header class="view-heading"><div><p class="eyebrow">ACCESS GOVERNANCE</p><h1>Policy Templates</h1><p>Apply repeatable access settings to selected users after reviewing the exact differences.</p></div>{f'<button type="button" class="primary" data-open-template-create>{_icon("plus")}<span>New custom template</span></button>' if can_manage_policies else ''}</header>
         <section class="policy-intro"><span>{_icon('template')}</span><div><strong>Nothing changes until you apply it.</strong><small>Templates group users for easy management. Applying one creates a RouterOS checkpoint, updates the selected accounts only, and records the change history.</small></div></section>
         <section class="policy-template-grid">{template_cards}</section>
         <section class="panel template-apply-panel"><div class="panel-heading"><div>{_icon('template')}<span><strong>Preview and apply</strong><small>Select a template and the people it should affect. Direct user edits remain visible as overrides.</small></span></div></div><form data-template-apply><label><span>Template</span><select name="template_id" required><option value="">Select a template</option>{template_options}</select></label><fieldset><legend>Selected VPN users</legend><div class="template-user-list">{''.join(f'<label><input type="checkbox" name="user_ids" value="{html.escape(str(user.get("id", "")), quote=True)}"><span><strong>{html.escape(str(user.get("name", "")))}</strong><small>{html.escape(str((user.get("template") or {}).get("group_name", "No group")))}</small></span></label>' for user in users)}</div></fieldset><p class="form-status" role="status"></p><div class="template-preview" hidden data-template-preview></div><footer><button type="button" class="quiet" data-template-preview-button>Preview changes</button><button type="submit" class="primary" disabled data-template-apply-button>Apply to selected users</button></footer></form></section>
@@ -850,7 +891,7 @@ def dashboard_page(
         <section class="panel setup-planner-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Read-only preflight</strong><small>Checks router reachability and OpenVPN availability; package, device-mode, storage, DNS, and TLS gates remain explicit manual checks.</small></span></div><button type="button" class="quiet" data-setup-preflight>{_icon('refresh')}<span>Run preflight</span></button></div><ul class="setup-checks" data-setup-checks><li><i></i><span>Run preflight to check the currently connected router. No configuration is read or changed beyond the normal dashboard status calls.</span></li></ul></section>
         <section class="panel setup-planner-panel"><div class="panel-heading"><div>{_icon('plan')}<span><strong>Generate a review plan</strong><small>Use an immutable published image and a dedicated external-storage path.</small></span></div><span class="posture-badge">No apply action</span></div><form class="setup-form" data-setup-plan><label><span>Dashboard URL</span><input name="origin" required value="{html.escape(str(dashboard_name and 'https://dashboard.example.com'), quote=True)}" placeholder="https://vpn.example.com"><small>HTTPS is required for public access. Private/local HTTP is accepted only for RFC1918 or localhost setup.</small></label><label><span>Immutable image</span><input name="image" required placeholder="ghcr.io/owner/mikrotik-openvpn-gui:sha-&lt;commit&gt;-arm64"><small>Only full immutable <code>sha-</code> tags are accepted.</small></label><label><span>Dedicated external storage</span><input name="storage" required value="/disk1/vpn-dashboard" placeholder="/disk1/vpn-dashboard"><small>Never use <code>/flash</code> or a shared root.</small></label><label><span>Container subnet</span><input name="subnet" required value="172.31.250.0/30" placeholder="172.31.250.0/30"></label><label><span>Existing LAN CIDR</span><input name="lan" required value="{html.escape(str(router.get('local-address', '') or '192.168.88.0/24'), quote=True)}" placeholder="192.168.88.0/24"><small>The generator rejects overlap with the container subnet.</small></label><p class="form-status" role="status"></p><footer><button type="submit" class="primary">Generate review plan</button></footer></form></section>
         <section class="panel setup-planner-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>OpenVPN foundations · advanced</strong><small>Optional only. Generates a reviewable CA, server, address-pool, and PPP plan for a router with no existing OpenVPN server.</small></span></div><span class="posture-badge">Review first</span></div><form class="setup-form" data-foundation-plan><label><span>Public VPN endpoint</span><input name="endpoint" required value="{html.escape(str(vpn_host or 'vpn.example.com'), quote=True)}" placeholder="vpn.example.com"><small>A DNS name or IP only. Do not include <code>https://</code>.</small></label><label><span>Existing LAN CIDR</span><input name="lan" required value="{html.escape(str(router.get('local-address', '') or '192.168.88.0/24'), quote=True)}" placeholder="192.168.88.0/24"></label><label><span>New VPN client subnet</span><input name="vpn_subnet" required value="10.254.0.0/24" placeholder="10.254.0.0/24"><small>Must not overlap the LAN.</small></label><label><span>VPN DNS server</span><input name="dns_server" required value="{html.escape(str(router_dns or '192.168.88.1'), quote=True)}" placeholder="192.168.88.1"></label><label><span>UDP port</span><input name="port" required inputmode="numeric" value="1194" pattern="[0-9]+"></label><label><span>CA name</span><input name="ca_name" required value="ovpn-bootstrap-ca" pattern="[A-Za-z0-9_.-]+"></label><label><span>Server certificate</span><input name="server_certificate" required value="ovpn-bootstrap-server" pattern="[A-Za-z0-9_.-]+"></label><label><span>OpenVPN server</span><input name="server_name" required value="ovpn-bootstrap" pattern="[A-Za-z0-9_.-]+"></label><label><span>PPP profile</span><input name="ppp_profile" required value="ovpn-bootstrap" pattern="[A-Za-z0-9_.-]+"></label><label><span>Address-pool name</span><input name="pool_name" required value="ovpn-bootstrap-pool" pattern="[A-Za-z0-9_.-]+"></label><p class="form-status" role="status"></p><footer><button type="submit" class="primary">Generate OpenVPN foundation plan</button></footer></form></section>
-        <section class="panel setup-planner-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Dashboard metadata backup</strong><small>Download a local, checksummed recovery archive before upgrades. It contains dashboard metadata only.</small></span></div><a class="quiet" href="/api/backups/metadata.zip">{_icon('download')}<span>Download backup</span></a></div><p class="backup-safety-note">Never includes RouterOS configuration, VPN passwords, private keys, issued profiles, or active sessions. Verify an archive locally before considering a review-first restore.</p><form class="backup-verify" data-backup-verify><label><span>Verify an existing backup</span><input type="file" name="backup" accept=".zip,application/zip" required><small>The archive is checked in memory and never stored or restored automatically.</small></label><p class="form-status" role="status"></p><button class="quiet" type="submit">Verify backup</button><button class="quiet" type="button" data-backup-plan disabled>Generate restore plan</button><div class="backup-plan" data-backup-plan-output hidden></div></form></section>
+        <section class="panel setup-planner-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Dashboard metadata backup</strong><small>Download a local, checksummed recovery archive before upgrades. It contains dashboard metadata only.</small></span></div>{backup_action}</div><p class="backup-safety-note">Never includes RouterOS configuration, VPN passwords, private keys, issued profiles, or active sessions. Verify an archive locally before considering a review-first restore.</p><form class="backup-verify" data-backup-verify><label><span>Verify an existing backup</span><input type="file" name="backup" accept=".zip,application/zip" required><small>The archive is checked in memory and never stored or restored automatically.</small></label><p class="form-status" role="status"></p><button class="quiet" type="submit">Verify backup</button><button class="quiet" type="button" data-backup-plan disabled>Generate restore plan</button><div class="backup-plan" data-backup-plan-output hidden></div></form></section>
         <section class="panel setup-planner-panel" hidden data-setup-output><div class="panel-heading"><div>{_icon('log')}<span><strong>Reviewable RouterOS plan</strong><small>Copy only after completing the manual gates above.</small></span></div><button type="button" class="quiet" data-copy-setup>{_icon('copy')}<span>Copy plan</span></button></div><pre class="setup-plan-output" data-setup-plan-output></pre></section>
       </section>
 

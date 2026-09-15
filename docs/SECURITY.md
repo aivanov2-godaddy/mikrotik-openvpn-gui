@@ -84,7 +84,29 @@ to your router or add GitHub-hosted runner ranges to a RouterOS allowlist.
 
 ## Administrator authorization
 
-The dashboard verifies the credentials presented at login against RouterOS. Prefer a dedicated RouterOS group with only the policy needed by dashboard operations after that policy has been tested against every supported action. Avoid routine use of a full RouterOS owner account. An optional identity perimeter such as Cloudflare Access can provide an independent first factor and identity allowlist, but it does not replace RouterOS authorization.
+The dashboard verifies the credentials presented at login against RouterOS and
+maps the authenticated RouterOS group to an explicit dashboard role. The roles
+are Owner, Security operator, Administrator, Auditor, and Read-only. The
+capability matrix is enforced in the API and reflected in the UI; a hidden or
+disabled button is never treated as the security boundary. Unknown groups fail
+closed to Read-only, while the legacy `/user`-unavailable compatibility path
+preserves the established owner session behavior for older RouterOS builds.
+
+Prefer a dedicated RouterOS group with only the policy needed by dashboard
+operations after that policy has been tested against every supported action.
+Avoid routine use of a full RouterOS owner account. An optional identity
+perimeter such as Cloudflare Access can provide an independent first factor and
+identity allowlist, but it does not replace RouterOS authorization.
+
+### Authentication and authorization audit events
+
+Change History records successful and failed sign-ins, the role assigned to a
+session, denied capabilities (`role.denied`), and dashboard-session revocation
+(`session.revoked`). Events include only a safe actor, route/target, role,
+capability, source address, result, and a coarse reason. Passwords, session
+cookies/tokens, private keys, certificates, and profile contents are rejected
+by the audit sanitizer and are never written to SQLite or sent to an audit
+webhook.
 
 ## Build and release integrity
 

@@ -29,7 +29,17 @@ from favicon import FAVICON_SVG, ico_bytes
 from integrations import WebhookDispatcher
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg
-from security import LoginRateLimiter, SECURITY_HEADERS, Session, SessionStore, csrf_matches
+from security import (
+    LoginRateLimiter,
+    SECURITY_HEADERS,
+    Session,
+    SessionStore,
+    csrf_matches,
+    has_capability,
+    role_capabilities,
+    role_label,
+    normalize_role,
+)
 from store import MetadataStore
 from templates import dashboard_page, login_page
 
@@ -464,11 +474,37 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json({"error": "CSRF validation failed"}, status=HTTPStatus.FORBIDDEN)
         return False
 
-    def _require_operator(self, session: Session) -> bool:
-        if session.role in {"owner", "operator"}:
+    def _require_capability(self, session: Session, capability: str, *, action: str = "") -> bool:
+        """Enforce a named dashboard capability and record denied attempts.
+
+        The audit entry contains only the actor, route, role, and capability;
+        credentials, cookies, private keys, and profile contents are never
+        included.
+        """
+        if has_capability(session.role, capability):
             return True
-        self._json({"error": "This RouterOS account is read-only."}, status=HTTPStatus.FORBIDDEN)
+        target = action or urllib.parse.urlsplit(self.path).path
+        normalized = normalize_role(session.role)
+        self.server.context.store.audit(
+            actor=session.username,
+            action="role.denied",
+            target=target,
+            status="denied",
+            details={"role": normalized, "capability": capability},
+        )
+        self._json(
+            {
+                "error": "This role is not allowed to perform that action.",
+                "role": normalized,
+                "required_capability": capability,
+            },
+            status=HTTPStatus.FORBIDDEN,
+        )
         return False
+
+    def _require_operator(self, session: Session) -> bool:
+        """Compatibility guard for routine administration operations."""
+        return self._require_capability(session, "users.manage")
 
     def _require_target_confirmation(self, data: dict[str, Any], target: str) -> bool:
         """Require the exact RouterOS target name for an irreversible action."""
@@ -851,7 +887,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "sessions": active_sessions,
                         "connections": self.server.context.store.recent_connections(50),
                         "alerts": self.server.context.store.recent_alerts(20),
-                        "role": session.role,
+                        "role": normalize_role(session.role),
+                        "role_label": role_label(session.role),
+                        "capabilities": sorted(role_capabilities(session.role)),
                         "router": router,
                         "observability": self._observability(),
                         "generated_at": int(time.time()),
@@ -966,7 +1004,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
             return
         if path == "/api/audit.csv":
-            if not self._require_session(api=True):
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "audit.read"):
                 return
             try:
                 start_at, end_at = self._report_range(query)
@@ -987,7 +1026,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/audit.json":
-            if not self._require_session(api=True):
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "audit.read"):
                 return
             try:
                 start_at, end_at = self._report_range(query)
@@ -999,7 +1039,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/backups/metadata.zip":
             session = self._require_session(api=True)
-            if not session or not self._require_operator(session):
+            if not session or not self._require_capability(session, "backup.manage"):
                 return
             self._metadata_backup(session)
             return
@@ -1404,7 +1444,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         checking that it would not overwrite an existing VPN foundation.
         """
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "security.manage"):
             return
         try:
             data = self._read_json()
@@ -1507,7 +1547,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _backup_preflight(self) -> None:
         """Validate a backup manifest only; this route never restores data."""
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "backup.manage"):
             return
         try:
             value = self._read_json()
@@ -1536,7 +1576,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _backup_validate_archive(self) -> None:
         """Validate an uploaded local backup archive without restoring or persisting it."""
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "backup.manage"):
             return
         try:
             value = self._read_json()
@@ -1583,7 +1623,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         response is built.
         """
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "backup.manage"):
             return
         try:
             value = self._read_json()
@@ -1681,12 +1721,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Password is required")
             credentials = RouterOSCredentials(username, password)
             self.server.context.router.verify_credentials(credentials)
-        except (ValueError, RouterOSError):
+        except (ValueError, RouterOSError) as error:
             self.server.context.limiter.fail(identity)
             self.server.context.store.audit(
                 actor=username if "username" in locals() else "unknown",
                 action="login.failure", target="dashboard", status="failed",
-                details={"source": identity},
+                details={
+                    "source": identity,
+                    "auth_method": "routeros",
+                    "reason": type(error).__name__,
+                },
             )
             self._html(
                 login_page(
@@ -1698,7 +1742,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
         self.server.context.limiter.success(identity)
-        role = self.server.context.router.get_admin_role(credentials)
+        role = normalize_role(self.server.context.router.get_admin_role(credentials))
         session = self.server.context.sessions.create(username, password, role=role)
         cookie = (
             f"vpn_session={session.session_id}; Path=/; Max-Age=28800; "
@@ -1706,7 +1750,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         self.server.context.store.audit(
             actor=username, action="login", target="dashboard", status="success",
-            details={"role": role},
+            details={"role": role, "source": identity, "auth_method": "routeros"},
+        )
+        self.server.context.store.audit(
+            actor=username, action="role.assigned", target="dashboard", status="success",
+            details={"role": role, "source": "routeros-group"},
         )
         self._redirect("/dashboard", cookie=cookie)
 
@@ -1721,6 +1769,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if not self._require_csrf(session, form.get("csrf", "")):
             return
+        self.server.context.store.audit(
+            actor=session.username,
+            action="session.revoked",
+            target="dashboard",
+            status="success",
+            details={"reason": "logout", "role": normalize_role(session.role)},
+        )
         self.server.context.sessions.destroy(session.session_id)
         cookie = "vpn_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict"
         self._redirect("/login", cookie=cookie)
@@ -1903,7 +1958,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _create_user(self) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         try:
             data = self._read_json()
@@ -1914,7 +1969,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _duplicate_user(self, source_id: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         credentials = self._credentials(session)
         try:
@@ -1941,7 +1996,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _create_profile(self, user_id: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
             return
         credentials = self._credentials(session)
         try:
@@ -2018,7 +2073,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _update_user(self, user_id: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         credentials = self._credentials(session)
         try:
@@ -2101,7 +2156,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _create_policy_template(self) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "policies.manage"):
             return
         try:
             data = self._read_json()
@@ -2121,7 +2176,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _update_policy_template(self, template_id: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "policies.manage"):
             return
         try:
             data = self._read_json()
@@ -2144,7 +2199,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _policy_template_action(self, template_id: str, action: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "policies.manage"):
             return
         try:
             data = self._read_json()
@@ -2206,7 +2261,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _set_user_access(self, user_id: str, *, suspended: bool) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         credentials = self._credentials(session)
         try:
@@ -2276,7 +2331,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _delete_user(self, user_id: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         credentials = self._credentials(session)
         try:
@@ -2315,7 +2370,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _revoke_device(self, device_id: str) -> None:
         """Retire one dashboard-managed certificate after exact confirmation."""
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "device.manage"):
             return
         credentials = self._credentials(session)
         try:
@@ -2348,7 +2403,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _terminate_session(self, session_id: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_operator(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "session.manage"):
             return
         credentials = self._credentials(session)
         try:
@@ -2377,7 +2432,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _ack_alert(self, alert_id: int) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session):
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "alert.manage"):
             return
         self.server.context.store.acknowledge_alert(alert_id)
         self.server.context.store.audit(
