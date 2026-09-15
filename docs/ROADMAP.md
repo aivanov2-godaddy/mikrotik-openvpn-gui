@@ -96,5 +96,11 @@ native app or changing the OpenVPN client experience. These are
 presentation-only changes: APIs, RouterOS state, certificates, CA material,
 and the router-hosted data boundary remain unchanged.
 
+The follow-up polish pass adds an adaptive navigation treatment, stronger
+mobile hierarchy, rounded card grouping, thumb-sized primary actions, clearer
+live-session facts and graph containers, and keyboard-safe dialog surfaces.
+Active navigation scrolls into view when a dashboard card opens another view;
+all existing keyboard and screen-reader semantics remain intact.
+
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).

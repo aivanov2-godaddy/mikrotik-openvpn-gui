@@ -598,6 +598,9 @@ function showView(requestedView, updateHash = true) {
     if (active) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   });
+  if (window.matchMedia?.('(max-width: 760px)').matches) {
+    $('.winbox-sidebar [data-view-target].active')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
+  }
   if (updateHash && location.hash !== `#${view}`) history.pushState(null, '', `#${view}`);
   $('.workspace-content')?.scrollTo({ top: 0, behavior: 'auto' });
 }

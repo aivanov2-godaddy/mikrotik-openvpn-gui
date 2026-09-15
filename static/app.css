@@ -777,3 +777,224 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .migration-table td:last-child { white-space: normal; }
   .migration-guidance { font-size: 12px; }
 }
+
+/* Mobile UX polish: preserve the information architecture while giving the
+   phone layout a calm, touch-first rhythm. This is presentation-only; it does
+   not change API calls, RouterOS state, certificates, CA material, or data. */
+@media (max-width: 760px) {
+  body { font-size: 14px; background: var(--chrome); }
+  .winbox-shell { min-height: 100svh; }
+  .winbox-menubar {
+    min-height: 54px;
+    height: auto;
+    padding-top: max(7px, env(safe-area-inset-top));
+    padding-bottom: 7px;
+    gap: 8px;
+  }
+  .mikrotik-wordmark { min-width: 0; gap: 6px; }
+  .mikrotik-wordmark strong { font-size: 14px; }
+  .brand-host {
+    max-width: 34vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .router-pill {
+    min-height: 34px;
+    padding: 5px 9px;
+    color: #d9e7ec;
+    border: 1px solid #385565;
+    border-radius: 999px;
+    background: #1b2c35;
+    font-size: 11px;
+  }
+  .router-pill i { width: 8px; height: 8px; }
+  .top-logout button {
+    width: 42px;
+    height: 42px;
+    border: 1px solid #344650;
+    border-radius: 10px;
+    background: #1c2a32;
+  }
+  .winbox-sidebar {
+    top: 54px;
+    height: 58px;
+    padding: 8px max(10px, env(safe-area-inset-left)) 8px max(10px, env(safe-area-inset-left));
+    gap: 7px;
+    border-bottom-color: #3b4d58;
+    background: rgb(24 36 45 / 96%);
+    box-shadow: 0 7px 18px rgb(0 0 0 / 18%);
+    overscroll-behavior-inline: contain;
+    scroll-padding-inline: 10px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .winbox-sidebar a {
+    min-height: 42px;
+    height: 42px;
+    padding: 0 12px;
+    gap: 7px;
+    border-radius: 11px;
+    font-size: 13px;
+    font-weight: 600;
+    scroll-snap-align: center;
+  }
+  .winbox-sidebar a.active {
+    border-color: rgb(57 170 224 / 60%);
+    background: linear-gradient(180deg, #235f87 0%, #194c70 100%);
+    box-shadow: 0 3px 12px rgb(12 112 167 / 25%), inset 0 1px rgb(255 255 255 / 10%);
+  }
+  .winbox-sidebar .wb-icon { width: 20px; height: 20px; }
+  .nav-count { min-width: 20px; height: 20px; }
+  .workspace-content {
+    padding-top: 16px;
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
+  }
+  .view-heading {
+    min-height: 0;
+    gap: 14px;
+    padding: 4px 2px 16px;
+    border-bottom-color: #354650;
+  }
+  .view-heading h1 {
+    color: #f5f8fa;
+    font-size: clamp(22px, 6vw, 28px);
+    letter-spacing: -.025em;
+    line-height: 1.15;
+  }
+  .view-heading p:not(.eyebrow) {
+    display: block;
+    max-width: 58ch;
+    color: #a7b5bd;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .eyebrow { font-size: 11px; letter-spacing: .1em; }
+  .heading-actions { gap: 8px; }
+  .heading-actions > .primary,
+  .heading-actions > .quiet,
+  .heading-actions > a { min-height: 44px; border-radius: 9px; }
+  .live-refresh {
+    min-height: 32px;
+    padding: 6px 10px;
+    border: 1px solid #35644f;
+    border-radius: 999px;
+    background: #20362d;
+  }
+  .panel, .metric {
+    border-color: #354650;
+    border-radius: 11px;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  }
+  .panel-heading { min-height: 54px; padding: 12px 14px; gap: 10px; }
+  .panel-heading strong { font-size: 14px; }
+  .panel-heading small { line-height: 1.35; }
+  .metric-grid { gap: 9px; }
+  .metric {
+    min-height: 96px;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+  .metric-icon { width: 36px; height: 36px; border-radius: 10px; }
+  .metric strong { font-size: 22px; }
+  .metric span { font-size: 11px; }
+  .health-grid { gap: 9px; padding: 10px; }
+  .health-item { gap: 6px; padding: 13px; border-radius: 10px; background: #202d36; }
+  .health-item > span { font-size: 11px; }
+  .health-item > strong { font-size: 21px; }
+  .health-item > small { line-height: 1.4; white-space: normal; }
+  .connection-summary {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 10px;
+  }
+  .session-card {
+    margin: 8px;
+    padding: 12px;
+    gap: 12px;
+    border: 1px solid #334650;
+    border-radius: 10px;
+    background: #1e2a32;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 16%);
+  }
+  .session-card:first-child { border-top: 1px solid #334650; }
+  .session-main strong { font-size: 14px; }
+  .session-main small { font-size: 11px; line-height: 1.35; }
+  .session-facts {
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid #334650;
+    border-radius: 8px;
+    background: #1b272f;
+  }
+  .session-facts > div { padding: 7px; border-radius: 6px; background: #23323b; }
+  .session-facts dt { font-size: 10px; }
+  .session-facts dd { font-size: 11px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+  .session-graphs { gap: 9px; padding-top: 0; }
+  .traffic-graph { padding: 10px; border-radius: 9px; }
+  .traffic-graph canvas { height: 130px; }
+  .responsive-table {
+    margin: 0 2px 2px;
+    border: 1px solid #344650;
+    border-radius: 8px;
+  }
+  .responsive-table th { height: 40px; padding: 0 12px; font-size: 12px; }
+  .responsive-table td { padding: 12px; font-size: 13px; }
+  .action-menu summary { min-width: 44px; height: 44px; border-radius: 8px; }
+  .action-menu .action-popover { max-width: calc(100vw - 32px); }
+  .toast-region {
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: calc(100vw - 24px);
+  }
+  dialog { border-color: #3d5361; border-radius: 14px; }
+  dialog::backdrop { backdrop-filter: blur(4px); }
+  .dialog-card > header {
+    margin: 0 -12px;
+    padding: 14px 14px 13px;
+    border-radius: 13px 13px 0 0;
+  }
+  .dialog-card header h2 { font-size: 18px; line-height: 1.2; }
+  .dialog-card header p:not(.eyebrow) {
+    overflow: visible;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: normal;
+  }
+  .dialog-card > footer button { border-radius: 9px; }
+  .selected-user { padding: 10px 12px; border-radius: 8px; font-size: 12px; }
+  .form-status { font-size: 12px; line-height: 1.4; }
+}
+
+@media (max-width: 520px) {
+  .winbox-menubar { min-height: 56px; }
+  .winbox-sidebar { top: 56px; }
+  .winbox-sidebar a { width: 48px; border-radius: 12px; }
+  .winbox-sidebar a .wb-icon { width: 21px; height: 21px; }
+  .workspace-content { padding-top: 14px; }
+  .view-heading p:not(.eyebrow) {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .view-heading .primary, .view-heading .quiet { width: auto; flex: 1 1 140px; }
+  .heading-actions { justify-content: stretch; }
+  .heading-actions > * { flex: 1 1 140px; }
+  .page-search { min-height: 44px; border-radius: 9px; }
+  .metric { min-height: 88px; padding: 11px; }
+  .metric strong { font-size: 20px; }
+  .metric span {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+  .session-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .session-facts > div:last-child { grid-column: 1 / -1; }
+  .terminate-button { width: 100%; justify-self: stretch; min-height: 44px; border-radius: 9px; }
+}

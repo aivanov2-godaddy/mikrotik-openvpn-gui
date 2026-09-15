@@ -748,8 +748,12 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(update_block.count("deferFreshData("), 3)
         self.assertIn("data-full-refresh", script)
         self.assertIn("Mobile administrator ergonomics", mobile_css)
+        self.assertIn("Mobile UX polish", mobile_css)
         self.assertIn("env(safe-area-inset-bottom)", mobile_css)
         self.assertIn("max-width: 520px", mobile_css)
+        self.assertIn("scroll-snap-type: x proximity", mobile_css)
+        self.assertIn("backdrop-filter: blur(4px)", mobile_css)
+        self.assertIn("scrollIntoView", script)
 
     def test_optional_certificate_failure_does_not_cancel_valid_login(self) -> None:
         self.mock.state.fail_certificate_inventory = True
