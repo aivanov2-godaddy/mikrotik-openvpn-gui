@@ -404,12 +404,13 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .device-name > span { display: grid; }
 .device-name strong, .certificate-name { color: #e8eef1; font-size: 14px; }
 .device-name small, .fingerprint { display: block; color: #7f8d96; font: 11px/1.45 Consolas, monospace; }
-.device-status { display: inline-flex; align-items: center; gap: 5px; color: #bcead4; }
+.device-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; color: #bcead4; }
 .device-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 .device-status.revoked { color: #f1a3a7; }
 .device-status.revoked i { background: var(--red); }
 .device-status.warning { color: #efd28d; }
 .device-status.warning i { background: var(--amber); }
+.device-status small { display: block; flex-basis: 100%; margin-left: 12px; font-size: 0.72rem; color: var(--muted); }
 .device-status.expired { color: #f1a3a7; }
 .device-status.expired i { background: var(--red); }
 .table-secondary, .address-pair small { display: block; color: #75838c; font-size: 11px; }
