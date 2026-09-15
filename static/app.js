@@ -2,6 +2,8 @@ const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 const counters = new Map();
 const histories = new Map();
 const HISTORY_LIMIT = 60;
+const THEME_STORAGE_KEY = 'vpn-dashboard-theme';
+const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
 let pendingDataRefresh = false;
 let pollingInFlight = false;
@@ -9,6 +11,43 @@ let pollingInFlight = false;
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const getDialog = (id) => document.getElementById(id);
+
+function readThemePreference() {
+  try {
+    const value = localStorage.getItem(THEME_STORAGE_KEY);
+    return THEME_MODES.has(value) ? value : 'standard';
+  } catch (_) {
+    return 'standard';
+  }
+}
+
+function themeColor(theme) {
+  if (theme === 'light') return '#f7fafc';
+  if (theme === 'dark') return '#080d12';
+  if (theme === 'system') return window.matchMedia?.('(prefers-color-scheme: light)').matches ? '#f7fafc' : '#111a21';
+  return '#121a21';
+}
+
+function applyTheme(preference, persist = false) {
+  const theme = THEME_MODES.has(preference) ? preference : 'standard';
+  const resolved = theme === 'light' || (theme === 'system' && window.matchMedia?.('(prefers-color-scheme: light)').matches)
+    ? 'light'
+    : (theme === 'dark' ? 'dark' : 'standard');
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.themeResolved = resolved;
+  document.documentElement.style.colorScheme = theme === 'light' ? 'light' : theme === 'system' ? 'light dark' : 'dark';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(theme));
+  $$('[data-theme-choice]').forEach((choice) => {
+    const selected = choice.dataset.themeChoice === theme;
+    choice.setAttribute('aria-pressed', String(selected));
+    choice.classList.toggle('selected', selected);
+  });
+  if (persist) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch (_) { /* preference is optional */ }
+  }
+}
+
+applyTheme(readThemePreference());
 
 function setStatus(form, text, error = false) {
   const node = $('.form-status', form);
@@ -1286,8 +1325,22 @@ $('[data-copy-setup]')?.addEventListener('click', async () => {
   catch (_) { toast('Could not copy the plan automatically.', 'error'); }
 });
 
+$$('[data-theme-choice]').forEach((choice) => {
+  choice.addEventListener('click', () => {
+    applyTheme(choice.dataset.themeChoice, true);
+    choice.closest('.theme-menu')?.removeAttribute('open');
+    toast(`${choice.querySelector('strong')?.textContent || 'Theme'} appearance enabled.`);
+  });
+});
+
+const systemThemeQuery = window.matchMedia?.('(prefers-color-scheme: light)');
+systemThemeQuery?.addEventListener?.('change', () => {
+  if (document.documentElement.dataset.theme === 'system') applyTheme('system');
+});
+
 document.addEventListener('click', (event) => {
   if (!event.target.closest('.action-menu')) $$('.action-menu[open]').forEach((item) => item.removeAttribute('open'));
+  if (!event.target.closest('.theme-menu')) $$('.theme-menu[open]').forEach((item) => item.removeAttribute('open'));
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollStatus(); });
 

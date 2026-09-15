@@ -14,6 +14,9 @@ semantic-version style release tags.
 - Mobile UX polish with adaptive navigation treatment, thumb-sized action
   controls, calm card grouping, readable session facts, and keyboard-safe
   dialog presentation at phone widths.
+- Appearance preferences with Standard, Dark, Light, and System modes. The
+  selection is stored only in the browser, follows the device preference in
+  System mode, and does not alter RouterOS, certificates, or dashboard data.
 - A router-local certificate migration center that discovers legacy client
   profiles, issues tracked replacements, and keeps revocation explicitly
   operator-controlled after the replacement has been tested.

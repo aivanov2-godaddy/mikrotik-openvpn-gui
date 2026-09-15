@@ -67,6 +67,18 @@ h1, h2, h3, p { margin-top: 0; }
 .sync-status { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 2px 7px; color: #e7cf8b; border: 1px solid #6d5b32; border-radius: 3px; background: #3b3324; font-size: 10px; white-space: nowrap; }
 .sync-status:hover { color: #fff0bd; border-color: #a58a48; background: #4a3e28; }
 .sync-status .wb-icon { width: 13px; height: 13px; }
+.theme-menu { position: relative; }
+.theme-menu summary { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; padding: 3px 8px; color: #b8c4ca; border: 1px solid transparent; border-radius: 5px; background: transparent; cursor: pointer; list-style: none; font-size: 11px; }
+.theme-menu summary::-webkit-details-marker { display: none; }
+.theme-menu summary:hover, .theme-menu[open] summary { color: var(--text-bright); border-color: var(--line-strong); background: var(--panel-2); }
+.theme-menu summary .wb-icon { width: 15px; height: 15px; color: var(--blue); }
+.theme-popover { position: absolute; z-index: 60; top: calc(100% + 7px); right: 0; display: grid; width: 190px; gap: 2px; padding: 7px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 14px 35px rgb(0 0 0 / 35%); }
+.theme-popover p { margin: 0 4px 3px; color: var(--dim); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.theme-popover button { display: grid; min-height: 43px; gap: 1px; padding: 7px 9px; color: var(--text); border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: left; }
+.theme-popover button:hover, .theme-popover button.selected { color: var(--text-bright); border-color: var(--blue); background: var(--blue-select); }
+.theme-popover button strong { font-size: 12px; }
+.theme-popover button small { color: var(--muted); font-size: 10px; }
+.theme-popover button.selected small { color: var(--text); }
 .top-logout { margin: 0; }
 .top-logout button { display: inline-flex; height: 26px; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid transparent; background: transparent; }
 .top-logout button:hover { border-color: #3d4b55; background: #25313a; }
@@ -997,4 +1009,228 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .session-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .session-facts > div:last-child { grid-column: 1 / -1; }
   .terminate-button { width: 100%; justify-self: stretch; min-height: 44px; border-radius: 9px; }
+}
+
+/* User-selectable appearance modes. Standard keeps the original WinBox slate;
+   Dark increases contrast for low-light rooms, while Light/System use a calm
+   daylight palette. data-theme-resolved makes System deterministic for CSS. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --chrome: #080d12;
+  --chrome-2: #101820;
+  --sidebar: #0f171e;
+  --workspace: #131d25;
+  --panel: #1a2730;
+  --panel-2: #15212a;
+  --field: #25333d;
+  --field-dark: #121b23;
+  --line: #2b3b46;
+  --line-soft: #22313a;
+  --line-strong: #435767;
+  --text: #dbe5eb;
+  --text-bright: #ffffff;
+  --muted: #9db0bb;
+  --dim: #788c99;
+  --blue: #35b4f2;
+  --blue-dark: #123f5e;
+  --blue-select: #174d72;
+  --green: #23d78e;
+  --red: #ff6f79;
+  --amber: #e8b95a;
+}
+
+html[data-theme-resolved="light"] {
+  color-scheme: light;
+  --chrome: #eef3f7;
+  --chrome-2: #e4ebf0;
+  --sidebar: #e8eff4;
+  --workspace: #f7fafc;
+  --panel: #ffffff;
+  --panel-2: #edf3f6;
+  --field: #ffffff;
+  --field-dark: #eef3f6;
+  --line: #d2dee6;
+  --line-soft: #e2e9ee;
+  --line-strong: #aabdc9;
+  --text: #253746;
+  --text-bright: #102433;
+  --muted: #617585;
+  --dim: #7a8e9b;
+  --blue: #087fbd;
+  --blue-dark: #d4ebf8;
+  --blue-select: #d8edf8;
+  --green: #0a9960;
+  --red: #c9414d;
+  --amber: #a66f0c;
+}
+
+html[data-theme-resolved="dark"] body { background: var(--workspace); }
+html[data-theme-resolved="dark"] .winbox-menubar,
+html[data-theme-resolved="dark"] .winbox-sidebar,
+html[data-theme-resolved="dark"] .workspace-titlebar,
+html[data-theme-resolved="dark"] .workspace-tabs,
+html[data-theme-resolved="dark"] .workspace-toolbar,
+html[data-theme-resolved="dark"] .winbox-statusbar { background: var(--chrome); border-color: var(--line); }
+html[data-theme-resolved="dark"] .workspace-content { background: var(--workspace); }
+html[data-theme-resolved="dark"] .router-pill { color: var(--text); }
+html[data-theme-resolved="dark"] .router-pill small,
+html[data-theme-resolved="dark"] .brand-host,
+html[data-theme-resolved="dark"] .winbox-menubar,
+html[data-theme-resolved="dark"] .workspace-titlebar span,
+html[data-theme-resolved="dark"] .winbox-statusbar { color: var(--muted); }
+html[data-theme-resolved="dark"] .panel,
+html[data-theme-resolved="dark"] .metric,
+html[data-theme-resolved="dark"] .health-item,
+html[data-theme-resolved="dark"] .traffic-graph,
+html[data-theme-resolved="dark"] .session-card,
+html[data-theme-resolved="dark"] .user-card,
+html[data-theme-resolved="dark"] .architecture-paths > article,
+html[data-theme-resolved="dark"] .service-health-check,
+html[data-theme-resolved="dark"] .health-timeline-item { background: var(--panel); border-color: var(--line); }
+html[data-theme-resolved="dark"] .metric-icon,
+html[data-theme-resolved="dark"] .session-facts,
+html[data-theme-resolved="dark"] .session-facts > div,
+html[data-theme-resolved="dark"] .selected-user,
+html[data-theme-resolved="dark"] .confirmation-steps { background: var(--panel-2); border-color: var(--line); }
+html[data-theme-resolved="dark"] .user-card:hover > .user-card-header,
+html[data-theme-resolved="dark"] .responsive-table tbody tr:hover { background: #20333f; }
+html[data-theme-resolved="dark"] .service-health-list,
+html[data-theme-resolved="dark"] .health-timeline,
+html[data-theme-resolved="dark"] .session-list,
+html[data-theme-resolved="dark"] .standalone-session-list,
+html[data-theme-resolved="dark"] .alert-list { background: var(--field-dark); }
+html[data-theme-resolved="dark"] .view-heading,
+html[data-theme-resolved="dark"] .responsive-table th,
+html[data-theme-resolved="dark"] .user-table-head { border-color: var(--line); background: var(--panel-2); color: var(--text); }
+html[data-theme-resolved="dark"] .view-heading h1,
+html[data-theme-resolved="dark"] .metric strong,
+html[data-theme-resolved="dark"] .health-item > strong,
+html[data-theme-resolved="dark"] .service-health-check strong,
+html[data-theme-resolved="dark"] .session-main strong,
+html[data-theme-resolved="dark"] .responsive-table th,
+html[data-theme-resolved="dark"] .responsive-table td,
+html[data-theme-resolved="dark"] .winbox-statusbar strong { color: var(--text-bright); }
+html[data-theme-resolved="dark"] .view-heading p:not(.eyebrow),
+html[data-theme-resolved="dark"] .health-item > span,
+html[data-theme-resolved="dark"] .health-item > small,
+html[data-theme-resolved="dark"] .service-health-check small,
+html[data-theme-resolved="dark"] .service-health-check p,
+html[data-theme-resolved="dark"] .session-main small,
+html[data-theme-resolved="dark"] .session-facts dt,
+html[data-theme-resolved="dark"] .session-facts dd,
+html[data-theme-resolved="dark"] .responsive-table td,
+html[data-theme-resolved="dark"] .table-secondary { color: var(--muted); }
+html[data-theme-resolved="dark"] input,
+html[data-theme-resolved="dark"] select,
+html[data-theme-resolved="dark"] textarea,
+html[data-theme-resolved="dark"] .toolbar-search { color: var(--text); border-color: var(--line-strong); background: var(--field); }
+html[data-theme-resolved="dark"] .theme-popover,
+html[data-theme-resolved="dark"] .action-popover,
+html[data-theme-resolved="dark"] dialog { background: var(--panel); border-color: var(--line-strong); }
+html[data-theme-resolved="dark"] .theme-popover button:hover,
+html[data-theme-resolved="dark"] .theme-popover button.selected,
+html[data-theme-resolved="dark"] .action-popover button:hover { background: var(--blue-select); }
+
+/* Light mode uses explicit component surfaces so legacy WinBox colors cannot
+   overpower the selected palette. */
+html[data-theme-resolved="light"] body { color: var(--text); background: var(--workspace); }
+html[data-theme-resolved="light"] .winbox-menubar,
+html[data-theme-resolved="light"] .winbox-sidebar,
+html[data-theme-resolved="light"] .workspace-titlebar,
+html[data-theme-resolved="light"] .workspace-tabs,
+html[data-theme-resolved="light"] .workspace-toolbar,
+html[data-theme-resolved="light"] .winbox-statusbar { color: var(--text); background: var(--chrome); border-color: var(--line); }
+html[data-theme-resolved="light"] .workspace-content { background: var(--workspace); }
+html[data-theme-resolved="light"] .mikrotik-wordmark,
+html[data-theme-resolved="light"] .workspace-titlebar > div:first-child,
+html[data-theme-resolved="light"] .winbox-statusbar strong { color: var(--text-bright); }
+html[data-theme-resolved="light"] .brand-host,
+html[data-theme-resolved="light"] .router-pill small,
+html[data-theme-resolved="light"] .safe-mode,
+html[data-theme-resolved="light"] .workspace-titlebar span,
+html[data-theme-resolved="light"] .winbox-statusbar { color: var(--muted); }
+html[data-theme-resolved="light"] .router-pill { color: var(--text); }
+html[data-theme-resolved="light"] .winbox-sidebar a { color: var(--text); }
+html[data-theme-resolved="light"] .winbox-sidebar a:hover { color: var(--text-bright); background: #dce8ef; }
+html[data-theme-resolved="light"] .winbox-sidebar a.active { color: #064a70; border-color: #9acbe4; background: var(--blue-select); }
+html[data-theme-resolved="light"] .workspace-tabs a,
+html[data-theme-resolved="light"] .toolbar-actions button,
+html[data-theme-resolved="light"] .toolbar-actions a { color: var(--text); }
+html[data-theme-resolved="light"] .workspace-tabs a:hover,
+html[data-theme-resolved="light"] .toolbar-actions button:hover,
+html[data-theme-resolved="light"] .toolbar-actions a:hover { color: var(--text-bright); background: #dce8ef; }
+html[data-theme-resolved="light"] .panel,
+html[data-theme-resolved="light"] .metric,
+html[data-theme-resolved="light"] .health-item,
+html[data-theme-resolved="light"] .traffic-graph,
+html[data-theme-resolved="light"] .session-card,
+html[data-theme-resolved="light"] .user-card,
+html[data-theme-resolved="light"] .architecture-paths > article,
+html[data-theme-resolved="light"] .service-health-check,
+html[data-theme-resolved="light"] .health-timeline-item { color: var(--text); background: var(--panel); border-color: var(--line); }
+html[data-theme-resolved="light"] .metric-icon,
+html[data-theme-resolved="light"] .session-facts,
+html[data-theme-resolved="light"] .session-facts > div,
+html[data-theme-resolved="light"] .selected-user,
+html[data-theme-resolved="light"] .confirmation-steps { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+html[data-theme-resolved="light"] .user-card:hover > .user-card-header,
+html[data-theme-resolved="light"] .responsive-table tbody tr:hover { background: #edf5f8; }
+html[data-theme-resolved="light"] .service-health-list,
+html[data-theme-resolved="light"] .health-timeline,
+html[data-theme-resolved="light"] .session-list,
+html[data-theme-resolved="light"] .standalone-session-list,
+html[data-theme-resolved="light"] .alert-list { background: #e8f0f4; }
+html[data-theme-resolved="light"] .view-heading,
+html[data-theme-resolved="light"] .responsive-table th,
+html[data-theme-resolved="light"] .user-table-head { color: var(--text); border-color: var(--line); background: var(--panel-2); }
+html[data-theme-resolved="light"] .view-heading h1,
+html[data-theme-resolved="light"] .metric strong,
+html[data-theme-resolved="light"] .health-item > strong,
+html[data-theme-resolved="light"] .service-health-check strong,
+html[data-theme-resolved="light"] .session-main strong,
+html[data-theme-resolved="light"] .responsive-table th,
+html[data-theme-resolved="light"] .responsive-table td { color: var(--text-bright); }
+html[data-theme-resolved="light"] .view-heading p:not(.eyebrow),
+html[data-theme-resolved="light"] .health-item > span,
+html[data-theme-resolved="light"] .health-item > small,
+html[data-theme-resolved="light"] .service-health-check small,
+html[data-theme-resolved="light"] .service-health-check p,
+html[data-theme-resolved="light"] .session-main small,
+html[data-theme-resolved="light"] .session-facts dt,
+html[data-theme-resolved="light"] .session-facts dd,
+html[data-theme-resolved="light"] .responsive-table td,
+html[data-theme-resolved="light"] .table-secondary { color: var(--muted); }
+html[data-theme-resolved="light"] input,
+html[data-theme-resolved="light"] select,
+html[data-theme-resolved="light"] textarea,
+html[data-theme-resolved="light"] .toolbar-search { color: var(--text); border-color: var(--line-strong); background: var(--field); }
+html[data-theme-resolved="light"] input::placeholder,
+html[data-theme-resolved="light"] .toolbar-search input::placeholder { color: var(--dim); }
+html[data-theme-resolved="light"] .theme-popover,
+html[data-theme-resolved="light"] .action-popover,
+html[data-theme-resolved="light"] dialog { color: var(--text); background: var(--panel); border-color: var(--line-strong); box-shadow: 0 14px 35px rgb(23 53 72 / 18%); }
+html[data-theme-resolved="light"] .theme-popover button:hover,
+html[data-theme-resolved="light"] .theme-popover button.selected,
+html[data-theme-resolved="light"] .action-popover button:hover { background: var(--blue-select); }
+html[data-theme-resolved="light"] .action-popover button { color: var(--text); }
+html[data-theme-resolved="light"] .action-popover .danger-item { color: var(--red); }
+html[data-theme-resolved="light"] .dialog-card > footer { background: var(--panel); }
+html[data-theme-resolved="light"] .login-shell { background: var(--workspace); }
+html[data-theme-resolved="light"] .login-card { border-color: var(--line); box-shadow: 0 15px 45px rgb(23 53 72 / 18%); }
+html[data-theme-resolved="light"] .login-tabs,
+html[data-theme-resolved="light"] .login-status { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+html[data-theme-resolved="light"] .login-content h1 { color: var(--text-bright); }
+html[data-theme-resolved="light"] .login-security { color: var(--muted); }
+
+@media (max-width: 760px) {
+  .theme-menu summary { min-height: 42px; padding: 0 10px; border-radius: 10px; }
+  .theme-menu summary .wb-icon { width: 19px; height: 19px; }
+  .theme-menu summary span:not(.wb-icon) { font-size: 12px; }
+  .theme-popover { position: fixed; top: 62px; right: max(10px, env(safe-area-inset-right)); width: min(220px, calc(100vw - 20px)); }
+}
+
+@media (max-width: 520px) {
+  .theme-menu summary { width: 42px; justify-content: center; padding: 0; }
+  .theme-menu summary span:not(.wb-icon) { display: none; }
+  .theme-popover { top: 64px; }
 }
