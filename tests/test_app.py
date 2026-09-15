@@ -232,7 +232,10 @@ class DashboardIntegrationTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 200)
-        self.assertIn("REVIEW ONLY", json.loads(payload)["plan"])
+        plan = json.loads(payload)["plan"]
+        self.assertIn("REVIEW ONLY", plan)
+        self.assertIn("CA PRESERVATION GATE", plan)
+        self.assertIn("/interface/ovpn-server/server/print detail", plan)
 
         status, _, _ = self.json_request(
             "POST",

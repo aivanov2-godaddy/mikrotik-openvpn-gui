@@ -5,14 +5,14 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
-## v1.1 — Installation Wizard
+## v1.1 — Installation Wizard ✅
 
 An offline, review-only installer that validates non-secret answers and renders
 a RouterOS `.rsc` plan. It keeps Container package installation, device-mode
 physical confirmation, TLS, storage checks, firewall/DNS work, and applying
 commands explicitly manual.
 
-## v1.2 — Policy templates and groups
+## v1.2 — Policy templates and groups ✅
 
 Reusable access templates, previewed bulk assignments, and clear per-user
 overrides.

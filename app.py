@@ -1017,6 +1017,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# 1. Install the matching RouterOS Container package and complete physical device-mode confirmation.",
             "# 2. Confirm free external storage, DNS, and HTTPS access to the chosen registry.",
             "# 3. Review existing bridges, firewall rules, OpenVPN objects, certificates, and REST TLS.",
+            "# 4. CA PRESERVATION GATE: record the existing CA and server certificate names; do not create, replace, revoke, or migrate them.",
             "",
             "# Idempotent review skeleton (replace <...> only after a backup and maintenance window):",
             f"/container/config/set tmpdir={storage}/tmp",
@@ -1024,6 +1025,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# Attach the veth to a reviewed dedicated bridge; do not change WAN firewall automatically.",
             f"/container/add remote-image={image} interface=<veth-vpn-dashboard> root-dir={storage}/root",
             f"# Mount persistent dashboard data at {storage}/data -> /data; configure non-secret environment values separately.",
+            "# Existing OpenVPN prerequisites (review only; preserve current CA/certificates):",
+            "/ppp/profile/print detail where name=<existing-ppp-profile>",
+            "/interface/ovpn-server/server/print detail",
+            "/certificate/print detail where name=<existing-ca-or-server-cert>",
+            "# Confirm the existing PPP profile, OVPN server, CA, and server certificate before any manual apply.",
             "# Start the canary, verify /healthz over the local bridge, then publish HTTPS only after certificate validation.",
         ])
         self._json({"plan": plan, "origin": origin, "image": image})
