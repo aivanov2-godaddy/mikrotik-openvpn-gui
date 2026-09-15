@@ -8,6 +8,17 @@ semantic-version style release tags.
 
 No changes yet.
 
+## 2.0.0 - 2026-09-16
+
+### Added
+
+- Read-only device posture checks that compare every managed profile with the
+  live RouterOS certificate inventory. Profiles are approved only when their
+  certificate is present, non-revoked, and issued by the configured current
+  CA; missing, revoked, and legacy-CA identities include an actionable reason.
+  No CA, certificate, credential, profile, or RouterOS configuration is
+  changed by these checks.
+
 ## 1.11.0 - 2026-09-16
 
 ### Added

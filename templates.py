@@ -24,7 +24,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20260915-ux-hierarchy-v1"
+    asset_version = "20260916-device-posture-v1"
     script_tag = f'<script src="/static/app.js?v={asset_version}" defer></script>' if script else ""
     return f"""<!doctype html>
 <html lang="en" data-theme="standard">
@@ -148,6 +148,74 @@ def _certificate_expiry(value: Any, now: int | None = None) -> tuple[str, str]:
     if days <= 30:
         return (f"Expires in {days} days", "warning")
     return (f"Valid · {time.strftime('%d %b %Y', time.localtime(expiry))}", "")
+
+
+def evaluate_device_posture(
+    devices: list[dict[str, Any]],
+    certificates: list[dict[str, Any]],
+    current_ca: str,
+) -> list[dict[str, str]]:
+    """Evaluate managed device certificates without changing RouterOS state.
+
+    A profile is approved only when its exact certificate is present in the
+    current inventory, is not revoked, and names the configured current CA.
+    Returning an explicit reason keeps missing and legacy identities
+    actionable instead of collapsing every failure into a generic warning.
+    """
+
+    certificate_by_name = {
+        str(item.get("name", "")): item
+        for item in certificates
+        if str(item.get("name", "")).strip()
+    }
+    configured_ca = str(current_ca or "").strip()
+    posture: list[dict[str, str]] = []
+    for device in devices:
+        device_id = str(device.get("id", ""))
+        certificate_name = str(device.get("certificate_name", "")).strip()
+        certificate = certificate_by_name.get(certificate_name)
+        if not certificate:
+            state, label, reason = (
+                "warning",
+                "Needs review",
+                "Certificate is not present in the current RouterOS inventory.",
+            )
+        elif certificate.get("revoked") is True or str(certificate.get("revoked", "")).strip().casefold() in {
+            "yes",
+            "true",
+            "1",
+            "on",
+        }:
+            state, label, reason = "revoked", "Needs review", "Certificate is revoked in RouterOS."
+        else:
+            authority = str(
+                certificate.get("certificate_authority") or certificate.get("ca") or ""
+            ).strip()
+            if not configured_ca:
+                state, label, reason = (
+                    "warning",
+                    "Needs review",
+                    "The configured current CA is unavailable, so the issuer cannot be verified.",
+                )
+            elif authority != configured_ca:
+                issuer = authority or "an unknown CA"
+                state, label, reason = (
+                    "warning",
+                    "Needs review",
+                    f"Issued by {issuer}; the configured current CA is {configured_ca}.",
+                )
+            else:
+                state, label, reason = "approved", "Approved", "Issued by the current CA and not revoked."
+        posture.append(
+            {
+                "device_id": device_id,
+                "certificate_name": certificate_name or "—",
+                "state": state,
+                "label": label,
+                "reason": reason,
+            }
+        )
+    return posture
 
 
 def _used_percent(free: Any, total: Any) -> int:
@@ -480,9 +548,10 @@ def dashboard_page(
     alert_markup = "".join(alert_rows) or '<li class="alert-empty">No active alerts. Automated checks will appear here when action is needed.</li>'
 
     user_ids = {str(item.get("name", "")): str(item.get("id", "")) for item in users}
-    certificate_by_name = {
-        str(item.get("name", "")): item for item in certificates if item.get("name")
-    }
+    device_posture = evaluate_device_posture(devices, certificates, current_ca)
+    posture_by_device_id = {item["device_id"]: item for item in device_posture}
+    approved_devices = sum(item["state"] == "approved" for item in device_posture)
+    review_devices = len(device_posture) - approved_devices
     device_rows: list[str] = []
     for device in devices:
         owner = str(device.get("vpn_user", "")) or "—"
@@ -491,21 +560,31 @@ def dashboard_page(
         fingerprint = str(device.get("fingerprint", "")) or "—"
         short_fingerprint = fingerprint if len(fingerprint) <= 24 else f"{fingerprint[:12]}…{fingerprint[-8:]}"
         created = time.strftime("%d %b %Y", time.localtime(int(device.get("created_at", 0))))
-        certificate_state = certificate_by_name.get(certificate, {})
-        is_current_ca = not current_ca or str(certificate_state.get("certificate_authority", "")) in {"", current_ca}
-        is_approved = bool(certificate_state) and not bool(certificate_state.get("revoked")) and is_current_ca
-        posture_class = "" if is_approved else " warning"
-        posture_label = "Approved" if is_approved else "Needs review"
+        posture = posture_by_device_id.get(
+            str(device.get("id", "")),
+            {
+                "state": "warning",
+                "label": "Needs review",
+                "reason": "Device posture could not be evaluated.",
+            },
+        )
+        posture_class = "" if posture["state"] == "approved" else f" {posture['state']}"
         device_rows.append(
             f"""<tr>
               <td><span class="device-name">{_icon('device')}<span><strong>{html.escape(device_name)}</strong><small>{html.escape(owner)}</small></span></span></td>
-              <td><span class="device-status{posture_class}"><i></i>{posture_label}<small class="table-secondary">{'Current CA · certificate valid' if is_approved else 'Certificate or CA requires review'}</small></span></td>
+              <td><span class="device-status{posture_class}" title="{html.escape(posture['reason'], quote=True)}"><i></i>{html.escape(posture['label'])}<small class="table-secondary">{html.escape(posture['reason'])}</small></span></td>
               <td><strong class="certificate-name">{html.escape(certificate)}</strong><small class="fingerprint">{html.escape(short_fingerprint)}</small></td>
               <td>{html.escape(created)}</td>
               <td><button type="button" class="table-action" data-create-device data-user-id="{html.escape(user_ids.get(owner, ''), quote=True)}" data-user-name="{html.escape(owner, quote=True)}">{_icon('plus')}<span>Add another device</span></button><button type="button" class="table-action danger" data-device-revoke data-device-id="{html.escape(str(device.get('id', '')), quote=True)}" data-device-name="{html.escape(device_name, quote=True)}">{_icon('remove')}<span>Revoke device</span></button></td>
             </tr>"""
         )
     device_markup = "".join(device_rows) or f'<tr><td colspan="5" class="table-empty">{_icon("device")}<strong>No dashboard-managed devices yet</strong><span>Add a device from the OpenVPN Users page.</span><button type="button" class="primary" data-view-target="vpn-users">Open users</button></td></tr>'
+
+    posture_panel = f"""<section class="panel posture-overview" aria-label="Device posture summary">
+      <div class="panel-heading"><div>{_icon('shield')}<span><strong>Device posture</strong><small>Read-only certificate checks for every managed profile</small></span></div><span class="posture-badge">RouterOS inventory</span></div>
+      <div class="posture-metrics"><div class="posture-metric approved"><strong>{approved_devices}</strong><span>Approved</span><small>Current CA · not revoked</small></div><div class="posture-metric warning"><strong>{review_devices}</strong><span>Needs review</span><small>Missing, revoked, or legacy issuer</small></div></div>
+      <p class="posture-overview-note">Approved means the profile certificate is present in the current RouterOS inventory, is not revoked, and is issued by <strong>{html.escape(current_ca or 'the configured current CA')}</strong>. Review items are informational only; no certificates, CA material, or RouterOS settings are changed.</p>
+    </section>"""
 
     devices_by_certificate = {
         str(item.get("certificate_name", "")): item for item in devices
@@ -728,6 +807,7 @@ def dashboard_page(
 
       <section class="app-view" id="profile-security" data-view="profile-security" hidden>
         <header class="view-heading"><div><p class="eyebrow">DEVICES</p><h1>Device Profiles</h1><p>Each phone gets its own protected OpenVPN profile.</p></div><button class="primary" type="button" data-view-target="vpn-users">{_icon('plus')}<span>Add a device</span></button></header>
+        {posture_panel}
         <section class="panel table-panel migration-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Certificate migration</strong><small>Replace profiles issued by a previous CA before retiring them.</small></span></div><span class="posture-badge">{migrated_profile_count}/{legacy_profile_count} replacements issued</span></div><div class="migration-guidance"><strong>Safe order:</strong> issue a replacement, import and test it on the device, then revoke the old certificate. Issuing a replacement never disconnects or revokes the existing profile.</div><div class="responsive-table"><table class="migration-table"><thead><tr><th>Legacy certificate / device</th><th>Owner / issuer</th><th>Migration state</th><th>Action</th></tr></thead><tbody>{migration_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('device')}<span><strong>Managed devices</strong><small>Profiles created by this dashboard</small></span></div><span class="posture-badge">Protected automatically</span></div><div class="responsive-table"><table class="device-table"><thead><tr><th>Device / owner</th><th>Status</th><th>Protection ID</th><th>Created</th><th>Action</th></tr></thead><tbody>{device_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('certificate')}<span><strong>RouterOS certificate inventory</strong><small>Current and legacy OpenVPN client identities discovered on this router</small></span></div><span class="muted-label">{len(certificates)} certificates</span></div><div class="responsive-table"><table class="certificate-table"><thead><tr><th>Certificate / identity</th><th>Owner / device</th><th>Status</th><th>Expires</th><th>Fingerprint</th></tr></thead><tbody>{certificate_markup}</tbody></table></div></section>

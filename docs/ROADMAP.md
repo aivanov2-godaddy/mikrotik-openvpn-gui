@@ -67,7 +67,7 @@ release also includes a full first-install playbook and a redacted real-router
 canary acceptance procedure, so a maintainer can verify the public image before
 it is promoted by their router-local deployment controller.
 
-## v2.0 — Device posture checks (phase 1)
+## v2.0 — Device posture checks (phase 1) ✅
 
 The Device Profiles view evaluates each managed profile against the RouterOS
 certificate inventory already read by the dashboard. A profile is marked

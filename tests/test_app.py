@@ -21,6 +21,7 @@ from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials
 from security import LoginRateLimiter, SessionStore
 from store import MetadataStore
+from templates import evaluate_device_posture
 from tests.mock_routeros import MockRouterOS
 
 
@@ -51,6 +52,42 @@ class ContainerImageTargetTests(unittest.TestCase):
         self.assertFalse(result["supported"])
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["image_suffix"])
+
+
+class DevicePostureTests(unittest.TestCase):
+    def test_posture_requires_present_non_revoked_certificate_from_current_ca(self) -> None:
+        devices = [
+            {"id": "approved", "certificate_name": "client-current"},
+            {"id": "missing", "certificate_name": "client-missing"},
+            {"id": "revoked", "certificate_name": "client-revoked"},
+            {"id": "legacy", "certificate_name": "client-legacy"},
+            {"id": "unknown-issuer", "certificate_name": "client-unknown"},
+        ]
+        certificates = [
+            {"name": "client-current", "certificate_authority": "vpn-ca", "revoked": False},
+            {"name": "client-revoked", "certificate_authority": "vpn-ca", "revoked": True},
+            {"name": "client-legacy", "certificate_authority": "old-ca", "revoked": False},
+            {"name": "client-unknown", "revoked": False},
+        ]
+
+        result = evaluate_device_posture(devices, certificates, "vpn-ca")
+
+        self.assertEqual([item["state"] for item in result], ["approved", "warning", "revoked", "warning", "warning"])
+        self.assertEqual(result[0]["label"], "Approved")
+        self.assertIn("not present", result[1]["reason"])
+        self.assertIn("revoked", result[2]["reason"])
+        self.assertIn("old-ca", result[3]["reason"])
+        self.assertIn("unknown CA", result[4]["reason"])
+
+    def test_posture_does_not_approve_when_current_ca_is_unavailable(self) -> None:
+        result = evaluate_device_posture(
+            [{"id": "client", "certificate_name": "client"}],
+            [{"name": "client", "certificate_authority": "vpn-ca", "revoked": False}],
+            "",
+        )
+
+        self.assertEqual(result[0]["state"], "warning")
+        self.assertIn("cannot be verified", result[0]["reason"])
 
 
 class DashboardIntegrationTests(unittest.TestCase):
@@ -197,6 +234,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         for label in (b"Dashboard", b"VPN Users", b"Connections", b"Device Profiles", b"Policy Templates", b"Service Health", b"Change History", b"Setup Planner"):
             self.assertIn(b'aria-label="' + label + b'"', page)
         self.assertIn(b"RouterOS certificate inventory", page)
+        self.assertIn(b"Device posture", page)
+        self.assertIn(b"Read-only certificate checks for every managed profile", page)
+        self.assertIn(b"Approved", page)
         self.assertIn(b"Per-device revocation needs CA migration", page)
         self.assertIn(b"ovpn-user-one-device-a", page)
         self.assertIn(b"What happens under the hood", page)
