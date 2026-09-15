@@ -12,11 +12,12 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The next planned feature release is **v1.11.0**. It adds certificate-profile
-migration tracking alongside the existing release metadata
-validation and generated release notes while preserving the router-local data
-and immutable-image deployment model. The current published feature release is
-**v1.9.0**. It adds review-first OpenVPN
+The current published feature release is **v1.11.0**. It adds certificate-profile
+migration tracking alongside the existing release metadata validation and
+generated release notes while preserving the router-local data and
+immutable-image deployment model. The next roadmap milestone is the read-only
+**v2.0 Device posture checks** feature. The previous published feature release
+was **v1.9.0**. It adds review-first OpenVPN
 foundation planning, administrator guardrails, an illustrated installation
 playbook, and a reproducible real-router canary acceptance procedure while
 preserving the router-local data and immutable-image deployment model.

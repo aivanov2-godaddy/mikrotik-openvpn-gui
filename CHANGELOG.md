@@ -6,6 +6,10 @@ semantic-version style release tags.
 
 ## Unreleased
 
+No changes yet.
+
+## 1.11.0 - 2026-09-16
+
 ### Added
 
 - Mobile administrator ergonomics with responsive navigation, touch-sized
