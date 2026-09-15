@@ -11,6 +11,9 @@ semantic-version style release tags.
 - Mobile administrator ergonomics with responsive navigation, touch-sized
   controls, viewport-safe dialogs, and readable narrow-screen health, session,
   device, policy, audit, and observability views.
+- Mobile UX polish with adaptive navigation treatment, thumb-sized action
+  controls, calm card grouping, readable session facts, and keyboard-safe
+  dialog presentation at phone widths.
 - A router-local certificate migration center that discovers legacy client
   profiles, issues tracked replacements, and keeps revocation explicitly
   operator-controlled after the replacement has been tested.
