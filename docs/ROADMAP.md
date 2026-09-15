@@ -67,5 +67,15 @@ release also includes a full first-install playbook and a redacted real-router
 canary acceptance procedure, so a maintainer can verify the public image before
 it is promoted by their router-local deployment controller.
 
+## v2.0 — Device posture checks (phase 1)
+
+The Device Profiles view evaluates each managed profile against the RouterOS
+certificate inventory already read by the dashboard. A profile is marked
+**Approved** only when its certificate is present, non-revoked, and issued by
+the configured current CA; missing, revoked, or legacy-CA identities are
+marked **Needs review** with an explanatory reason. This is deliberately
+read-only: it does not rotate the CA, alter certificates, or change RouterOS.
+Explicit device revocation remains the separate, confirmed action.
+
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).

@@ -469,6 +469,9 @@ def dashboard_page(
     alert_markup = "".join(alert_rows) or '<li class="alert-empty">No active alerts. Automated checks will appear here when action is needed.</li>'
 
     user_ids = {str(item.get("name", "")): str(item.get("id", "")) for item in users}
+    certificate_by_name = {
+        str(item.get("name", "")): item for item in certificates if item.get("name")
+    }
     device_rows: list[str] = []
     for device in devices:
         owner = str(device.get("vpn_user", "")) or "—"
@@ -477,10 +480,15 @@ def dashboard_page(
         fingerprint = str(device.get("fingerprint", "")) or "—"
         short_fingerprint = fingerprint if len(fingerprint) <= 24 else f"{fingerprint[:12]}…{fingerprint[-8:]}"
         created = time.strftime("%d %b %Y", time.localtime(int(device.get("created_at", 0))))
+        certificate_state = certificate_by_name.get(certificate, {})
+        is_current_ca = not current_ca or str(certificate_state.get("certificate_authority", "")) in {"", current_ca}
+        is_approved = bool(certificate_state) and not bool(certificate_state.get("revoked")) and is_current_ca
+        posture_class = "" if is_approved else " warning"
+        posture_label = "Approved" if is_approved else "Needs review"
         device_rows.append(
             f"""<tr>
               <td><span class="device-name">{_icon('device')}<span><strong>{html.escape(device_name)}</strong><small>{html.escape(owner)}</small></span></span></td>
-              <td><span class="device-status"><i></i>Ready</span></td>
+              <td><span class="device-status{posture_class}"><i></i>{posture_label}<small class="table-secondary">{'Current CA · certificate valid' if is_approved else 'Certificate or CA requires review'}</small></span></td>
               <td><strong class="certificate-name">{html.escape(certificate)}</strong><small class="fingerprint">{html.escape(short_fingerprint)}</small></td>
               <td>{html.escape(created)}</td>
               <td><button type="button" class="table-action" data-create-device data-user-id="{html.escape(user_ids.get(owner, ''), quote=True)}" data-user-name="{html.escape(owner, quote=True)}">{_icon('plus')}<span>Add another device</span></button><button type="button" class="table-action danger" data-device-revoke data-device-id="{html.escape(str(device.get('id', '')), quote=True)}" data-device-name="{html.escape(device_name, quote=True)}">{_icon('remove')}<span>Revoke device</span></button></td>
