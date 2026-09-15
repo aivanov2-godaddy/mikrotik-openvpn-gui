@@ -1322,6 +1322,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "#    - create a PPP profile with the intended address pool and DNS;",
             "#    - add the required input/NAT rules, restricted to the chosen public endpoint.",
             "# 5. Back up the router and test one disposable client before issuing real profiles.",
+            "# 6. CA PRESERVATION GATE: record the existing CA and server certificate names; do not create, replace, revoke, or migrate them.",
             "",
             "# Idempotent dashboard container skeleton (replace <...> only after a backup and maintenance window):",
             f"/container/config/set tmpdir={storage}/tmp",
@@ -1329,7 +1330,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# Attach the veth to a reviewed dedicated bridge; do not change WAN firewall automatically.",
             f"/container/add remote-image={image} interface=<veth-vpn-dashboard> root-dir={storage}/root",
             f"# Mount persistent dashboard data at {storage}/data -> /data; configure non-secret environment values separately.",
-            "# Start the canary, verify /healthz and /readyz over the local bridge, then publish HTTPS only after certificate validation.",
+            "# Existing OpenVPN prerequisites (review only; preserve current CA/certificates):",
+            "/ppp/profile/print detail where name=<existing-ppp-profile>",
+            "/interface/ovpn-server/server/print detail",
+            "/certificate/print detail where name=<existing-ca-or-server-cert>",
+            "# Confirm the existing PPP profile, OVPN server, CA, and server certificate before any manual apply.",
+            "# Start the canary, verify /healthz over the local bridge, then publish HTTPS only after certificate validation.",
         ])
         self._json({"plan": plan, "origin": origin, "image": image})
 
