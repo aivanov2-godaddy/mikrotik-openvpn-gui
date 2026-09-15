@@ -45,13 +45,14 @@ class RuntimeConfigTests(unittest.TestCase):
                 "OVPN_SERVER_NAME": "vpn-server",
                 "OVPN_CA_NAME": "vpn-ca",
                 "OVPN_HOST": "VPN.Example.COM.",
+                "OVPN_SERVER_IDENTITY": "ovpn.VPN.Example.COM.",
                 "VPN_LAN_CIDR": "192.0.2.0/24",
                 "VPN_ROUTER_DNS": "192.0.2.1",
             }
         )
         self.assertEqual(config.public_origin, "https://vpn.example.com")
         self.assertEqual(config.topology.host, "vpn.example.com")
-        self.assertEqual(config.topology.server_identity, "vpn.example.com")
+        self.assertEqual(config.topology.server_identity, "ovpn.VPN.Example.COM")
         config.topology.require_profile_generation(policy="full-tunnel", dns_mode="router")
 
     def test_invalid_public_or_rest_settings_fail_before_a_router_request(self) -> None:

@@ -51,7 +51,7 @@ def _retention_days(values: Mapping[str, str]) -> int:
     return days
 
 
-def _hostname_or_ip(value: str, name: str) -> str:
+def _hostname_or_ip(value: str, name: str, *, casefold: bool = True) -> str:
     candidate = value.rstrip(".")
     try:
         return ipaddress.ip_address(candidate).compressed
@@ -62,7 +62,7 @@ def _hostname_or_ip(value: str, name: str) -> str:
             or any(not _DNS_LABEL.fullmatch(label) for label in candidate.split("."))
         ):
             raise ConfigurationError(f"{name} must be a DNS name or IP address") from None
-        return candidate.casefold()
+        return candidate.casefold() if casefold else candidate
 
 
 def _routeros_name(value: str, name: str) -> str:
@@ -184,7 +184,11 @@ class OpenVPNTopology:
         if host:
             host = _hostname_or_ip(host, "OVPN_HOST")
         if identity:
-            identity = _hostname_or_ip(identity, "OVPN_SERVER_IDENTITY")
+            # Preserve the certificate identity's spelling. DNS matching is
+            # case-insensitive, but RouterOS/OpenVPN clients can report a
+            # verification failure when the profile's pinned name differs in
+            # presentation from the server certificate subject.
+            identity = _hostname_or_ip(identity, "OVPN_SERVER_IDENTITY", casefold=False)
         elif host:
             identity = host
         if lan_cidr:
