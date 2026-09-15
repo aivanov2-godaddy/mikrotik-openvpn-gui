@@ -768,6 +768,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"vpn-dashboard-theme", page)
         self.assertIn(b'data-theme=\"standard\"', page)
 
+    def test_dashboard_uses_contextual_navigation_icons_and_readable_metadata(self) -> None:
+        self.login()
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b'href="#policy-templates"', page)
+        self.assertIn(b'<use href="#i-template"></use>', page)
+        self.assertIn(b'<use href="#i-health"></use>', page)
+        self.assertIn(b'<use href="#i-plan"></use>', page)
+        self.assertIn(b'<use href="#i-appearance"></use>', page)
+        self.assertIn(b'title="Service Health"', page)
+        self.assertIn(b'title="Setup Planner"', page)
+        css = (Path(__file__).resolve().parents[1] / "static" / "app.css").read_text()
+        self.assertIn("Unified visual hierarchy", css)
+        self.assertIn(".user-activity span { color: var(--muted); font-size: 11px", css)
+        self.assertIn(".user-activity strong { font-size: 13px", css)
+
     def test_optional_certificate_failure_does_not_cancel_valid_login(self) -> None:
         self.mock.state.fail_certificate_inventory = True
         self.login()
