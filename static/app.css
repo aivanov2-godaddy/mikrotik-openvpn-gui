@@ -785,9 +785,20 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 .migration-guidance strong { color: var(--text); }
 .migration-table td:last-child { white-space: nowrap; }
 .migration-dialog-note { margin: 0 0 12px; padding: 10px 12px; border: 1px solid rgba(42, 167, 225, .45); background: rgba(42, 167, 225, .10); color: var(--text); font-size: 13px; }
+.posture-overview { margin: 0 0 8px; border-color: rgba(42, 167, 225, .42); }
+.posture-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px 12px 0; }
+.posture-metric { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 8px; padding: 9px 10px; border: 1px solid var(--line); background: var(--panel-2); }
+.posture-metric strong { grid-row: span 2; color: var(--text-bright); font-size: 22px; line-height: 1; }
+.posture-metric span { color: var(--text); font-size: 13px; font-weight: 600; }
+.posture-metric small { color: var(--muted); font-size: 11px; }
+.posture-metric.approved strong, .posture-metric.approved span { color: var(--green); }
+.posture-metric.warning strong, .posture-metric.warning span { color: var(--amber); }
+.posture-overview-note { margin: 0; padding: 10px 12px 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.posture-overview-note strong { color: var(--text); }
 @media (max-width: 700px) {
   .migration-table td:last-child { white-space: normal; }
   .migration-guidance { font-size: 12px; }
+  .posture-metrics { grid-template-columns: 1fr; }
 }
 
 /* Mobile UX polish: preserve the information architecture while giving the
