@@ -754,6 +754,19 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("scroll-snap-type: x proximity", mobile_css)
         self.assertIn("backdrop-filter: blur(4px)", mobile_css)
         self.assertIn("scrollIntoView", script)
+        self.assertIn("THEME_STORAGE_KEY", script)
+        self.assertIn("themeResolved", script)
+        self.assertIn("data-theme-choice", script)
+
+    def test_dashboard_exposes_persistent_theme_choices(self) -> None:
+        self.login()
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Choose appearance", page)
+        for mode in (b"standard", b"dark", b"light", b"system"):
+            self.assertIn(b'data-theme-choice="' + mode + b'"', page)
+        self.assertIn(b"vpn-dashboard-theme", page)
+        self.assertIn(b'data-theme=\"standard\"', page)
 
     def test_optional_certificate_failure_does_not_cancel_valid_login(self) -> None:
         self.mock.state.fail_certificate_inventory = True

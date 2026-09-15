@@ -24,19 +24,29 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20260904-qr-devices-v1"
+    asset_version = "20260915-themes-v1"
     script_tag = f'<script src="/static/app.js?v={asset_version}" defer></script>' if script else ""
     return f"""<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="standard">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#121a21">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260905">
   <link rel="alternate icon" type="image/x-icon" href="/favicon.ico?v=20260905">
   {csrf_meta}
   <title>{safe_title}</title>
+  <script>
+    (() => {{
+      try {{
+        const value = localStorage.getItem('vpn-dashboard-theme');
+        const theme = ['standard', 'dark', 'light', 'system'].includes(value) ? value : 'standard';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.themeResolved = theme === 'light' || (theme === 'system' && window.matchMedia?.('(prefers-color-scheme: light)').matches) ? 'light' : (theme === 'dark' ? 'dark' : 'standard');
+      }} catch (_) {{ /* storage may be disabled; keep the safe default */ }}
+    }})();
+  </script>
   <link rel="stylesheet" href="/static/app.css?v={asset_version}">
   {script_tag}
 </head>
@@ -645,6 +655,16 @@ def dashboard_page(
     <div class="menubar-spacer"></div>
     <span class="safe-mode">{_icon('shield')} Access protected</span>
     <span class="router-pill"><i></i><span>{board}</span><small>RouterOS {version} · {html.escape(admin_role.title())}</small></span>
+    <details class="theme-menu">
+      <summary aria-label="Choose appearance">{_icon('system')}<span>Theme</span></summary>
+      <div class="theme-popover" role="group" aria-label="Theme options">
+        <p>Appearance</p>
+        <button type="button" data-theme-choice="standard" aria-pressed="true"><strong>Standard</strong><small>Slate dashboard</small></button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false"><strong>Dark</strong><small>Low-light contrast</small></button>
+        <button type="button" data-theme-choice="light" aria-pressed="false"><strong>Light</strong><small>Bright workspace</small></button>
+        <button type="button" data-theme-choice="system" aria-pressed="false"><strong>System</strong><small>Follow device setting</small></button>
+      </div>
+    </details>
     <button type="button" class="sync-status" data-full-refresh hidden title="A dashboard list changed and can be refreshed when convenient">{_icon('refresh')}<span>Refresh to apply changes</span></button>
     <form method="post" action="/logout" class="top-logout"><input type="hidden" name="csrf" value="{html.escape(csrf, quote=True)}"><button type="submit" title="Sign out {actor_safe}">{_icon('logout')}<span>Sign out</span></button></form>
   </header>

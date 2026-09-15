@@ -102,5 +102,10 @@ live-session facts and graph containers, and keyboard-safe dialog surfaces.
 Active navigation scrolls into view when a dashboard card opens another view;
 all existing keyboard and screen-reader semantics remain intact.
 
+Appearance preferences are available from the top bar on every dashboard view:
+Standard preserves the slate WinBox baseline, Dark is tuned for low-light use,
+Light provides a high-contrast daylight surface, and System follows the device
+preference. The choice is browser-local and presentation-only.
+
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).
