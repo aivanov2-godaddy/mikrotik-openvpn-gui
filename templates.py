@@ -261,6 +261,7 @@ def dashboard_page(
     router_dns: str = "",
     access_layer_label: str = "Direct HTTPS",
     health: dict[str, Any] | None = None,
+    observability: dict[str, Any] | None = None,
 ) -> str:
     device_counts: dict[str, int] = {}
     for device in devices:
@@ -609,6 +610,34 @@ def dashboard_page(
         for item in health_checks
     ) or '<div class="empty"><strong>No health data is available yet.</strong><span>Refresh this view to check the current router state.</span></div>'
 
+    observability = observability or {}
+    current_release = observability.get("current") or {}
+    rollback = observability.get("rollback") or {}
+    deployment_events = list(observability.get("deployments") or [])
+    deployment_rows = []
+    for event in deployment_events:
+        event_time = time.strftime("%d %b %Y · %H:%M", time.localtime(int(event.get("created_at", 0) or 0)))
+        event_status = str(event.get("status", "unknown"))
+        event_revision = str(event.get("revision", "unknown"))
+        short_revision = event_revision if len(event_revision) <= 16 else f"{event_revision[:12]}…"
+        deployment_rows.append(
+            f'<tr><td><time>{html.escape(event_time)}</time></td><td><span class="history-status {html.escape(event_status, quote=True)}">{html.escape(event_status.title())}</span></td><td><strong>{html.escape(str(event.get("version", "unknown")))}</strong><small class="table-secondary mono-value" title="{html.escape(event_revision, quote=True)}">{html.escape(short_revision)}</small></td><td>{html.escape(str(event.get("channel", "runtime")))}</td></tr>'
+        )
+    deployment_markup = "".join(deployment_rows) or '<tr><td colspan="4" class="table-empty">No runtime release observations yet.</td></tr>'
+
+    timeline_rows = []
+    for snapshot in list(observability.get("health_timeline") or []):
+        checked = time.strftime("%d %b %Y · %H:%M", time.localtime(int(snapshot.get("created_at", 0) or 0)))
+        overall = str(snapshot.get("overall", "unavailable"))
+        timeline_rows.append(
+            f'<li class="health-timeline-item {html.escape(overall, quote=True)}"><i></i><time>{html.escape(checked)}</time><strong>{html.escape(overall.title())}</strong><span>{int(snapshot.get("healthy_count", 0) or 0)} healthy · {int(snapshot.get("warning_count", 0) or 0)} review · {int(snapshot.get("unavailable_count", 0) or 0)} unavailable</span></li>'
+        )
+    timeline_markup = "".join(timeline_rows) or '<li class="timeline-empty">No health observations yet. Refresh checks to start the timeline.</li>'
+    rollback_revision = str(rollback.get("revision") or "")
+    rollback_short = rollback_revision if len(rollback_revision) <= 16 else f"{rollback_revision[:12]}…"
+    rollback_label = "Ready" if rollback.get("available") else "Not yet available"
+    rollback_class = "healthy" if rollback.get("available") else "warning"
+
     body = f"""
 <div class="winbox-shell">
   <header class="winbox-menubar">
@@ -694,6 +723,11 @@ def dashboard_page(
           <article class="metric"><div class="metric-icon">{_icon('disable')}</div><div><small>Unavailable</small><strong data-service-health-count="unavailable">{health_counts['unavailable']}</strong><span>Could not be verified</span></div></article>
         </section>
         <section class="panel service-health-panel"><div class="panel-heading"><div>{_icon('system')}<span><strong>Current checks</strong><small>Fresh RouterOS and dashboard readiness, without configuration changes</small></span></div></div><div class="service-health-list" data-service-health-list>{health_rows}</div></section>
+        <section class="observability-grid" aria-label="Deployment observability">
+           <article class="panel observability-panel"><div class="panel-heading"><div>{_icon('log')}<span><strong>Deployment history</strong><small>Local, non-secret release observations</small></span></div><span class="muted-label" data-deployment-count>{len(deployment_events)} recorded</span></div><div class="responsive-table"><table class="observability-table"><thead><tr><th>When</th><th>State</th><th>Release</th><th>Channel</th></tr></thead><tbody data-deployment-history>{deployment_markup}</tbody></table></div></article>
+           <article class="panel observability-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Health timeline</strong><small>Recent read-only check outcomes</small></span></div></div><ol class="health-timeline" data-health-timeline>{timeline_markup}</ol></article>
+        </section>
+        <section class="panel rollback-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Rollback visibility</strong><small>Immutable image identity and data-safety boundary</small></span></div><span class="posture-badge {rollback_class}" data-rollback-state>{rollback_label}</span></div><div class="rollback-summary"><div><span>Running release</span><strong data-observability-current>{html.escape(str(current_release.get("version", "unknown")))}</strong><small class="mono-value" data-observability-revision>{html.escape(str(current_release.get("revision", "unknown")))}</small></div><div><span>Previous known release</span><strong data-observability-previous>{html.escape(str(rollback.get("version") or "Not recorded"))}</strong><small class="mono-value">{html.escape(rollback_short or "—")}</small></div><p>{html.escape(str(rollback.get("message", "Rollback state is local to the router.")))}</p></div></section>
       </section>
 
       <section class="app-view" id="policy-templates" data-view="policy-templates" hidden>

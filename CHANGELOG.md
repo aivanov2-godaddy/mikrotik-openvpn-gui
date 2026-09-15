@@ -14,6 +14,10 @@ semantic-version style release tags.
 - Central `VERSION` metadata and a protected-tag release-notes workflow with a
   dry-run preview. Release tags are checked against the repository version and
   notes record the immutable source commit without changing router deployment.
+- Local production observability with immutable deployment history, a compact
+  service-health timeline, authenticated observability API data, and explicit
+  rollback visibility. The metadata stays in the router-hosted `/data` store
+  and does not touch the OpenVPN CA, certificates, users, or profiles.
 
 ### Changed
 

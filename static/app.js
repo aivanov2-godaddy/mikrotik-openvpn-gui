@@ -402,6 +402,7 @@ function updateDashboard(payload) {
     else delete connection.dataset.viewTarget;
   });
   syncActiveSessions(payload.sessions, timestamp);
+  renderObservability(payload);
 
   $$('[data-user-total]').forEach((item) => { item.textContent = payload.users.length; });
   $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
@@ -518,12 +519,68 @@ function renderServiceHealth(payload) {
   });
 }
 
+function formatObservationTime(value) {
+  const timestamp = Number(value) * 1000;
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '—';
+  return new Date(timestamp).toLocaleString(undefined, {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function renderObservability(payload) {
+  const model = payload?.observability;
+  if (!model) return;
+  const current = model.current || {};
+  const rollback = model.rollback || {};
+  const currentVersion = $('[data-observability-current]');
+  const currentRevision = $('[data-observability-revision]');
+  const previous = $('[data-observability-previous]');
+  if (currentVersion) currentVersion.textContent = current.version || 'unknown';
+  if (currentRevision) currentRevision.textContent = current.revision || 'unknown';
+  if (previous) previous.textContent = rollback.version || 'Not recorded';
+  const rollbackState = $('[data-rollback-state]');
+  if (rollbackState) {
+    rollbackState.textContent = rollback.available ? 'Ready' : 'Not yet available';
+    rollbackState.className = `posture-badge ${rollback.available ? 'healthy' : 'warning'}`;
+  }
+  const deploymentBody = $('[data-deployment-history]');
+  const deployments = Array.isArray(model.deployments) ? model.deployments : [];
+  if (deploymentBody) {
+    deploymentBody.replaceChildren(...(deployments.length ? deployments.map((event) => {
+      const row = node('tr');
+      const when = node('td');
+      when.append(node('time', '', formatObservationTime(event.created_at)));
+      const state = node('td');
+      state.append(node('span', `history-status ${event.status || 'unknown'}`, String(event.status || 'unknown').replace(/\b\w/g, (letter) => letter.toUpperCase())));
+      const release = node('td');
+      const version = node('strong', '', event.version || 'unknown');
+      const revision = String(event.revision || 'unknown');
+      release.append(version, node('small', 'table-secondary mono-value', revision.length > 16 ? `${revision.slice(0, 12)}…` : revision));
+      row.append(when, state, release, node('td', '', event.channel || 'runtime'));
+      return row;
+    }) : [(() => { const row = node('tr'); const cell = node('td', 'table-empty', 'No runtime release observations yet.'); cell.setAttribute('colspan', '4'); row.append(cell); return row; })()]));
+  }
+  const count = $('[data-deployment-count]');
+  if (count) count.textContent = `${deployments.length} recorded`;
+  const timeline = $('[data-health-timeline]');
+  const snapshots = Array.isArray(model.health_timeline) ? model.health_timeline : [];
+  if (timeline) {
+    timeline.replaceChildren(...(snapshots.length ? snapshots.map((snapshot) => {
+      const item = node('li', `health-timeline-item ${snapshot.overall || 'unavailable'}`);
+      item.append(node('i'), node('time', '', formatObservationTime(snapshot.created_at)), node('strong', '', String(snapshot.overall || 'unavailable').replace(/\b\w/g, (letter) => letter.toUpperCase())), node('span', '', `${Number(snapshot.healthy_count) || 0} healthy · ${Number(snapshot.warning_count) || 0} review · ${Number(snapshot.unavailable_count) || 0} unavailable`));
+      return item;
+    }) : [node('li', 'timeline-empty', 'No health observations yet. Refresh checks to start the timeline.')]));
+  }
+}
+
 async function refreshServiceHealth() {
   const button = $('[data-service-health-refresh]');
   if (button) button.disabled = true;
   try {
     const response = await resultOrError(await api('/api/service-health'));
     renderServiceHealth(await response.json());
+    const observability = await resultOrError(await api('/api/observability'));
+    renderObservability({ observability: await observability.json() });
     toast('Service health checks refreshed.');
   } catch (error) {
     toast(error.message, 'error');

@@ -144,12 +144,34 @@ class MetadataStore:
                     created_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS deployment_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version TEXT NOT NULL,
+                    revision TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    channel TEXT NOT NULL DEFAULT 'runtime',
+                    details TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS health_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    overall TEXT NOT NULL,
+                    healthy_count INTEGER NOT NULL DEFAULT 0,
+                    warning_count INTEGER NOT NULL DEFAULT 0,
+                    unavailable_count INTEGER NOT NULL DEFAULT 0,
+                    checks TEXT NOT NULL DEFAULT '[]',
+                    created_at INTEGER NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_devices_vpn_user ON devices(vpn_user);
                 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_connection_history_connected ON connection_history(connected_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_connection_history_open ON connection_history(session_id, disconnected_at);
                 CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_profile_migrations_user ON profile_migrations(vpn_user);
+                CREATE INDEX IF NOT EXISTS idx_deployment_events_created_at ON deployment_events(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_health_snapshots_created_at ON health_snapshots(created_at DESC);
                 """
             )
             # Existing RouterOS dashboard databases predate quota/schedule
@@ -532,6 +554,7 @@ class MetadataStore:
         tables = (
             "devices", "profile_migrations", "user_metadata", "user_controls", "alerts",
             "policy_templates", "user_policy_templates", "audit", "connection_history",
+            "deployment_events", "health_snapshots",
         )
         with self._connection() as connection:
             snapshot = {
@@ -539,6 +562,122 @@ class MetadataStore:
                 for table in tables
             }
         return {"format": "mikrotik-openvpn-gui-metadata", "version": 1, "tables": snapshot}
+
+    def record_deployment_event(
+        self,
+        *,
+        version: str,
+        revision: str,
+        status: str = "running",
+        channel: str = "runtime",
+        details: dict[str, Any] | None = None,
+        now: int | None = None,
+    ) -> None:
+        """Record non-secret runtime release identity for local observability.
+
+        This is deliberately a metadata-only ledger.  It never stores image
+        credentials, RouterOS configuration, certificates, or application data.
+        Duplicate startup observations for the same revision are coalesced for a
+        short window so health polling cannot create noisy deployment history.
+        """
+        created = int(time.time() if now is None else now)
+        safe_version = str(version or "unknown")[:64]
+        safe_revision = str(revision or "unknown")[:128]
+        safe_status = str(status or "unknown")[:32]
+        safe_channel = str(channel or "runtime")[:32]
+        forbidden = {"password", "passphrase", "private_key", "authorization", "secret", "token"}
+        safe_details = {
+            str(key): value for key, value in (details or {}).items()
+            if str(key).lower() not in forbidden
+        }
+        with self._lock, self._connection() as connection:
+            duplicate = connection.execute(
+                """
+                SELECT 1 FROM deployment_events
+                WHERE version=? AND revision=? AND status=? AND channel=? AND created_at>?
+                LIMIT 1
+                """,
+                (safe_version, safe_revision, safe_status, safe_channel, created - 300),
+            ).fetchone()
+            if duplicate:
+                return
+            connection.execute(
+                """
+                INSERT INTO deployment_events(version, revision, status, channel, details, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    safe_version,
+                    safe_revision,
+                    safe_status,
+                    safe_channel,
+                    json.dumps(safe_details, separators=(",", ":"), sort_keys=True),
+                    created,
+                ),
+            )
+
+    def recent_deployment_events(self, limit: int = 20) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 100))
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM deployment_events ORDER BY id DESC LIMIT ?", (safe_limit,)
+            )
+            values = []
+            for row in rows:
+                value = dict(row)
+                try:
+                    value["details"] = json.loads(str(value.get("details", "{}")))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    value["details"] = {}
+                values.append(value)
+            return values
+
+    def record_health_snapshot(self, health: dict[str, Any], *, now: int | None = None) -> None:
+        """Persist a compact, non-secret health observation for the timeline."""
+        checks = list(health.get("checks") or [])
+        counts = {
+            state: sum(1 for item in checks if str(item.get("status", "")) == state)
+            for state in ("healthy", "warning", "unavailable")
+        }
+        created = int(time.time() if now is None else now)
+        # Keep check labels and outcomes, not remediation strings that may grow
+        # over time. This makes the timeline cheap and stable to render.
+        safe_checks = [
+            {"id": str(item.get("id", ""))[:64], "status": str(item.get("status", "unavailable"))[:24]}
+            for item in checks
+        ]
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO health_snapshots(
+                    overall, healthy_count, warning_count, unavailable_count, checks, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(health.get("overall", "unavailable"))[:24],
+                    counts["healthy"],
+                    counts["warning"],
+                    counts["unavailable"],
+                    json.dumps(safe_checks, separators=(",", ":"), sort_keys=True),
+                    created,
+                ),
+            )
+
+    def recent_health_snapshots(self, limit: int = 30) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 100))
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM health_snapshots ORDER BY id DESC LIMIT ?", (safe_limit,)
+            )
+            values = []
+            for row in rows:
+                value = dict(row)
+                try:
+                    value["checks"] = json.loads(str(value.get("checks", "[]")))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    value["checks"] = []
+                values.append(value)
+            return values
 
     def delete_user_email(self, vpn_user: str) -> None:
         with self._lock, self._connection() as connection:
@@ -779,7 +918,18 @@ class MetadataStore:
                 "DELETE FROM connection_history WHERE disconnected_at IS NOT NULL AND disconnected_at < ?",
                 (int(before),),
             ).rowcount
-        return {"audit": max(0, audit), "connections": max(0, connections)}
+            deployments = connection.execute(
+                "DELETE FROM deployment_events WHERE created_at < ?", (int(before),)
+            ).rowcount
+            health = connection.execute(
+                "DELETE FROM health_snapshots WHERE created_at < ?", (int(before),)
+            ).rowcount
+        return {
+            "audit": max(0, audit),
+            "connections": max(0, connections),
+            "deployments": max(0, deployments),
+            "health": max(0, health),
+        }
 
     def connection_summaries(self) -> dict[str, dict[str, Any]]:
         with self._connection() as connection:
