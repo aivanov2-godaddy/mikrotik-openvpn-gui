@@ -194,6 +194,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"1d 06:12:00s", page)
         self.assertIn(b"Security posture", page)
         self.assertIn(b"Connection history", page)
+        for label in (b"Dashboard", b"VPN Users", b"Connections", b"Device Profiles", b"Policy Templates", b"Service Health", b"Change History", b"Setup Planner"):
+            self.assertIn(b'aria-label="' + label + b'"', page)
         self.assertIn(b"RouterOS certificate inventory", page)
         self.assertIn(b"Per-device revocation needs CA migration", page)
         self.assertIn(b"ovpn-user-one-device-a", page)
@@ -738,12 +740,16 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_live_refresh_does_not_discard_open_forms(self) -> None:
         script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+        mobile_css = (Path(__file__).resolve().parents[1] / "static" / "app.css").read_text()
         self.assertIn("function hasOpenDialog()", script)
         self.assertIn("function deferFreshData(reason)", script)
         update_block = script.split("function updateDashboard(payload)", 1)[1].split("async function pollStatus()", 1)[0]
         self.assertNotIn("location.reload()", update_block)
         self.assertEqual(update_block.count("deferFreshData("), 3)
         self.assertIn("data-full-refresh", script)
+        self.assertIn("Mobile administrator ergonomics", mobile_css)
+        self.assertIn("env(safe-area-inset-bottom)", mobile_css)
+        self.assertIn("max-width: 520px", mobile_css)
 
     def test_optional_certificate_failure_does_not_cancel_valid_login(self) -> None:
         self.mock.state.fail_certificate_inventory = True

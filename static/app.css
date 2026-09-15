@@ -655,11 +655,59 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .alert-item time { display: none; }
 }
 
+/* Mobile administrator ergonomics. Keep the same information architecture,
+   but make common controls comfortable to tap and dense panels readable
+   without changing the API or RouterOS state. */
+@media (max-width: 760px) {
+  .winbox-menubar {
+    padding-top: max(0px, env(safe-area-inset-top));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
+  .winbox-sidebar {
+    padding-right: max(4px, env(safe-area-inset-right));
+    padding-left: max(4px, env(safe-area-inset-left));
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+  }
+  .winbox-sidebar a { min-height: 40px; padding: 6px 10px; }
+  .winbox-sidebar a .wb-icon { width: 20px; height: 20px; }
+  .workspace-content {
+    padding-right: max(10px, env(safe-area-inset-right));
+    padding-left: max(10px, env(safe-area-inset-left));
+  }
+  .panel { min-width: 0; overflow: hidden; }
+  .panel-heading { align-items: flex-start; flex-wrap: wrap; padding: 9px 10px; }
+  .panel-heading > div:first-child { min-width: 0; }
+  .panel-heading > div:first-child > span { min-width: 0; }
+  .panel-heading-actions { width: 100%; flex-wrap: wrap; }
+  .panel-heading-actions > button, .panel-heading-actions > a { flex: 1 1 130px; }
+  .compact-search { min-width: min(100%, 220px); flex: 1 1 180px; }
+  .health-item { padding: 10px; }
+  .health-item:first-child { grid-column: 1 / -1; }
+  .responsive-table { overscroll-behavior-inline: contain; scrollbar-width: thin; }
+  .table-action { min-height: 38px; }
+  .dialog-card { gap: 14px; padding-right: 12px; padding-left: 12px; }
+  dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); margin: 8px; }
+  .dialog-card > footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    flex-direction: column-reverse;
+    gap: 8px;
+    padding: 10px 0 max(4px, env(safe-area-inset-bottom));
+    background: var(--panel);
+  }
+  .dialog-card > footer button { width: 100%; min-height: 42px; }
+  input, select, textarea { min-height: 42px; }
+}
+
 @media (max-width: 520px) {
   .mikrotik-wordmark strong { font-size: 13px; }
   .brand-host { font-size: 9px; }
   .top-logout button span, .winbox-sidebar a span { display: none; }
-  .winbox-sidebar a { width: 38px; justify-content: center; padding: 3px; }
+  .winbox-sidebar a { width: 44px; min-height: 42px; justify-content: center; padding: 4px; }
+  .winbox-sidebar a span:not(.nav-count) { display: block; position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .workspace-toolbar { padding: 0 4px; }
   .toolbar-actions button span, .toolbar-actions a span { display: none; }
   .toolbar-search input { width: 78px; }
@@ -705,6 +753,17 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 @media (forced-colors: active) {
   :focus-visible { outline: 2px solid CanvasText; box-shadow: none; }
   button, input, select, textarea, .panel, .metric { border-color: ButtonText; }
+}
+
+@media (max-width: 520px) {
+  .health-grid { grid-template-columns: 1fr; }
+  .health-item:first-child { grid-column: auto; }
+  .view-heading .primary, .view-heading .quiet { width: 100%; }
+  .view-heading .heading-actions { gap: 7px; }
+  .heading-actions > * { flex: 1 1 140px; }
+  .connection-history-table, .device-table, .certificate-table, .migration-table { min-width: 680px; }
+  .observability-table { min-width: 500px; }
+  .session-facts { grid-template-columns: 1fr 1fr; }
 }
 
 /* CA rotation is deliberately review-first: issuing a replacement never retires

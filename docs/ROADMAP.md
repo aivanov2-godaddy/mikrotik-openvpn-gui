@@ -86,5 +86,15 @@ metadata to the UI. Observations stay on the router-hosted database, are
 retention-pruned, and never include CA material, credentials, profiles, or
 RouterOS configuration.
 
+## v2.1 — Mobile administrator workflows (implemented)
+
+The same dashboard is optimized for phones and tablets. Responsive navigation,
+touch-sized controls, safe-area spacing, viewport-safe dialogs, stacked action
+groups, readable health cards, and bounded horizontal tables keep
+administrative workflows usable in portrait and landscape without adding a
+native app or changing the OpenVPN client experience. These are
+presentation-only changes: APIs, RouterOS state, certificates, CA material,
+and the router-hosted data boundary remain unchanged.
+
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).

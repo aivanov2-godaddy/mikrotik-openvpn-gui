@@ -8,6 +8,9 @@ semantic-version style release tags.
 
 ### Added
 
+- Mobile administrator ergonomics with responsive navigation, touch-sized
+  controls, viewport-safe dialogs, and readable narrow-screen health, session,
+  device, policy, audit, and observability views.
 - A router-local certificate migration center that discovers legacy client
   profiles, issues tracked replacements, and keeps revocation explicitly
   operator-controlled after the replacement has been tested.

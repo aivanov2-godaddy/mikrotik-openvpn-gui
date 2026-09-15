@@ -650,16 +650,16 @@ def dashboard_page(
   </header>
 
   <aside class="winbox-sidebar" aria-label="VPN Dashboard navigation">
-    <a href="#overview" class="active" data-view-target="overview">{_icon('dashboard')}<span>Dashboard</span></a>
-    <a href="#vpn-users" data-view-target="vpn-users">{_icon('users')}<span>VPN Users</span></a>
-    <a href="#live-sessions" data-view-target="live-sessions">{_icon('session')}<span>Connections</span><strong class="nav-count" data-nav-session-count>{len(sessions)}</strong></a>
-    <a href="#profile-security" data-view-target="profile-security">{_icon('device')}<span>Device Profiles</span></a>
-    <a href="#policy-templates" data-view-target="policy-templates">{_icon('shield')}<span>Policy Templates</span></a>
-    <a href="#service-health" data-view-target="service-health">{_icon('system')}<span>Service Health</span></a>
+    <a href="#overview" class="active" data-view-target="overview" aria-label="Dashboard">{_icon('dashboard')}<span>Dashboard</span></a>
+    <a href="#vpn-users" data-view-target="vpn-users" aria-label="VPN Users">{_icon('users')}<span>VPN Users</span></a>
+    <a href="#live-sessions" data-view-target="live-sessions" aria-label="Connections">{_icon('session')}<span>Connections</span><strong class="nav-count" data-nav-session-count>{len(sessions)}</strong></a>
+    <a href="#profile-security" data-view-target="profile-security" aria-label="Device Profiles">{_icon('device')}<span>Device Profiles</span></a>
+    <a href="#policy-templates" data-view-target="policy-templates" aria-label="Policy Templates">{_icon('shield')}<span>Policy Templates</span></a>
+    <a href="#service-health" data-view-target="service-health" aria-label="Service Health">{_icon('system')}<span>Service Health</span></a>
     <span class="nav-section-title">AUDIT LOG</span>
-    <a href="#audit-log" class="nav-subitem" data-view-target="audit-log">{_icon('log')}<span>Change History</span></a>
+    <a href="#audit-log" class="nav-subitem" data-view-target="audit-log" aria-label="Change History">{_icon('log')}<span>Change History</span></a>
     <span class="nav-section-title">SETUP</span>
-    <a href="#setup-planner" class="nav-subitem" data-view-target="setup-planner">{_icon('system')}<span>Setup Planner</span></a>
+    <a href="#setup-planner" class="nav-subitem" data-view-target="setup-planner" aria-label="Setup Planner">{_icon('system')}<span>Setup Planner</span></a>
   </aside>
 
   <section class="winbox-main">
