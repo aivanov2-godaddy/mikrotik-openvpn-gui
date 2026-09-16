@@ -6,7 +6,18 @@ semantic-version style release tags.
 
 ## Unreleased
 
-No changes yet.
+### Added
+
+- Enterprise administrator session center with idle/absolute expiry metadata,
+  explicit revocation, and safe session-ID handling.
+- Review-only break-glass recovery planning, immutable release verification,
+  profile diagnostics, and network segmentation plans; none changes RouterOS.
+- Authenticated Server-Sent Events for live connection snapshots with polling
+  fallback, plus secret-free Prometheus metrics and a redacted compliance ZIP.
+- Short-lived, scoped read-only API tokens stored as one-way hashes and shown
+  in plaintext only once to a security-capable administrator.
+- Mobile/PWA accessibility foundation with reduced-motion support and an
+  installable web-app manifest.
 
 ## 2.0.0 - 2026-09-16
 

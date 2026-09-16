@@ -29,6 +29,7 @@ from favicon import FAVICON_SVG, ico_bytes
 from integrations import WebhookDispatcher
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg
+from profile_diagnostics import diagnose_profile
 from security import (
     LoginRateLimiter,
     SECURITY_HEADERS,
@@ -56,6 +57,8 @@ SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
 IMMUTABLE_IMAGE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._/-]*:sha-[a-f0-9]{40,64}(?:-(?:arm64|amd64))?$", re.I)
 ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
+API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read"})
+API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 
 
 def container_image_target(architecture: Any) -> dict[str, Any]:
@@ -455,7 +458,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return morsel.value if morsel else ""
 
     def _session(self) -> Session | None:
-        return self.server.context.sessions.get(self._session_id())
+        cookie_session = self.server.context.sessions.get(self._session_id())
+        if cookie_session:
+            return cookie_session
+        authorization = self.headers.get("Authorization", "")
+        scheme, _, value = authorization.partition(" ")
+        if scheme.casefold() != "bearer" or not value.strip():
+            return None
+        token = self.server.context.store.authenticate_api_token(value.strip())
+        if not token:
+            return None
+        return Session(
+            session_id=f"api-token:{token['id']}",
+            username=str(token["actor"]),
+            password="",
+            csrf_token="",
+            created_at=float(time.time()),
+            last_seen=float(time.time()),
+            role="read_only",
+            auth_method="api_token",
+            token_id=str(token["id"]),
+            capabilities=frozenset(str(item) for item in token.get("capabilities", [])),
+        )
 
     def _require_session(self, *, api: bool = False) -> Session | None:
         session = self._session()
@@ -481,7 +505,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials, cookies, private keys, and profile contents are never
         included.
         """
-        if has_capability(session.role, capability):
+        allowed = (
+            capability in (session.capabilities or frozenset())
+            if session.capabilities is not None
+            else has_capability(session.role, capability)
+        )
+        if allowed:
             return True
         target = action or urllib.parse.urlsplit(self.path).path
         normalized = normalize_role(session.role)
@@ -501,6 +530,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             status=HTTPStatus.FORBIDDEN,
         )
         return False
+
+    @staticmethod
+    def _capability_allowed(session: Session, capability: str) -> bool:
+        """Check a capability without emitting an error response."""
+        if session.capabilities is not None:
+            return capability in session.capabilities
+        return has_capability(session.role, capability)
 
     def _require_operator(self, session: Session) -> bool:
         """Compatibility guard for routine administration operations."""
@@ -853,6 +889,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/dashboard":
             self._dashboard()
             return
+        if path == "/metrics":
+            self._metrics()
+            return
+        if path == "/api/events":
+            self._events()
+            return
+        if path == "/api/admin/sessions":
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "sessions.read"):
+                return
+            self._json({
+                "sessions": self.server.context.sessions.snapshot(
+                    current_session_id=session.session_id,
+                    include_identifiers=self._capability_allowed(session, "session.manage"),
+                ),
+                "idle_timeout_seconds": self.server.context.sessions.idle_seconds,
+                "absolute_timeout_seconds": self.server.context.sessions.absolute_seconds,
+                "generated_at": int(time.time()),
+            })
+            return
+        if path == "/api/admin/api-tokens":
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "security.manage"):
+                return
+            self._json({"tokens": self.server.context.store.list_api_tokens()})
+            return
+        if path == "/api/reports/compliance.zip":
+            self._compliance_report()
+            return
+        if path == "/api/release/verify":
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "health.read"):
+                return
+            self._release_verify(query)
+            return
         if path == "/api/policy-templates":
             session = self._require_session(api=True)
             if not session:
@@ -1151,7 +1222,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, path: str) -> None:
         name = path.removeprefix("/static/")
-        if name not in {"app.css", "app.js"}:
+        if name not in {"app.css", "app.js", "manifest.webmanifest"}:
             self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
             return
         target = STATIC / name
@@ -1277,6 +1348,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 csrf=session.csrf_token,
                 users=users,
                 sessions=active_sessions,
+                admin_sessions=self.server.context.sessions.snapshot(
+                    current_session_id=session.session_id,
+                    include_identifiers=self._capability_allowed(session, "session.manage"),
+                ),
                 devices=self.server.context.store.active_devices(),
                 connections=self.server.context.store.recent_connections(50),
                 connection_summaries=self.server.context.store.connection_summaries(),
@@ -1319,6 +1394,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/openvpn-foundation-plan":
             self._openvpn_foundation_plan()
             return
+        if path == "/api/admin/api-tokens":
+            self._create_api_token()
+            return
+        if path == "/api/admin/break-glass/plan":
+            self._break_glass_plan()
+            return
+        if path == "/api/network/segment-plan":
+            self._segment_plan()
+            return
+        if path == "/api/profile/diagnose":
+            self._diagnose_profile()
+            return
         if path == "/api/backups/preflight":
             self._backup_preflight()
             return
@@ -1359,6 +1446,342 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._ack_alert(int(match.group(1)))
             return
         self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _create_api_token(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "security.manage"):
+            return
+        try:
+            data = self._read_json()
+            label = str(data.get("label", "")).strip()
+            if not 2 <= len(label) <= 80 or any(ord(character) < 32 for character in label):
+                raise ValueError("Token label must be between 2 and 80 printable characters")
+            raw_scopes = data.get("scopes", ["health.read"])
+            if isinstance(raw_scopes, str):
+                raw_scopes = [item.strip() for item in raw_scopes.split(",")]
+            if not isinstance(raw_scopes, list):
+                raise ValueError("Token scopes must be a list")
+            scopes = sorted({str(item).strip() for item in raw_scopes if str(item).strip()})
+            if not scopes or not set(scopes).issubset(API_TOKEN_SCOPES):
+                raise ValueError(f"Token scopes must be selected from: {', '.join(sorted(API_TOKEN_SCOPES))}")
+            ttl = str(data.get("expires_in", "30d")).strip().lower()
+            if ttl not in API_TOKEN_TTL_SECONDS:
+                raise ValueError("Token expiration must be one of: 1h, 1d, 7d, 30d")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        plaintext = f"vpt_{secrets.token_urlsafe(36)}"
+        token_id = secrets.token_urlsafe(12)
+        token = self.server.context.store.create_api_token(
+            token_id=token_id,
+            token_hash=hashlib.sha256(plaintext.encode("utf-8")).hexdigest(),
+            label=label,
+            actor=session.username,
+            capabilities=scopes,
+            expires_at=int(time.time()) + API_TOKEN_TTL_SECONDS[ttl],
+        )
+        self.server.context.store.audit(
+            actor=session.username,
+            action="api-token.create",
+            target=label,
+            status="success",
+            details={"scopes": scopes, "expires_in": ttl},
+        )
+        self._json({
+            "token": plaintext,
+            "warning": "Copy this token now. The plaintext is shown only once and is never stored.",
+            "metadata": token,
+        }, status=HTTPStatus.CREATED)
+
+    def _revoke_api_token(self, token_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "security.manage"):
+            return
+        if not self.server.context.store.revoke_api_token(token_id):
+            self._json({"error": "API token was not found or is already revoked"}, status=HTTPStatus.NOT_FOUND)
+            return
+        self.server.context.store.audit(
+            actor=session.username,
+            action="api-token.revoke",
+            target="api-token",
+            status="success",
+            details={"token_id_hash": hashlib.sha256(token_id.encode("utf-8")).hexdigest()[:16]},
+        )
+        self._json({"ok": True})
+
+    def _revoke_admin_session(self, session_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "session.manage"):
+            return
+        if hmac.compare_digest(session.session_id, session_id):
+            self._json({"error": "The current session cannot be revoked from itself"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if not self.server.context.sessions.revoke(session_id):
+            self._json({"error": "Administrator session was not found or already expired"}, status=HTTPStatus.NOT_FOUND)
+            return
+        self.server.context.store.audit(
+            actor=session.username,
+            action="admin-session.revoke",
+            target="administrator-session",
+            status="success",
+            details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+        )
+        self._json({"ok": True})
+
+    def _break_glass_plan(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "security.manage"):
+            return
+        try:
+            data = self._read_json()
+            reason = str(data.get("reason", "")).strip()
+            if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
+                raise ValueError("Provide a printable break-glass reason between 12 and 240 characters")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        expires_at = int(time.time()) + 600
+        self.server.context.store.audit(
+            actor=session.username,
+            action="break-glass.plan",
+            target="routeros-recovery",
+            status="success",
+            details={"expires_at": expires_at, "reason_length": len(reason)},
+        )
+        self._json({
+            "mode": "review-only",
+            "expires_at": expires_at,
+            "steps": [
+                "Confirm the owner identity through an independent channel.",
+                "Create a temporary RouterOS administrator credential in WinBox with the minimum required group.",
+                "Use it only for the documented recovery action and remove it before the expiration time.",
+                "Record the result and rotate the temporary credential after recovery.",
+            ],
+            "message": "No fallback credential was created and no RouterOS setting was changed.",
+        })
+
+    def _segment_plan(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "policies.manage"):
+            return
+        try:
+            data = self._read_json()
+            zone = str(data.get("zone", "")).strip().lower()
+            if zone not in {"full", "lan", "internet"}:
+                raise ValueError("zone must be full, lan, or internet")
+            raw_cidrs = data.get("cidrs", [])
+            if isinstance(raw_cidrs, str):
+                raw_cidrs = [item.strip() for item in raw_cidrs.split(",") if item.strip()]
+            if not isinstance(raw_cidrs, list) or len(raw_cidrs) > 32:
+                raise ValueError("cidrs must be a list of at most 32 networks")
+            cidrs = [str(ipaddress.ip_network(str(item), strict=True)) for item in raw_cidrs]
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.server.context.store.audit(
+            actor=session.username,
+            action="network.segment-plan",
+            target=zone,
+            status="success",
+            details={"cidr_count": len(cidrs)},
+        )
+        route_description = {
+            "full": "Route internet and configured LAN networks through the VPN.",
+            "lan": "Route only the explicitly listed LAN networks through the VPN.",
+            "internet": "Route internet traffic through the VPN and keep LAN networks local.",
+        }[zone]
+        self._json({
+            "mode": "review-only",
+            "zone": zone,
+            "cidrs": cidrs,
+            "summary": route_description,
+            "steps": [
+                "Review the route and firewall diff against the current RouterOS export.",
+                "Verify the selected VPN address pool does not overlap an existing LAN.",
+                "Apply during a maintenance window only after owner approval.",
+            ],
+            "message": "No RouterOS routes, firewall rules, users, or certificates were changed.",
+        })
+
+    def _diagnose_profile(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.read"):
+            return
+        try:
+            data = self._read_json()
+            profile = str(data.get("profile", ""))
+            if not profile or len(profile.encode("utf-8")) > 128 * 1024:
+                raise ValueError("Provide an OpenVPN profile smaller than 128 KiB")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        result = diagnose_profile(profile)
+        self.server.context.store.audit(
+            actor=session.username,
+            action="profile.diagnose",
+            target="uploaded-profile",
+            status="success" if result["status"] == "pass" else "warning",
+            details={"check_count": len(result["checks"]), "error_count": result["summary"]["errors"]},
+        )
+        self._json(result)
+
+    def _metrics(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_capability(session, "health.read"):
+            return
+        payload = self._prometheus_payload().encode("utf-8")
+        self._bytes(payload, content_type="text/plain; version=0.0.4; charset=utf-8")
+
+    def _prometheus_payload(self) -> str:
+        now = int(time.time())
+        active_admin = len(self.server.context.sessions.active(now))
+        recent_connections = self.server.context.store.recent_connections(250)
+        active_vpn = sum(1 for item in recent_connections if not item.get("disconnected_at"))
+        health = self.server.context.store.recent_health_snapshots(1)
+        health_state = str(health[0].get("overall", "unavailable")) if health else "unavailable"
+        health_value = {"healthy": 1, "warning": 0.5, "unavailable": 0}.get(health_state, 0)
+        deployments = self.server.context.store.recent_deployment_events(1)
+        lines = [
+            "# HELP vpn_dashboard_info Runtime release identity.",
+            "# TYPE vpn_dashboard_info gauge",
+            f'vpn_dashboard_info{{version="{self._metric_escape(self.server.context.release_version)}",revision="{self._metric_escape(self.server.context.release_revision)}"}} 1',
+            "# HELP vpn_dashboard_admin_sessions Active dashboard administrator sessions.",
+            "# TYPE vpn_dashboard_admin_sessions gauge",
+            f"vpn_dashboard_admin_sessions {active_admin}",
+            "# HELP vpn_dashboard_vpn_sessions Active VPN sessions observed in the local ledger.",
+            "# TYPE vpn_dashboard_vpn_sessions gauge",
+            f"vpn_dashboard_vpn_sessions {active_vpn}",
+            "# HELP vpn_dashboard_health Current service-health state (1 healthy, 0.5 warning, 0 unavailable).",
+            "# TYPE vpn_dashboard_health gauge",
+            f'vpn_dashboard_health{{state="{self._metric_escape(health_state)}"}} {health_value}',
+            "# HELP vpn_dashboard_health_checks Number of checks in the most recent snapshot.",
+            "# TYPE vpn_dashboard_health_checks gauge",
+            f"vpn_dashboard_health_checks {int(health[0].get('healthy_count', 0) + health[0].get('warning_count', 0) + health[0].get('unavailable_count', 0)) if health else 0}",
+            "# HELP vpn_dashboard_last_deployment_timestamp_seconds Last local release observation.",
+            "# TYPE vpn_dashboard_last_deployment_timestamp_seconds gauge",
+            f"vpn_dashboard_last_deployment_timestamp_seconds {int(deployments[0].get('created_at', 0)) if deployments else 0}",
+            f"# vpn_dashboard_generated_at {now}",
+            "",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _metric_escape(value: Any) -> str:
+        return str(value or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+    def _events(self) -> None:
+        session = self._require_session(api=True)
+        if not session:
+            return
+        if session.auth_method != "routeros":
+            self._json({"error": "Live router events require an authenticated RouterOS session"}, status=HTTPStatus.FORBIDDEN)
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        for key, value in SECURITY_HEADERS.items():
+            self.send_header(key, value)
+        self.end_headers()
+        credentials = self._credentials(session)
+        deadline = time.monotonic() + 30
+        try:
+            while time.monotonic() < deadline:
+                active = self.server.context.router.list_active_ovpn_sessions(credentials)
+                self.server.context.store.observe_sessions(active)
+                data = json.dumps({"sessions": active, "generated_at": int(time.time())}, separators=(",", ":"))
+                self.wfile.write(f"event: status\ndata: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+                time.sleep(2)
+        except (BrokenPipeError, ConnectionResetError, RouterOSError):
+            return
+
+    def _compliance_report(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_capability(session, "audit.read"):
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        try:
+            start_at, end_at = self._report_range(query)
+        except ValueError as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        audit = self.server.context.store.recent_audit(100, start_at=start_at, end_at=end_at)
+        connections = self.server.context.store.recent_connections(250, start_at=start_at, end_at=end_at)
+        summary = {
+            "format": "mikrotik-openvpn-gui-compliance-report",
+            "version": 1,
+            "generated_at": int(time.time()),
+            "range": {"from": start_at, "to": end_at},
+            "counts": {
+                "audit_entries": len(audit),
+                "connection_entries": len(connections),
+                "failed_audit_entries": sum(1 for item in audit if item.get("status") in {"failed", "denied"}),
+            },
+            "redaction": "Passwords, tokens, private keys, profiles, and RouterOS credentials are excluded.",
+        }
+        audit_stream = io.StringIO(newline="")
+        writer = csv.writer(audit_stream)
+        writer.writerow(["timestamp", "operator", "action", "target", "result", "details"])
+        writer.writerows([
+            [time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(int(item["created_at"]))), item["actor"], item["action"], item["target"], item["status"], item["details"]]
+            for item in audit
+        ])
+        connection_stream = io.StringIO(newline="")
+        writer = csv.writer(connection_stream)
+        writer.writerow(["user", "connected", "disconnected", "source_ip", "vpn_ip", "encryption", "received_bytes", "sent_bytes"])
+        writer.writerows([
+            [item["vpn_user"], time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(int(item["connected_at"]))), time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(int(item["disconnected_at"]))) if item.get("disconnected_at") else "connected", item["source_address"], item["vpn_address"], item["encoding"], item["rx_bytes"], item["tx_bytes"]]
+            for item in connections
+        ])
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("summary.json", json.dumps(summary, separators=(",", ":"), sort_keys=True))
+            archive.writestr("audit.csv", audit_stream.getvalue())
+            archive.writestr("connections.csv", connection_stream.getvalue())
+        self.server.context.store.audit(
+            actor=session.username,
+            action="report.compliance.export",
+            target="compliance-report",
+            status="success",
+            details={"audit_entries": len(audit), "connection_entries": len(connections)},
+        )
+        self._bytes(stream.getvalue(), content_type="application/zip", extra={"Content-Disposition": 'attachment; filename="vpn-compliance-report.zip"'})
+
+    def _release_verify(self, query: dict[str, list[str]]) -> None:
+        image = str((query.get("image") or [""])[0]).strip()
+        expected = str((query.get("revision") or [self.server.context.release_revision])[0]).strip().lower()
+        errors: list[str] = []
+        if not IMMUTABLE_IMAGE_PATTERN.fullmatch(image):
+            errors.append("Image must use a full immutable sha- tag with an optional architecture suffix.")
+        if not re.fullmatch(r"[a-f0-9]{40,64}", expected):
+            errors.append("Revision must be a 40- to 64-character hexadecimal commit SHA.")
+        image_sha = ""
+        revision_match = False
+        if not errors:
+            image_sha = image.rsplit(":sha-", 1)[1].split("-", 1)[0].lower()
+            # GitHub exposes a 40-character commit SHA while registries may
+            # publish the same immutable reference as a 64-character digest.
+            # Accept only an exact match or a full-value prefix relationship;
+            # never accept an arbitrary substring or a mutable tag.
+            revision_match = (
+                hmac.compare_digest(image_sha, expected)
+                or (len(expected) > len(image_sha) and hmac.compare_digest(expected[:len(image_sha)], image_sha))
+                or (len(image_sha) > len(expected) and hmac.compare_digest(image_sha[:len(expected)], expected))
+            )
+            if not revision_match:
+                errors.append("Image digest does not match the approved revision.")
+        self._json({
+            "verified": not errors,
+            "image": image,
+            "revision": expected,
+            "checks": [
+                {"name": "Immutable image reference", "status": "pass" if IMMUTABLE_IMAGE_PATTERN.fullmatch(image) else "fail"},
+                {"name": "Revision match", "status": "pass" if revision_match else "fail"},
+                {"name": "CA and router data safety", "status": "pass", "detail": "Verification is read-only and does not inspect or change CA, certificates, profiles, or RouterOS data."},
+            ],
+            "errors": errors,
+        })
 
     def _setup_plan(self) -> None:
         """Generate an intentionally non-executable installation review plan."""
@@ -1687,6 +2110,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         path = urllib.parse.urlsplit(self.path).path
+        match = re.fullmatch(r"/api/admin/api-tokens/([A-Za-z0-9_-]{8,96})", path)
+        if match:
+            self._revoke_api_token(match.group(1))
+            return
+        match = re.fullmatch(r"/api/admin/sessions/([^/]+)", path)
+        if match:
+            self._revoke_admin_session(urllib.parse.unquote(match.group(1)))
+            return
         match = re.fullmatch(r"/api/sessions/([^/]+)", path)
         if match:
             self._terminate_session(urllib.parse.unquote(match.group(1)))
@@ -1743,7 +2174,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         self.server.context.limiter.success(identity)
         role = normalize_role(self.server.context.router.get_admin_role(credentials))
-        session = self.server.context.sessions.create(username, password, role=role)
+        session = self.server.context.sessions.create(
+            username,
+            password,
+            role=role,
+            source_address=identity,
+            user_agent=self.headers.get("User-Agent", ""),
+        )
         cookie = (
             f"vpn_session={session.session_id}; Path=/; Max-Age=28800; "
             "Secure; HttpOnly; SameSite=Strict"

@@ -667,6 +667,38 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .alert-item time { display: none; }
 }
 
+/* Enterprise controls introduced in the v2.3 roadmap batch. */
+.admin-session-table td small,
+.token-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+.admin-session-table td time { display: block; }
+.admin-session-table .table-action,
+.token-table .table-action { min-height: 28px; padding: 3px 8px; }
+.token-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 130px auto; align-items: end; gap: 10px; padding: 12px; border-bottom: 1px solid var(--line); }
+.token-form label { display: grid; gap: 4px; }
+.token-form label > span { color: var(--muted); font-size: 11px; font-weight: 600; }
+.token-form select[multiple] { min-height: 76px; }
+.token-form .form-status { grid-column: 1 / -1; margin: 0; }
+.token-result { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; color: #f3d98b; border-bottom: 1px solid #6d5b32; background: #3b3324; }
+.token-result code { overflow: auto; padding: 6px 8px; color: #fff3c4; border: 1px solid #79663a; background: #2a241b; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.profile-diagnostics-panel form { display: grid; gap: 8px; padding: 12px; }
+.profile-diagnostics-panel form label { display: grid; gap: 4px; }
+.profile-diagnostics-panel form label > span { color: var(--muted); font-size: 11px; font-weight: 600; }
+.diagnostic-result { display: grid; gap: 3px; padding: 10px; border: 1px solid var(--line); background: var(--panel-2); }
+.diagnostic-result strong { color: var(--text-bright); font-size: 14px; }
+.diagnostic-result small { color: var(--muted); }
+.diagnostic-result p { margin: 3px 0 0; font-size: 12px; }
+.diagnostic-pass { color: var(--green); }
+.diagnostic-warning { color: var(--amber); }
+.diagnostic-error { color: var(--red); }
+@media (max-width: 760px) {
+  .token-form { grid-template-columns: 1fr; }
+  .token-form .form-status { grid-column: auto; }
+  .token-result { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
 /* Mobile administrator ergonomics. Keep the same information architecture,
    but make common controls comfortable to tap and dense panels readable
    without changing the API or RouterOS state. */

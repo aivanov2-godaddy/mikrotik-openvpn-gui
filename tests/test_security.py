@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import time
+import hashlib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -71,6 +72,22 @@ class SecurityTests(unittest.TestCase):
         session = store.create("admin", "secret", now=200)
         self.assertIsNone(store.get(session.session_id, now=231))
 
+    def test_session_snapshot_is_safe_and_revoke_is_scoped(self) -> None:
+        store = SessionStore(idle_seconds=60, absolute_seconds=600)
+        first = store.create("admin", "router-secret", now=100, source_address="192.0.2.10", user_agent="Test browser")
+        second = store.create("auditor", "another-secret", now=110, role="auditor")
+        snapshot = store.snapshot(current_session_id=first.session_id, now=120)
+        self.assertEqual(len(snapshot), 2)
+        first_view = next(item for item in snapshot if item["id_hash"] == hashlib.sha256(first.session_id.encode()).hexdigest()[:16])
+        self.assertTrue(first_view["current"])
+        self.assertEqual(first_view["id"], "")
+        self.assertNotIn(first.session_id, str(snapshot))
+        identified = store.snapshot(current_session_id=first.session_id, now=120, include_identifiers=True)
+        self.assertEqual(next(item for item in identified if item["id"] == first.session_id)["id"], first.session_id)
+        self.assertNotIn("password", str(snapshot).lower())
+        self.assertTrue(store.revoke(second.session_id))
+        self.assertFalse(store.revoke(second.session_id))
+
     def test_csrf_comparison(self) -> None:
         self.assertTrue(csrf_matches("token", "token"))
         self.assertFalse(csrf_matches("token", "wrong"))
@@ -83,6 +100,24 @@ class SecurityTests(unittest.TestCase):
         limiter.fail("ip", now=2)
         self.assertFalse(limiter.allow("ip", now=3))
         self.assertTrue(limiter.allow("ip", now=12.1))
+
+    def test_api_token_storage_never_returns_plaintext(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            plaintext = "vpt_test-secret"
+            token = store.create_api_token(
+                token_id="token-1",
+                token_hash=hashlib.sha256(plaintext.encode()).hexdigest(),
+                label="metrics",
+                actor="admin",
+                capabilities=["health.read"],
+                expires_at=500,
+                now=100,
+            )
+            self.assertNotIn(plaintext, str(token))
+            self.assertEqual(store.authenticate_api_token(plaintext, now=200)["actor"], "admin")
+            self.assertIsNone(store.authenticate_api_token(plaintext, now=600))
+            self.assertNotIn(plaintext, Path(temporary, "dashboard.sqlite").read_bytes().decode("latin-1", errors="ignore"))
 
     def test_metadata_schema_and_audit_strip_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

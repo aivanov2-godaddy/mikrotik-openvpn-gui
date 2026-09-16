@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sqlite3
 import threading
@@ -164,6 +165,18 @@ class MetadataStore:
                     created_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS api_tokens (
+                    id TEXT PRIMARY KEY,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    label TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    capabilities TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER,
+                    last_used_at INTEGER,
+                    revoked_at INTEGER
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_devices_vpn_user ON devices(vpn_user);
                 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_connection_history_connected ON connection_history(connected_at DESC);
@@ -172,6 +185,7 @@ class MetadataStore:
                 CREATE INDEX IF NOT EXISTS idx_profile_migrations_user ON profile_migrations(vpn_user);
                 CREATE INDEX IF NOT EXISTS idx_deployment_events_created_at ON deployment_events(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_health_snapshots_created_at ON health_snapshots(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
                 """
             )
             # Existing RouterOS dashboard databases predate quota/schedule
@@ -781,7 +795,10 @@ class MetadataStore:
         details: dict[str, Any] | None = None,
     ) -> None:
         safe_details = details or {}
-        forbidden = {"password", "passphrase", "private_key", "authorization"}
+        forbidden = {
+            "password", "passphrase", "private_key", "authorization", "secret",
+            "token", "cookie", "credential", "private-key", "api_key", "api-key",
+        }
         sanitized = {key: value for key, value in safe_details.items() if key.lower() not in forbidden}
         with self._lock, self._connection() as connection:
             connection.execute(
@@ -820,6 +837,93 @@ class MetadataStore:
                 [*values, safe_limit],
             )
             return [dict(row) for row in rows]
+
+    def create_api_token(
+        self,
+        *,
+        token_id: str,
+        token_hash: str,
+        label: str,
+        actor: str,
+        capabilities: list[str],
+        expires_at: int | None,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        """Persist only a one-way token hash and its bounded metadata."""
+        created = int(time.time() if now is None else now)
+        safe_label = str(label).strip()[:80]
+        safe_actor = str(actor).strip()[:64]
+        safe_capabilities = sorted({str(item).strip() for item in capabilities if str(item).strip()})
+        if not safe_label or not safe_actor or not token_id or not token_hash:
+            raise ValueError("Token metadata is incomplete")
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO api_tokens(id, token_hash, label, actor, capabilities, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (token_id, token_hash, safe_label, safe_actor, json.dumps(safe_capabilities), created, expires_at),
+            )
+        return {
+            "id": token_id,
+            "label": safe_label,
+            "actor": safe_actor,
+            "capabilities": safe_capabilities,
+            "created_at": created,
+            "expires_at": expires_at,
+            "last_used_at": None,
+            "revoked_at": None,
+        }
+
+    def list_api_tokens(self, *, include_revoked: bool = False) -> list[dict[str, Any]]:
+        where = "" if include_revoked else " WHERE revoked_at IS NULL"
+        with self._connection() as connection:
+            rows = connection.execute(f"SELECT id, label, actor, capabilities, created_at, expires_at, last_used_at, revoked_at FROM api_tokens{where} ORDER BY created_at DESC")
+            values = []
+            for row in rows:
+                item = dict(row)
+                try:
+                    item["capabilities"] = json.loads(item.get("capabilities") or "[]")
+                except (TypeError, json.JSONDecodeError):
+                    item["capabilities"] = []
+                values.append(item)
+            return values
+
+    def authenticate_api_token(self, token: str, *, now: int | None = None) -> dict[str, Any] | None:
+        """Resolve a bearer token without ever persisting or returning plaintext."""
+        candidate = str(token or "").strip()
+        if not candidate or len(candidate) > 256:
+            return None
+        digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        current = int(time.time() if now is None else now)
+        with self._lock, self._connection() as connection:
+            row = connection.execute(
+                "SELECT id, label, actor, capabilities, expires_at FROM api_tokens WHERE token_hash=? AND revoked_at IS NULL",
+                (digest,),
+            ).fetchone()
+            if row is None or (row["expires_at"] is not None and int(row["expires_at"]) <= current):
+                return None
+            connection.execute("UPDATE api_tokens SET last_used_at=? WHERE id=?", (current, row["id"]))
+            try:
+                capabilities = json.loads(row["capabilities"] or "[]")
+            except (TypeError, json.JSONDecodeError):
+                capabilities = []
+            return {
+                "id": str(row["id"]),
+                "label": str(row["label"]),
+                "actor": str(row["actor"]),
+                "capabilities": sorted({str(item) for item in capabilities}),
+                "expires_at": row["expires_at"],
+            }
+
+    def revoke_api_token(self, token_id: str, *, now: int | None = None) -> bool:
+        current = int(time.time() if now is None else now)
+        with self._lock, self._connection() as connection:
+            changed = connection.execute(
+                "UPDATE api_tokens SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+                (current, str(token_id)),
+            ).rowcount
+            return bool(changed)
 
     @staticmethod
     def _uptime_seconds(value: str) -> int:

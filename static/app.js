@@ -7,6 +7,8 @@ const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
 let pendingDataRefresh = false;
 let pollingInFlight = false;
+let realtimeSource = null;
+let realtimeReconnectTimer = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -488,6 +490,46 @@ function updateDashboard(payload) {
   [...histories.keys()].forEach((id) => { if (!activeSessionIds.has(id)) histories.delete(id); });
 }
 
+function updateLiveSnapshot(payload) {
+  if (!payload || !Array.isArray(payload.sessions)) return;
+  const timestamp = Number(payload.generated_at || Math.floor(Date.now() / 1000)) * 1000;
+  syncActiveSessions(payload.sessions, timestamp);
+  $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
+  $$('[data-nav-session-count]').forEach((item) => { item.textContent = payload.sessions.length; });
+  const activeUsers = new Set(payload.sessions.map((session) => session.name)).size;
+  const activeLabel = $('[data-active-users]');
+  if (activeLabel) activeLabel.textContent = `${activeUsers} connected user${activeUsers === 1 ? '' : 's'}`;
+  const rx = payload.sessions.reduce((total, item) => total + (Number(item.rx_bytes) || 0), 0);
+  const tx = payload.sessions.reduce((total, item) => total + (Number(item.tx_bytes) || 0), 0);
+  const traffic = $('[data-traffic-total]');
+  if (traffic) traffic.textContent = `↓ ${formatBytes(rx)} · ↑ ${formatBytes(tx)}`;
+  $$('[data-live-indicator]').forEach((indicator) => {
+    indicator.classList.remove('stale', 'pending');
+    $('span', indicator).textContent = 'Live · updated now';
+  });
+}
+
+function scheduleRealtimeReconnect() {
+  if (realtimeReconnectTimer || document.hidden) return;
+  realtimeReconnectTimer = setTimeout(() => {
+    realtimeReconnectTimer = null;
+    connectRealtime();
+  }, 3000);
+}
+
+function connectRealtime() {
+  if (!window.EventSource || document.hidden || realtimeSource) return;
+  realtimeSource = new EventSource('/api/events', { withCredentials: true });
+  realtimeSource.addEventListener('status', (event) => {
+    try { updateLiveSnapshot(JSON.parse(event.data)); } catch (_) { /* ignore malformed telemetry */ }
+  });
+  realtimeSource.onerror = () => {
+    realtimeSource?.close();
+    realtimeSource = null;
+    scheduleRealtimeReconnect();
+  };
+}
+
 async function pollStatus() {
   if (document.hidden || pollingInFlight) return;
   pollingInFlight = true;
@@ -528,7 +570,7 @@ function seedCounters() {
   $$('.session-card').forEach((card) => updateGraphs(card, { rxBytes: 0, txBytes: 0, rxPackets: 0, txPackets: 0 }));
 }
 
-const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'profile-security', 'policy-templates', 'service-health', 'audit-log', 'setup-planner']);
+const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'admin-sessions', 'profile-security', 'policy-templates', 'service-health', 'audit-log', 'setup-planner']);
 
 function healthLabel(status) {
   return ({ healthy: 'Operational', warning: 'Attention needed', unavailable: 'Unavailable' }[status] || 'Unavailable');
@@ -857,6 +899,19 @@ document.addEventListener('click', async (event) => {
       toast('VPN endpoint copied.');
     } catch (_) {
       toast('The browser could not copy the VPN endpoint.', 'error');
+    }
+  } else if (button.matches('[data-admin-session-revoke]')) {
+    const sessionId = button.dataset.sessionId || '';
+    if (!sessionId || !window.confirm('Revoke this administrator session?')) return;
+    button.disabled = true;
+    try {
+      await resultOrError(await api(`/api/admin/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }));
+      button.closest('[data-admin-session-row]')?.remove();
+      toast('Administrator session revoked.');
+      loadAdminSessions();
+    } catch (error) {
+      toast(error.message, 'error');
+      button.disabled = false;
     }
   } else if (button.matches('[data-alert-ack]')) {
     button.disabled = true;
@@ -1325,6 +1380,128 @@ $('[data-copy-setup]')?.addEventListener('click', async () => {
   catch (_) { toast('Could not copy the plan automatically.', 'error'); }
 });
 
+function renderAdminSessions(payload) {
+  const body = $('[data-admin-session-list]');
+  if (!body) return;
+  const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+  body.replaceChildren(...(sessions.length ? sessions.map((item) => {
+    const row = node('tr');
+    row.dataset.adminSessionRow = '';
+    row.dataset.sessionId = item.id || '';
+    const identity = node('td');
+    identity.append(node('strong', '', item.username || 'unknown'), node('small', '', String(item.role || 'read_only').replace(/_/g, ' ')));
+    const source = node('td');
+    source.append(node('span', '', item.source_address || 'unknown'), node('small', '', item.auth_method || 'routeros'));
+    const activity = node('td');
+    activity.append(node('time', '', formatObservationTime(item.created_at)), node('small', '', `Last activity ${formatObservationTime(item.last_seen)}`));
+    const expiry = node('td');
+    expiry.append(node('span', '', `${Math.floor((Number(item.idle_remaining) || 0) / 60)}m idle remaining`), node('small', '', `${Math.floor((Number(item.absolute_remaining) || 0) / 3600)}h absolute remaining`));
+    const action = node('td');
+    if (item.current) action.append(node('span', 'posture-badge healthy', 'Current session'));
+    else if ($('.winbox-shell')?.dataset.canManageSessions === 'true') {
+      const revoke = node('button', 'table-action danger', 'Revoke');
+      revoke.type = 'button';
+      revoke.dataset.adminSessionRevoke = '';
+      revoke.dataset.sessionId = item.id || '';
+      action.append(revoke);
+    } else action.append(node('span', 'muted-label', 'Read-only'));
+    row.append(identity, source, activity, expiry, action);
+    return row;
+  }) : [(() => { const row = node('tr'); row.append(node('td', 'table-empty', 'No active administrator sessions.')); $('td', row).setAttribute('colspan', '5'); return row; })()]));
+  const count = $('[data-admin-session-count]');
+  if (count) count.textContent = `${sessions.length} active`;
+  const idle = $('[data-session-idle-timeout]');
+  if (idle && payload.idle_timeout_seconds) idle.textContent = `${Math.floor(payload.idle_timeout_seconds / 60)} minutes`;
+  const absolute = $('[data-session-absolute-timeout]');
+  if (absolute && payload.absolute_timeout_seconds) absolute.textContent = `${Math.floor(payload.absolute_timeout_seconds / 3600)} hours`;
+}
+
+async function loadAdminSessions() {
+  if (!$('[data-admin-session-list]')) return;
+  try {
+    const response = await resultOrError(await api('/api/admin/sessions'));
+    renderAdminSessions(await response.json());
+  } catch (error) { toast(error.message, 'error'); }
+}
+
+async function loadApiTokens() {
+  const body = $('[data-token-list]');
+  if (!body) return;
+  try {
+    const response = await resultOrError(await api('/api/admin/api-tokens'));
+    const payload = await response.json();
+    const tokens = Array.isArray(payload.tokens) ? payload.tokens : [];
+    body.replaceChildren(...(tokens.length ? tokens.map((item) => {
+      const row = node('tr');
+      row.dataset.tokenId = item.id || '';
+      const action = node('button', 'table-action danger', 'Revoke');
+      action.type = 'button';
+      action.dataset.apiTokenRevoke = '';
+      action.dataset.tokenId = item.id || '';
+      row.append(node('td', '', item.label || 'Unnamed token'), node('td', 'mono-value', (item.capabilities || []).join(', ')), node('td', '', item.expires_at ? formatObservationTime(item.expires_at) : 'Never'), node('td', '', ''));
+      $('td:last-child', row).append(action);
+      return row;
+    }) : [(() => { const row = node('tr'); const cell = node('td', 'table-empty', 'No scoped API tokens.'); cell.setAttribute('colspan', '4'); row.append(cell); return row; })()]));
+  } catch (error) { toast(error.message, 'error'); }
+}
+
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  if (button.matches('[data-admin-session-refresh]')) {
+    button.disabled = true;
+    try { await loadAdminSessions(); } finally { button.disabled = false; }
+  } else if (button.matches('[data-api-token-revoke]')) {
+    if (!window.confirm('Revoke this API token? Automation using it will stop immediately.')) return;
+    button.disabled = true;
+    try {
+      await resultOrError(await api(`/api/admin/api-tokens/${encodeURIComponent(button.dataset.tokenId || '')}`, { method: 'DELETE' }));
+      toast('API token revoked.');
+      loadApiTokens();
+    } catch (error) { toast(error.message, 'error'); button.disabled = false; }
+  } else if (button.matches('[data-copy-created-token]')) {
+    try { await copyText($('[data-created-token]')?.textContent || ''); toast('API token copied.'); }
+    catch (_) { toast('Could not copy the token.', 'error'); }
+  }
+});
+
+$('[data-token-form]')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  values.scopes = $$('select[name="scopes"] option:checked', form).map((option) => option.value);
+  setBusy(form, true);
+  setStatus(form, 'Creating a scoped token…');
+  try {
+    const response = await resultOrError(await api('/api/admin/api-tokens', { method: 'POST', body: values }));
+    const payload = await response.json();
+    $('[data-created-token]').textContent = payload.token;
+    $('[data-token-result]').hidden = false;
+    setStatus(form, 'Token created. Copy it now; it will not be shown again.');
+    loadApiTokens();
+  } catch (error) { setStatus(form, error.message, true); }
+  finally { setBusy(form, false); }
+});
+
+$('[data-profile-diagnostics]')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const file = $('input[type="file"]', form)?.files?.[0];
+  if (!file) return;
+  setBusy(form, true);
+  setStatus(form, 'Inspecting the profile in memory…');
+  try {
+    const profile = await file.text();
+    const response = await resultOrError(await api('/api/profile/diagnose', { method: 'POST', body: { profile } }));
+    const payload = await response.json();
+    const output = $('[data-diagnostic-result]', form);
+    output.replaceChildren(node('strong', '', `${payload.status === 'pass' ? 'Profile looks complete' : payload.status === 'warning' ? 'Review recommended' : 'Profile needs attention'}`), node('small', '', `${payload.summary.errors} error(s) · ${payload.summary.warnings} warning(s)`), ...payload.checks.map((check) => node('p', `diagnostic-${check.status}`, `${check.status.toUpperCase()} · ${check.message}`)));
+    output.hidden = false;
+    setStatus(form, 'Diagnostics complete. No profile data was stored.');
+  } catch (error) { setStatus(form, error.message, true); }
+  finally { setBusy(form, false); }
+});
+
 $$('[data-theme-choice]').forEach((choice) => {
   choice.addEventListener('click', () => {
     applyTheme(choice.dataset.themeChoice, true);
@@ -1346,5 +1523,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 showView(viewFromHash(), false);
 seedCounters();
+loadAdminSessions();
+loadApiTokens();
+connectRealtime();
 setTimeout(pollStatus, 1200);
 setInterval(pollStatus, 5000);
