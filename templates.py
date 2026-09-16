@@ -25,7 +25,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20260916-device-posture-v1"
+    asset_version = "20260916-enterprise-foundations-v1"
     script_tag = f'<script src="/static/app.js?v={asset_version}" defer></script>' if script else ""
     return f"""<!doctype html>
 <html lang="en" data-theme="standard">
@@ -34,6 +34,10 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#121a21">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="VPN Dashboard">
+  <link rel="manifest" href="/static/manifest.webmanifest?v={asset_version}">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260905">
   <link rel="alternate icon" type="image/x-icon" href="/favicon.ico?v=20260905">
   {csrf_meta}
@@ -324,6 +328,7 @@ def dashboard_page(
     csrf: str,
     users: list[dict[str, Any]],
     sessions: list[dict[str, Any]],
+    admin_sessions: list[dict[str, Any]],
     devices: list[dict[str, Any]],
     connections: list[dict[str, Any]],
     connection_summaries: dict[str, dict[str, Any]],
@@ -363,6 +368,7 @@ def dashboard_page(
     can_manage_sessions = has_capability(normalized_role, "session.manage")
     can_manage_alerts = has_capability(normalized_role, "alert.manage")
     can_manage_policies = has_capability(normalized_role, "policies.manage")
+    can_manage_security = has_capability(normalized_role, "security.manage")
     add_user_button = (
         f'<button class="primary" type="button" data-open-add>{_icon("plus")}<span>Add VPN user</span></button>'
         if can_manage_users
@@ -768,8 +774,28 @@ def dashboard_page(
     rollback_label = "Ready" if rollback.get("available") else "Not yet available"
     rollback_class = "healthy" if rollback.get("available") else "warning"
 
+    admin_session_rows = []
+    for item in admin_sessions:
+        session_id = html.escape(str(item.get("id", "")), quote=True)
+        role = html.escape(role_label(str(item.get("role", "read_only"))))
+        username = html.escape(str(item.get("username", "unknown")))
+        source = html.escape(str(item.get("source_address", "unknown")))
+        created = time.strftime("%d %b %Y · %H:%M", time.localtime(int(item.get("created_at", 0) or 0)))
+        last_seen = time.strftime("%d %b %Y · %H:%M", time.localtime(int(item.get("last_seen", 0) or 0)))
+        current_label = '<span class="posture-badge healthy">Current session</span>' if item.get("current") else (
+            f'<button class="table-action danger" type="button" data-admin-session-revoke data-session-id="{session_id}">{_icon("remove")}<span>Revoke</span></button>'
+            if can_manage_sessions else '<span class="muted-label">Read-only</span>'
+        )
+        admin_session_rows.append(
+            f'<tr data-admin-session-row data-session-id="{session_id}"><td><strong>{username}</strong><small>{role}</small></td><td>{source}<small>{html.escape(str(item.get("auth_method", "routeros")))}</small></td><td><time>{html.escape(created)}</time><small>Last activity {html.escape(last_seen)}</small></td><td><span>{int(item.get("idle_remaining", 0) or 0) // 60}m idle remaining</span><small>{int(item.get("absolute_remaining", 0) or 0) // 3600}h absolute remaining</small></td><td>{current_label}</td></tr>'
+        )
+    admin_session_markup = "".join(admin_session_rows) or '<tr><td colspan="5" class="table-empty">No active administrator sessions.</td></tr>'
+    api_token_panel = "" if not can_manage_security else f"""
+        <section class="panel token-panel"><div class="panel-heading"><div>{_icon('lock')}<span><strong>Scoped API tokens</strong><small>Read-only automation credentials. Plaintext is shown once and never stored.</small></span></div></div><form class="token-form" data-token-form><label><span>Token label</span><input name="label" required minlength="2" maxlength="80" placeholder="Metrics collector"></label><label><span>Scopes</span><select name="scopes" multiple size="3"><option value="health.read" selected>Health and metrics</option><option value="audit.read">Audit reports</option><option value="sessions.read">Administrator sessions</option></select></label><label><span>Expires</span><select name="expires_in"><option value="1h">1 hour</option><option value="1d">1 day</option><option value="7d">7 days</option><option value="30d" selected>30 days</option></select></label><p class="form-status" role="status"></p><button type="submit" class="primary">Create scoped token</button></form><div class="token-result" data-token-result hidden><strong>Copy this token now</strong><code data-created-token></code><button type="button" class="quiet" data-copy-created-token>{_icon('copy')}<span>Copy token</span></button></div><div class="responsive-table"><table class="token-table"><thead><tr><th>Label</th><th>Scopes</th><th>Expires</th><th>Action</th></tr></thead><tbody data-token-list><tr><td colspan="4" class="table-empty">Loading token inventory…</td></tr></tbody></table></div></section>
+    """
+
     body = f"""
-<div class="winbox-shell">
+<div class="winbox-shell" data-can-manage-sessions="{'true' if can_manage_sessions else 'false'}">
   <header class="winbox-menubar">
     <a class="mikrotik-wordmark" href="/dashboard"><span class="mikrotik-mark">{_icon('logo')}</span><strong>MIKROTIK</strong><span class="brand-host">{router_display_name_safe}</span></a>
     <div class="menubar-spacer"></div>
@@ -798,6 +824,7 @@ def dashboard_page(
     <a href="#service-health" data-view-target="service-health" aria-label="Service Health" title="Service Health">{_icon('health')}<span>Service Health</span></a>
     <span class="nav-section-title">AUDIT LOG</span>
     <a href="#audit-log" class="nav-subitem" data-view-target="audit-log" aria-label="Change History" title="Change History">{_icon('log')}<span>Change History</span></a>
+    <a href="#admin-sessions" class="nav-subitem" data-view-target="admin-sessions" aria-label="Administrator Sessions" title="Administrator Sessions">{_icon('shield')}<span>Admin sessions</span></a>
     <span class="nav-section-title">SETUP</span>
     <a href="#setup-planner" class="nav-subitem" data-view-target="setup-planner" aria-label="Setup Planner" title="Setup Planner">{_icon('plan')}<span>Setup Planner</span></a>
   </aside>
@@ -846,12 +873,20 @@ def dashboard_page(
         <section class="panel table-panel history-panel" data-connection-history data-open-count="{sum(1 for item in connections if not item.get('disconnected_at'))}"><div class="panel-heading"><div>{_icon('log')}<span><strong>Connection history</strong><small>Active and recently ended tunnels · up to 50 shown</small></span></div><label class="page-search compact-search">{_icon('search')}<input type="search" data-connection-search placeholder="Find a connection" aria-label="Find a connection"></label></div><div class="responsive-table"><table class="history-table connection-history-table"><thead><tr><th>User</th><th>Connected / ended</th><th>Duration</th><th>Source / VPN address</th><th>Traffic / encryption</th><th>Status</th></tr></thead><tbody>{connection_markup}</tbody></table></div></section>
       </section>
 
+      <section class="app-view" id="admin-sessions" data-view="admin-sessions" hidden>
+        <header class="view-heading"><div><p class="eyebrow">SECURITY</p><h1>Administrator sessions</h1><p>Review dashboard logins and revoke sessions without touching VPN connections.</p></div><div class="heading-actions"><button type="button" class="quiet" data-admin-session-refresh>{_icon('refresh')}<span>Refresh</span></button></div></header>
+        <section class="history-notice">{_icon('shield')}<span><strong>Credentials stay in memory only.</strong><small>Session inventory shows safe metadata. Revoking a dashboard session does not disconnect an OpenVPN device.</small></span></section>
+        <section class="panel table-panel"><div class="panel-heading"><div>{_icon('users')}<span><strong>Active administrator sessions</strong><small>Idle timeout: <span data-session-idle-timeout>30 minutes</span> · absolute timeout: <span data-session-absolute-timeout>8 hours</span></small></span></div><span class="muted-label" data-admin-session-count>{len(admin_sessions)} active</span></div><div class="responsive-table"><table class="history-table admin-session-table"><thead><tr><th>Administrator</th><th>Source</th><th>Created / last activity</th><th>Expiry</th><th>Action</th></tr></thead><tbody data-admin-session-list>{admin_session_markup}</tbody></table></div></section>
+        {api_token_panel}
+      </section>
+
       <section class="app-view" id="profile-security" data-view="profile-security" hidden>
          <header class="view-heading"><div><p class="eyebrow">DEVICES</p><h1>Device Profiles</h1><p>Each phone gets its own protected OpenVPN profile.</p></div>{f'<button class="primary" type="button" data-view-target="vpn-users">{_icon("plus")}<span>Add a device</span></button>' if can_manage_profiles else ''}</header>
         {posture_panel}
         <section class="panel table-panel migration-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Certificate migration</strong><small>Replace profiles issued by a previous CA before retiring them.</small></span></div><span class="posture-badge">{migrated_profile_count}/{legacy_profile_count} replacements issued</span></div><div class="migration-guidance"><strong>Safe order:</strong> issue a replacement, import and test it on the device, then revoke the old certificate. Issuing a replacement never disconnects or revokes the existing profile.</div><div class="responsive-table"><table class="migration-table"><thead><tr><th>Legacy certificate / device</th><th>Owner / issuer</th><th>Migration state</th><th>Action</th></tr></thead><tbody>{migration_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('device')}<span><strong>Managed devices</strong><small>Profiles created by this dashboard</small></span></div><span class="posture-badge">Protected automatically</span></div><div class="responsive-table"><table class="device-table"><thead><tr><th>Device / owner</th><th>Status</th><th>Protection ID</th><th>Created</th><th>Action</th></tr></thead><tbody>{device_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('certificate')}<span><strong>RouterOS certificate inventory</strong><small>Current and legacy OpenVPN client identities discovered on this router</small></span></div><span class="muted-label">{len(certificates)} certificates</span></div><div class="responsive-table"><table class="certificate-table"><thead><tr><th>Certificate / identity</th><th>Owner / device</th><th>Status</th><th>Expires</th><th>Fingerprint</th></tr></thead><tbody>{certificate_markup}</tbody></table></div></section>
+        <section class="panel profile-diagnostics-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Profile diagnostics</strong><small>Validate a downloaded .ovpn file in memory before importing it.</small></span></div><span class="posture-badge">Read-only</span></div><form data-profile-diagnostics><label><span>OpenVPN profile</span><input type="file" name="profile" accept=".ovpn,.txt" required><small>Only structural checks are performed. The file is not stored and certificate/key contents are never returned.</small></label><p class="form-status" role="status"></p><button type="submit" class="quiet">Run diagnostics</button><div class="diagnostic-result" data-diagnostic-result hidden></div></form></section>
         <section class="panel protection-summary"><div class="panel-heading compact"><div>{_icon('shield')}<span><strong>Protection handled for you</strong><small>No certificate knowledge required</small></span></div></div><ul class="checks"><li><span>{_icon('check')}</span><div><strong>Separate protection per device</strong><small>Each downloaded profile receives a separate certificate.</small></div></li><li><span>{_icon('check')}</span><div><strong>Private key encrypted</strong><small>The password you choose protects the downloaded profile.</small></div></li><li><span>{_icon('check')}</span><div><strong>Correct server verified</strong><small>The profile accepts only {vpn_host_safe}.</small></div></li><li><span>{_icon('check')}</span><div><strong>Temporary files removed</strong><small>Setup files are cleaned automatically after download.</small></div></li><li class="{'ready' if crl_ready else 'warning'}"><span>{_icon('shield')}</span><div><strong>{'Certificate revocation enforced' if crl_ready else 'Per-device revocation needs CA migration'}</strong><small>{'RouterOS CRL enforcement and an active CA-specific list are verified.' if crl_ready else 'The current CA has no active, verifiable CRL. A planned CA rotation is required before a lost profile can be reliably revoked.'}</small></div></li></ul></section>
       </section>
 
@@ -879,7 +914,7 @@ def dashboard_page(
       </section>
 
       <section class="app-view" id="audit-log" data-view="audit-log" hidden>
-        <header class="view-heading"><div><p class="eyebrow">AUDIT LOG</p><h1>Change History</h1><p>A read-only record of dashboard sign-ins and every access change.</p></div><div class="heading-actions"><label class="page-search">{_icon('search')}<input type="search" data-history-search placeholder="Find a change" aria-label="Find a history entry"></label><form class="report-export" method="get" action="/api/audit.csv"><label>From<input type="date" name="from" aria-label="Report start date"></label><label>To<input type="date" name="to" aria-label="Report end date"></label><button class="quiet" type="submit">{_icon('download')}<span>Export CSV</span></button><button class="quiet" type="submit" formaction="/api/audit.json">{_icon('download')}<span>JSON</span></button></form></div></header>
+        <header class="view-heading"><div><p class="eyebrow">AUDIT LOG</p><h1>Change History</h1><p>A read-only record of dashboard sign-ins and every access change.</p></div><div class="heading-actions"><label class="page-search">{_icon('search')}<input type="search" data-history-search placeholder="Find a change" aria-label="Find a history entry"></label><form class="report-export" method="get" action="/api/audit.csv"><label>From<input type="date" name="from" aria-label="Report start date"></label><label>To<input type="date" name="to" aria-label="Report end date"></label><button class="quiet" type="submit">{_icon('download')}<span>Export CSV</span></button><button class="quiet" type="submit" formaction="/api/audit.json">{_icon('download')}<span>JSON</span></button><button class="quiet" type="submit" formaction="/api/reports/compliance.zip">{_icon('download')}<span>Compliance ZIP</span></button></form></div></header>
         <section class="history-notice">{_icon('shield')}<span><strong>Passwords and private keys are never written here.</strong><small>History records the action, target, operator, result, and safe details only. Exports honour the selected inclusive date range.</small></span></section>
         <section class="panel capability-panel"><div class="panel-heading"><div>{_icon('users')}<span><strong>Administrator capabilities</strong><small>Permissions come directly from the signed-in RouterOS account.</small></span></div></div><div class="responsive-table"><table class="capability-table"><thead><tr><th>Role</th><th>Inspect and export</th><th>Manage access</th><th>Destructive actions</th></tr></thead><tbody><tr><td><strong>Read-only</strong></td><td>Allowed</td><td>Not allowed</td><td>Not allowed</td></tr><tr><td><strong>Operator</strong></td><td>Allowed</td><td>Allowed</td><td>Exact target confirmation</td></tr><tr><td><strong>Owner</strong></td><td>Allowed</td><td>Allowed</td><td>Exact target confirmation</td></tr></tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('log')}<span><strong>System history</strong><small>Newest changes first · up to 100 entries</small></span></div><span class="muted-label">{len(audit)} recorded</span></div><div class="responsive-table"><table class="history-table"><thead><tr><th>When</th><th>Change</th><th>Target</th><th>By</th><th>Result</th><th>Details</th></tr></thead><tbody>{audit_markup}</tbody></table></div></section>

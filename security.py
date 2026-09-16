@@ -90,6 +90,11 @@ class Session:
     created_at: float
     last_seen: float
     role: str = "owner"
+    source_address: str = ""
+    user_agent: str = ""
+    auth_method: str = "routeros"
+    token_id: str = ""
+    capabilities: frozenset[str] | None = None
 
 
 class SessionStore:
@@ -111,6 +116,8 @@ class SessionStore:
         password: str,
         now: float | None = None,
         role: str = "owner",
+        source_address: str = "",
+        user_agent: str = "",
     ) -> Session:
         current = time.time() if now is None else now
         session = Session(
@@ -121,6 +128,8 @@ class SessionStore:
             created_at=current,
             last_seen=current,
             role=normalize_role(role),
+            source_address=str(source_address or ""),
+            user_agent=str(user_agent or "")[:256],
         )
         with self._lock:
             self._sessions[session.session_id] = session
@@ -165,6 +174,53 @@ class SessionStore:
         self.purge(current)
         with self._lock:
             return list(self._sessions.values())
+
+    def snapshot(
+        self,
+        *,
+        current_session_id: str = "",
+        now: float | None = None,
+        include_identifiers: bool = False,
+    ) -> list[dict[str, object]]:
+        """Return safe administrator-session metadata without credentials.
+
+        Raw session IDs are bearer material, so they are included only for a
+        caller that has an explicit session-management capability. Everyone
+        else receives a short stable hash suitable for inventory/audit views.
+        """
+        current = time.time() if now is None else now
+        sessions = self.active(current)
+        result: list[dict[str, object]] = []
+        for session in sessions:
+            result.append({
+                "id": session.session_id if include_identifiers else "",
+                "id_hash": hashlib.sha256(session.session_id.encode("utf-8")).hexdigest()[:16],
+                "username": session.username,
+                "role": normalize_role(session.role),
+                "created_at": int(session.created_at),
+                "last_seen": int(session.last_seen),
+                "idle_seconds": max(0, int(current - session.last_seen)),
+                "idle_remaining": max(0, int(self.idle_seconds - (current - session.last_seen))),
+                "absolute_remaining": max(0, int(self.absolute_seconds - (current - session.created_at))),
+                "source_address": session.source_address or "unknown",
+                "user_agent": session.user_agent or "unknown",
+                "auth_method": session.auth_method,
+                "current": bool(session.session_id and session.session_id == current_session_id),
+            })
+        return result
+
+    def revoke(self, session_id: str) -> bool:
+        """Revoke one dashboard session and report whether it existed."""
+        with self._lock:
+            return self._sessions.pop(session_id, None) is not None
+
+    def revoke_all_except(self, session_id: str) -> int:
+        """Revoke every dashboard session except the caller's session."""
+        with self._lock:
+            candidates = [key for key in self._sessions if key != session_id]
+            for key in candidates:
+                self._sessions.pop(key, None)
+            return len(candidates)
 
 
 class LoginRateLimiter:

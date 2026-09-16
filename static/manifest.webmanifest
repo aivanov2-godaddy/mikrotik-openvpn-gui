@@ -1,0 +1,13 @@
+{
+  "name": "MikroTik OpenVPN Dashboard",
+  "short_name": "VPN Dashboard",
+  "description": "Secure, review-first OpenVPN administration for MikroTik RouterOS.",
+  "lang": "en",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#121a21",
+  "background_color": "#121a21",
+  "icons": []
+}

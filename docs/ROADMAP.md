@@ -120,3 +120,39 @@ router-hosted VPN data.
 
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
 merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).
+
+## v2.3 — Enterprise operations foundations (in progress)
+
+This release starts the next enterprise-grade layer while preserving the
+review-first and router-data boundaries:
+
+- **Administrator session center:** safe session inventory with source,
+  authentication method, idle/absolute expiry, and explicit revocation. The
+  current session cannot revoke itself.
+- **Break-glass recovery planning:** owner/security-operator users can produce
+  a time-limited, reason-bound RouterOS recovery checklist. It is a plan only;
+  it creates no credentials and changes no RouterOS state.
+- **Signed release verification:** immutable GHCR SHA tags are checked against
+  the reported revision before promotion. Mutable tags are rejected and the
+  CA/data preservation gate is shown in the result.
+- **Real-time telemetry:** an authenticated Server-Sent Events stream supplies
+  connection snapshots, with the existing five-second polling path retained as
+  a resilient fallback.
+- **Profile diagnostics:** uploaded profiles are parsed in memory for endpoint,
+  protocol, certificate blocks, and modern TLS safeguards; profile contents and
+  private keys are never persisted or echoed.
+- **Segmentation planning:** LAN/internet/full-tunnel zones and CIDRs can be
+  reviewed as a deterministic plan before any future RouterOS implementation.
+- **Metrics and compliance:** `/metrics` exposes secret-free Prometheus
+  counters; a bounded compliance ZIP contains redacted summary, audit, and
+  connection data.
+- **Scoped API tokens:** short-lived, read-only bearer tokens can be issued,
+  listed, and revoked by security-capable operators. Only a one-time plaintext
+  token is shown; storage retains a hash and metadata only.
+- **Accessible mobile/PWA foundation:** touch-safe controls, reduced-motion
+  support, consistent labels, and an installable web-app manifest improve
+  phone workflows without changing the OpenVPN client experience.
+
+All controls are capability-gated and audited. No item in this foundation
+release rotates or deletes CA material, certificates, profiles, RouterOS
+configuration, or router-resident VPN data.

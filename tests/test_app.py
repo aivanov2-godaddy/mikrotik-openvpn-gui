@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import http.client
-import base64
 import hashlib
 import io
 import json
@@ -11,6 +10,7 @@ import threading
 import unittest
 import urllib.parse
 import zipfile
+import base64
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -238,6 +238,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Read-only certificate checks for every managed profile", page)
         self.assertIn(b"Approved", page)
         self.assertIn(b"Per-device revocation needs CA migration", page)
+
         self.assertIn(b"ovpn-user-one-device-a", page)
         self.assertIn(b"What happens under the hood", page)
         self.assertIn(b"OpenVPN foundations", page)
@@ -421,6 +422,80 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(payload)["compatible"])
 
+    def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
+        self.login()
+        status, _, payload = self.request("GET", "/api/admin/sessions")
+        self.assertEqual(status, 200)
+        sessions = json.loads(payload)
+        self.assertEqual(len(sessions["sessions"]), 1)
+        self.assertTrue(sessions["sessions"][0]["current"])
+        self.assertNotIn(b"password", payload.lower())
+
+        status, _, payload = self.request("GET", "/metrics")
+        self.assertEqual(status, 200)
+        self.assertIn(b"vpn_dashboard_info", payload)
+        self.assertNotIn(b"routerpass", payload)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/admin/api-tokens",
+            {"label": "metrics export", "scopes": ["health.read", "audit.read", "sessions.read"], "expires_in": "1h"},
+        )
+        self.assertEqual(status, 201)
+        token_payload = json.loads(payload)
+        self.assertTrue(token_payload["token"].startswith("vpt_"))
+        token_id = token_payload["metadata"]["id"]
+        self.assertNotIn(token_payload["token"], json.dumps(self.server.context.store.list_api_tokens()))
+
+        status, _, payload = self.request(
+            "GET", "/api/observability",
+            headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(b"health_timeline", payload)
+
+        status, _, payload = self.request(
+            "GET", "/api/admin/sessions",
+            headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(b"sessions", payload)
+
+        status, _, payload = self.request("GET", "/api/reports/compliance.zip")
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            self.assertEqual(set(archive.namelist()), {"summary.json", "audit.csv", "connections.csv"})
+            self.assertNotIn(b"routerpass", archive.read("summary.json"))
+
+        status, _, payload = self.request(
+            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567&revision=0123456789abcdef0123456789abcdef01234567",
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["verified"])
+        status, _, payload = self.request(
+            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef012345670123456789abcdef01234567&revision=0123456789abcdef0123456789abcdef01234567",
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["verified"])
+
+        profile = """client\nremote vpn.example.test 1194 udp\nproto udp\nauth-nocache\nverify-x509-name vpn.example.test name\n<ca>\nCERT\n</ca>\n<cert>\nCERT\n</cert>\n<key>\nKEY\n</key>\ncipher AES-256-GCM\n"""
+        status, _, payload = self.json_request("POST", "/api/profile/diagnose", {"profile": profile})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["status"], "pass")
+
+        status, _, payload = self.json_request("POST", "/api/network/segment-plan", {"zone": "lan", "cidrs": ["192.0.2.0/24"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["mode"], "review-only")
+
+        status, _, payload = self.json_request("POST", "/api/admin/break-glass/plan", {"reason": "RouterOS dashboard recovery drill"})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["mode"], "review-only")
+
+        status, _, _ = self.request(
+            "DELETE", f"/api/admin/api-tokens/{urllib.parse.quote(token_id, safe='')}",
+            headers={"X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(status, 200)
+
     def test_auth_audit_events_are_detailed_but_secret_free(self) -> None:
         bad_login = urllib.parse.urlencode({"username": "admin", "password": "wrong"}).encode()
         self.request(
@@ -561,6 +636,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'href="/favicon.svg?v=20260905"', login_page)
         self.assertIn(b'href="/favicon.ico?v=20260905"', login_page)
+
+        status, headers, manifest = self.request("GET", "/static/manifest.webmanifest")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["content-type"], "application/manifest+json")
+        self.assertEqual(json.loads(manifest)["display"], "standalone")
 
     def test_user_profile_lifecycle_and_csrf(self) -> None:
         self.login()

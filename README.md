@@ -35,6 +35,17 @@ certificates, sessions, and traffic policy.
 - Keep dashboard metadata and sanitized audit events in SQLite; do not store VPN passwords or private keys.
 - Deploy the same image on supported RouterOS container architectures: `arm64` is the validated target and `amd64` is available for CHR/x86 evaluation.
 
+### Enterprise operations foundations
+
+The current development line adds a capability-gated administrator session
+center, short-lived read-only API tokens, live SSE connection events, profile
+diagnostics, immutable release verification, segmentation planning, and a
+redacted compliance export. These are designed for safe operations: break-glass
+recovery and network changes produce reviewable plans, while metrics and audit
+exports omit credentials, tokens, private keys, profiles, CA material, and
+RouterOS configuration. A web-app manifest and reduced-motion styles keep the
+same workflows usable on mobile without introducing a native client.
+
 ### Administrator roles
 
 RouterOS remains the identity source. After a successful sign-in, the dashboard
