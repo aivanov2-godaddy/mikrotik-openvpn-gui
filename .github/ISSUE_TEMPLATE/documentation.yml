@@ -1,0 +1,47 @@
+name: Documentation improvement
+description: Report a documentation gap or propose clearer guidance
+title: "[Docs]: "
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: Keep examples generic. Do not include credentials, private keys, real user data, production exports, or unredacted screenshots.
+  - type: textarea
+    id: gap
+    attributes:
+      label: Documentation gap
+      description: What is missing, unclear, outdated, or difficult to follow?
+      placeholder: The installation guide does not explain …
+    validations:
+      required: true
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Primary audience
+      options:
+        - RouterOS operator
+        - VPN user
+        - Maintainer or contributor
+        - Security reviewer
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed improvement
+      description: Suggest the headings, steps, examples, or wording that would resolve the gap.
+      placeholder: Add a short section that …
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Related context
+      description: Link to the affected public page or describe the relevant workflow using placeholders such as vpn.example.com.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Data safety
+      options:
+        - label: I removed secrets and identifying production data.
+          required: true

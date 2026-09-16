@@ -3,11 +3,15 @@ description: Propose a focused operator or VPN-user improvement
 title: "[Feature]: "
 labels: [enhancement]
 body:
+  - type: markdown
+    attributes:
+      value: Keep examples generic. Do not include credentials, private keys, real user data, production exports, or unredacted screenshots.
   - type: textarea
     id: problem
     attributes:
       label: Problem
       description: What operator or VPN-user problem should be easier or safer?
+      placeholder: Today, an operator has to …, which causes …
     validations:
       required: true
   - type: textarea
@@ -15,6 +19,7 @@ body:
     attributes:
       label: Desired outcome
       description: Describe the simple user experience, not only an implementation.
+      placeholder: A user should be able to … and see …
     validations:
       required: true
   - type: dropdown
@@ -30,6 +35,19 @@ body:
         - Build or deployment
     validations:
       required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable behaviors that would make this request complete.
+      placeholder: |
+        - [ ] …
+        - [ ] …
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any workaround or alternative design you evaluated.
   - type: textarea
     id: risk
     attributes:

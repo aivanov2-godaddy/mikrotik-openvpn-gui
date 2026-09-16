@@ -14,6 +14,16 @@ Please follow the [Code of Conduct](CODE_OF_CONDUCT.md) in every project space.
 6. Open a pull request and complete the security and rollout checklist.
 7. Merge only after required checks and review succeed.
 
+## Issue reporting
+
+Use the structured issue forms for bug reports, feature requests, documentation
+gaps, and deployment or compatibility questions. They are designed to capture
+the revision, environment, reproduction steps, and acceptance criteria needed
+for triage without collecting production secrets. Replace private values with
+placeholders such as `vpn.example.com`, `sha-COMMIT-ARCHITECTURE`, or
+`<redacted>`. Report vulnerabilities through the private security advisory link
+in the issue chooser instead of opening a public issue.
+
 ```powershell
 python -m pip install pre-commit
 python -m pre_commit install
