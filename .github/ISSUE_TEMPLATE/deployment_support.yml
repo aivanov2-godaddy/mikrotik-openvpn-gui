@@ -1,0 +1,60 @@
+name: Deployment or compatibility report
+description: Ask for help with a safe, reproducible deployment or client-compatibility problem
+title: "[Support]: "
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: Never post passwords, tokens, private keys, certificates, profile archives, real addresses, user lists, or unredacted logs. Replace private values with placeholders.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal and current result
+      description: What are you trying to do, and what happens instead?
+      placeholder: I am trying to …; instead the dashboard …
+    validations:
+      required: true
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Workflow
+      options:
+        - Initial installation
+        - Routine update or rollback
+        - VPN user or device onboarding
+        - OpenVPN client connection
+        - RouterOS health or capacity checks
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Dashboard revision or immutable image tag
+      placeholder: sha-COMMIT-ARCHITECTURE
+    validations:
+      required: true
+  - type: input
+    id: routeros
+    attributes:
+      label: RouterOS version and architecture
+      placeholder: 7.x / arm64
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Client and platform
+      placeholder: OpenVPN Connect / Android, iOS, Linux, macOS, or Windows
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Safe diagnostics
+      description: Include redacted error text, timestamps, and status indicators only.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Data safety
+      options:
+        - label: I replaced private values with placeholders and removed secrets.
+          required: true
