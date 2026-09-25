@@ -107,7 +107,7 @@ Standard preserves the slate WinBox baseline, Dark is tuned for low-light use,
 Light provides a high-contrast daylight surface, and System follows the device
 preference. The choice is browser-local and presentation-only.
 
-## v2.2 — Administrator roles and authentication audit (in progress)
+## v2.2 — Administrator roles and authentication audit (implemented)
 
 RouterOS groups map to Owner, Security operator, Administrator, Auditor, and
 Read-only roles. A shared capability matrix is enforced by every API mutation
@@ -119,9 +119,10 @@ modify CA material, certificates, issued profiles, RouterOS configuration, or
 router-hosted VPN data.
 
 Every roadmap item gets a focused issue, pull request, passing CI, and squash
-merge. See the live GitHub [roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).
+merge. This milestone shipped in PR #137. See the live GitHub
+[roadmap issue](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/4).
 
-## v2.3 — Enterprise operations foundations (in progress)
+## v2.3 — Enterprise operations foundations (implemented)
 
 This release starts the next enterprise-grade layer while preserving the
 review-first and router-data boundaries:
@@ -155,4 +156,6 @@ review-first and router-data boundaries:
 
 All controls are capability-gated and audited. No item in this foundation
 release rotates or deletes CA material, certificates, profiles, RouterOS
-configuration, or router-resident VPN data.
+configuration, or router-resident VPN data. This milestone shipped in PR #138;
+the feature remains release-tagged separately from the published v2.0.0 image
+until the next release checklist is completed.

@@ -8,7 +8,6 @@ updates:
       time: "04:00"
       timezone: Europe/Sofia
     open-pull-requests-limit: 5
-    labels: [dependencies, github-actions]
 
   - package-ecosystem: pip
     directory: "/"
@@ -18,7 +17,7 @@ updates:
       time: "04:15"
       timezone: Europe/Sofia
     open-pull-requests-limit: 3
-    labels: [dependencies, python]
+    labels: [python]
 
   - package-ecosystem: docker
     directory: "/"
@@ -28,4 +27,4 @@ updates:
       time: "04:30"
       timezone: Europe/Sofia
     open-pull-requests-limit: 3
-    labels: [dependencies, container]
+    labels: [container]

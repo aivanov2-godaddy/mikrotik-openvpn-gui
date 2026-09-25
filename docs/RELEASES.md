@@ -12,15 +12,14 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The current published feature release is **v1.11.0**. It adds certificate-profile
-migration tracking alongside the existing release metadata validation and
-generated release notes while preserving the router-local data and
-immutable-image deployment model. The next roadmap milestone is the read-only
-**v2.0 Device posture checks** feature. The previous published feature release
-was **v1.9.0**. It adds review-first OpenVPN
-foundation planning, administrator guardrails, an illustrated installation
-playbook, and a reproducible real-router canary acceptance procedure while
-preserving the router-local data and immutable-image deployment model.
+The current published feature release is **v2.0.0**. It adds read-only device
+posture checks while preserving the router-local data and immutable-image
+deployment model. The `main` branch also contains the implemented v2.2
+administrator roles/authentication audit and v2.3 enterprise operations
+foundations; those changes are intentionally unreleased until the next release
+checklist is completed. The previous published feature release was
+**v1.11.0**, which added certificate-profile migration tracking, mobile
+administrator ergonomics, and local production observability.
 
 ## Published images
 
@@ -70,7 +69,7 @@ repository.
 7. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
 
 The repository's next release version is kept in [`VERSION`](../VERSION). Run
-`python scripts/validate_release.py --tag v1.11.0` before creating a tag. The
+`python scripts/validate_release.py --tag v2.0.0` before creating a tag. The
 `Release notes` workflow previews GitHub-generated notes without changing a
 release when run manually with `dry_run=true`; a pushed, matching `v*` tag is
 the only event that publishes a release. Notes contain commit and pull-request
