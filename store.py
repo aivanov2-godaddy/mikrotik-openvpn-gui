@@ -6,6 +6,7 @@ import os
 import sqlite3
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -177,6 +178,21 @@ class MetadataStore:
                     revoked_at INTEGER
                 );
 
+                CREATE TABLE IF NOT EXISTS user_tags (
+                    vpn_user TEXT NOT NULL,
+                    tag TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY(vpn_user, tag)
+                );
+
+                CREATE TABLE IF NOT EXISTS saved_views (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    filters TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_devices_vpn_user ON devices(vpn_user);
                 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_connection_history_connected ON connection_history(connected_at DESC);
@@ -186,6 +202,8 @@ class MetadataStore:
                 CREATE INDEX IF NOT EXISTS idx_deployment_events_created_at ON deployment_events(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_health_snapshots_created_at ON health_snapshots(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+                CREATE INDEX IF NOT EXISTS idx_user_tags_tag ON user_tags(tag);
+                CREATE INDEX IF NOT EXISTS idx_saved_views_updated_at ON saved_views(updated_at DESC);
                 """
             )
             # Existing RouterOS dashboard databases predate quota/schedule
@@ -493,7 +511,97 @@ class MetadataStore:
     def delete_user_controls(self, vpn_user: str) -> None:
         with self._lock, self._connection() as connection:
             connection.execute("DELETE FROM user_controls WHERE vpn_user=?", (str(vpn_user),))
-            connection.execute("DELETE FROM user_policy_templates WHERE vpn_user=?", (str(vpn_user),))
+
+    def user_tags(self, vpn_user: str) -> list[str]:
+        """Return dashboard-only tags for a VPN user.
+
+        Tags are intentionally kept in the metadata store. They are operator
+        labels, not RouterOS comments, credentials, certificates, or profile
+        contents.
+        """
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT tag FROM user_tags WHERE vpn_user=? ORDER BY tag COLLATE NOCASE",
+                (str(vpn_user),),
+            ).fetchall()
+            return [str(row["tag"]) for row in rows]
+
+    def all_user_tags(self) -> dict[str, list[str]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT vpn_user, tag FROM user_tags ORDER BY vpn_user COLLATE NOCASE, tag COLLATE NOCASE"
+            )
+            values: dict[str, list[str]] = {}
+            for row in rows:
+                values.setdefault(str(row["vpn_user"]), []).append(str(row["tag"]))
+            return values
+
+    def add_user_tag(self, vpn_user: str, tag: str) -> bool:
+        """Add a tag and report whether it changed state."""
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO user_tags(vpn_user, tag, created_at) VALUES (?, ?, ?)",
+                (str(vpn_user), str(tag), int(time.time())),
+            )
+            return cursor.rowcount > 0
+
+    def remove_user_tags(self, vpn_user: str) -> None:
+        with self._lock, self._connection() as connection:
+            connection.execute("DELETE FROM user_tags WHERE vpn_user=?", (str(vpn_user),))
+
+    def saved_views(self) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT id, name, filters, created_at, updated_at FROM saved_views ORDER BY updated_at DESC, name COLLATE NOCASE"
+            )
+            values = []
+            for row in rows:
+                try:
+                    filters = json.loads(str(row["filters"]))
+                except (TypeError, json.JSONDecodeError):
+                    filters = {}
+                values.append({
+                    "id": str(row["id"]),
+                    "name": str(row["name"]),
+                    "filters": filters if isinstance(filters, dict) else {},
+                    "created_at": int(row["created_at"]),
+                    "updated_at": int(row["updated_at"]),
+                })
+            return values
+
+    def save_view(self, *, name: str, filters: dict[str, Any], view_id: str | None = None) -> dict[str, Any]:
+        safe_name = str(name).strip()
+        if not 2 <= len(safe_name) <= 64:
+            raise ValueError("Saved view names must be between 2 and 64 characters")
+        view_id = str(view_id or f"view-{uuid.uuid4().hex[:16]}")
+        now = int(time.time())
+        serialized = json.dumps(filters, separators=(",", ":"), sort_keys=True)
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO saved_views(id, name, filters, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name=excluded.name, filters=excluded.filters, updated_at=excluded.updated_at
+                """,
+                (view_id, safe_name, serialized, now, now),
+            )
+            row = connection.execute(
+                "SELECT id, name, filters, created_at, updated_at FROM saved_views WHERE id=?",
+                (view_id,),
+            ).fetchone()
+        if not row:
+            raise RuntimeError("Saved view could not be stored")
+        return {
+            "id": str(row["id"]), "name": str(row["name"]),
+            "filters": json.loads(str(row["filters"])),
+            "created_at": int(row["created_at"]), "updated_at": int(row["updated_at"]),
+        }
+
+    def delete_view(self, view_id: str) -> bool:
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute("DELETE FROM saved_views WHERE id=?", (str(view_id),))
+            return cursor.rowcount > 0
 
     def add_alert(
         self,

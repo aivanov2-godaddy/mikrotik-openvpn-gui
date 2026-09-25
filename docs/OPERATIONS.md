@@ -86,6 +86,30 @@ Security operator, `audit`/`auditor` → Auditor, and `read`/`readonly` →
 Read-only. Capability checks run in the API as well as the UI, so hiding a
 button is never the security boundary.
 
+## Bulk operations and saved views
+
+On **VPN Users**, filter the visible result first, select the intended users,
+choose **Suspend**, **Revoke profiles**, or **Add tag**, and select **Preview**.
+The server re-reads RouterOS user IDs before producing the preview, so a stale
+browser selection cannot silently target a different account. Suspend and
+revoke require a RouterOS checkpoint and an exact confirmation phrase. Revoke
+only targets dashboard-managed, currently active device certificates; it never
+changes the configured CA or server certificate. A retry reports already
+completed work as skipped rather than repeating it.
+
+The result lists each selected username with an outcome such as applied,
+skipped, partial, or failed. Partial failures are safe to retry after the
+underlying RouterOS problem is corrected. Change History records the action,
+selected count, outcome counts, and tag value when applicable; it intentionally
+does not record the selected usernames, passwords, profiles, certificates, or
+tokens.
+
+Use **Save current view** to store only the query, status, and tag filters in
+the router-local SQLite metadata store. Saved views can be loaded, updated, or
+deleted by an operator with user-management capability. They are presentation
+metadata, not RouterOS configuration, and they are never included in the
+public image, repository, backup manifests, or profile archives.
+
 Every denied capability creates a `role.denied` Change History event with the
 actor, required capability, role, and route. It does not include cookies,
 passwords, private keys, or profile contents.

@@ -159,3 +159,20 @@ release rotates or deletes CA material, certificates, profiles, RouterOS
 configuration, or router-resident VPN data. This milestone shipped in PR #138;
 the feature remains release-tagged separately from the published v2.0.0 image
 until the next release checklist is completed.
+
+## v2.4 - Bulk operations and saved views (implemented)
+
+VPN Users now supports selecting up to 100 users from the current filtered
+result, reviewing a server-generated preview, and applying suspend, revoke, or
+dashboard-only tag actions after an exact confirmation phrase. Suspend and
+revoke operations create the same router-local checkpoint used by their
+single-user equivalents; retries are idempotent, and the response reports
+skipped, applied, partial, and failed users individually. Change History stores
+only aggregate counts and safe action metadata, never a user list, password,
+certificate, profile, or RouterOS secret.
+
+Operators can save, load, update, and delete named views containing only the
+query, status, and tag filters. Saved views are stored in the router-local
+SQLite metadata database and are deliberately excluded from the public image
+and repository. The feature is UI/API capability-gated and does not alter the
+CA, certificate issuance, profile format, or existing `/data` mount.

@@ -786,13 +786,156 @@ $$('[data-refresh]').forEach((button) => button.addEventListener('click', async 
 
 $('[data-full-refresh]')?.addEventListener('click', () => location.reload());
 
-$('[data-user-search]')?.addEventListener('input', (event) => {
-  const query = event.currentTarget.value.trim().toLocaleLowerCase();
-  $$('.user-card').forEach((card) => {
-    const haystack = `${card.dataset.userName} ${card.dataset.userEmail} ${card.dataset.userComment}`.toLocaleLowerCase();
-    card.classList.toggle('is-filtered-out', Boolean(query) && !haystack.includes(query));
+const bulkRoot = $('[data-bulk-operations]');
+let bulkPreviewPayload = null;
+
+function bulkFilters() {
+  return {
+    query: ($('[data-user-search]')?.value || '').trim(),
+    status: $('[data-bulk-status]')?.value || 'all',
+    tag: $('[data-bulk-tag]')?.value || '',
+  };
+}
+
+function bulkSetStatus(message, error = false) {
+  const status = $('[data-bulk-status-message]');
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle('error', error);
+}
+
+function bulkCards() { return $$('.user-card'); }
+
+function refreshBulkTagOptions() {
+  const select = $('[data-bulk-tag]');
+  if (!select) return;
+  const current = select.value;
+  const tags = [...new Set(bulkCards().flatMap((card) => (card.dataset.userTags || '').split(',').map((tag) => tag.trim()).filter(Boolean)))].sort((a, b) => a.localeCompare(b));
+  select.replaceChildren(new Option('All tags', ''), ...tags.map((tag) => new Option(tag, tag)));
+  select.value = tags.includes(current) ? current : '';
+}
+
+function applyBulkFilters() {
+  const filters = bulkFilters();
+  const query = filters.query.toLocaleLowerCase();
+  bulkCards().forEach((card) => {
+    const haystack = `${card.dataset.userName} ${card.dataset.userEmail} ${card.dataset.userComment} ${card.dataset.userTags || ''}`.toLocaleLowerCase();
+    const matchesQuery = !query || haystack.includes(query);
+    const matchesStatus = filters.status === 'all'
+      || (filters.status === 'online' && card.dataset.userConnected === 'true')
+      || (filters.status === 'offline' && card.dataset.userConnected !== 'true' && card.dataset.userDisabled !== 'true')
+      || (filters.status === 'suspended' && card.dataset.userDisabled === 'true');
+    const matchesTag = !filters.tag || (card.dataset.userTags || '').split(',').map((tag) => tag.trim()).includes(filters.tag);
+    card.classList.toggle('is-filtered-out', !(matchesQuery && matchesStatus && matchesTag));
   });
-});
+  updateBulkSelection();
+}
+
+function updateBulkSelection() {
+  const selected = $$('[data-user-select]:checked').length;
+  const count = $('[data-bulk-selection]');
+  if (count) count.textContent = `${selected} selected`;
+  const action = $('[data-bulk-action]')?.value || '';
+  const previewButton = $('[data-bulk-preview]');
+  const allowed = action !== 'revoke' || bulkRoot?.dataset.canBulkRevoke === 'true';
+  if (previewButton) previewButton.disabled = !selected || !action || !allowed;
+}
+
+function selectedBulkUsers() { return $$('[data-user-select]:checked').map((input) => input.closest('.user-card')?.dataset.userId).filter(Boolean); }
+
+function renderBulkReview(payload) {
+  const review = $('[data-bulk-review]');
+  if (!review) return;
+  bulkPreviewPayload = payload;
+  review.replaceChildren();
+  const title = node('strong', '', `${payload.action} preview · ${payload.selected} selected`);
+  const summary = node('small', '', 'Nothing has changed yet. Review the result and type the exact confirmation phrase to apply it.');
+  const list = node('ul');
+  (payload.users || []).forEach((user) => {
+    const item = node('li');
+    item.append(node('b', '', user.username), node('span', '', user.state === 'will_revoke' ? `${user.profiles} profile(s)` : user.state.replaceAll('_', ' ')));
+    list.append(item);
+  });
+  const confirmation = node('input');
+  confirmation.type = 'text'; confirmation.placeholder = payload.confirmation; confirmation.dataset.bulkConfirmation = 'true'; confirmation.autocomplete = 'off';
+  const apply = node('button', 'danger', 'Apply reviewed operation');
+  apply.type = 'button'; apply.disabled = true; apply.dataset.bulkApply = 'true';
+  confirmation.addEventListener('input', () => { apply.disabled = confirmation.value.trim() !== payload.confirmation; });
+  apply.addEventListener('click', async () => {
+    apply.disabled = true;
+    bulkSetStatus('Applying the reviewed operation and recording a redacted audit event…');
+    try {
+      const response = await resultOrError(await api('/api/bulk/apply', { method: 'POST', body: { action: payload.action, tag: payload.tag || '', user_ids: selectedBulkUsers(), confirmation: confirmation.value.trim() } }));
+      const result = await response.json();
+      const message = result.status === 'partial' ? 'Applied with partial failures; review the per-user results below.' : 'Bulk operation applied successfully.';
+      bulkSetStatus(message, result.status === 'partial');
+      toast(message, result.status === 'partial' ? 'error' : 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (error) { bulkSetStatus(error.message, true); apply.disabled = false; }
+  });
+  const controls = node('div', 'bulk-review-controls');
+  controls.append(node('label', '', 'Type confirmation'), confirmation, apply);
+  review.append(title, summary, list, controls);
+  review.hidden = false;
+}
+
+async function loadBulkViews() {
+  const select = $('[data-saved-view]');
+  if (!select) return;
+  try {
+    const response = await resultOrError(await api('/api/bulk/views'));
+    const payload = await response.json();
+    select.replaceChildren(new Option('Load a saved view', ''), ...(payload.views || []).map((view) => new Option(view.name, view.id)));
+    select.dataset.views = JSON.stringify(payload.views || []);
+  } catch (error) { bulkSetStatus(`Saved views unavailable: ${error.message}`, true); }
+}
+
+if (bulkRoot) {
+  refreshBulkTagOptions();
+  applyBulkFilters();
+  loadBulkViews();
+  $('[data-user-search]')?.addEventListener('input', applyBulkFilters);
+  $('[data-bulk-status]')?.addEventListener('change', applyBulkFilters);
+  $('[data-bulk-tag]')?.addEventListener('change', applyBulkFilters);
+  $('[data-bulk-action]')?.addEventListener('change', (event) => {
+    $('[data-bulk-tag-input]')?.toggleAttribute('hidden', event.currentTarget.value !== 'tag');
+    updateBulkSelection();
+  });
+  $('[data-bulk-select-visible]')?.addEventListener('click', () => { $$('[data-user-select]').filter((input) => !input.closest('.user-card')?.classList.contains('is-filtered-out')).forEach((input) => { input.checked = true; }); updateBulkSelection(); });
+  $('[data-bulk-clear]')?.addEventListener('click', () => { $$('[data-user-select]').forEach((input) => { input.checked = false; }); updateBulkSelection(); });
+  $$('[data-user-select]').forEach((input) => input.addEventListener('change', updateBulkSelection));
+  $('[data-bulk-preview]')?.addEventListener('click', async () => {
+    const action = $('[data-bulk-action]')?.value || '';
+    const body = { action, user_ids: selectedBulkUsers(), tag: $('[data-bulk-tag-value]')?.value.trim() || '' };
+    bulkSetStatus('Generating a review-only preview…');
+    try { renderBulkReview(await (await resultOrError(await api('/api/bulk/preview', { method: 'POST', body }))).json()); bulkSetStatus('Review the selected users and confirm the exact phrase before applying.'); }
+    catch (error) { bulkSetStatus(error.message, true); }
+  });
+  $('[data-save-view]')?.addEventListener('click', async () => {
+    const name = $('[data-saved-view-name]')?.value.trim();
+    if (!name) { bulkSetStatus('Enter a name for this saved view first.', true); return; }
+    try { await resultOrError(await api('/api/bulk/views', { method: 'POST', body: { name, filters: bulkFilters() } })); $('[data-saved-view-name]').value = ''; await loadBulkViews(); bulkSetStatus('Saved view stored without credentials or profile contents.'); toast('Saved view created.'); }
+    catch (error) { bulkSetStatus(error.message, true); }
+  });
+  $('[data-saved-view]')?.addEventListener('change', (event) => {
+    const views = JSON.parse(event.currentTarget.dataset.views || '[]');
+    if ($('[data-delete-view]')) $('[data-delete-view]').disabled = !event.currentTarget.value;
+    const view = views.find((item) => item.id === event.currentTarget.value);
+    if (!view) return;
+    const filters = view.filters || {};
+    if ($('[data-user-search]')) $('[data-user-search]').value = filters.query || '';
+    if ($('[data-bulk-status]')) $('[data-bulk-status]').value = filters.status || 'all';
+    if ($('[data-bulk-tag]')) $('[data-bulk-tag]').value = filters.tag || '';
+    applyBulkFilters();
+    bulkSetStatus(`Loaded saved view “${view.name}”.`);
+  });
+  $('[data-delete-view]')?.addEventListener('click', async () => {
+    const select = $('[data-saved-view]');
+    if (!select?.value) return;
+    try { await resultOrError(await api(`/api/bulk/views/${encodeURIComponent(select.value)}`, { method: 'DELETE' })); await loadBulkViews(); bulkSetStatus('Saved view deleted.'); }
+    catch (error) { bulkSetStatus(error.message, true); }
+  });
+}
 
 $('[data-history-search]')?.addEventListener('input', (event) => {
   const query = event.currentTarget.value.trim().toLocaleLowerCase();
