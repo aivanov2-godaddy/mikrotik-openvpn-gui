@@ -4,7 +4,7 @@ ARG VERSION=1.11.0
 ARG REVISION=unknown
 ARG SOURCE_URL=""
 
-FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc AS routeros-rootfs
+FROM python:3.14-alpine@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01 AS routeros-rootfs
 
 ARG VERSION
 ARG REVISION
