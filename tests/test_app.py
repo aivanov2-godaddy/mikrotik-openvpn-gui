@@ -7,6 +7,7 @@ import json
 import re
 import tempfile
 import threading
+import time
 import unittest
 import urllib.parse
 import zipfile
@@ -608,7 +609,10 @@ class DashboardIntegrationTests(unittest.TestCase):
     def test_service_health_persists_certificate_expiry_alerts(self) -> None:
         """A soon-to-expire RouterOS certificate becomes a durable dashboard alert."""
         self.login()
-        self.mock.state.certificates["*CL1"]["invalid-after"] = "2026-09-20 00:00:00"
+        # Keep the fixture in the warning window regardless of when CI runs.
+        self.mock.state.certificates["*CL1"]["invalid-after"] = time.strftime(
+            "%Y-%m-%d %H:%M:%S", time.localtime(time.time() + (7 * 86400))
+        )
         status, _, payload = self.request("GET", "/api/service-health")
         self.assertEqual(status, 200)
         self.assertIn("certificate-inventory", {item["id"] for item in json.loads(payload)["checks"]})
