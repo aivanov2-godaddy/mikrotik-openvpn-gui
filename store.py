@@ -602,7 +602,6 @@ class MetadataStore:
         with self._lock, self._connection() as connection:
             cursor = connection.execute("DELETE FROM saved_views WHERE id=?", (str(view_id),))
             return cursor.rowcount > 0
-            connection.execute("DELETE FROM user_policy_templates WHERE vpn_user=?", (str(vpn_user),))
 
     def add_alert(
         self,
