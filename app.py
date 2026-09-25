@@ -11,6 +11,7 @@ import mimetypes
 import os
 import re
 import secrets
+import sqlite3
 import threading
 import time
 import urllib.parse
@@ -54,6 +55,8 @@ DNS_VALUES = {"router", "cloudflare"}
 EXPIRY_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
 SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
+BULK_ACTIONS = {"suspend", "revoke", "tag"}
+BULK_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,31}$")
 IMMUTABLE_IMAGE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._/-]*:sha-[a-f0-9]{40,64}(?:-(?:arm64|amd64))?$", re.I)
 ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
@@ -678,6 +681,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self, credentials: RouterOSCredentials
     ) -> list[dict[str, Any]]:
         emails = self.server.context.store.user_emails()
+        tags_by_user = self.server.context.store.all_user_tags()
         assignments = self.server.context.store.user_template_assignments()
         templates = {item["id"]: item for item in self.server.context.store.list_policy_templates()}
         period_start = DashboardServer._quota_period_start(int(time.time()))
@@ -690,6 +694,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             template = templates.get(str(assignment.get("template_id", ""))) if assignment else None
             values.append({
                 **user, "email": emails.get(username, ""), "controls": controls,
+                "tags": tags_by_user.get(username, []),
                 "template": ({"id": template["id"], "name": template["name"],
                               "group_name": template["group_name"], "overrides": assignment["overrides"]}
                              if template and assignment else None),
@@ -942,6 +947,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"users": users})
             except RouterOSError as error:
                 self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            return
+        if path == "/api/bulk/views":
+            session = self._require_session(api=True)
+            if not session:
+                return
+            self._json({"views": self.server.context.store.saved_views()})
             return
         if path == "/api/status":
             session = self._require_session(api=True)
@@ -1387,6 +1398,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/users":
             self._create_user()
+            return
+        if path == "/api/bulk/preview":
+            self._bulk_user_action(preview=True)
+            return
+        if path == "/api/bulk/apply":
+            self._bulk_user_action(preview=False)
+            return
+        if path == "/api/bulk/views":
+            self._save_bulk_view()
             return
         if path == "/api/setup-plan":
             self._setup_plan()
@@ -2118,6 +2138,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._revoke_admin_session(urllib.parse.unquote(match.group(1)))
             return
+        match = re.fullmatch(r"/api/bulk/views/([A-Za-z0-9_-]{1,64})", path)
+        if match:
+            self._delete_bulk_view(match.group(1))
+            return
         match = re.fullmatch(r"/api/sessions/([^/]+)", path)
         if match:
             self._terminate_session(urllib.parse.unquote(match.group(1)))
@@ -2695,6 +2719,198 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status="failed", details={"reason": type(error).__name__},
             )
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _bulk_user_action(self, *, preview: bool) -> None:
+        """Preview or apply an idempotent bulk user operation.
+
+        The endpoint deliberately operates on the selected RouterOS user IDs
+        received from the current page, never on an arbitrary filter sent by
+        the browser. A fresh RouterOS read validates every ID before preview
+        or apply, which keeps retries safe when another administrator changes
+        the user list at the same time.
+        """
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session):
+            return
+        try:
+            data = self._read_json()
+            action = str(data.get("action", "")).strip().lower()
+            if action not in BULK_ACTIONS:
+                raise ValueError("Bulk action must be suspend, revoke, or tag")
+            capability = "device.manage" if action == "revoke" else "users.manage"
+            if not self._require_capability(session, capability, action=f"bulk.{action}"):
+                return
+            requested_ids = data.get("user_ids")
+            if not isinstance(requested_ids, list) or not requested_ids or len(requested_ids) > 100:
+                raise ValueError("Select between 1 and 100 VPN users before continuing")
+            requested = [str(value).strip() for value in requested_ids]
+            if any(not value for value in requested) or len(set(requested)) != len(requested):
+                raise ValueError("Each selected VPN user must be unique")
+            tag = str(data.get("tag", "")).strip()
+            if action == "tag":
+                if not BULK_TAG_PATTERN.fullmatch(tag):
+                    raise ValueError("Tags must be 1–32 characters and use letters, numbers, spaces, dots, dashes, or underscores")
+                tag = " ".join(tag.split())
+            credentials = self._credentials(session)
+            users = {
+                str(item.get("id", "")): item
+                for item in self.server.context.router.list_ovpn_users(credentials)
+            }
+            missing = [user_id for user_id in requested if user_id not in users]
+            if missing:
+                raise ValueError("One or more selected VPN users no longer exist; refresh and try again")
+            active_sessions = []
+            if action == "suspend":
+                active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+            preview_rows: list[dict[str, Any]] = []
+            for user_id in requested:
+                user = users[user_id]
+                username = str(user.get("name", ""))
+                if action == "suspend":
+                    already = str(user.get("disabled", "no")).strip().lower() in {"yes", "true", "1"}
+                    active_count = sum(1 for item in active_sessions if str(item.get("name", "")) == username)
+                    preview_rows.append({
+                        "id": user_id, "username": username,
+                        "state": "already_suspended" if already else "will_suspend",
+                        "active_sessions": active_count,
+                    })
+                elif action == "revoke":
+                    devices = self.server.context.store.devices_for_user(username)
+                    revocable = [item for item in devices if not item.get("revoked_at") and item.get("certificate_id")]
+                    preview_rows.append({
+                        "id": user_id, "username": username,
+                        "state": "will_revoke" if revocable else "no_active_profiles",
+                        "profiles": len(revocable),
+                    })
+                else:
+                    tags = self.server.context.store.user_tags(username)
+                    preview_rows.append({
+                        "id": user_id, "username": username,
+                        "state": "already_tagged" if tag in tags else "will_tag",
+                        "tags": tags,
+                    })
+            confirmation = f"APPLY {action.upper()} TO {len(requested)} USERS"
+            if preview:
+                self._json({
+                    "action": action, "tag": tag, "users": preview_rows,
+                    "selected": len(requested), "confirmation": confirmation,
+                })
+                return
+            if not self._require_target_confirmation(data, confirmation):
+                return
+            if action in {"suspend", "revoke"} and not self._checkpoint(session, f"bulk-{action}"):
+                return
+            outcomes: list[dict[str, Any]] = []
+            for row in preview_rows:
+                user_id = str(row["id"])
+                username = str(row["username"])
+                try:
+                    if action == "suspend":
+                        if row["state"] == "already_suspended":
+                            outcomes.append({"username": username, "status": "skipped", "reason": "already_suspended"})
+                            continue
+                        self.server.context.router.update_user(credentials, user_id=user_id, disabled=True)
+                        disconnected = 0
+                        refreshed = []
+                        try:
+                            for active in active_sessions:
+                                if str(active.get("name", "")) != username:
+                                    continue
+                                try:
+                                    self.server.context.router.terminate_session(credentials, session_id=str(active["id"]))
+                                    disconnected += 1
+                                except RouterOSError:
+                                    pass
+                            refreshed = self.server.context.router.list_active_ovpn_sessions(credentials)
+                            self.server.context.store.observe_sessions(refreshed)
+                        except RouterOSError:
+                            pass
+                        self.server.context.store.set_enforcement_state(username, "")
+                        outcomes.append({"username": username, "status": "applied", "disconnected": disconnected})
+                    elif action == "revoke":
+                        devices = self.server.context.store.devices_for_user(username)
+                        revocable = [item for item in devices if not item.get("revoked_at") and item.get("certificate_id")]
+                        if not revocable:
+                            outcomes.append({"username": username, "status": "skipped", "reason": "no_active_profiles"})
+                            continue
+                        failed = 0
+                        revoked = 0
+                        for device in revocable:
+                            try:
+                                self.server.context.router.revoke_certificate(credentials, certificate_id=str(device["certificate_id"]))
+                                self.server.context.store.mark_revoked(str(device["id"]))
+                                revoked += 1
+                            except RouterOSError:
+                                failed += 1
+                        outcomes.append({"username": username, "status": "partial" if failed else "applied", "revoked": revoked, "failed": failed})
+                    else:
+                        changed = self.server.context.store.add_user_tag(username, tag)
+                        outcomes.append({"username": username, "status": "applied" if changed else "skipped", "reason": "already_tagged" if not changed else "tagged", "tag": tag})
+                except (RouterOSError, ValueError) as error:
+                    outcomes.append({"username": username, "status": "failed", "reason": type(error).__name__})
+            failed = sum(1 for item in outcomes if item["status"] in {"failed", "partial"})
+            applied = sum(1 for item in outcomes if item["status"] == "applied")
+            status = "partial" if failed else "success"
+            self.server.context.store.audit(
+                actor=session.username,
+                action=f"bulk.{action}",
+                target="selected-users",
+                status=status,
+                details={"selected": len(requested), "applied": applied, "failed": failed, "tagged": tag if action == "tag" else ""},
+            )
+            self._json({"ok": True, "action": action, "status": status, "selected": len(requested), "outcomes": outcomes})
+        except (ValueError, RouterOSError) as error:
+            self.server.context.store.audit(
+                actor=session.username,
+                action="bulk.preview" if preview else "bulk.apply",
+                target="selected-users",
+                status="failed",
+                details={"reason": type(error).__name__},
+            )
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    @staticmethod
+    def _safe_bulk_filters(value: Any) -> dict[str, str]:
+        raw = value if isinstance(value, dict) else {}
+        filters: dict[str, str] = {}
+        for key in ("query", "status", "tag"):
+            item = str(raw.get(key, "")).strip()
+            if len(item) > 80:
+                raise ValueError("Saved view filters are too long")
+            filters[key] = item
+        if filters["status"] not in {"", "all", "online", "offline", "suspended"}:
+            raise ValueError("Saved view status is invalid")
+        return filters
+
+    def _save_bulk_view(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session):
+            return
+        try:
+            data = self._read_json()
+            filters = self._safe_bulk_filters(data.get("filters"))
+            saved = self.server.context.store.save_view(
+                name=str(data.get("name", "")),
+                filters=filters,
+                view_id=str(data.get("id", "")).strip() or None,
+            )
+            self.server.context.store.audit(
+                actor=session.username, action="bulk.view.save", target="saved-view",
+                status="success", details={"filter_keys": sorted(key for key, value in filters.items() if value)},
+            )
+            self._json({"view": saved})
+        except (ValueError, sqlite3.IntegrityError) as error:
+            self._json({"error": "A saved view with that name already exists." if isinstance(error, sqlite3.IntegrityError) else str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _delete_bulk_view(self, view_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session):
+            return
+        if self.server.context.store.delete_view(view_id):
+            self.server.context.store.audit(actor=session.username, action="bulk.view.delete", target="saved-view", status="success")
+            self._json({"ok": True})
+            return
+        self._json({"error": "Saved view was not found"}, status=HTTPStatus.NOT_FOUND)
 
     def _set_user_access(self, user_id: str, *, suspended: bool) -> None:
         session = self._require_session(api=True)

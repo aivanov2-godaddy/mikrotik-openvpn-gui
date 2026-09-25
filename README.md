@@ -31,6 +31,10 @@ certificates, sessions, and traffic policy.
 - Inspect active sessions, traffic counters, source addresses, and connection history.
 - Apply simple access presets: device limits, expiry, schedule, speed, DNS, and quota.
 - Reuse built-in or custom policy templates; preview selected users before an auditable, checkpointed apply.
+- Select filtered users for a review-first bulk suspend, revoke, or tag action;
+  retry safely and inspect per-user outcomes without exposing secrets.
+- Save reusable, router-local user views containing only query, status, and tag
+  filters; view definitions never enter the public image or repository.
 - Review one read-only service-health view for RouterOS REST, OpenVPN, profile issuing, certificate, storage, and capacity readiness with safe next steps.
 - Keep dashboard metadata and sanitized audit events in SQLite; do not store VPN passwords or private keys.
 - Deploy the same image on supported RouterOS container architectures: `arm64` is the validated target and `amd64` is available for CHR/x86 evaluation.

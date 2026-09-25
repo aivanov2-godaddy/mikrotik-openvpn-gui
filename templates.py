@@ -25,7 +25,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20260916-enterprise-foundations-v1"
+    asset_version = "20260926-bulk-operations-v1"
     script_tag = f'<script src="/static/app.js?v={asset_version}" defer></script>' if script else ""
     return f"""<!doctype html>
 <html lang="en" data-theme="standard">
@@ -401,6 +401,8 @@ def dashboard_page(
     for user in users:
         name = str(user.get("name", ""))
         user_id = str(user.get("id", ""))
+        tags = [str(item) for item in (user.get("tags") or []) if str(item)]
+        tags_markup = "".join(f'<span class="user-tag">{html.escape(tag)}</span>' for tag in tags)
         comment = str(user.get("comment", "")) or "No description"
         email = str(user.get("email", "")) or "Email not assigned"
         disabled = bool(user.get("disabled"))
@@ -444,11 +446,12 @@ def dashboard_page(
             action_markup = '<span class="read-only-menu">Read-only access</span>'
         rows.append(
             f"""
-        <article class="user-card" data-user-id="{html.escape(user_id, quote=True)}" data-user-name="{html.escape(name, quote=True)}" data-user-comment="{html.escape(comment, quote=True)}" data-user-email="{html.escape(email, quote=True)}" data-user-disabled="{'true' if disabled else 'false'}" data-user-policy="{html.escape(policy, quote=True)}" data-user-expires="{expiry}" data-user-max-sessions="{max_sessions}" data-user-rate-limit="{int(controls.get('rate_limit_kbps', 0) or 0)}" data-user-dns="{html.escape(str(controls.get('dns_mode', 'router')), quote=True)}" data-user-notifications="{'true' if controls.get('notifications', True) else 'false'}" data-user-quota="{quota_mb}" data-user-schedule="{html.escape(schedule, quote=True)}" data-user-template-id="{html.escape(str((user.get('template') or {}).get('id', '')), quote=True)}">
-          <header class="user-card-header">
-            <div class="identity">
-              <span class="avatar">{html.escape((name[:1] or "?").upper())}</span>
-              <div class="identity-copy"><div class="identity-title"><strong>{html.escape(name)}</strong><span class="account-badge {'disabled' if disabled else 'enabled'}" data-account-status>{'Disabled' if disabled else 'Enabled'}</span></div><small>{html.escape(comment)}</small><small class="identity-email">{html.escape(email)}</small></div>
+        <article class="user-card" data-user-id="{html.escape(user_id, quote=True)}" data-user-name="{html.escape(name, quote=True)}" data-user-comment="{html.escape(comment, quote=True)}" data-user-email="{html.escape(email, quote=True)}" data-user-disabled="{'true' if disabled else 'false'}" data-user-connected="{'true' if connected else 'false'}" data-user-tags="{html.escape(','.join(tags), quote=True)}" data-user-policy="{html.escape(policy, quote=True)}" data-user-expires="{expiry}" data-user-max-sessions="{max_sessions}" data-user-rate-limit="{int(controls.get('rate_limit_kbps', 0) or 0)}" data-user-dns="{html.escape(str(controls.get('dns_mode', 'router')), quote=True)}" data-user-notifications="{'true' if controls.get('notifications', True) else 'false'}" data-user-quota="{quota_mb}" data-user-schedule="{html.escape(schedule, quote=True)}" data-user-template-id="{html.escape(str((user.get('template') or {}).get('id', '')), quote=True)}">
+           <header class="user-card-header">
+             <div class="identity">
+               <label class="bulk-user-select"><input type="checkbox" data-user-select aria-label="Select {html.escape(name, quote=True)}"></label>
+               <span class="avatar">{html.escape((name[:1] or "?").upper())}</span>
+               <div class="identity-copy"><div class="identity-title"><strong>{html.escape(name)}</strong><span class="account-badge {'disabled' if disabled else 'enabled'}" data-account-status>{'Disabled' if disabled else 'Enabled'}</span></div><small>{html.escape(comment)}</small><small class="identity-email">{html.escape(email)}</small>{f'<div class="user-tags">{tags_markup}</div>' if tags_markup else ''}</div>
             </div>
             <button class="connection-badge {'online' if connected else 'offline'}" type="button" data-connection-status {'data-view-target="live-sessions"' if connected else 'disabled'}><i></i><span>{'Connected' if connected else 'Offline'}</span></button>
             <div class="profile-count"><strong>{device_counts.get(name, 0)}</strong><span>managed profile{'s' if device_counts.get(name, 0) != 1 else ''}</span></div>
@@ -861,9 +864,10 @@ def dashboard_page(
         </div><footer><strong>Important:</strong> The dashboard and VPN data plane are separate. OpenVPN phone traffic goes directly to MikroTik.</footer></section>
       </section>
 
-      <section class="app-view" id="vpn-users" data-view="vpn-users" hidden>
-        <header class="view-heading"><div><p class="eyebrow">ACCESS</p><h1>VPN Users</h1><p>Add people, update their access, or create a profile for another device.</p></div><div class="heading-actions"><label class="page-search">{_icon('search')}<input type="search" data-user-search placeholder="Find a user" aria-label="Find VPN user"></label>{add_user_button}</div></header>
-        <section class="panel user-panel"><div class="panel-heading"><div>{_icon('users')}<span><strong>OpenVPN Users</strong><small>Name, owner, connection status, and managed devices</small></span></div><div class="legend"><span><i class="online-dot"></i>Connected</span><span><i></i>Offline</span></div></div><div class="user-table-head"><span>Name / owner</span><span>Status</span><span>Devices</span><span>Actions</span></div><div class="user-list" data-user-list>{user_markup}</div></section>
+       <section class="app-view" id="vpn-users" data-view="vpn-users" hidden>
+         <header class="view-heading"><div><p class="eyebrow">ACCESS</p><h1>VPN Users</h1><p>Add people, update their access, or create a profile for another device.</p></div><div class="heading-actions"><label class="page-search">{_icon('search')}<input type="search" data-user-search placeholder="Find a user" aria-label="Find VPN user"></label>{add_user_button}</div></header>
+         <section class="panel bulk-operations-panel" data-bulk-operations data-can-bulk-users="{'true' if can_manage_users else 'false'}" data-can-bulk-revoke="{'true' if can_manage_devices else 'false'}"><div class="panel-heading"><div>{_icon('template')}<span><strong>Bulk operations and saved views</strong><small>Filter, select, review, and apply repeatable changes without storing secrets.</small></span></div><span class="muted-label" data-bulk-selection>0 selected</span></div><div class="bulk-controls"><label><span>Status</span><select data-bulk-status><option value="all">All users</option><option value="online">Connected</option><option value="offline">Offline</option><option value="suspended">Suspended</option></select></label><label><span>Tag</span><select data-bulk-tag><option value="">All tags</option></select></label><button type="button" class="quiet" data-bulk-select-visible>Select visible</button><button type="button" class="quiet" data-bulk-clear>Clear selection</button></div><div class="bulk-action-row"><label><span>Reviewed action</span><select data-bulk-action><option value="">Choose an action</option>{'<option value="suspend">Suspend access</option>' if can_manage_users else ''}{'<option value="revoke">Revoke managed profiles</option>' if can_manage_devices else ''}{'<option value="tag">Add a tag</option>' if can_manage_users else ''}</select></label><label data-bulk-tag-input hidden><span>Tag name</span><input type="text" data-bulk-tag-value maxlength="32" placeholder="e.g. contractors"></label><button type="button" class="quiet" data-bulk-preview disabled>Preview selected</button></div><div class="bulk-review" data-bulk-review hidden></div><div class="saved-view-row"><label><span>Saved view</span><select data-saved-view><option value="">Load a saved view</option></select></label><label><span>Save current filters as</span><input type="text" data-saved-view-name maxlength="64" placeholder="e.g. Online contractors"></label><button type="button" class="quiet" data-save-view>Save view</button><button type="button" class="quiet" data-delete-view disabled>Delete view</button></div><p class="form-status" data-bulk-status-message role="status"></p></section>
+         <section class="panel user-panel"><div class="panel-heading"><div>{_icon('users')}<span><strong>OpenVPN Users</strong><small>Name, owner, connection status, and managed devices</small></span></div><div class="legend"><span><i class="online-dot"></i>Connected</span><span><i></i>Offline</span></div></div><div class="user-table-head"><span>Name / owner</span><span>Status</span><span>Devices</span><span>Actions</span></div><div class="user-list" data-user-list>{user_markup}</div></section>
       </section>
 
       <section class="app-view" id="live-sessions" data-view="live-sessions" hidden>

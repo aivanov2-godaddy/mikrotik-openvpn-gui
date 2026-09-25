@@ -1065,6 +1065,95 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("user.suspend", actions)
         self.assertIn("user.restore", actions)
 
+    def test_bulk_tag_is_reviewed_idempotent_and_supports_saved_views(self) -> None:
+        self.login()
+        users = {
+            item["name"]: item
+            for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+        }
+        selected = [users["user-one"]["id"], users["user-two"]["id"]]
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/preview",
+            {"action": "tag", "user_ids": selected, "tag": "Field Team"},
+        )
+        self.assertEqual(status, 200)
+        preview = json.loads(payload)
+        self.assertEqual(preview["confirmation"], "APPLY TAG TO 2 USERS")
+        self.assertEqual({item["state"] for item in preview["users"]}, {"will_tag"})
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "wrong"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("exact target name", json.loads(payload)["error"])
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "APPLY TAG TO 2 USERS"},
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(payload)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual({self.server.context.store.user_tags(name)[0] for name in users}, {"Field Team"})
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "APPLY TAG TO 2 USERS"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual({item["status"] for item in json.loads(payload)["outcomes"]}, {"skipped"})
+
+        status, _, payload = self.json_request("GET", "/api/bulk/views")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["views"], [])
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/views",
+            {"name": "Field team users", "filters": {"query": "field", "status": "all", "tag": "Field Team"}},
+        )
+        self.assertEqual(status, 200)
+        view = json.loads(payload)["view"]
+        self.assertEqual(view["filters"]["tag"], "Field Team")
+        self.assertNotIn("user-one", json.dumps(view))
+        status, _, payload = self.json_request("GET", "/api/bulk/views")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["views"][0]["name"], "Field team users")
+        status, _, _ = self.json_request("DELETE", f"/api/bulk/views/{view['id']}")
+        self.assertEqual(status, 200)
+        self.assertIn("bulk.tag", [item["action"] for item in self.server.context.store.recent_audit(20)])
+        self.assertIn("bulk.view.save", [item["action"] for item in self.server.context.store.recent_audit(20)])
+
+    def test_bulk_suspend_previews_and_disconnects_selected_users(self) -> None:
+        self.login()
+        users = {
+            item["name"]: item
+            for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+        }
+        selected = [users["user-one"]["id"], users["user-two"]["id"]]
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/preview", {"action": "suspend", "user_ids": selected},
+        )
+        self.assertEqual(status, 200)
+        preview = json.loads(payload)
+        self.assertEqual({item["state"] for item in preview["users"]}, {"will_suspend"})
+        self.assertEqual(next(item for item in preview["users"] if item["username"] == "user-two")["active_sessions"], 1)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {"action": "suspend", "user_ids": selected, "confirmation": "APPLY SUSPEND TO 2 USERS"},
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(payload)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(next(item for item in result["outcomes"] if item["username"] == "user-two")["disconnected"], 1)
+        self.assertFalse(self.mock.state.active_sessions)
+        self.assertTrue(all(item["disabled"] == "yes" for item in self.mock.state.users.values()))
+
 
     def test_policy_template_preview_and_explicit_apply(self) -> None:
         self.login()

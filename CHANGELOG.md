@@ -8,6 +8,12 @@ semantic-version style release tags.
 
 ### Added
 
+- Bulk VPN-user operations with filtered multi-select, review previews, exact
+  confirmations, idempotent suspend/revoke/tag actions, partial-failure
+  reporting, and redacted aggregate audit events.
+- Router-local saved views for reusable query, status, and tag filters. View
+  definitions contain no credentials, profile contents, certificate material,
+  or RouterOS configuration.
 - Administrator roles (Owner, Security operator, Administrator, Auditor, and
   Read-only) with capability enforcement in the UI and API, plus redacted
   authentication and authorization audit events.
