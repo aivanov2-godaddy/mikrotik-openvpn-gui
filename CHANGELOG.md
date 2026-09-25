@@ -8,6 +8,9 @@ semantic-version style release tags.
 
 ### Added
 
+- Administrator roles (Owner, Security operator, Administrator, Auditor, and
+  Read-only) with capability enforcement in the UI and API, plus redacted
+  authentication and authorization audit events.
 - Enterprise administrator session center with idle/absolute expiry metadata,
   explicit revocation, and safe session-ID handling.
 - Review-only break-glass recovery planning, immutable release verification,
@@ -18,6 +21,18 @@ semantic-version style release tags.
   in plaintext only once to a security-capable administrator.
 - Mobile/PWA accessibility foundation with reduced-motion support and an
   installable web-app manifest.
+
+### Fixed
+
+- Certificate-alert integration tests now derive their warning-window fixture
+  from the current time so CI remains deterministic.
+
+### Maintenance
+
+- Updated the container build dependencies for QEMU, Buildx, and Build Push;
+  all checks passed before merge.
+- Removed unavailable Dependabot label names so future update pull requests do
+  not carry broken label warnings.
 
 ## 2.0.0 - 2026-09-16
 
