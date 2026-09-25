@@ -115,11 +115,11 @@ promotion and rollback procedure.
 
 1. Start with the illustrated [Getting Started guide](docs/GETTING_STARTED.md) and choose the right public-exposure path before changing the router.
 2. Before promoting a new public image, follow the [RouterOS canary acceptance guide](docs/ROUTEROS_ACCEPTANCE.md).
-2. Follow the complete [installation playbook](docs/INSTALLATION_PLAYBOOK.md): it includes reviewable RouterOS commands, validation, troubleshooting, rollback, and two explicit scenarios—domain HTTPS with optional Cloudflare, or IP-only OpenVPN with secure dashboard management.
-3. Use the [production observability guide](docs/OBSERVABILITY.md) to interpret deployment history, the health timeline, and rollback visibility without exposing router-local data.
-3. Review the [accessibility guide](docs/ACCESSIBILITY.md) when validating keyboard, high-contrast, or reduced-motion operation.
-3. The offline [Installation Wizard](docs/INSTALL_WIZARD.md) generates only a non-secret, reviewable RouterOS plan; use it alongside the playbook rather than treating it as an unattended installer.
-4. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
+3. Follow the complete [installation playbook](docs/INSTALLATION_PLAYBOOK.md): it includes reviewable RouterOS commands, validation, troubleshooting, rollback, and two explicit scenarios—domain HTTPS with optional Cloudflare, or IP-only OpenVPN with secure dashboard management.
+4. Use the [production observability guide](docs/OBSERVABILITY.md) to interpret deployment history, the health timeline, and rollback visibility without exposing router-local data.
+5. Review the [accessibility guide](docs/ACCESSIBILITY.md) when validating keyboard, high-contrast, or reduced-motion operation.
+6. The offline [Installation Wizard](docs/INSTALL_WIZARD.md) generates only a non-secret, reviewable RouterOS plan; use it alongside the playbook rather than treating it as an unattended installer.
+7. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
 
 The public repository publishes architecture-specific GHCR images from `main`.
 Always pin an immutable `sha-<commit>-<architecture>` tag for RouterOS; never
