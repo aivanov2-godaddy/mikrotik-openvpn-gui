@@ -437,6 +437,16 @@ function renderConnectionHistory(connections = []) {
   const body = $('.connection-history-table tbody', history || undefined);
   if (!history || !body) return;
   const now = Math.floor(Date.now() / 1000);
+  const renderKey = JSON.stringify({
+    minute: Math.floor(now / 60),
+    rows: connections.map((item) => [
+      item.id, item.connected_at, item.disconnected_at, item.last_seen_at,
+      item.vpn_user, item.source_address, item.vpn_address, item.encoding,
+      item.rx_bytes, item.tx_bytes,
+    ]),
+  });
+  if (history.dataset.renderKey === renderKey) return;
+  history.dataset.renderKey = renderKey;
   const rows = connections.map((item) => {
     const connectedAt = Number(item.connected_at) || 0;
     const disconnectedAt = Number(item.disconnected_at) || 0;
@@ -485,6 +495,13 @@ function renderAlerts(alerts = []) {
   const panel = $('[data-alert-panel]');
   const list = $('[data-alert-list]');
   if (!panel || !list) return;
+  const canManage = panel.dataset.canManageAlerts === 'true';
+  const renderKey = JSON.stringify({
+    canManage,
+    alerts: alerts.map((alert) => [alert.id, alert.severity, alert.title, alert.details, alert.created_at]),
+  });
+  if (panel.dataset.renderKey === renderKey) return;
+  panel.dataset.renderKey = renderKey;
   panel.hidden = alerts.length === 0;
   const count = $('[data-alert-count]', panel);
   if (count) count.textContent = `${alerts.length} open`;
@@ -492,7 +509,6 @@ function renderAlerts(alerts = []) {
     list.replaceChildren(node('li', 'alert-empty', 'No active alerts. Automated checks will appear here when action is needed.'));
     return;
   }
-  const canManage = panel.dataset.canManageAlerts === 'true';
   list.replaceChildren(...alerts.map((alert) => {
     const item = node('li', `alert-item ${String(alert.severity || 'info')}`);
     item.dataset.alertId = String(alert.id || '');
@@ -745,7 +761,12 @@ function renderObservability(payload) {
   const deploymentBody = $('[data-deployment-history]');
   const deployments = Array.isArray(model.deployments) ? model.deployments : [];
   if (deploymentBody) {
-    deploymentBody.replaceChildren(...(deployments.length ? deployments.map((event) => {
+    const renderKey = JSON.stringify(deployments.map((event) => [
+      event.created_at, event.status, event.version, event.revision, event.channel,
+    ]));
+    if (deploymentBody.dataset.renderKey !== renderKey) {
+      deploymentBody.dataset.renderKey = renderKey;
+      deploymentBody.replaceChildren(...(deployments.length ? deployments.map((event) => {
       const row = node('tr');
       const when = node('td');
       when.append(node('time', '', formatObservationTime(event.created_at)));
@@ -757,18 +778,26 @@ function renderObservability(payload) {
       release.append(version, node('small', 'table-secondary mono-value', revision.length > 16 ? `${revision.slice(0, 12)}…` : revision));
       row.append(when, state, release, node('td', '', event.channel || 'runtime'));
       return row;
-    }) : [(() => { const row = node('tr'); const cell = node('td', 'table-empty', 'No runtime release observations yet.'); cell.setAttribute('colspan', '4'); row.append(cell); return row; })()]));
+      }) : [(() => { const row = node('tr'); const cell = node('td', 'table-empty', 'No runtime release observations yet.'); cell.setAttribute('colspan', '4'); row.append(cell); return row; })()]));
+    }
   }
   const count = $('[data-deployment-count]');
   if (count) count.textContent = `${deployments.length} recorded`;
   const timeline = $('[data-health-timeline]');
   const snapshots = Array.isArray(model.health_timeline) ? model.health_timeline : [];
   if (timeline) {
-    timeline.replaceChildren(...(snapshots.length ? snapshots.map((snapshot) => {
+    const renderKey = JSON.stringify(snapshots.map((snapshot) => [
+      snapshot.created_at, snapshot.overall, snapshot.healthy_count,
+      snapshot.warning_count, snapshot.unavailable_count,
+    ]));
+    if (timeline.dataset.renderKey !== renderKey) {
+      timeline.dataset.renderKey = renderKey;
+      timeline.replaceChildren(...(snapshots.length ? snapshots.map((snapshot) => {
       const item = node('li', `health-timeline-item ${snapshot.overall || 'unavailable'}`);
       item.append(node('i'), node('time', '', formatObservationTime(snapshot.created_at)), node('strong', '', String(snapshot.overall || 'unavailable').replace(/\b\w/g, (letter) => letter.toUpperCase())), node('span', '', `${Number(snapshot.healthy_count) || 0} healthy · ${Number(snapshot.warning_count) || 0} review · ${Number(snapshot.unavailable_count) || 0} unavailable`));
       return item;
-    }) : [node('li', 'timeline-empty', 'No health observations yet. Refresh checks to start the timeline.')]));
+      }) : [node('li', 'timeline-empty', 'No health observations yet. Refresh checks to start the timeline.')]));
+    }
   }
 }
 

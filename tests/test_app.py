@@ -919,6 +919,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("function hasOpenDialog()", script)
         self.assertIn("function renderConnectionHistory(connections = [])", script)
         self.assertIn("function renderAlerts(alerts = [])", script)
+        self.assertIn("history.dataset.renderKey", script)
+        self.assertIn("panel.dataset.renderKey", script)
+        self.assertIn("deploymentBody.dataset.renderKey", script)
+        self.assertIn("timeline.dataset.renderKey", script)
         update_block = script.split("function updateDashboard(payload)", 1)[1].split("async function pollStatus()", 1)[0]
         self.assertIn("scheduleAutomaticPageSync()", update_block)
         self.assertNotIn("function deferFreshData(reason)", script)
