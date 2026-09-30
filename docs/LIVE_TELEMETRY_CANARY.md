@@ -1,0 +1,59 @@
+# Live telemetry canary procedure
+
+This procedure validates the Binary API telemetry path without changing the
+router. It is intentionally separate from the production watchdog: the
+watchdog must keep the current immutable image and the public runtime must
+continue to advertise `transport: sse` until this checklist is accepted.
+
+## What the canary proves
+
+- Binary API-SSL and the redacted broker see the same session set as the
+  existing REST snapshot.
+- The Binary API snapshot is fresh and remains healthy for consecutive samples.
+- Reconnect and reconciliation tests pass without RouterOS mutations.
+- Router CPU, memory, event latency, and reconnect behavior stay within the
+  acceptance targets in `docs/LIVE_TELEMETRY_PLAN.md`.
+
+## Capture and compare privately
+
+The operator harness should write newline-delimited JSON to a private file or
+pipe. It must contain only redacted session records, for example:
+
+```json
+{"legacy":[{"id":"opaque-1"}],"binary":[{"id":"opaque-1"}],"binary_timestamp":1720000000}
+```
+
+Do not commit this file, paste it into an issue, or send it to a public service.
+Run the comparator locally:
+
+```text
+python scripts/telemetry_canary.py --input private-samples.ndjson \
+  --max-age 10 --required-consecutive 3
+```
+
+The command prints only counts, age, reason, and promotion readiness. Exit code
+`0` means the required consecutive healthy samples were observed. Exit code `1`
+means the canary is not ready; exit code `2` means the input was invalid.
+
+## Acceptance window
+
+1. Start the candidate in a separate canary container with the same read-only
+   credentials and trust material. Keep `/data` and `/config` separate from
+   production.
+2. Confirm `/readyz`, authenticated REST status, and the existing `/api/events`
+   stream remain healthy.
+3. Collect at least three healthy comparisons, then exercise a temporary API
+   disconnect and verify bounded reconnect/backoff plus a reconciliation
+   snapshot.
+4. Record CPU, memory, sample age, reconnect count, and event loss for the
+   observation window. No certificate, profile, user, firewall, or VPN action
+   is part of this test.
+5. Promote only the same immutable SHA image after the evidence is reviewed.
+   If any check fails, leave production unchanged and follow
+   `docs/LIVE_TELEMETRY_ROLLBACK.md`.
+
+## Explicit non-goals
+
+The canary never enables a mutable image tag, changes RouterOS configuration,
+rotates the OpenVPN CA, creates or revokes certificates, modifies profiles,
+or copies SQLite/router-local data into the public repository.
