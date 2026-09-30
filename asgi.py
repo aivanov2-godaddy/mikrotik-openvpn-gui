@@ -103,7 +103,13 @@ class DashboardHTTPASGI:
         # sends the parsed response on the event loop.
         buffer = bytearray()
         while b"\r\n\r\n" not in buffer:
-            chunk = client.recv(65536)
+            try:
+                chunk = client.recv(65536)
+            except (OSError, ValueError):
+                # The disconnect watcher closes the socket when the browser
+                # goes away.  Treat that race as an ordinary end-of-stream;
+                # it must not become an ASGI application exception.
+                return None
             if not chunk:
                 return None
             buffer.extend(chunk)
@@ -122,7 +128,12 @@ class DashboardHTTPASGI:
             if body:
                 await send({"type": "http.response.body", "body": body, "more_body": True})
             while True:
-                chunk = await asyncio.to_thread(client.recv, 65536)
+                try:
+                    chunk = await asyncio.to_thread(client.recv, 65536)
+                except (OSError, ValueError):
+                    # A concurrent http.disconnect may close the socket
+                    # while this read is in flight.
+                    return
                 if not chunk:
                     break
                 await send({"type": "http.response.body", "body": chunk, "more_body": True})
