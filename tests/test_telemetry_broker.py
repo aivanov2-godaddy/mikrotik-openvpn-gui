@@ -1,10 +1,46 @@
 import unittest
 
 from routeros_binary import RouterOSReply
-from telemetry_broker import TelemetryBroker, normalize_session
+from telemetry_broker import TelemetryBroker, normalize_interface, normalize_session
 
 
 class TelemetryBrokerTests(unittest.TestCase):
+    def test_interface_normalization_is_allow_listed(self) -> None:
+        interface = normalize_interface(
+            {
+                ".id": "*ether1",
+                "name": "ether1",
+                "rx-byte": "100",
+                "tx-byte": "40",
+                "rx-packet": "8",
+                "tx-packet": "4",
+                "comment": "private topology detail",
+            }
+        )
+        self.assertEqual(interface["id"], "*ether1")
+        self.assertEqual(interface["rx_bytes"], 100)
+        self.assertNotIn("comment", interface)
+
+    def test_interface_reconcile_emits_rates_and_reset_without_raw_fields(self) -> None:
+        broker = TelemetryBroker(clock=lambda: 100)
+        first = broker.reconcile_interfaces(
+            [{".id": "*1", "name": "ether1", "rx-byte": 100, "tx-byte": 40}], now=100
+        )
+        self.assertEqual([event.name for event in first], ["vpn.interface.counters"])
+        second = broker.reconcile_interfaces(
+            [{".id": "*1", "name": "ether1", "rx-byte": 300, "tx-byte": 80}], now=102
+        )
+        self.assertEqual(second[0].payload["interface"]["rx_bytes_per_second"], 100.0)
+        self.assertEqual(second[0].payload["interface"]["tx_bytes_per_second"], 20.0)
+        reset = broker.reconcile_interfaces(
+            [{".id": "*1", "name": "ether1", "rx-byte": 2, "tx-byte": 90}], now=103
+        )
+        self.assertEqual([event.name for event in reset], ["telemetry.counter_reset", "vpn.interface.counters"])
+        self.assertEqual(reset[0].payload["scope"], "interface")
+        self.assertEqual(reset[1].payload["interface"]["rx_bytes_per_second"], 0.0)
+        self.assertEqual(broker.interface_counter_resets, 1)
+        self.assertNotIn("comment", str(reset))
+
     def test_normalize_uses_allow_list_and_numeric_counters(self) -> None:
         session = normalize_session(
             {

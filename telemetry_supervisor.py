@@ -25,8 +25,26 @@ class TelemetryConnection(Protocol):
     def connect(self, username: str, password: str) -> None:
         ...
 
+    def execute(self, path: str, *, query: Iterable[str] = ()) -> Iterable[RouterOSReply]:
+        ...
+
     def listen(self, path: str, *, query: Iterable[str] = ()) -> Iterable[RouterOSReply]:
         ...
+
+
+INTERFACE_COUNTER_PROPLIST = ".proplist=.id,name,rx-byte,tx-byte,rx-packet,tx-packet"
+
+
+def read_interface_counters(connection: TelemetryConnection) -> list[Mapping[str, str]]:
+    """Read only interface counters through the Binary API.
+
+    The narrow proplist is the privacy and load boundary.  Non-record replies
+    are ignored; RouterOS errors still propagate to the supervisor so the
+    existing reconnect/backoff policy handles them.
+    """
+
+    replies = connection.execute("/interface/print", query=(INTERFACE_COUNTER_PROPLIST,))
+    return [dict(reply.attributes) for reply in replies if reply.kind == "re"]
 
 
 class TelemetrySupervisorError(RuntimeError):
@@ -261,3 +279,64 @@ class TelemetrySupervisor:
         if isinstance(error, OSError):
             return "connection_error"
         return "stream_error"
+
+
+class TelemetryInterfaceSampler:
+    """Sample interface counters over a separate read-only API connection.
+
+    RouterOS allows one long-lived ``listen`` sentence per connection.  The
+    sampler therefore uses a separate connection factory instead of issuing a
+    competing request on the active-session stream.  It is an opt-in canary
+    primitive and has no mutation methods or production wiring.
+    """
+
+    def __init__(
+        self,
+        connection_factory: Callable[[], TelemetryConnection],
+        credentials_provider: Callable[[], tuple[str, str]],
+        broker: TelemetryBroker,
+        *,
+        interval: float = 5.0,
+        clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
+        stop_event: threading.Event | None = None,
+        on_events: Callable[[list[TelemetryEvent]], None] | None = None,
+    ) -> None:
+        if interval <= 0:
+            raise ValueError("interval must be positive")
+        self._connection_factory = connection_factory
+        self._credentials_provider = credentials_provider
+        self._broker = broker
+        self._interval = interval
+        self._clock = clock
+        self._sleep = sleep
+        self._stop_event = stop_event or threading.Event()
+        self._on_events = on_events
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def sample_once(self) -> list[TelemetryEvent]:
+        """Read one narrow interface snapshot and publish redacted events."""
+
+        connection = self._connection_factory()
+        try:
+            username, password = self._credentials_provider()
+            connection.connect(username, password)
+            events = self._broker.reconcile_interfaces(
+                read_interface_counters(connection), now=int(self._clock())
+            )
+            if self._on_events is not None:
+                self._on_events(list(events))
+            return events
+        finally:
+            close = getattr(connection, "close", None)
+            if callable(close):
+                close()
+
+    def run_forever(self, *, max_samples: int | None = None) -> None:
+        samples = 0
+        while not self._stop_event.is_set() and (max_samples is None or samples < max_samples):
+            self.sample_once()
+            samples += 1
+            self._stop_event.wait(self._interval)

@@ -275,6 +275,17 @@ class RouterOSBinaryConnection:
                     raise RouterOSBinaryError(message)
                 return replies
 
+    def execute(self, path: str, *, query: Iterable[str] = ()) -> list[RouterOSReply]:
+        """Execute one read-only ``print`` command and return its replies.
+
+        This deliberately has no mutation verb helpers.  Callers should use
+        explicit ``/resource/print`` paths and a narrow ``.proplist`` query.
+        """
+
+        if not path.startswith("/"):
+            raise ValueError("RouterOS API paths must start with '/'")
+        return self._request([path, *query])
+
     def listen(self, path: str, *, query: Iterable[str] = ()) -> Iterator[RouterOSReply]:
         """Start a RouterOS ``listen`` command and yield change records.
 

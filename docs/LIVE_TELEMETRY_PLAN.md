@@ -65,9 +65,13 @@ profiles, and RouterOS exports are never emitted.
    reconciliation. Do not add configuration mutation helpers. The supervisor
    remains disabled by default and accepts injected dependencies for canary
    validation.
-3. **Telemetry broker (complete).** Maintain an in-memory state cache,
-   normalize records, calculate rates from monotonic counters, and run
-   periodic reconciliation.
+3. **Telemetry broker (read-only implementation complete; runtime pending).**
+   Maintain in-memory session and interface caches, normalize records through
+   explicit allow-lists, calculate rates from monotonic counters, detect
+   counter resets, and support periodic reconciliation. Interface sampling
+   uses a separate API-SSL connection so it cannot interfere with the active
+   session listener. The sampler is still opt-in and is not attached to the
+   default runtime.
 4. **Socket.IO gateway (adapter complete; runtime opt-in).** Authenticate with
    the existing dashboard session, enforce role/session timeouts, support
    reconnect and snapshot recovery, and apply per-client backpressure. The
@@ -78,11 +82,12 @@ profiles, and RouterOS exports are never emitted.
    browser otherwise keeps the existing EventSource stream and five-second
    REST refresh. Socket.IO disconnects fall back to SSE without changing any
    mutation or profile flow.
-6. **Canary validation (comparison harness complete; router acceptance pending).**
-   A dependency-free comparator checks redacted session identity and freshness,
-   requires consecutive healthy samples before promotion, and records no
-   secrets. Router restart/reconnect, CPU, and latency acceptance still belong
-   to the operator's canary window before enabling the adapter.
+6. **Canary validation (local tooling complete; router acceptance pending).**
+   Dependency-free comparators now check redacted session identity and
+   freshness, calculate interface counter rates and resets, and summarize
+   latency, event age, CPU, memory, reconnect, and event-loss gates. Router
+   restart/reconnect, CPU, and latency acceptance still belong to the
+   operator's canary window before enabling the adapter.
 
 ## Proposed acceptance targets
 
@@ -105,7 +110,8 @@ optional server, run the comparator, and retain the same immutable release and
 rollback record before switching the advertised transport.
 
 The operator procedure and redacted NDJSON comparator are documented in
-`docs/LIVE_TELEMETRY_CANARY.md`; they are local-only and never upload sample
+`docs/LIVE_TELEMETRY_CANARY.md`; the baseline gate is available through
+`scripts/telemetry_baseline.py`. Both are local-only and never upload sample
 records.
 
 ## Configuration boundary

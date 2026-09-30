@@ -3,8 +3,11 @@ import unittest
 
 from routeros_binary import RouterOSReply
 from telemetry_supervisor import (
+    INTERFACE_COUNTER_PROPLIST,
+    TelemetryInterfaceSampler,
     TelemetrySupervisor,
     TelemetrySupervisorConfig,
+    read_interface_counters,
 )
 
 
@@ -27,11 +30,40 @@ class FakeConnection:
         self.paths.append((path, tuple(query)))
         yield from self.replies
 
+    def execute(self, path, *, query=()):
+        self.paths.append((path, tuple(query)))
+        return self.replies
+
     def close(self):
         self.closed = True
 
 
 class TelemetrySupervisorTests(unittest.TestCase):
+    def test_interface_reader_requests_only_allow_listed_counters(self):
+        connection = FakeConnection([RouterOSReply("re", {".id": "*1", "name": "ether1", "comment": "private"})])
+        records = read_interface_counters(connection)
+        self.assertEqual(records[0]["name"], "ether1")
+        self.assertEqual(connection.paths, [('/interface/print', (INTERFACE_COUNTER_PROPLIST,))])
+
+    def test_interface_sampler_uses_separate_connection_and_publishes_rates(self):
+        connection = FakeConnection([RouterOSReply("re", {".id": "*1", "name": "ether1", "rx-byte": "10"})])
+        broker = TelemetrySupervisor(
+            lambda: connection,
+            lambda: ("user", "secret"),
+        ).broker
+        received = []
+        sampler = TelemetryInterfaceSampler(
+            lambda: connection,
+            lambda: ("user", "secret"),
+            broker,
+            clock=lambda: 100,
+            on_events=received.extend,
+        )
+        events = sampler.sample_once()
+        self.assertEqual(events[0].name, "vpn.interface.counters")
+        self.assertEqual(received[0].payload["interface"]["name"], "ether1")
+        self.assertTrue(connection.closed)
+
     def test_disabled_by_default_does_not_create_connection(self):
         created = []
         supervisor = TelemetrySupervisor(
