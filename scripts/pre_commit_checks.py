@@ -22,12 +22,19 @@ PYTHON_FILES = [
     "security.py",
     "store.py",
     "templates.py",
+    "telemetry_broker.py",
+    "telemetry_gateway.py",
+    "telemetry_supervisor.py",
     "update_routeros_app.py",
     "scripts/check-secrets.py",
     "scripts/deploy_routeros_release.py",
     "scripts/pre_commit_checks.py",
     "scripts/validate_release.py",
     "tests/mock_routeros.py",
+    "tests/test_routeros_binary.py",
+    "tests/test_telemetry_broker.py",
+    "tests/test_telemetry_gateway.py",
+    "tests/test_telemetry_supervisor.py",
 ]
 
 

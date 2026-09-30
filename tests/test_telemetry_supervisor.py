@@ -1,0 +1,156 @@
+import threading
+import unittest
+
+from routeros_binary import RouterOSReply
+from telemetry_supervisor import (
+    TelemetrySupervisor,
+    TelemetrySupervisorConfig,
+)
+
+
+class FakeConnection:
+    def __init__(self, replies=(), error=None):
+        self.replies = list(replies)
+        self.error = error
+        self.connected = False
+        self.closed = False
+        self.paths = []
+        self.credentials = None
+
+    def connect(self, username, password):
+        self.credentials = (username, password)
+        if self.error is not None:
+            raise self.error
+        self.connected = True
+
+    def listen(self, path, *, query=()):
+        self.paths.append((path, tuple(query)))
+        yield from self.replies
+
+    def close(self):
+        self.closed = True
+
+
+class TelemetrySupervisorTests(unittest.TestCase):
+    def test_disabled_by_default_does_not_create_connection(self):
+        created = []
+        supervisor = TelemetrySupervisor(
+            lambda: created.append(True),
+            lambda: ("router-user", "router-password"),
+        )
+
+        supervisor.run_forever(max_attempts=1)
+
+        self.assertEqual(created, [])
+        self.assertEqual(supervisor.health().as_dict(), {
+            "status": "disabled",
+            "enabled": False,
+            "attempts": 0,
+            "reconnects": 0,
+            "failures": 0,
+            "events": 0,
+            "last_connected_at": None,
+            "last_event_at": None,
+            "last_snapshot_at": None,
+            "last_error_code": None,
+            "backoff_seconds": 1.0,
+            "broker_sequence": 0,
+        })
+
+    def test_read_only_listen_publishes_redacted_events_and_closes(self):
+        connection = FakeConnection([
+            RouterOSReply("re", {
+                ".id": "*1",
+                "name": "alice",
+                "address": "10.8.0.2",
+                "password": "must-not-leak",
+            }),
+        ])
+        received = []
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: ("router-user", "router-password"),
+            config=TelemetrySupervisorConfig(enabled=True),
+            clock=lambda: 100,
+            on_events=received.extend,
+        )
+
+        with self.assertRaisesRegex(Exception, "listen_ended"):
+            supervisor.run_attempt()
+
+        self.assertEqual(connection.credentials, ("router-user", "router-password"))
+        self.assertEqual(connection.paths, [("/ppp/active", ())])
+        self.assertTrue(connection.closed)
+        self.assertEqual(received[0].name, "vpn.session.connected")
+        self.assertNotIn("password", received[0].as_dict()["payload"])
+        self.assertEqual(supervisor.health().status, "healthy")
+
+    def test_snapshot_is_reconciled_before_stream(self):
+        connection = FakeConnection([])
+        received = []
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: ("user", "secret"),
+            snapshot_reader=lambda _connection: [{
+                ".id": "*snapshot",
+                "name": "alice",
+                "rx-byte": "12",
+            }],
+            config=TelemetrySupervisorConfig(enabled=True),
+            clock=lambda: 200,
+            on_events=received.extend,
+        )
+
+        with self.assertRaisesRegex(Exception, "listen_ended"):
+            supervisor.run_attempt()
+
+        self.assertEqual(received[-1].name, "telemetry.snapshot")
+        self.assertEqual(supervisor.broker.snapshot()[0]["rx_bytes"], 12)
+        self.assertEqual(supervisor.health().last_snapshot_at, 200)
+
+    def test_reconnect_backoff_is_bounded_and_error_is_redacted(self):
+        created = []
+        stop_event = threading.Event()
+
+        def make_connection():
+            created.append(True)
+            return FakeConnection(error=OSError("password=secret router=10.0.0.1"))
+
+        supervisor = TelemetrySupervisor(
+            make_connection,
+            lambda: ("user", "secret"),
+            config=TelemetrySupervisorConfig(enabled=True, initial_backoff=0.001, max_backoff=0.002),
+            stop_event=stop_event,
+        )
+        supervisor.run_forever(max_attempts=3)
+
+        health = supervisor.health()
+        self.assertEqual(len(created), 3)
+        self.assertEqual(health.failures, 3)
+        self.assertEqual(health.last_error_code, "connection_error")
+        self.assertLessEqual(health.backoff_seconds, 0.002)
+        self.assertNotIn("secret", str(health.as_dict()))
+
+    def test_stop_interrupts_reconnect_loop(self):
+        stop_event = threading.Event()
+        calls = []
+
+        def make_connection():
+            calls.append(True)
+            stop_event.set()
+            return FakeConnection(error=OSError("unavailable"))
+
+        supervisor = TelemetrySupervisor(
+            make_connection,
+            lambda: ("user", "secret"),
+            config=TelemetrySupervisorConfig(enabled=True, initial_backoff=1, max_backoff=1),
+            stop_event=stop_event,
+        )
+        supervisor.run_forever()
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(supervisor.health().status, "stopped")
+
+
+if __name__ == "__main__":
+    unittest.main()
