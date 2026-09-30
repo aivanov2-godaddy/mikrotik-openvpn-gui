@@ -1,4 +1,5 @@
 import json
+import threading
 import unittest
 
 from routeros_binary import RouterOSReply
@@ -42,6 +43,22 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
             lambda _session_id: TelemetryPrincipal(False),
         )
         self.assertIsNone(bridge.handshake("session-1"))
+
+    def test_poll_waits_for_namespace_connect_race(self) -> None:
+        result = self.bridge.handshake("session-1")
+        self.assertIsNotNone(result)
+        sid, _ = result
+        polled: list[str | None] = []
+
+        worker = threading.Thread(
+            target=lambda: polled.append(self.bridge.poll(sid, "session-1")),
+        )
+        worker.start()
+        self.assertTrue(self.bridge.post(sid, "session-1", b"40/telemetry,"))
+        worker.join(timeout=1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(polled, ["40/telemetry,"])
 
 
 if __name__ == "__main__":

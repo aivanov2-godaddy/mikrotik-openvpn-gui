@@ -3,8 +3,8 @@
 The project intentionally keeps its existing threaded HTTP server.  This
 bridge implements the small Socket.IO polling surface needed by the dashboard
 without adding a second listener or a WebSocket proxy.  The official client
-can upgrade to WebSocket when the front proxy supports it; polling remains a
-correct, authenticated fallback and uses the same event contract.
+    can upgrade to WebSocket when the front proxy supports it; polling remains a
+    correct, authenticated transport and uses the same event contract.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ class SocketIOPollingBridge:
         self.principal_resolver = principal_resolver
         self._clients: dict[str, PollingClient] = {}
         self._lock = threading.RLock()
+        self._state_changed = threading.Condition(self._lock)
 
     def handshake(self, session_id: str) -> tuple[str, str] | None:
         principal = self.principal_resolver(session_id)
@@ -64,7 +65,7 @@ class SocketIOPollingBridge:
         principal = self.principal_resolver(session_id)
         if principal is None or not principal.may_stream:
             return False
-        with self._lock:
+        with self._state_changed:
             client = self._clients.get(sid)
             if client is None:
                 return False
@@ -77,6 +78,7 @@ class SocketIOPollingBridge:
                         return False
                     client.namespace_connected = True
                     client.pending.append("40/telemetry,")
+                    self._state_changed.notify_all()
                 elif packet.startswith("42") and client.namespace_connected:
                     # The dashboard's subscribe request is advisory.  The
                     # gateway cursor is authoritative and is advanced by poll.
@@ -92,10 +94,20 @@ class SocketIOPollingBridge:
         if principal is None or not principal.may_stream:
             self.close(sid)
             return None
-        with self._lock:
+        with self._state_changed:
             client = self._clients.get(sid)
             if client is None:
                 return None
+            # The Socket.IO client starts its first poll as soon as the
+            # Engine.IO handshake completes, in parallel with the namespace
+            # connect POST.  Do not answer that race with an Engine.IO ping:
+            # some clients process the ping before the namespace-open packet
+            # and close the connection.  Wait briefly for the POST instead.
+            if not client.namespace_connected:
+                self._state_changed.wait(timeout=1.0)
+                client = self._clients.get(sid)
+                if client is None:
+                    return None
             if client.pending:
                 return "\x1e".join(client.pending.pop(0) for _ in range(len(client.pending)))
             if not client.namespace_connected or not client.subscription:
@@ -115,3 +127,4 @@ class SocketIOPollingBridge:
         client = self._clients.pop(sid, None)
         if client and client.subscription:
             self.gateway.close(client.subscription)
+        self._state_changed.notify_all()
