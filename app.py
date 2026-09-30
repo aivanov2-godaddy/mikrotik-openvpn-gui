@@ -44,6 +44,7 @@ from security import (
 )
 from store import MetadataStore
 from templates import dashboard_page, login_page
+from telemetry_state import TelemetryRuntimeState
 
 
 ROOT = Path(__file__).resolve().parent
@@ -268,6 +269,7 @@ class AppContext:
     config: RuntimeConfig
     release_version: str = "unknown"
     release_revision: str = "unknown"
+    telemetry_state: TelemetryRuntimeState | None = None
 
     @property
     def public_origin(self) -> str:
@@ -410,6 +412,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             content_type="application/json; charset=utf-8",
             extra={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+
+    def _telemetry_status(self) -> dict[str, Any]:
+        """Return transport health without exposing RouterOS or VPN secrets."""
+        state = self.server.context.telemetry_state
+        if state is None:
+            state = TelemetryRuntimeState(self.server.context.config.live_transport)
+            self.server.context.telemetry_state = state
+        return state.as_dict()
 
     def _csv(self, filename: str, headers: list[str], rows: list[list[Any]]) -> None:
         stream = io.StringIO(newline="")
@@ -904,18 +914,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session = self._require_session(api=True)
             if not session or session.auth_method != "routeros":
                 return
-            # Socket.IO is an opt-in canary surface.  The stdlib runtime keeps
-            # SSE as the production transport until a separately deployed
-            # adapter has passed the read-only canary checks.
-            self._json(
-                {
-                    "protocol_version": 1,
-                    "transport": "sse",
-                    "socketio_enabled": False,
-                    "namespace": "/telemetry",
-                    "fallback": "sse",
-                }
-            )
+            # The stdlib runtime intentionally remains on SSE.  LIVE_TRANSPORT
+            # is surfaced for canary tooling, while the effective transport is
+            # never promoted without an attached authenticated gateway.
+            self._json({"protocol_version": 1, **self._telemetry_status()})
             return
         if path == "/api/admin/sessions":
             session = self._require_session(api=True)
@@ -980,6 +982,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 router = self.server.context.router.verify_credentials(credentials)
                 active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
                 self.server.context.store.observe_sessions(active_sessions)
+                telemetry_state = self.server.context.telemetry_state
+                if telemetry_state is None:
+                    telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
+                    self.server.context.telemetry_state = telemetry_state
+                telemetry_state.mark_event(reconciliation=True)
                 self._json(
                     {
                         "users": self._users_with_metadata(credentials),
@@ -991,12 +998,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "capabilities": sorted(role_capabilities(session.role)),
                         "router": router,
                         "observability": self._observability(),
-                        "telemetry": {
-                            "protocol_version": 1,
-                            "transport": "sse",
-                            "socketio_enabled": False,
-                            "fallback": "sse",
-                        },
+                        "telemetry": {"protocol_version": 1, **self._telemetry_status()},
                         "generated_at": int(time.time()),
                     }
                 )
@@ -1732,6 +1734,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             while time.monotonic() < deadline:
                 active = self.server.context.router.list_active_ovpn_sessions(credentials)
                 self.server.context.store.observe_sessions(active)
+                telemetry_state = self.server.context.telemetry_state
+                if telemetry_state is None:
+                    telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
+                    self.server.context.telemetry_state = telemetry_state
+                telemetry_state.mark_event(reconciliation=True)
                 data = json.dumps({"sessions": active, "generated_at": int(time.time())}, separators=(",", ":"))
                 self.wfile.write(f"event: status\ndata: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()

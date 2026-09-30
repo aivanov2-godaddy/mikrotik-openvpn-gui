@@ -99,6 +99,7 @@ class TelemetryBroker:
         self._lock = threading.RLock()
         self._sessions: dict[str, dict[str, Any]] = {}
         self._sequence = 0
+        self._counter_resets = 0
 
     def _timestamp(self, now: int | None) -> int:
         return int(self._clock() if now is None else now)
@@ -106,6 +107,32 @@ class TelemetryBroker:
     def _event(self, name: str, payload: dict[str, Any], now: int) -> TelemetryEvent:
         self._sequence += 1
         return TelemetryEvent(name, self._sequence, now, dict(payload))
+
+    def _counter_reset_event(
+        self,
+        previous: Mapping[str, Any] | None,
+        current: Mapping[str, Any],
+        now: int,
+    ) -> TelemetryEvent | None:
+        if previous is None:
+            return None
+        fields = [
+            field
+            for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets")
+            if int(current.get(field, 0) or 0) < int(previous.get(field, 0) or 0)
+        ]
+        if not fields:
+            return None
+        self._counter_resets += 1
+        return self._event(
+            "telemetry.counter_reset",
+            {
+                "id": str(current.get("id", "")),
+                "name": str(current.get("name", "")),
+                "fields": fields,
+            },
+            now,
+        )
 
     @staticmethod
     def _payload(session: Mapping[str, Any]) -> dict[str, Any]:
@@ -150,7 +177,12 @@ class TelemetryBroker:
                 oldest = min(self._sessions, key=lambda key: self._sessions[key].get("observed_at", 0))
                 self._sessions.pop(oldest, None)
             event_name = "vpn.session.connected" if previous is None else "vpn.session.updated"
-            return [self._event(event_name, self._payload(session), observed_at)]
+            events: list[TelemetryEvent] = []
+            reset = self._counter_reset_event(previous, session, observed_at)
+            if reset is not None:
+                events.append(reset)
+            events.append(self._event(event_name, self._payload(session), observed_at))
+            return events
 
     def reconcile(
         self, records: Iterable[Mapping[str, Any]], *, now: int | None = None
@@ -171,6 +203,9 @@ class TelemetryBroker:
                     events.append(self._event("vpn.session.disconnected", self._payload(previous), observed_at))
             for session_id, session in incoming.items():
                 event_name = "vpn.session.connected" if session_id not in self._sessions else "vpn.session.updated"
+                reset = self._counter_reset_event(self._sessions.get(session_id), session, observed_at)
+                if reset is not None:
+                    events.append(reset)
                 events.append(self._event(event_name, self._payload(session), observed_at))
             self._sessions = dict(list(incoming.items())[-self._max_sessions :])
             snapshot = [self._payload(item) for item in self._sessions.values()]
@@ -187,3 +222,8 @@ class TelemetryBroker:
     def sequence(self) -> int:
         with self._lock:
             return self._sequence
+
+    @property
+    def counter_resets(self) -> int:
+        with self._lock:
+            return self._counter_resets
