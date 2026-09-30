@@ -198,6 +198,7 @@ class RouterOSBinaryConnection:
         self.ca_file = ca_file
         self._socket: socket.socket | ssl.SSLSocket | None = None
         self._tag = 0
+        self._reader = SentenceReader()
 
     def connect(self, username: str, password: str) -> None:
         if self._socket is not None:
@@ -230,6 +231,7 @@ class RouterOSBinaryConnection:
 
     def close(self) -> None:
         current, self._socket = self._socket, None
+        self._reader = SentenceReader()
         if current is not None:
             try:
                 current.close()
@@ -248,12 +250,16 @@ class RouterOSBinaryConnection:
     def _read_sentence(self) -> list[bytes]:
         if self._socket is None:
             raise RouterOSBinaryError("RouterOS Binary API connection is not open")
-        reader = SentenceReader()
         while True:
+            # A single recv() may contain more than one sentence.  Drain the
+            # persistent reader before waiting for another network read so the
+            # second sentence is never discarded between API replies.
+            for sentence in self._reader.feed(b""):
+                return sentence
             chunk = self._socket.recv(4096)
             if not chunk:
                 raise RouterOSBinaryError("RouterOS closed the Binary API connection")
-            for sentence in reader.feed(chunk):
+            for sentence in self._reader.feed(chunk):
                 return sentence
 
     def _request(self, words: Iterable[str | bytes]) -> list[RouterOSReply]:

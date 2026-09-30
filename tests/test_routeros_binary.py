@@ -2,6 +2,7 @@ import unittest
 
 from routeros_binary import (
     RouterOSBinaryError,
+    RouterOSBinaryConnection,
     SentenceReader,
     challenge_response,
     decode_length,
@@ -48,6 +49,28 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         reader = SentenceReader(max_word_size=4)
         with self.assertRaises(RouterOSBinaryError):
             list(reader.feed(encode_sentence([b"!re", b"12345"])))
+
+    def test_connection_preserves_multiple_sentences_in_one_read(self) -> None:
+        class FakeSocket:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+                self.recv_calls = 0
+
+            def recv(self, _size: int) -> bytes:
+                self.recv_calls += 1
+                if self.recv_calls == 1:
+                    return self.payload
+                return b""
+
+            def close(self) -> None:
+                return None
+
+        connection = RouterOSBinaryConnection("router.example", insecure_tls=True)
+        fake = FakeSocket(encode_sentence(["!re", "=.id=*1"]) + encode_sentence(["!done"]))
+        connection._socket = fake  # noqa: SLF001 - exercise buffered reader behavior
+        self.assertEqual(connection._read_sentence(), [b"!re", b"=.id=*1"])  # noqa: SLF001
+        self.assertEqual(connection._read_sentence(), [b"!done"])  # noqa: SLF001
+        self.assertEqual(fake.recv_calls, 1)
 
     def test_legacy_challenge_response(self) -> None:
         self.assertEqual(
