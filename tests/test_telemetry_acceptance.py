@@ -11,6 +11,7 @@ LIMITS = {
     "event_age_seconds": 2.0,
     "router_cpu_percent": 80.0,
     "router_memory_percent": 90.0,
+    "router_storage_percent": 90.0,
     "max_reconnects": 0.0,
     "recovery_seconds": 10.0,
 }
@@ -31,6 +32,8 @@ class TelemetryAcceptanceTests(unittest.TestCase):
                     "event_age_seconds": 0.7,
                     "router_cpu_percent": 22,
                     "router_memory_percent": 34,
+                    "router_storage_percent": 12,
+                    "container_healthy": True,
                     "event_sequence": 101,
                     "event_lost": False,
                     "event_duplicated": False,
@@ -40,11 +43,15 @@ class TelemetryAcceptanceTests(unittest.TestCase):
                     "type": "reconnect",
                     "recovery_seconds": 4.2,
                     "snapshot_recovered": True,
+                    "api_interruption_tested": True,
+                    "rest_fallback_available": True,
                 },
+                {"type": "comparison", "binary_matches_rest": True},
                 {
                     "type": "security",
                     "unauthenticated_denied": True,
                     "secret_bearing_payload": False,
+                    "secret_free_logs": True,
                 },
             ),
             limits=LIMITS,
@@ -65,8 +72,9 @@ class TelemetryAcceptanceTests(unittest.TestCase):
                     "router_memory_percent": 34,
                     "event_sequence": 101,
                 },
-                {"type": "reconnect", "recovery_seconds": 12, "snapshot_recovered": False},
-                {"type": "security", "unauthenticated_denied": False, "secret_bearing_payload": True},
+                {"type": "reconnect", "recovery_seconds": 12, "snapshot_recovered": False, "api_interruption_tested": True, "rest_fallback_available": True},
+                {"type": "comparison", "binary_matches_rest": True},
+                {"type": "security", "unauthenticated_denied": False, "secret_bearing_payload": True, "secret_free_logs": False},
             ),
             limits=LIMITS,
         )
@@ -91,13 +99,34 @@ class TelemetryAcceptanceTests(unittest.TestCase):
                     "counter_reset": True,
                     "counter_reset_recovered": False,
                 },
-                {"type": "reconnect", "recovery_seconds": 1, "snapshot_recovered": True},
-                {"type": "security", "unauthenticated_denied": True, "secret_bearing_payload": False},
+                {"type": "reconnect", "recovery_seconds": 1, "snapshot_recovered": True, "api_interruption_tested": True, "rest_fallback_available": True},
+                {"type": "comparison", "binary_matches_rest": True},
+                {"type": "security", "unauthenticated_denied": True, "secret_bearing_payload": False, "secret_free_logs": True},
             ),
             limits=LIMITS,
         )
         self.assertEqual(code, 1)
         self.assertIn("counter_reset_recovery", result["failed_gates"])
+
+    def test_cross_transport_and_restart_evidence_is_required(self) -> None:
+        code, result = evaluate(
+            records(
+                {"type": "sample", "latency_ms": 100, "event_age_seconds": 0.5},
+                {
+                    "type": "reconnect",
+                    "recovery_seconds": 1,
+                    "snapshot_recovered": True,
+                    "api_interruption_tested": False,
+                    "rest_fallback_available": False,
+                },
+                {"type": "security", "unauthenticated_denied": True, "secret_bearing_payload": False, "secret_free_logs": True},
+            ),
+            limits=LIMITS,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("binary_rest_comparison_missing", result["failed_gates"])
+        self.assertIn("api_interruption_test", result["failed_gates"])
+        self.assertIn("rest_fallback", result["failed_gates"])
 
 
 if __name__ == "__main__":
