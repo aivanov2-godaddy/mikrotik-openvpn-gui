@@ -84,6 +84,29 @@ def normalize_session(record: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def normalize_interface(record: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the small, dashboard-safe interface counter record.
+
+    RouterOS exposes many interface fields (including comments and dynamic
+    metadata).  Only the stable identity and monotonic counters cross this
+    boundary.  The function accepts both Binary API names and the equivalent
+    REST-style names so reconciliation sources can be compared directly.
+    """
+
+    interface_id = _text(record, ".id", "id")
+    name = _text(record, "name", "interface")
+    if not interface_id or not name:
+        return None
+    return {
+        "id": interface_id,
+        "name": name,
+        "rx_bytes": _counter(record, "rx-byte", "rx_bytes"),
+        "tx_bytes": _counter(record, "tx-byte", "tx_bytes"),
+        "rx_packets": _counter(record, "rx-packet", "rx_packets"),
+        "tx_packets": _counter(record, "tx-packet", "tx_packets"),
+    }
+
+
 class TelemetryBroker:
     """Maintain a redacted, in-memory RouterOS session cache.
 
@@ -93,13 +116,22 @@ class TelemetryBroker:
     SQLite, and all returned payloads are copies safe for a delivery layer.
     """
 
-    def __init__(self, *, clock: Callable[[], float] = time.time, max_sessions: int = 4096) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] = time.time,
+        max_sessions: int = 4096,
+        max_interfaces: int = 1024,
+    ) -> None:
         self._clock = clock
         self._max_sessions = max(1, int(max_sessions))
+        self._max_interfaces = max(1, int(max_interfaces))
         self._lock = threading.RLock()
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._interfaces: dict[str, dict[str, Any]] = {}
         self._sequence = 0
         self._counter_resets = 0
+        self._interface_counter_resets = 0
 
     def _timestamp(self, now: int | None) -> int:
         return int(self._clock() if now is None else now)
@@ -127,6 +159,33 @@ class TelemetryBroker:
         return self._event(
             "telemetry.counter_reset",
             {
+                "id": str(current.get("id", "")),
+                "name": str(current.get("name", "")),
+                "fields": fields,
+            },
+            now,
+        )
+
+    def _interface_reset_event(
+        self,
+        previous: Mapping[str, Any] | None,
+        current: Mapping[str, Any],
+        now: int,
+    ) -> TelemetryEvent | None:
+        if previous is None:
+            return None
+        fields = [
+            field
+            for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets")
+            if int(current.get(field, 0) or 0) < int(previous.get(field, 0) or 0)
+        ]
+        if not fields:
+            return None
+        self._interface_counter_resets += 1
+        return self._event(
+            "telemetry.counter_reset",
+            {
+                "scope": "interface",
                 "id": str(current.get("id", "")),
                 "name": str(current.get("name", "")),
                 "fields": fields,
@@ -212,6 +271,77 @@ class TelemetryBroker:
             events.append(self._event("telemetry.snapshot", {"sessions": snapshot}, observed_at))
             return events
 
+    @staticmethod
+    def _interface_payload(interface: Mapping[str, Any], *, elapsed: float | None = None) -> dict[str, Any]:
+        """Build an allow-listed counter payload, optionally with safe rates."""
+
+        payload: dict[str, Any] = {
+            "id": str(interface.get("id", "")),
+            "name": str(interface.get("name", "")),
+            "rx_bytes": int(interface.get("rx_bytes", 0) or 0),
+            "tx_bytes": int(interface.get("tx_bytes", 0) or 0),
+            "rx_packets": int(interface.get("rx_packets", 0) or 0),
+            "tx_packets": int(interface.get("tx_packets", 0) or 0),
+        }
+        if elapsed is not None and elapsed > 0:
+            payload.update(
+                {
+                    "rx_bytes_per_second": max(0.0, float(interface.get("rx_delta", 0)) / elapsed),
+                    "tx_bytes_per_second": max(0.0, float(interface.get("tx_delta", 0)) / elapsed),
+                    "rx_packets_per_second": max(0.0, float(interface.get("rx_packet_delta", 0)) / elapsed),
+                    "tx_packets_per_second": max(0.0, float(interface.get("tx_packet_delta", 0)) / elapsed),
+                }
+            )
+        return payload
+
+    def reconcile_interfaces(
+        self, records: Iterable[Mapping[str, Any]], *, now: int | None = None
+    ) -> list[TelemetryEvent]:
+        """Reconcile read-only interface counters and calculate safe rates.
+
+        Rates use only monotonic counter deltas.  A reset produces an explicit
+        event and zeroes the corresponding rate rather than reporting a
+        misleading negative spike.
+        """
+
+        observed_at = self._timestamp(now)
+        incoming: dict[str, dict[str, Any]] = {}
+        for record in records:
+            interface = normalize_interface(record)
+            if interface is not None:
+                interface["observed_at"] = observed_at
+                incoming[str(interface["id"])] = interface
+        with self._lock:
+            events: list[TelemetryEvent] = []
+            for interface_id, interface in incoming.items():
+                previous = self._interfaces.get(interface_id)
+                reset = self._interface_reset_event(previous, interface, observed_at)
+                if reset is not None:
+                    events.append(reset)
+                elapsed = None
+                if previous is not None:
+                    elapsed = max(0.0, observed_at - float(previous.get("observed_at", observed_at)))
+                    interface["rx_delta"] = int(interface["rx_bytes"]) - int(previous.get("rx_bytes", 0))
+                    interface["tx_delta"] = int(interface["tx_bytes"]) - int(previous.get("tx_bytes", 0))
+                    interface["rx_packet_delta"] = int(interface["rx_packets"]) - int(previous.get("rx_packets", 0))
+                    interface["tx_packet_delta"] = int(interface["tx_packets"]) - int(previous.get("tx_packets", 0))
+                self._interfaces[interface_id] = interface
+                events.append(
+                    self._event(
+                        "vpn.interface.counters",
+                        {"interface": self._interface_payload(interface, elapsed=elapsed)},
+                        observed_at,
+                    )
+                )
+            self._interfaces = dict(list(incoming.items())[-self._max_interfaces :])
+            return events
+
+    def interfaces_snapshot(self) -> list[dict[str, Any]]:
+        """Return the latest redacted interface counters for reconnects."""
+
+        with self._lock:
+            return [self._interface_payload(self._interfaces[key]) for key in sorted(self._interfaces)]
+
     def snapshot(self) -> list[dict[str, Any]]:
         """Return a stable, redacted snapshot for a reconnecting client."""
 
@@ -227,3 +357,8 @@ class TelemetryBroker:
     def counter_resets(self) -> int:
         with self._lock:
             return self._counter_resets
+
+    @property
+    def interface_counter_resets(self) -> int:
+        with self._lock:
+            return self._interface_counter_resets

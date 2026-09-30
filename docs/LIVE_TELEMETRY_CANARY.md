@@ -35,6 +35,24 @@ The command prints only counts, age, reason, and promotion readiness. Exit code
 `0` means the required consecutive healthy samples were observed. Exit code `1`
 means the canary is not ready; exit code `2` means the input was invalid.
 
+After the session comparison, run the resource-impact gate against a separate
+redacted NDJSON file. The file may contain only numeric measurements and the
+transport name:
+
+```json
+{"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"reconnects":0,"event_lost":false}
+```
+
+```text
+python scripts/telemetry_baseline.py --input private-baseline.ndjson \
+  --max-latency-p95-ms 1000 --max-event-age-seconds 2 \
+  --max-router-cpu-percent 80 --max-router-memory-percent 90
+```
+
+Exit code `0` means every configured gate passed, `1` means evidence failed a
+gate, and `2` means the input was invalid. The output contains aggregates and
+gate names only; it never echoes source samples.
+
 ## Acceptance window
 
 1. Start the candidate in a separate canary container with the same read-only

@@ -72,6 +72,28 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         self.assertEqual(connection._read_sentence(), [b"!done"])  # noqa: SLF001
         self.assertEqual(fake.recv_calls, 1)
 
+    def test_execute_is_read_only_and_returns_records(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.sent = b""
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def recv(self, _size: int) -> bytes:
+                return encode_sentence(["!re", "=.id=*1", "=name=ether1"]) + encode_sentence(["!done"])
+
+            def close(self) -> None:
+                return None
+
+        connection = RouterOSBinaryConnection("router.example", insecure_tls=True)
+        fake = FakeSocket()
+        connection._socket = fake  # noqa: SLF001 - exercise the read-only command boundary
+        replies = connection.execute("/interface/print", query=(".proplist=.id,name",))
+        self.assertEqual(replies[0].attributes["name"], "ether1")
+        self.assertIn(b"/interface/print", fake.sent)
+        self.assertNotIn(b"/interface/add", fake.sent)
+
     def test_legacy_challenge_response(self) -> None:
         self.assertEqual(
             challenge_response("password", "00112233445566778899aabbccddeeff"),
