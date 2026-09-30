@@ -25,8 +25,12 @@ PYTHON_FILES = [
     "telemetry_broker.py",
     "telemetry_canary.py",
     "telemetry_gateway.py",
+    "telemetry_runtime.py",
     "telemetry_socketio.py",
+    "telemetry_socketio_polling.py",
+    "telemetry_state.py",
     "telemetry_supervisor.py",
+    "routeros_binary.py",
     "update_routeros_app.py",
     "scripts/check-secrets.py",
     "scripts/deploy_routeros_release.py",
@@ -39,6 +43,7 @@ PYTHON_FILES = [
     "tests/test_telemetry_canary.py",
     "tests/test_telemetry_gateway.py",
     "tests/test_telemetry_socketio.py",
+    "tests/test_telemetry_socketio_polling.py",
     "tests/test_telemetry_supervisor.py",
 ]
 

@@ -45,6 +45,8 @@ from security import (
 from store import MetadataStore
 from templates import dashboard_page, login_page
 from telemetry_state import TelemetryRuntimeState
+from telemetry_runtime import TelemetryRuntime
+from telemetry_socketio_polling import SocketIOPollingBridge
 
 
 ROOT = Path(__file__).resolve().parent
@@ -270,6 +272,7 @@ class AppContext:
     release_version: str = "unknown"
     release_revision: str = "unknown"
     telemetry_state: TelemetryRuntimeState | None = None
+    telemetry_runtime: TelemetryRuntime | None = None
 
     @property
     def public_origin(self) -> str:
@@ -331,6 +334,25 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         super().__init__(address, DashboardHandler)
         self.context = context
         self.profile_shares = ProfileShareStore()
+        self.telemetry_runtime = TelemetryRuntime(
+            sessions=context.sessions,
+            rest_url=context.config.routeros_rest_url,
+            ca_file=context.config.routeros_ca_file,
+            insecure_tls=context.config.routeros_insecure_tls,
+            api_ssl_port=context.config.routeros_api_ssl_port,
+            requested_transport=context.config.live_transport,
+        )
+        self.context.telemetry_runtime = self.telemetry_runtime
+        self.context.telemetry_state = self.telemetry_runtime.state
+        self.socketio_bridge = (
+            SocketIOPollingBridge(
+                self.telemetry_runtime.gateway,
+                self.telemetry_runtime.principal_for_session,
+            )
+            if self.telemetry_runtime.enabled
+            else None
+        )
+        self.telemetry_runtime.start()
         self._telemetry_stop = threading.Event()
         self._telemetry_thread = threading.Thread(
             target=self._telemetry_loop,
@@ -343,6 +365,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         self._telemetry_stop.set()
         super().shutdown()
         self._telemetry_thread.join(timeout=2)
+        self.telemetry_runtime.stop()
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -415,6 +438,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _telemetry_status(self) -> dict[str, Any]:
         """Return transport health without exposing RouterOS or VPN secrets."""
+        runtime = self.server.context.telemetry_runtime
+        if runtime is not None:
+            return runtime.status()
         state = self.server.context.telemetry_state
         if state is None:
             state = TelemetryRuntimeState(self.server.context.config.live_transport)
@@ -844,6 +870,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed_url = urllib.parse.urlsplit(self.path)
         path = parsed_url.path
+        if path == "/socket.io/":
+            self._socketio_get(parsed_url)
+            return
         query = urllib.parse.parse_qs(parsed_url.query)
         if path == "/healthz":
             self._json({"status": "ok"})
@@ -914,9 +943,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session = self._require_session(api=True)
             if not session or session.auth_method != "routeros":
                 return
-            # The stdlib runtime intentionally remains on SSE.  LIVE_TRANSPORT
-            # is surfaced for canary tooling, while the effective transport is
-            # never promoted without an attached authenticated gateway.
+            # REST/SSE remains available as the fallback and mutation-adjacent
+            # path.  When LIVE_TRANSPORT is binary or auto, the runtime also
+            # advertises the authenticated Socket.IO telemetry gateway.
             self._json({"protocol_version": 1, **self._telemetry_status()})
             return
         if path == "/api/admin/sessions":
@@ -1415,6 +1444,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urllib.parse.urlsplit(self.path).path
+        if path == "/socket.io/":
+            self._socketio_post()
+            return
         if path == "/login":
             self._login()
             return
@@ -1491,6 +1523,45 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._ack_alert(int(match.group(1)))
             return
         self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _socketio_get(self, parsed_url: urllib.parse.SplitResult) -> None:
+        bridge = self.server.socketio_bridge
+        if bridge is None:
+            self._json({"error": "Socket.IO telemetry is disabled"}, status=HTTPStatus.NOT_FOUND)
+            return
+        query = urllib.parse.parse_qs(parsed_url.query)
+        if query.get("EIO", [""])[0] != "4" or query.get("transport", [""])[0] != "polling":
+            self._json({"error": "Unsupported Socket.IO transport"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        session_id = self._session_id()
+        sid = query.get("sid", [""])[0]
+        if not sid:
+            result = bridge.handshake(session_id)
+            if result is None:
+                self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            sid, packet = result
+        else:
+            packet = bridge.poll(sid, session_id)
+            if packet is None:
+                self._json({"error": "Socket.IO session is no longer valid"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+        self._bytes(packet.encode("utf-8"), content_type="text/plain; charset=UTF-8", extra={"Cache-Control": "no-store"})
+
+    def _socketio_post(self) -> None:
+        bridge = self.server.socketio_bridge
+        if bridge is None:
+            self._json({"error": "Socket.IO telemetry is disabled"}, status=HTTPStatus.NOT_FOUND)
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if query.get("EIO", [""])[0] != "4" or query.get("transport", [""])[0] != "polling":
+            self._json({"error": "Unsupported Socket.IO transport"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        sid = query.get("sid", [""])[0]
+        if not sid or not bridge.post(sid, self._session_id(), self._read_body(maximum=1_000_000)):
+            self._json({"error": "Socket.IO session is no longer valid"}, status=HTTPStatus.UNAUTHORIZED)
+            return
+        self._bytes(b"ok", content_type="text/plain; charset=UTF-8", extra={"Cache-Control": "no-store"})
 
     def _create_api_token(self) -> None:
         session = self._require_session(api=True)

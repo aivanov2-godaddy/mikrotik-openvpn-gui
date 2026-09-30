@@ -25,8 +25,12 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20260926-bulk-operations-v1"
-    script_tag = f'<script src="/static/app.js?v={asset_version}" defer></script>' if script else ""
+    asset_version = "20260930-live-telemetry-v1"
+    script_tag = (
+        f'<script src="/static/socket.io.min.js?v={asset_version}" defer></script>'
+        f'<script src="/static/app.js?v={asset_version}" defer></script>'
+        if script else ""
+    )
     return f"""<!doctype html>
 <html lang="en" data-theme="standard">
 <head>

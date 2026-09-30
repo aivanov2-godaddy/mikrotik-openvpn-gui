@@ -1,9 +1,9 @@
 # Live telemetry transport plan
 
 This document describes the staged migration from RouterOS REST/SSE polling to
-RouterOS Binary API-SSL with a Socket.IO browser gateway. It is a plan and a
-design contract; the current release continues to use the existing REST/SSE
-path until each phase is validated.
+RouterOS Binary API-SSL with a Socket.IO browser gateway. REST/SSE remains the
+fallback and mutation-adjacent path while the Binary API-SSL path is validated
+in canary and then promoted.
 
 ## Goals
 
@@ -58,27 +58,28 @@ profiles, and RouterOS exports are never emitted.
 
 1. **Protocol foundation (complete).** Validate Binary API word framing,
    sentence parsing, tags, dead records, traps, and buffered reconnect-safe
-   reads. This phase is disabled at runtime.
+   reads.
 2. **Read-only Binary API adapter (transport and supervisor slice complete).**
    Add TLS/API-SSL connection management, `listen` support for the active PPP
    resource, bounded reconnect/backoff, health metrics, and periodic snapshot
    reconciliation. Do not add configuration mutation helpers. The supervisor
-   remains disabled by default and accepts injected dependencies for canary
-   validation.
-3. **Telemetry broker (read-only implementation complete; runtime pending).**
+   accepts injected dependencies for canary validation and is enabled only
+   when ``LIVE_TRANSPORT`` is ``binary`` or ``auto``.
+3. **Telemetry broker (read-only implementation complete; runtime opt-in).**
    Maintain in-memory session and interface caches, normalize records through
    explicit allow-lists, calculate rates from monotonic counters, detect
    counter resets, and support periodic reconciliation. Interface sampling
    uses a separate API-SSL connection so it cannot interfere with the active
-   session listener. The sampler is still opt-in and is not attached to the
-   default runtime.
-4. **Socket.IO gateway (adapter complete; runtime opt-in).** Authenticate with
+   session listener. The sampler is attached only when the Binary API runtime
+   is enabled.
+4. **Socket.IO gateway (runtime opt-in).** Authenticate with
    the existing dashboard session, enforce role/session timeouts, support
    reconnect and snapshot recovery, and apply per-client backpressure. The
-   dependency-free adapter targets a compatible Socket.IO server object and is
-   never attached by the default stdlib runtime.
+   dependency-free adapter targets a compatible Socket.IO server object; the
+   stdlib dashboard exposes an authenticated Engine.IO polling bridge using
+   the same contract.
 5. **Frontend migration (fallback-safe slice complete).** Capability discovery
-   can select Socket.IO when an explicitly enabled server advertises it; the
+   selects Socket.IO when an explicitly enabled server advertises it; the
    browser otherwise keeps the existing EventSource stream and five-second
    REST refresh. Socket.IO disconnects fall back to SSE without changing any
    mutation or profile flow.
@@ -100,14 +101,12 @@ profiles, and RouterOS exports are never emitted.
 
 ## Current runtime gate
 
-The public image reports the requested ``LIVE_TRANSPORT`` value plus the
-effective ``transport: sse`` from ``/api/telemetry`` and does not attach a
-Socket.IO server. This is intentional: enabling ``binary`` or ``auto`` only
-selects a canary intent; it never promotes a new transport or changes the
-router. The status also reports redacted freshness, reconciliation age, and
-error state for the current SSE path. A future canary image must provide the
-optional server, run the comparator, and retain the same immutable release and
-rollback record before switching the advertised transport.
+The public image reports the requested ``LIVE_TRANSPORT`` value and the
+effective transport from ``/api/telemetry``. ``rest`` keeps SSE as the active
+stream; ``binary`` and ``auto`` attach the read-only Binary API supervisor,
+interface sampler, and authenticated Socket.IO polling bridge while retaining
+SSE and REST fallback behavior. Canary evidence is still required before
+production promotion.
 
 The operator procedure and redacted NDJSON comparator are documented in
 `docs/LIVE_TELEMETRY_CANARY.md`; the baseline gate is available through

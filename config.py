@@ -48,6 +48,17 @@ def _live_transport(values: Mapping[str, str]) -> str:
     return value
 
 
+def _port(values: Mapping[str, str], name: str, default: int) -> int:
+    raw = _value(values, name, str(default))
+    try:
+        port = int(raw)
+    except ValueError as error:
+        raise ConfigurationError(f"{name} must be a whole number") from error
+    if not 1 <= port <= 65535:
+        raise ConfigurationError(f"{name} must be between 1 and 65535")
+    return port
+
+
 def _retention_days(values: Mapping[str, str]) -> int:
     """Return a deliberately bounded retention period for non-secret history."""
     raw = _value(values, "HISTORY_RETENTION_DAYS", "365")
@@ -255,6 +266,7 @@ class RuntimeConfig:
     webhook_url: str | None
     webhook_secret: str | None
     live_transport: str
+    routeros_api_ssl_port: int
     topology: OpenVPNTopology
 
     @classmethod
@@ -318,5 +330,6 @@ class RuntimeConfig:
             webhook_url=webhook_url,
             webhook_secret=webhook_secret,
             live_transport=_live_transport(source),
+            routeros_api_ssl_port=_port(source, "ROUTEROS_API_SSL_PORT", 8729),
             topology=OpenVPNTopology.from_values(source),
         )

@@ -157,6 +157,22 @@ class TelemetryGatewayContract:
             safe_payload = {
                 "sessions": [cls._redact_session(item) for item in payload.get("sessions", [])]
             }
+        elif event.name == "vpn.interface.counters":
+            safe_payload = {
+                key: copy.deepcopy(value)
+                for key, value in payload.items()
+                if key in {
+                    "id", "name", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
+                    "rx_bytes_per_second", "tx_bytes_per_second",
+                    "rx_packets_per_second", "tx_packets_per_second",
+                }
+            }
+        elif event.name in {"router.capacity.updated", "router.health.updated", "telemetry.reconciled"}:
+            safe_payload = {
+                key: copy.deepcopy(value)
+                for key, value in payload.items()
+                if key in {"cpu_percent", "memory_percent", "storage_percent", "status", "age_seconds"}
+            }
         else:
             safe_payload = {
                 key: copy.deepcopy(value)
