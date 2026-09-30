@@ -67,15 +67,16 @@ def main() -> int:
     parser.add_argument("--max-age", type=float, default=10.0)
     parser.add_argument("--required-consecutive", type=int, default=3)
     args = parser.parse_args()
-    policy = CanaryPolicy(max_age_seconds=args.max_age, required_consecutive=args.required_consecutive)
-    source = _source(args.input)
+    source: TextIO | None = None
     try:
+        policy = CanaryPolicy(max_age_seconds=args.max_age, required_consecutive=args.required_consecutive)
+        source = _source(args.input)
         code, summary = run(source, policy=policy)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         print(json.dumps({"healthy": False, "reason": "invalid_input", "error": str(error)[:120]}))
         return 2
     finally:
-        if source is not sys.stdin:
+        if source is not None and source is not sys.stdin:
             source.close()
     print(json.dumps(summary, sort_keys=True))
     return code
