@@ -5,12 +5,12 @@ const HISTORY_LIMIT = 60;
 const THEME_STORAGE_KEY = 'vpn-dashboard-theme';
 const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
-let pendingDataRefresh = false;
 let pollingInFlight = false;
 let realtimeSource = null;
 let socketIoSource = null;
 let realtimeReconnectTimer = null;
 let realtimeTransport = 'sse';
+let pageReloadScheduled = false;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -411,12 +411,118 @@ function syncActiveSessions(sessions, timestamp) {
   });
 }
 
+function formatDuration(seconds) {
+  let remaining = Math.max(0, Number(seconds) || 0);
+  const days = Math.floor(remaining / 86400);
+  remaining %= 86400;
+  const hours = Math.floor(remaining / 3600);
+  remaining %= 3600;
+  const minutes = Math.floor(remaining / 60);
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours || days) parts.push(`${hours}h`);
+  if (minutes || hours || days) parts.push(`${minutes}m`);
+  return parts.join(' ') || '<1m';
+}
+
+function applyConnectionSearch() {
+  const query = ($('[data-connection-search]')?.value || '').trim().toLocaleLowerCase();
+  $$('[data-connection-row]').forEach((row) => {
+    row.classList.toggle('is-filtered-out', Boolean(query) && !row.dataset.connectionSearch.includes(query));
+  });
+}
+
+function renderConnectionHistory(connections = []) {
+  const history = $('[data-connection-history]');
+  const body = $('.connection-history-table tbody', history || undefined);
+  if (!history || !body) return;
+  const now = Math.floor(Date.now() / 1000);
+  const rows = connections.map((item) => {
+    const connectedAt = Number(item.connected_at) || 0;
+    const disconnectedAt = Number(item.disconnected_at) || 0;
+    const live = !disconnectedAt;
+    const endedAt = disconnectedAt || Number(item.last_seen_at) || now;
+    const username = String(item.vpn_user || '') || 'Unknown';
+    const source = String(item.source_address || '') || '—';
+    const vpnAddress = String(item.vpn_address || '') || '—';
+    const encoding = String(item.encoding || '') || '—';
+    const connectedText = formatObservationTime(connectedAt);
+    const endText = live ? 'Connected now' : formatObservationTime(disconnectedAt);
+    const searchText = `${username} ${source} ${vpnAddress} ${encoding} ${connectedText} ${endText}`.toLocaleLowerCase();
+    const row = node('tr');
+    row.dataset.connectionRow = '';
+    row.dataset.connectionSearch = searchText;
+    const user = node('td');
+    const action = node('span', 'history-action');
+    action.append(node('i', live ? 'audit-icon live' : 'audit-icon'), node('strong', '', username));
+    user.append(action);
+    const times = node('td');
+    times.append(node('time', '', connectedText), node('small', 'table-secondary', endText));
+    const address = node('td');
+    const pair = node('span', 'address-pair');
+    pair.append(node('strong', '', source), node('small', '', `${vpnAddress} VPN`));
+    address.append(pair);
+    const traffic = node('td', '', formatBytes((Number(item.rx_bytes) || 0) + (Number(item.tx_bytes) || 0)));
+    traffic.append(node('small', 'table-secondary', encoding));
+    const status = node('td');
+    status.append(node('span', `history-status${live ? ' connected' : ''}`, live ? 'Connected' : 'Ended'));
+    row.append(user, times, node('td', '', formatDuration(endedAt - connectedAt)), address, traffic, status);
+    return row;
+  });
+  if (rows.length) body.replaceChildren(...rows);
+  else {
+    const row = node('tr');
+    const cell = node('td', 'table-empty', 'No connection history has been recorded yet.');
+    cell.colSpan = 6;
+    row.append(cell);
+    body.replaceChildren(row);
+  }
+  history.dataset.openCount = String(connections.filter((item) => !item.disconnected_at).length);
+  applyConnectionSearch();
+}
+
+function renderAlerts(alerts = []) {
+  const panel = $('[data-alert-panel]');
+  const list = $('[data-alert-list]');
+  if (!panel || !list) return;
+  panel.hidden = alerts.length === 0;
+  const count = $('[data-alert-count]', panel);
+  if (count) count.textContent = `${alerts.length} open`;
+  if (!alerts.length) {
+    list.replaceChildren(node('li', 'alert-empty', 'No active alerts. Automated checks will appear here when action is needed.'));
+    return;
+  }
+  const canManage = panel.dataset.canManageAlerts === 'true';
+  list.replaceChildren(...alerts.map((alert) => {
+    const item = node('li', `alert-item ${String(alert.severity || 'info')}`);
+    item.dataset.alertId = String(alert.id || '');
+    const copy = node('div');
+    copy.append(node('strong', '', String(alert.title || 'VPN alert')), node('small', '', String(alert.details || '')));
+    item.append(node('i'), copy, node('time', '', formatObservationTime(alert.created_at)));
+    if (canManage) {
+      const acknowledge = node('button', 'table-action', 'Acknowledge');
+      acknowledge.type = 'button';
+      acknowledge.dataset.alertAck = String(alert.id || '');
+      item.append(acknowledge);
+    } else item.append(node('span', 'muted-label', 'Read-only'));
+    return item;
+  }));
+}
+
+function scheduleAutomaticPageSync() {
+  if (pageReloadScheduled) return;
+  pageReloadScheduled = true;
+  setTimeout(() => location.reload(), 0);
+}
+
 function updateDashboard(payload) {
   const cards = $$('[data-user-id]');
   const incomingNames = payload.users.map((user) => user.name).sort();
   const currentNames = cards.map((card) => card.dataset.userName).sort();
   if (incomingNames.join('|') !== currentNames.join('|')) {
-    deferFreshData('The VPN user list changed. Refresh to load it.');
+    // User creation/deletion changes the action menu and device markup. Reload
+    // automatically so the streamed state is applied without a manual banner.
+    scheduleAutomaticPageSync();
     return;
   }
 
@@ -474,18 +580,10 @@ function updateDashboard(payload) {
   }
   const history = $('[data-connection-history]');
   if (history && Array.isArray(payload.connections)) {
-    const openCount = payload.connections.filter((item) => !item.disconnected_at).length;
-    if (openCount !== Number(history.dataset.openCount || 0)) {
-      deferFreshData('Connection history changed. Refresh to load it.');
-    }
+    renderConnectionHistory(payload.connections);
   }
   if (Array.isArray(payload.alerts)) {
-    const alertList = $('[data-alert-list]');
-    const currentAlertIds = alertList ? $$('[data-alert-id]', alertList).map((item) => item.dataset.alertId).join('|') : '';
-    const incomingAlertIds = payload.alerts.map((item) => String(item.id)).join('|');
-    if (currentAlertIds !== incomingAlertIds) {
-      deferFreshData('Security alerts changed. Refresh to load them.');
-    }
+    renderAlerts(payload.alerts);
   }
   const activeSessionIds = new Set(payload.sessions.map((session) => session.id));
   [...counters.keys()].forEach((id) => { if (!activeSessionIds.has(id)) counters.delete(id); });
@@ -561,12 +659,10 @@ async function pollStatus() {
     const payload = await response.json();
     updateDashboard(payload);
     pollingFailures = 0;
-    if (!pendingDataRefresh) {
-      indicators.forEach((indicator) => {
-        indicator.classList.remove('stale', 'pending');
-        $('span', indicator).textContent = 'Live · updated now';
-      });
-    }
+    indicators.forEach((indicator) => {
+      indicator.classList.remove('stale', 'pending');
+      $('span', indicator).textContent = 'Live · updated now';
+    });
   } catch (error) {
     console.error('Live status refresh failed:', error);
     pollingFailures += 1;
@@ -716,22 +812,6 @@ function hasOpenDialog() {
   return Boolean($('dialog[open]'));
 }
 
-function deferFreshData(reason) {
-  pendingDataRefresh = true;
-  const control = $('[data-full-refresh]');
-  if (control) {
-    control.hidden = false;
-    control.title = reason;
-    const label = $('span', control);
-    if (label) label.textContent = 'Refresh to apply changes';
-  }
-  $$('[data-live-indicator]').forEach((indicator) => {
-    indicator.classList.remove('stale');
-    indicator.classList.add('pending');
-    $('span', indicator).textContent = 'Changes available';
-  });
-}
-
 function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertificate = '', legacyDevice = '' }) {
   const form = $('#profile-form');
   form.reset();
@@ -796,17 +876,6 @@ $$('[data-open-add]').slice(1).forEach((button) => button.addEventListener('clic
   $('#add-form').reset();
   openDialog('add-dialog');
 }));
-
-$$('[data-refresh]').forEach((button) => button.addEventListener('click', async () => {
-  if (pendingDataRefresh) {
-    location.reload();
-    return;
-  }
-  button.disabled = true;
-  try { await pollStatus(); } finally { button.disabled = false; }
-}));
-
-$('[data-full-refresh]')?.addEventListener('click', () => location.reload());
 
 const bulkRoot = $('[data-bulk-operations]');
 let bulkPreviewPayload = null;
@@ -1011,10 +1080,7 @@ $('[data-history-search]')?.addEventListener('input', (event) => {
 });
 
 $('[data-connection-search]')?.addEventListener('input', (event) => {
-  const query = event.currentTarget.value.trim().toLocaleLowerCase();
-  $$('[data-connection-row]').forEach((row) => {
-    row.classList.toggle('is-filtered-out', Boolean(query) && !row.dataset.connectionSearch.includes(query));
-  });
+  applyConnectionSearch();
 });
 
 document.addEventListener('click', async (event) => {

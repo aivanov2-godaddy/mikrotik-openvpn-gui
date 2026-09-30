@@ -742,7 +742,7 @@ def dashboard_page(
     if warnings:
         warning_items = "".join(f"<li>{html.escape(item)}</li>" for item in warnings)
         warning_markup = f"""<section class="degraded-notice" role="status">{_icon('refresh')}<div><strong>You are connected, but some RouterOS data could not be loaded.</strong><ul>{warning_items}</ul><small>Refresh the page to try again. Your login remains active.</small></div></section>"""
-    alert_markup_panel = f'<section class="panel alerts-panel"><div class="panel-heading"><div>{_icon("shield")}<span><strong>Security and access alerts</strong><small>Automated checks from the dashboard control plane</small></span></div><span class="muted-label">{len(alerts)} open</span></div><ul class="alert-list" data-alert-list>{alert_markup}</ul></section>' if alerts else ''
+    alert_markup_panel = f'<section class="panel alerts-panel" data-alert-panel data-can-manage-alerts="{"true" if can_manage_alerts else "false"}"{" hidden" if not alerts else ""}><div class="panel-heading"><div>{_icon("shield")}<span><strong>Security and access alerts</strong><small>Automated checks from the dashboard control plane</small></span></div><span class="muted-label" data-alert-count>{len(alerts)} open</span></div><ul class="alert-list" data-alert-list>{alert_markup}</ul></section>'
     health = health or {"overall": "unavailable", "checks": []}
     health_checks = list(health.get("checks") or [])
     health_counts = {state: sum(1 for item in health_checks if item.get("status") == state) for state in ("healthy", "warning", "unavailable")}
@@ -818,7 +818,6 @@ def dashboard_page(
         <button type="button" data-theme-choice="system" aria-pressed="false"><strong>System</strong><small>Follow device setting</small></button>
       </div>
     </details>
-    <button type="button" class="sync-status" data-full-refresh hidden title="A dashboard list changed and can be refreshed when convenient">{_icon('refresh')}<span>Refresh to apply changes</span></button>
     <form method="post" action="/logout" class="top-logout"><input type="hidden" name="csrf" value="{html.escape(csrf, quote=True)}"><button type="submit" title="Sign out {actor_safe}">{_icon('logout')}<span>Sign out</span></button></form>
   </header>
 
@@ -875,7 +874,7 @@ def dashboard_page(
       </section>
 
       <section class="app-view" id="live-sessions" data-view="live-sessions" hidden>
-        <header class="view-heading"><div><p class="eyebrow">LIVE</p><h1>Connected Devices</h1><p>See who is online. Traffic graphs update automatically every five seconds.</p></div><div class="heading-actions"><span class="live-refresh" data-live-indicator><i></i><span>Live · updated now</span></span><a class="quiet" href="/api/usage.csv">{_icon('download')}<span>Monthly usage</span></a><a class="quiet" href="/api/connections.csv">{_icon('download')}<span>Export history</span></a><button class="quiet" type="button" data-refresh>{_icon('refresh')}<span>Refresh now</span></button></div></header>
+        <header class="view-heading"><div><p class="eyebrow">LIVE</p><h1>Connected Devices</h1><p>See who is online. Traffic graphs update automatically every five seconds.</p></div><div class="heading-actions"><span class="live-refresh" data-live-indicator><i></i><span>Live · updated now</span></span><a class="quiet" href="/api/usage.csv">{_icon('download')}<span>Monthly usage</span></a><a class="quiet" href="/api/connections.csv">{_icon('download')}<span>Export history</span></a></div></header>
         <section class="connection-summary"><span class="connection-summary-icon">{_icon('session')}</span><div><strong><span data-session-total>{len(sessions)}</span> connected device{'s' if len(sessions) != 1 else ''}</strong><small>Disconnecting asks for confirmation. A user can reconnect while their account remains enabled.</small></div></section>
         <section class="standalone-session-list" data-active-session-list>{live_session_markup}</section>
         <section class="panel table-panel history-panel" data-connection-history data-open-count="{sum(1 for item in connections if not item.get('disconnected_at'))}"><div class="panel-heading"><div>{_icon('log')}<span><strong>Connection history</strong><small>Active and recently ended tunnels · up to 50 shown</small></span></div><label class="page-search compact-search">{_icon('search')}<input type="search" data-connection-search placeholder="Find a connection" aria-label="Find a connection"></label></div><div class="responsive-table"><table class="history-table connection-history-table"><thead><tr><th>User</th><th>Connected / ended</th><th>Duration</th><th>Source / VPN address</th><th>Traffic / encryption</th><th>Status</th></tr></thead><tbody>{connection_markup}</tbody></table></div></section>
