@@ -22,6 +22,7 @@ class ConfigurationError(ValueError):
 _ROUTEROS_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _TRUSTED_PROXY_HEADERS = {"cf-connecting-ip": "CF-Connecting-IP", "x-forwarded-for": "X-Forwarded-For"}
+_LIVE_TRANSPORTS = {"rest", "binary", "auto"}
 
 
 def _value(values: Mapping[str, str], name: str, default: str = "") -> str:
@@ -37,6 +38,14 @@ def _boolean(values: Mapping[str, str], name: str, default: bool = False) -> boo
     if raw.casefold() in {"0", "false", "no", "off"}:
         return False
     raise ConfigurationError(f"{name} must be true or false")
+
+
+def _live_transport(values: Mapping[str, str]) -> str:
+    value = _value(values, "LIVE_TRANSPORT", "rest").casefold()
+    if value not in _LIVE_TRANSPORTS:
+        choices = ", ".join(sorted(_LIVE_TRANSPORTS))
+        raise ConfigurationError(f"LIVE_TRANSPORT must be one of: {choices}")
+    return value
 
 
 def _retention_days(values: Mapping[str, str]) -> int:
@@ -245,6 +254,7 @@ class RuntimeConfig:
     history_retention_days: int
     webhook_url: str | None
     webhook_secret: str | None
+    live_transport: str
     topology: OpenVPNTopology
 
     @classmethod
@@ -307,5 +317,6 @@ class RuntimeConfig:
             history_retention_days=_retention_days(source),
             webhook_url=webhook_url,
             webhook_secret=webhook_secret,
+            live_transport=_live_transport(source),
             topology=OpenVPNTopology.from_values(source),
         )

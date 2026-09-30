@@ -74,6 +74,24 @@ class TelemetryBrokerTests(unittest.TestCase):
         self.assertEqual(broker.apply(RouterOSReply("done", {})), [])
         self.assertEqual(broker.sequence, 0)
 
+    def test_counter_reset_is_explicit_and_does_not_leak_record_data(self) -> None:
+        broker = TelemetryBroker(clock=lambda: 500)
+        broker.apply(
+            RouterOSReply(
+                "re", {".id": "*1", "name": "alice", "rx-byte": "100", "tx-byte": "20"}
+            )
+        )
+        events = broker.apply(
+            RouterOSReply(
+                "re", {".id": "*1", "name": "alice", "rx-byte": "2", "tx-byte": "30"}
+            ),
+            now=501,
+        )
+        self.assertEqual([event.name for event in events], ["telemetry.counter_reset", "vpn.session.updated"])
+        self.assertEqual(events[0].payload["fields"], ["rx_bytes"])
+        self.assertNotIn("password", events[0].payload)
+        self.assertEqual(broker.counter_resets, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

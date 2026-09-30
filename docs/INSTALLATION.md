@@ -131,6 +131,7 @@ PUBLIC_ORIGIN=https://vpn.example.com
 ROUTEROS_REST_URL=https://<router-rest-host>:8443/rest
 ROUTEROS_CA_FILE=/config/routeros-ca.crt
 ROUTEROS_INSECURE_TLS=false
+LIVE_TRANSPORT=rest
 DATABASE_PATH=/data/dashboard.sqlite
 APP_PORT=8080
 REDIRECT_PORT=8081

@@ -11,6 +11,7 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.dashboard_name, "MikroTik OpenVPN GUI")
         self.assertEqual(config.router_display_name, "RouterOS")
         self.assertEqual(config.history_retention_days, 365)
+        self.assertEqual(config.live_transport, "rest")
         self.assertEqual(config.topology, OpenVPNTopology())
 
     def test_history_retention_has_safe_bounds(self) -> None:
@@ -88,6 +89,12 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(direct.access_layer_label, "Direct HTTPS via Caddy")
         self.assertEqual(cloudflare.trusted_proxy_header, "CF-Connecting-IP")
         self.assertEqual(cloudflare.access_layer_label, "Cloudflare Access")
+
+    def test_live_transport_is_bounded_and_opt_in(self) -> None:
+        self.assertEqual(RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"}).live_transport, "binary")
+        self.assertEqual(RuntimeConfig.from_environ({"LIVE_TRANSPORT": "AUTO"}).live_transport, "auto")
+        with self.assertRaisesRegex(ConfigurationError, "LIVE_TRANSPORT"):
+            RuntimeConfig.from_environ({"LIVE_TRANSPORT": "websocket"})
 
     def test_incomplete_topology_fails_closed_for_profile_issuing(self) -> None:
         topology = OpenVPNTopology.from_values(

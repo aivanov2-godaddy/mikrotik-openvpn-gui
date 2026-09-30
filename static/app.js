@@ -490,6 +490,23 @@ function updateDashboard(payload) {
   const activeSessionIds = new Set(payload.sessions.map((session) => session.id));
   [...counters.keys()].forEach((id) => { if (!activeSessionIds.has(id)) counters.delete(id); });
   [...histories.keys()].forEach((id) => { if (!activeSessionIds.has(id)) histories.delete(id); });
+  updateTelemetryIndicator(payload.telemetry);
+}
+
+function updateTelemetryIndicator(status = {}) {
+  const state = String(status.state || 'healthy');
+  const transport = String(status.transport || realtimeTransport || 'sse').toUpperCase();
+  const age = Number(status.event_age_seconds);
+  const stale = state === 'stale' || state === 'error' || (Number.isFinite(age) && age > 10);
+  $$('[data-live-indicator]').forEach((indicator) => {
+    indicator.classList.toggle('stale', stale);
+    indicator.classList.remove('pending');
+    const label = $('span', indicator);
+    if (!label) return;
+    if (state === 'error') label.textContent = 'Telemetry unavailable';
+    else if (stale) label.textContent = `Stale · ${transport}`;
+    else label.textContent = `Live · ${transport}`;
+  });
 }
 
 function updateLiveSnapshot(payload) {
@@ -509,6 +526,7 @@ function updateLiveSnapshot(payload) {
     indicator.classList.remove('stale', 'pending');
     $('span', indicator).textContent = 'Live · updated now';
   });
+  updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
 }
 
 function scheduleRealtimeReconnect() {

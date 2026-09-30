@@ -95,12 +95,14 @@ profiles, and RouterOS exports are never emitted.
 
 ## Current runtime gate
 
-The public image reports ``transport: sse`` from ``/api/telemetry`` and does
-not attach a Socket.IO server. This is intentional: merging these contracts
-does not promote a new transport or change the router. A future canary image
-must provide the optional server, run the comparator, and retain the same
-immutable release and rollback record before switching the advertised
-transport.
+The public image reports the requested ``LIVE_TRANSPORT`` value plus the
+effective ``transport: sse`` from ``/api/telemetry`` and does not attach a
+Socket.IO server. This is intentional: enabling ``binary`` or ``auto`` only
+selects a canary intent; it never promotes a new transport or changes the
+router. The status also reports redacted freshness, reconciliation age, and
+error state for the current SSE path. A future canary image must provide the
+optional server, run the comparator, and retain the same immutable release and
+rollback record before switching the advertised transport.
 
 The operator procedure and redacted NDJSON comparator are documented in
 `docs/LIVE_TELEMETRY_CANARY.md`; they are local-only and never upload sample
