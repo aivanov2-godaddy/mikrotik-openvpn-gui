@@ -176,3 +176,14 @@ query, status, and tag filters. Saved views are stored in the router-local
 SQLite metadata database and are deliberately excluded from the public image
 and repository. The feature is UI/API capability-gated and does not alter the
 CA, certificate issuance, profile format, or existing `/data` mount.
+
+## v2.5 — Binary live telemetry (in progress)
+
+The dashboard is being prepared for a read-only RouterOS Binary API-SSL
+transport with a Socket.IO browser gateway. The first slice validates the
+protocol framing and documents the migration and full-revert procedure while
+the existing REST/SSE path remains the runtime default. Later slices will add
+the in-process telemetry broker, event reconciliation, reconnect recovery, and
+canary-only enablement. RouterOS REST remains the mutation and fallback path;
+OpenVPN CA material, certificates, profiles, users, RouterOS configuration,
+and router-local data remain outside the feature boundary.

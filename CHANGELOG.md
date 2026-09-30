@@ -27,6 +27,12 @@ semantic-version style release tags.
   in plaintext only once to a security-capable administrator.
 - Mobile/PWA accessibility foundation with reduced-motion support and an
   installable web-app manifest.
+- A disabled-by-default RouterOS Binary API protocol foundation with framing,
+  sentence parsing, listen-record handling, and focused tests for the planned
+  live-telemetry transport.
+- A public live-telemetry migration plan and a full-revert runbook that keep
+  the existing REST/SSE fallback, OpenVPN CA, certificates, profiles, and
+  router-local data unchanged.
 
 ### Fixed
 
