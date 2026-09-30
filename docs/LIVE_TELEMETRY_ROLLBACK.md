@@ -71,4 +71,3 @@ The following must remain unchanged throughout rollback:
 - CA/profile issuance still uses the existing REST path.
 - `git diff` and the deployment audit contain no certificate/profile/data
   changes.
-

@@ -89,4 +89,3 @@ RouterOS management-plane API-SSL service restricted to the container network.
 It must use a management certificate and must not replace or reuse the
 OpenVPN CA as part of this feature. The existing REST CA file, OpenVPN CA,
 certificates, profiles, and data mounts remain unchanged.
-
