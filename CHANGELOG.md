@@ -30,6 +30,10 @@ semantic-version style release tags.
 - A disabled-by-default RouterOS Binary API protocol foundation with framing,
   sentence parsing, listen-record handling, and focused tests for the planned
   live-telemetry transport.
+- A disabled-by-default in-memory telemetry broker that normalizes Binary API
+  records, reconciles snapshots, emits versioned session transitions, and
+  enforces an allow-list so credentials and profile material cannot reach a
+  future Socket.IO delivery layer.
 - A public live-telemetry migration plan and a full-revert runbook that keep
   the existing REST/SSE fallback, OpenVPN CA, certificates, profiles, and
   router-local data unchanged.
