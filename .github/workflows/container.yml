@@ -9,6 +9,9 @@ on:
       # documentation, test, and workflow-policy changes are verified by CI
       # but require an explicit workflow_dispatch if an image is needed.
       - "app.py"
+      - "asgi.py"
+      - "entrypoint.py"
+      - "requirements-runtime.txt"
       - "automation.py"
       - "config.py"
       - "favicon.py"
@@ -68,7 +71,7 @@ jobs:
       - name: Check for committed secret patterns
         run: python scripts/check-secrets.py
       - name: Compile application
-        run: python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py install_routeros.py integrations.py qr.py routeros.py routeros_binary.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_runtime.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_state.py telemetry_supervisor.py update_routeros_app.py
+        run: python -m compileall -q app.py asgi.py entrypoint.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py install_routeros.py integrations.py qr.py routeros.py routeros_binary.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_runtime.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_state.py telemetry_supervisor.py update_routeros_app.py scripts/telemetry_acceptance.py
       - name: Run unit and mock integration tests
         run: python -m unittest discover -s tests -v
 

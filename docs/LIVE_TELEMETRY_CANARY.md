@@ -1,9 +1,8 @@
 # Live telemetry canary procedure
 
-This procedure validates the Binary API telemetry path without changing the
-router. It is intentionally separate from the production watchdog: the
-watchdog must keep the current immutable image and the public runtime must
-continue to advertise `transport: sse` until this checklist is accepted.
+This procedure validates the Binary API telemetry path without changing
+RouterOS policy or VPN data. It is intentionally separate from the production
+watchdog and uses only immutable images.
 
 ## What the canary proves
 
@@ -52,6 +51,22 @@ python scripts/telemetry_baseline.py --input private-baseline.ndjson \
 Exit code `0` means every configured gate passed, `1` means evidence failed a
 gate, and `2` means the input was invalid. The output contains aggregates and
 gate names only; it never echoes source samples.
+
+For the complete acceptance report, combine resource samples with reconnect,
+ordering, counter-reset, and security checks:
+
+```json
+{"type":"sample","transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
+{"type":"reconnect","recovery_seconds":4.2,"snapshot_recovered":true}
+{"type":"security","unauthenticated_denied":true,"secret_bearing_payload":false}
+```
+
+```text
+python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
+```
+
+The command emits only aggregate metrics and failed gate names. It also
+requires at least one reconnect test and one security test.
 
 ## Acceptance window
 

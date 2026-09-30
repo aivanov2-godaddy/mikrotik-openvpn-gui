@@ -10,6 +10,7 @@ let realtimeSource = null;
 let socketIoSource = null;
 let realtimeReconnectTimer = null;
 let realtimeTransport = 'sse';
+let socketIoEngine = 'polling';
 let pageReloadScheduled = false;
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -920,13 +921,11 @@ function bulkFilters() {
 function connectSocketIO() {
   if (typeof window.io !== 'function') return false;
   try {
-    // The bundled RouterOS-compatible bridge implements Engine.IO polling.
-    // Avoid a WebSocket-first attempt that can stall behind the reverse proxy
-    // before the client eventually falls back to SSE.
+    const nativeWebSocket = socketIoEngine === 'asgi';
     const socket = window.io('/telemetry', {
       withCredentials: true,
-      transports: ['polling'],
-      upgrade: false,
+      transports: nativeWebSocket ? ['websocket', 'polling'] : ['polling'],
+      upgrade: nativeWebSocket,
     });
     socketIoSource = socket;
     socket.on('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
@@ -953,6 +952,7 @@ async function detectRealtimeTransport() {
     const payload = await response.json();
     if (payload?.socketio_enabled && payload.transport === 'socketio' && typeof window.io === 'function') {
       realtimeTransport = 'socketio';
+      socketIoEngine = payload.socketio_engine === 'asgi' ? 'asgi' : 'polling';
     }
   } catch (_) {
     // The existing SSE stream remains the safe fallback when capability

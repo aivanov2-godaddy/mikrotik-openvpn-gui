@@ -10,6 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_FILES = [
     "app.py",
+    "asgi.py",
+    "entrypoint.py",
     "automation.py",
     "cloudflare.py",
     "deploy_routeros_canary.py",
@@ -36,11 +38,14 @@ PYTHON_FILES = [
     "scripts/deploy_routeros_release.py",
     "scripts/pre_commit_checks.py",
     "scripts/telemetry_canary.py",
+    "scripts/telemetry_acceptance.py",
     "scripts/validate_release.py",
     "tests/mock_routeros.py",
     "tests/test_routeros_binary.py",
     "tests/test_telemetry_broker.py",
     "tests/test_telemetry_canary.py",
+    "tests/test_telemetry_acceptance.py",
+    "tests/test_asgi_contract.py",
     "tests/test_telemetry_gateway.py",
     "tests/test_telemetry_socketio.py",
     "tests/test_telemetry_socketio_polling.py",

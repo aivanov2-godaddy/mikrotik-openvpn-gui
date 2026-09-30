@@ -13,13 +13,15 @@ WORKDIR /app
 
 # Runtime code is part of the immutable image. Production must not mount over /app.
 COPY app.py automation.py config.py favicon.py icons.py integrations.py profile_diagnostics.py qr.py routeros.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_runtime.py telemetry_state.py telemetry_supervisor.py routeros_binary.py ./
+COPY asgi.py entrypoint.py requirements-runtime.txt ./
 COPY static ./static
 COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 
 # Keep the release identity available to the runtime without exposing build or
 # runtime environment variables through the unauthenticated readiness route.
 RUN printf '%s\n' "$VERSION" > /app/VERSION \
-    && printf '%s\n' "$REVISION" > /app/REVISION
+    && printf '%s\n' "$REVISION" > /app/REVISION \
+    && python -m pip install --disable-pip-version-check --no-cache-dir --no-compile --target /app/runtime -r /app/requirements-runtime.txt
 
 # The application prepares database ownership as root and then drops to UID/GID 65534.
 RUN mkdir -p /data \
@@ -50,7 +52,9 @@ WORKDIR /app
 
 ENV APP_PORT=8080 \
     REDIRECT_PORT=8081 \
+    SOCKETIO_ENGINE=asgi \
     DATABASE_PATH=/data/dashboard.sqlite \
+    PYTHONPATH=/app/runtime \
     DROP_PRIVILEGES=true \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -62,4 +66,4 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD wget -q -O /dev/null http://127.0.0.1:8080/readyz || exit 1
 
-CMD ["python3", "-B", "/app/app.py"]
+CMD ["python3", "-B", "/app/entrypoint.py"]

@@ -333,6 +333,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], context: AppContext) -> None:
         super().__init__(address, DashboardHandler)
         self.context = context
+        self.socketio_engine = os.environ.get("SOCKETIO_ENGINE", "polling").strip().casefold() or "polling"
         self.profile_shares = ProfileShareStore()
         self.telemetry_runtime = TelemetryRuntime(
             sessions=context.sessions,
@@ -366,6 +367,13 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         super().shutdown()
         self._telemetry_thread.join(timeout=2)
         self.telemetry_runtime.stop()
+
+    def close(self) -> None:
+        """Stop runtime workers when the server is owned by another host."""
+        self._telemetry_stop.set()
+        self._telemetry_thread.join(timeout=2)
+        self.telemetry_runtime.stop()
+        self.server_close()
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -440,12 +448,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
         """Return transport health without exposing RouterOS or VPN secrets."""
         runtime = self.server.context.telemetry_runtime
         if runtime is not None:
-            return runtime.status()
+            status = runtime.status()
+            status["socketio_engine"] = self.server.socketio_engine
+            return status
         state = self.server.context.telemetry_state
         if state is None:
             state = TelemetryRuntimeState(self.server.context.config.live_transport)
             self.server.context.telemetry_state = state
-        return state.as_dict()
+        status = state.as_dict()
+        status["socketio_engine"] = self.server.socketio_engine
+        return status
 
     def _csv(self, filename: str, headers: list[str], rows: list[list[Any]]) -> None:
         stream = io.StringIO(newline="")
@@ -3282,7 +3294,7 @@ def main() -> None:
         app_server.serve_forever()
     finally:
         redirect_server.shutdown()
-        app_server.server_close()
+        app_server.close()
 
 
 if __name__ == "__main__":

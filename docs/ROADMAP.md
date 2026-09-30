@@ -177,9 +177,9 @@ SQLite metadata database and are deliberately excluded from the public image
 and repository. The feature is UI/API capability-gated and does not alter the
 CA, certificate issuance, profile format, or existing `/data` mount.
 
-## v2.5 — Binary live telemetry (staged)
+## v2.5 — Binary live telemetry (deployed)
 
-The dashboard is being prepared for a read-only RouterOS Binary API-SSL
+The dashboard now uses a read-only RouterOS Binary API-SSL
 transport with a Socket.IO browser gateway. The first slice validates the
 protocol framing and documents the migration and full-revert procedure. The
 second slice adds a disabled-by-default, in-memory broker that normalizes
@@ -192,8 +192,11 @@ read-only active-session listen stream, reconnects with bounded backoff, and
 publishes redacted health metrics. The fifth slice adds a compatible optional
 Socket.IO adapter and capability discovery; the sixth adds a frontend
 selection hook with SSE fallback and a consecutive-sample canary comparator.
-The public runtime still advertises SSE and does not attach Socket.IO. RouterOS
-REST remains the mutation and fallback path; OpenVPN CA material, certificates,
-profiles, users, RouterOS configuration, and router-local data remain outside
-the feature boundary. Operator canary acceptance is the only remaining gate
-before a transport promotion.
+The public runtime uses the authenticated Socket.IO path with SSE and REST
+fallback. RouterOS REST remains the mutation path; OpenVPN CA material,
+certificates, profiles, users, RouterOS configuration, and router-local data
+remain outside the feature boundary. The deployed router image is healthy and
+has passed the immutable-image rollout checks; formal long-duration canary
+evidence remains to be collected. The native ASGI/Uvicorn WebSocket runtime is implemented
+behind ``SOCKETIO_ENGINE=asgi``; the dependency-free polling bridge remains
+the immediate rollback mode. Future work is limited to continued observation.
