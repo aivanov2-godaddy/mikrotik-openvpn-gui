@@ -23,7 +23,9 @@ PYTHON_FILES = [
     "store.py",
     "templates.py",
     "telemetry_broker.py",
+    "telemetry_canary.py",
     "telemetry_gateway.py",
+    "telemetry_socketio.py",
     "telemetry_supervisor.py",
     "update_routeros_app.py",
     "scripts/check-secrets.py",
@@ -33,7 +35,9 @@ PYTHON_FILES = [
     "tests/mock_routeros.py",
     "tests/test_routeros_binary.py",
     "tests/test_telemetry_broker.py",
+    "tests/test_telemetry_canary.py",
     "tests/test_telemetry_gateway.py",
+    "tests/test_telemetry_socketio.py",
     "tests/test_telemetry_supervisor.py",
 ]
 

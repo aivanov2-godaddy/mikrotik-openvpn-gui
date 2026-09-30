@@ -18,6 +18,10 @@ profiles, RouterOS VPN configuration, or router-local dashboard data.
 5. Leave the RouterOS scheduler/watchdog enabled; it will continue to manage
    immutable image promotion and will not change VPN objects or data mounts.
 
+The current public image advertises `transport: sse` and has no Socket.IO
+server attached, so this fast path is also the normal safe state while a
+canary is being prepared.
+
 ## Image rollback
 
 If the application image itself is unhealthy:

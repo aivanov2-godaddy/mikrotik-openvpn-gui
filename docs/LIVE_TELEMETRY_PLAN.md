@@ -68,16 +68,21 @@ profiles, and RouterOS exports are never emitted.
 3. **Telemetry broker (complete).** Maintain an in-memory state cache,
    normalize records, calculate rates from monotonic counters, and run
    periodic reconciliation.
-4. **Socket.IO gateway (contract complete; adapter pending).** Authenticate
-   with the existing dashboard session, enforce role/session timeouts, support
+4. **Socket.IO gateway (adapter complete; runtime opt-in).** Authenticate with
+   the existing dashboard session, enforce role/session timeouts, support
    reconnect and snapshot recovery, and apply per-client backpressure. The
-   current gateway is a dependency-free contract; the network adapter is
-   still canary-only work.
-5. **Frontend migration.** Replace the EventSource path for live telemetry,
-   keep REST bootstrap and fallback, and show live/reconnecting/stale states.
-6. **Canary validation.** Compare Binary API and REST results, exercise router
-   restart/reconnect behavior, measure CPU and latency, and promote only the
-   same immutable image after acceptance.
+   dependency-free adapter targets a compatible Socket.IO server object and is
+   never attached by the default stdlib runtime.
+5. **Frontend migration (fallback-safe slice complete).** Capability discovery
+   can select Socket.IO when an explicitly enabled server advertises it; the
+   browser otherwise keeps the existing EventSource stream and five-second
+   REST refresh. Socket.IO disconnects fall back to SSE without changing any
+   mutation or profile flow.
+6. **Canary validation (comparison harness complete; router acceptance pending).**
+   A dependency-free comparator checks redacted session identity and freshness,
+   requires consecutive healthy samples before promotion, and records no
+   secrets. Router restart/reconnect, CPU, and latency acceptance still belong
+   to the operator's canary window before enabling the adapter.
 
 ## Proposed acceptance targets
 
@@ -87,6 +92,15 @@ profiles, and RouterOS exports are never emitted.
 - No unauthenticated event delivery and no secret-bearing event payloads.
 - REST fallback remains available at all times during the migration.
 - Router CPU and memory impact measured on the canary before production use.
+
+## Current runtime gate
+
+The public image reports ``transport: sse`` from ``/api/telemetry`` and does
+not attach a Socket.IO server. This is intentional: merging these contracts
+does not promote a new transport or change the router. A future canary image
+must provide the optional server, run the comparator, and retain the same
+immutable release and rollback record before switching the advertised
+transport.
 
 ## Configuration boundary
 

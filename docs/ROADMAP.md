@@ -177,7 +177,7 @@ SQLite metadata database and are deliberately excluded from the public image
 and repository. The feature is UI/API capability-gated and does not alter the
 CA, certificate issuance, profile format, or existing `/data` mount.
 
-## v2.5 — Binary live telemetry (in progress)
+## v2.5 — Binary live telemetry (staged)
 
 The dashboard is being prepared for a read-only RouterOS Binary API-SSL
 transport with a Socket.IO browser gateway. The first slice validates the
@@ -189,8 +189,11 @@ transport-neutral gateway contract that authorizes the existing RouterOS
 session capability, bounds replay, and recovers stale cursors with a snapshot.
 The fourth slice adds a disabled-by-default supervisor that owns only the
 read-only active-session listen stream, reconnects with bounded backoff, and
-publishes redacted health metrics. The existing REST/SSE path remains the
-runtime default. Later slices will add the actual Socket.IO adapter, frontend
-migration, reconnect recovery, and canary-only enablement. RouterOS REST remains the mutation and fallback path;
-OpenVPN CA material, certificates, profiles, users, RouterOS configuration,
-and router-local data remain outside the feature boundary.
+publishes redacted health metrics. The fifth slice adds a compatible optional
+Socket.IO adapter and capability discovery; the sixth adds a frontend
+selection hook with SSE fallback and a consecutive-sample canary comparator.
+The public runtime still advertises SSE and does not attach Socket.IO. RouterOS
+REST remains the mutation and fallback path; OpenVPN CA material, certificates,
+profiles, users, RouterOS configuration, and router-local data remain outside
+the feature boundary. Operator canary acceptance is the only remaining gate
+before a transport promotion.
