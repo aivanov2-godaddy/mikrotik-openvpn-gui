@@ -56,17 +56,23 @@ profiles, and RouterOS exports are never emitted.
 
 ## Phases
 
-1. **Protocol foundation.** Validate Binary API word framing, sentence parsing,
-   tags, dead records, traps, and reconnect-safe error handling. This phase is
-   disabled at runtime.
-2. **Read-only Binary API adapter.** Add TLS/API-SSL connection management and
-   `listen` support for telemetry resources only. Do not add configuration
-   mutation helpers.
-3. **Telemetry broker.** Maintain an in-memory state cache, normalize records,
-   calculate rates from monotonic counters, and run periodic reconciliation.
-4. **Socket.IO gateway.** Authenticate with the existing dashboard session,
-   enforce role/session timeouts, support reconnect and snapshot recovery, and
-   apply per-client backpressure.
+1. **Protocol foundation (complete).** Validate Binary API word framing,
+   sentence parsing, tags, dead records, traps, and buffered reconnect-safe
+   reads. This phase is disabled at runtime.
+2. **Read-only Binary API adapter (transport and supervisor slice complete).**
+   Add TLS/API-SSL connection management, `listen` support for the active PPP
+   resource, bounded reconnect/backoff, health metrics, and periodic snapshot
+   reconciliation. Do not add configuration mutation helpers. The supervisor
+   remains disabled by default and accepts injected dependencies for canary
+   validation.
+3. **Telemetry broker (complete).** Maintain an in-memory state cache,
+   normalize records, calculate rates from monotonic counters, and run
+   periodic reconciliation.
+4. **Socket.IO gateway (contract complete; adapter pending).** Authenticate
+   with the existing dashboard session, enforce role/session timeouts, support
+   reconnect and snapshot recovery, and apply per-client backpressure. The
+   current gateway is a dependency-free contract; the network adapter is
+   still canary-only work.
 5. **Frontend migration.** Replace the EventSource path for live telemetry,
    keep REST bootstrap and fallback, and show live/reconnecting/stale states.
 6. **Canary validation.** Compare Binary API and REST results, exercise router
