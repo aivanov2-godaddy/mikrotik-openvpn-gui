@@ -27,6 +27,20 @@ semantic-version style release tags.
   in plaintext only once to a security-capable administrator.
 - Mobile/PWA accessibility foundation with reduced-motion support and an
   installable web-app manifest.
+- A disabled-by-default RouterOS Binary API protocol foundation with framing,
+  sentence parsing, listen-record handling, and focused tests for the planned
+  live-telemetry transport.
+- A disabled-by-default in-memory telemetry broker that normalizes Binary API
+  records, reconciles snapshots, emits versioned session transitions, and
+  enforces an allow-list so credentials and profile material cannot reach a
+  future Socket.IO delivery layer.
+- A disabled-by-default, dependency-free telemetry gateway contract that
+  checks the existing RouterOS session capability, publishes versioned redacted
+  frames, and recovers stale cursors with bounded snapshots without retaining
+  dashboard credentials or session objects.
+- A public live-telemetry migration plan and a full-revert runbook that keep
+  the existing REST/SSE fallback, OpenVPN CA, certificates, profiles, and
+  router-local data unchanged.
 
 ### Fixed
 
