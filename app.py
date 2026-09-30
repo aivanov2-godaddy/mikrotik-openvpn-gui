@@ -900,6 +900,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/events":
             self._events()
             return
+        if path == "/api/telemetry":
+            session = self._require_session(api=True)
+            if not session or session.auth_method != "routeros":
+                return
+            # Socket.IO is an opt-in canary surface.  The stdlib runtime keeps
+            # SSE as the production transport until a separately deployed
+            # adapter has passed the read-only canary checks.
+            self._json(
+                {
+                    "protocol_version": 1,
+                    "transport": "sse",
+                    "socketio_enabled": False,
+                    "namespace": "/telemetry",
+                    "fallback": "sse",
+                }
+            )
+            return
         if path == "/api/admin/sessions":
             session = self._require_session(api=True)
             if not session or not self._require_capability(session, "sessions.read"):
@@ -974,6 +991,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "capabilities": sorted(role_capabilities(session.role)),
                         "router": router,
                         "observability": self._observability(),
+                        "telemetry": {
+                            "protocol_version": 1,
+                            "transport": "sse",
+                            "socketio_enabled": False,
+                            "fallback": "sse",
+                        },
                         "generated_at": int(time.time()),
                     }
                 )

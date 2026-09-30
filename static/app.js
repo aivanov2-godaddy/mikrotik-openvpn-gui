@@ -8,7 +8,9 @@ let pollingFailures = 0;
 let pendingDataRefresh = false;
 let pollingInFlight = false;
 let realtimeSource = null;
+let socketIoSource = null;
 let realtimeReconnectTimer = null;
+let realtimeTransport = 'sse';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -518,7 +520,9 @@ function scheduleRealtimeReconnect() {
 }
 
 function connectRealtime() {
-  if (!window.EventSource || document.hidden || realtimeSource) return;
+  if (document.hidden || realtimeSource || socketIoSource) return;
+  if (realtimeTransport === 'socketio' && connectSocketIO()) return;
+  if (!window.EventSource) return;
   realtimeSource = new EventSource('/api/events', { withCredentials: true });
   realtimeSource.addEventListener('status', (event) => {
     try { updateLiveSnapshot(JSON.parse(event.data)); } catch (_) { /* ignore malformed telemetry */ }
@@ -795,6 +799,43 @@ function bulkFilters() {
     status: $('[data-bulk-status]')?.value || 'all',
     tag: $('[data-bulk-tag]')?.value || '',
   };
+}
+
+function connectSocketIO() {
+  if (typeof window.io !== 'function') return false;
+  try {
+    const socket = window.io('/telemetry', { withCredentials: true, transports: ['websocket', 'polling'] });
+    socketIoSource = socket;
+    socket.on('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
+    socket.on('vpn.session.connected', () => pollStatus());
+    socket.on('vpn.session.updated', () => pollStatus());
+    socket.on('vpn.session.disconnected', () => pollStatus());
+    socket.on('connect_error', () => {
+      socket.close();
+      socketIoSource = null;
+      realtimeTransport = 'sse';
+      scheduleRealtimeReconnect();
+    });
+    return true;
+  } catch (_) {
+    socketIoSource = null;
+    realtimeTransport = 'sse';
+    return false;
+  }
+}
+
+async function detectRealtimeTransport() {
+  try {
+    const response = await resultOrError(await api('/api/telemetry'));
+    const payload = await response.json();
+    if (payload?.socketio_enabled && payload.transport === 'socketio' && typeof window.io === 'function') {
+      realtimeTransport = 'socketio';
+    }
+  } catch (_) {
+    // The existing SSE stream remains the safe fallback when capability
+    // discovery is unavailable or the optional adapter is not installed.
+    realtimeTransport = 'sse';
+  }
 }
 
 function bulkSetStatus(message, error = false) {
@@ -1668,6 +1709,6 @@ showView(viewFromHash(), false);
 seedCounters();
 loadAdminSessions();
 loadApiTokens();
-connectRealtime();
+detectRealtimeTransport().finally(connectRealtime);
 setTimeout(pollStatus, 1200);
 setInterval(pollStatus, 5000);
