@@ -102,6 +102,10 @@ must provide the optional server, run the comparator, and retain the same
 immutable release and rollback record before switching the advertised
 transport.
 
+The operator procedure and redacted NDJSON comparator are documented in
+`docs/LIVE_TELEMETRY_CANARY.md`; they are local-only and never upload sample
+records.
+
 ## Configuration boundary
 
 If API-SSL is not already available, the deployment review may add a separate
