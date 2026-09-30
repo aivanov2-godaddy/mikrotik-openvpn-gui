@@ -39,13 +39,13 @@ redacted NDJSON file. The file may contain only numeric measurements and the
 transport name:
 
 ```json
-{"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"reconnects":0,"event_lost":false}
+{"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"container_healthy":true,"reconnects":0,"event_lost":false}
 ```
 
 ```text
 python scripts/telemetry_baseline.py --input private-baseline.ndjson \
   --max-latency-p95-ms 1000 --max-event-age-seconds 2 \
-  --max-router-cpu-percent 80 --max-router-memory-percent 90
+  --max-router-cpu-percent 80 --max-router-memory-percent 90 --max-router-storage-percent 90
 ```
 
 Exit code `0` means every configured gate passed, `1` means evidence failed a
@@ -57,8 +57,9 @@ ordering, counter-reset, and security checks:
 
 ```json
 {"type":"sample","transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
-{"type":"reconnect","recovery_seconds":4.2,"snapshot_recovered":true}
-{"type":"security","unauthenticated_denied":true,"secret_bearing_payload":false}
+{"type":"reconnect","recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
+{"type":"comparison","binary_matches_rest":true}
+{"type":"security","unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
 ```
 
 ```text
@@ -78,9 +79,10 @@ requires at least one reconnect test and one security test.
 3. Collect at least three healthy comparisons, then exercise a temporary API
    disconnect and verify bounded reconnect/backoff plus a reconciliation
    snapshot.
-4. Record CPU, memory, sample age, reconnect count, and event loss for the
-   observation window. No certificate, profile, user, firewall, or VPN action
-   is part of this test.
+4. Record CPU, memory, storage, container health, sample age, reconnect count,
+   event ordering, Binary/REST parity, fallback availability, and secret-scan
+   results for the observation window. No certificate, profile, user, firewall,
+   or VPN action is part of this test.
 5. Promote only the same immutable SHA image after the evidence is reviewed.
    If any check fails, leave production unchanged and follow
    `docs/LIVE_TELEMETRY_ROLLBACK.md`.

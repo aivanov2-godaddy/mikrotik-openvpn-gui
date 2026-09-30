@@ -4,7 +4,8 @@ The input is newline-delimited JSON captured by an operator harness.  It is
 deliberately limited to measurements and boolean test results; RouterOS
 records, credentials, addresses, and identifiers must never be included.
 
-Accepted record types are ``sample``, ``reconnect``, and ``security``.  A
+Accepted record types are ``sample``, ``reconnect``, ``comparison``, and
+``security``.  A
 sample may contain the fields understood by :mod:`scripts.telemetry_baseline`
 plus ``event_sequence``, ``event_lost``, ``event_duplicated``,
 ``out_of_order``, ``counter_reset``, and ``counter_reset_recovered``.
@@ -52,6 +53,7 @@ def _number(value: Any, name: str) -> float:
 def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, dict[str, Any]]:
     samples: list[str] = []
     reconnects: list[dict[str, Any]] = []
+    comparisons: list[dict[str, Any]] = []
     security: list[dict[str, Any]] = []
     sequences: list[int] = []
     failures: list[str] = []
@@ -90,20 +92,32 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
                     counter_reset_failures += 1
         elif record_type == "reconnect":
             reconnects.append(record)
+            interrupted = _boolean(record.get("api_interruption_tested"), "api_interruption_tested")
+            if not interrupted:
+                failures.append("api_interruption_test")
             recovered = _boolean(record.get("snapshot_recovered"), "snapshot_recovered")
             recovery_seconds = _number(record.get("recovery_seconds"), "recovery_seconds")
             if not recovered:
                 failures.append("snapshot_recovery")
             if recovery_seconds > limits["recovery_seconds"]:
                 failures.append("recovery_time")
+            fallback = _boolean(record.get("rest_fallback_available"), "rest_fallback_available")
+            if not fallback:
+                failures.append("rest_fallback")
+        elif record_type == "comparison":
+            comparisons.append(record)
+            if not _boolean(record.get("binary_matches_rest"), "binary_matches_rest"):
+                failures.append("binary_rest_mismatch")
         elif record_type == "security":
             security.append(record)
             if not _boolean(record.get("unauthenticated_denied"), "unauthenticated_denied"):
                 failures.append("unauthenticated_access")
             if _boolean(record.get("secret_bearing_payload"), "secret_bearing_payload"):
                 failures.append("secret_exposure")
+            if not _boolean(record.get("secret_free_logs"), "secret_free_logs"):
+                failures.append("secret_exposure")
         else:
-            raise ValueError("type must be sample, reconnect, or security")
+            raise ValueError("type must be sample, reconnect, comparison, or security")
 
     if not samples:
         raise ValueError("at least one sample record is required")
@@ -111,6 +125,8 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         failures.append("reconnect_test_missing")
     if not security:
         failures.append("security_test_missing")
+    if not comparisons:
+        failures.append("binary_rest_comparison_missing")
     if duplicate_events:
         failures.append("duplicate_events")
     if out_of_order_events or any(right <= left for left, right in zip(sequences, sequences[1:])):
@@ -123,6 +139,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         "event_age_seconds": limits["event_age_seconds"],
         "router_cpu_percent": limits["router_cpu_percent"],
         "router_memory_percent": limits["router_memory_percent"],
+        "router_storage_percent": limits["router_storage_percent"],
         "reconnects": limits["max_reconnects"],
     })
     failures.extend(item for item in baseline["failed_gates"] if item not in failures)
@@ -131,6 +148,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         "failed_gates": sorted(set(failures)),
         "baseline": baseline,
         "reconnect_tests": len(reconnects),
+        "comparison_tests": len(comparisons),
         "security_tests": len(security),
         "counter_resets": counter_resets,
         "duplicate_events": duplicate_events,
@@ -146,6 +164,7 @@ def main() -> int:
     parser.add_argument("--max-event-age-seconds", type=float, default=2.0)
     parser.add_argument("--max-router-cpu-percent", type=float, default=80.0)
     parser.add_argument("--max-router-memory-percent", type=float, default=90.0)
+    parser.add_argument("--max-router-storage-percent", type=float, default=90.0)
     parser.add_argument("--max-reconnects", type=float, default=0.0)
     parser.add_argument("--max-recovery-seconds", type=float, default=10.0)
     args = parser.parse_args()
@@ -155,7 +174,8 @@ def main() -> int:
             "latency_p95_ms": args.max_latency_p95_ms,
             "event_age_seconds": args.max_event_age_seconds,
             "router_cpu_percent": args.max_router_cpu_percent,
-            "router_memory_percent": args.max_router_memory_percent,
+        "router_memory_percent": args.max_router_memory_percent,
+        "router_storage_percent": args.max_router_storage_percent,
             "max_reconnects": args.max_reconnects,
             "recovery_seconds": args.max_recovery_seconds,
         }
