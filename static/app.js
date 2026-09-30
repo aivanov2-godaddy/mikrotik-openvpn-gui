@@ -822,7 +822,14 @@ function bulkFilters() {
 function connectSocketIO() {
   if (typeof window.io !== 'function') return false;
   try {
-    const socket = window.io('/telemetry', { withCredentials: true, transports: ['websocket', 'polling'] });
+    // The bundled RouterOS-compatible bridge implements Engine.IO polling.
+    // Avoid a WebSocket-first attempt that can stall behind the reverse proxy
+    // before the client eventually falls back to SSE.
+    const socket = window.io('/telemetry', {
+      withCredentials: true,
+      transports: ['polling'],
+      upgrade: false,
+    });
     socketIoSource = socket;
     socket.on('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
     socket.on('vpn.session.connected', () => pollStatus());
