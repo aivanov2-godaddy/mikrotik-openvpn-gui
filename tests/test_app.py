@@ -933,6 +933,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("themeResolved", script)
         self.assertIn("data-theme-choice", script)
 
+    def test_live_socketio_asset_is_packaged_and_allowlisted(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        asset = root / "static" / "socket.io.min.js"
+        source = (root / "app.py").read_text()
+        self.assertGreater(asset.stat().st_size, 1000)
+        self.assertIn('"socket.io.min.js"', source)
+
     def test_dashboard_exposes_persistent_theme_choices(self) -> None:
         self.login()
         status, _, page = self.request("GET", "/dashboard")
