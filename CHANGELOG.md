@@ -34,6 +34,10 @@ semantic-version style release tags.
   records, reconciles snapshots, emits versioned session transitions, and
   enforces an allow-list so credentials and profile material cannot reach a
   future Socket.IO delivery layer.
+- A disabled-by-default, dependency-free telemetry gateway contract that
+  checks the existing RouterOS session capability, publishes versioned redacted
+  frames, and recovers stale cursors with bounded snapshots without retaining
+  dashboard credentials or session objects.
 - A public live-telemetry migration plan and a full-revert runbook that keep
   the existing REST/SSE fallback, OpenVPN CA, certificates, profiles, and
   router-local data unchanged.

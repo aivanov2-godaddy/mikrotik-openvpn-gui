@@ -185,7 +185,10 @@ protocol framing and documents the migration and full-revert procedure. The
 second slice adds a disabled-by-default, in-memory broker that normalizes
 records, reconciles snapshots, emits versioned session transitions, and
 redacts every event through an explicit allow-list. The existing REST/SSE path
-remains the runtime default. Later slices will add reconnect recovery and
+remains the runtime default. The third slice adds a transport-neutral gateway
+contract that authorizes the existing RouterOS session capability, bounds
+replay, and recovers stale cursors with a snapshot. Later slices will add the
+actual Socket.IO adapter, frontend migration, reconnect recovery, and
 canary-only enablement. RouterOS REST remains the mutation and fallback path;
 OpenVPN CA material, certificates, profiles, users, RouterOS configuration,
 and router-local data remain outside the feature boundary.
