@@ -123,10 +123,41 @@ class DashboardHTTPASGI:
             name, value = line.split(b":", 1)
             headers.append((name.strip().lower(), value.strip()))
 
+        content_length: int | None = None
+        for name, value in headers:
+            if name == b"content-length":
+                try:
+                    content_length = int(value)
+                except ValueError:
+                    content_length = None
+                break
+
+        # DashboardHandler uses HTTP/1.1 and normally leaves the socket open
+        # after writing a Content-Length-delimited response.  Reading until
+        # EOF here therefore makes every ordinary ASGI request hang forever:
+        # the wrapped handler is invoked directly, so socketserver never gets
+        # a chance to close the request socket.  Read exactly the declared
+        # response body instead.  Streaming responses without Content-Length
+        # (for example SSE) retain the EOF/disconnect behavior below.
+        if content_length is not None:
+            body = bytearray(body)
+            while len(body) < content_length:
+                try:
+                    chunk = client.recv(min(65536, content_length - len(body)))
+                except (OSError, ValueError):
+                    return None
+                if not chunk:
+                    break
+                body.extend(chunk)
+            body = bytes(body[:content_length])
+
         async def send_response() -> None:
             await send({"type": "http.response.start", "status": status, "headers": headers})
             if body:
                 await send({"type": "http.response.body", "body": body, "more_body": True})
+            if content_length is not None:
+                await send({"type": "http.response.body", "body": b""})
+                return
             while True:
                 try:
                     chunk = await asyncio.to_thread(client.recv, 65536)
