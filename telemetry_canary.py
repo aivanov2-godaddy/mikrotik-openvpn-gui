@@ -108,4 +108,3 @@ class TelemetryCanary:
         self.last_result = result
         self.consecutive_healthy = self.consecutive_healthy + 1 if result.healthy else 0
         return result
-
