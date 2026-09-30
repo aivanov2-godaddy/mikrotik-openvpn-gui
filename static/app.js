@@ -533,7 +533,13 @@ function scheduleAutomaticPageSync() {
 }
 
 function updateDashboard(payload) {
-  const cards = $$('[data-user-id]');
+  // Only the rendered user cards participate in this comparison. Other views
+  // also contain action controls with data-user-id (profile actions, template
+  // checkboxes, and device controls) but those elements do not carry a user
+  // name. Including them made every live status response look like a user-list
+  // change and scheduled a full location.reload(), which destroyed the active
+  // graph canvases and made the Connections view blink continuously.
+  const cards = $$('.user-card[data-user-id][data-user-name]');
   const incomingNames = payload.users.map((user) => user.name).sort();
   const currentNames = cards.map((card) => card.dataset.userName).sort();
   if (incomingNames.join('|') !== currentNames.join('|')) {
@@ -551,6 +557,7 @@ function updateDashboard(payload) {
   const timestamp = Date.now();
   cards.forEach((card) => {
     const user = payload.users.find((item) => item.name === card.dataset.userName);
+    if (!user) return;
     const sessions = byUser.get(card.dataset.userName) || [];
     card.dataset.userDisabled = String(Boolean(user.disabled));
     card.dataset.userComment = user.comment || 'No description';
