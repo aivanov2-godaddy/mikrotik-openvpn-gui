@@ -71,6 +71,33 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         self.assertEqual(frames[0]["event"], "telemetry.snapshot")
         self.assertEqual(len(frames[0]["payload"]["sessions"]), 3)
 
+    def test_counter_reset_frames_are_supported_and_redacted(self) -> None:
+        subscription = self.gateway.open(self.principal)
+        self.gateway.publish(
+            self.broker.apply(
+                RouterOSReply("re", {".id": "*1", "name": "alice", "rx-byte": "100"}),
+                now=100,
+            )
+        )
+        self.gateway.publish(
+            self.broker.apply(
+                RouterOSReply(
+                    "re",
+                    {
+                        ".id": "*1",
+                        "name": "alice",
+                        "rx-byte": "2",
+                        "password": "must-not-leak",
+                    },
+                ),
+                now=101,
+            )
+        )
+        frame = self.gateway.poll(subscription, after_sequence=1)[0]
+        self.assertEqual(frame["event"], "telemetry.counter_reset")
+        self.assertEqual(frame["payload"]["fields"], ["rx_bytes"])
+        self.assertNotIn("password", str(frame))
+
     def test_client_limit_and_close_are_explicit(self) -> None:
         subscription = self.gateway.open(self.principal)
         with self.assertRaises(TelemetrySubscriptionError):

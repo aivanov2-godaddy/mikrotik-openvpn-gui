@@ -1,6 +1,8 @@
 import unittest
 
-from telemetry_canary import CanaryPolicy, TelemetryCanary, compare_snapshots
+import json
+
+from telemetry_canary import CanaryPolicy, TelemetryCanary, compare_snapshots, evaluate
 
 
 class TelemetryCanaryTests(unittest.TestCase):
@@ -26,6 +28,16 @@ class TelemetryCanaryTests(unittest.TestCase):
         self.assertFalse(canary.ready_to_promote)
         canary.observe([{"id": "*1"}], [{"id": "*1"}], binary_timestamp=100, clock=lambda: 100)
         self.assertTrue(canary.ready_to_promote)
+
+    def test_evaluator_is_redacted_and_requires_consecutive_samples(self) -> None:
+        lines = [
+            json.dumps({"legacy": [{"id": "private-1"}], "binary": [{"id": "private-1"}]})
+            for _ in range(3)
+        ]
+        code, result = evaluate(lines, policy=CanaryPolicy(required_consecutive=3))
+        self.assertEqual(code, 0)
+        self.assertTrue(result["healthy"])
+        self.assertNotIn("private-1", str(result))
 
 
 if __name__ == "__main__":

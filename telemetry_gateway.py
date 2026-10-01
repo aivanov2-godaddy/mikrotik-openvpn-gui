@@ -28,6 +28,7 @@ SUPPORTED_EVENTS = frozenset(
         "vpn.session.updated",
         "vpn.session.disconnected",
         "vpn.interface.counters",
+        "telemetry.counter_reset",
         "router.capacity.updated",
         "router.health.updated",
         "telemetry.reconciled",
@@ -166,6 +167,12 @@ class TelemetryGatewayContract:
                     "rx_bytes_per_second", "tx_bytes_per_second",
                     "rx_packets_per_second", "tx_packets_per_second",
                 }
+            }
+        elif event.name == "telemetry.counter_reset":
+            safe_payload = {
+                key: copy.deepcopy(value)
+                for key, value in payload.items()
+                if key in {"scope", "id", "name", "fields"}
             }
         elif event.name in {"router.capacity.updated", "router.health.updated", "telemetry.reconciled"}:
             safe_payload = {

@@ -4,11 +4,14 @@ The input is newline-delimited JSON captured by an operator harness.  It is
 deliberately limited to measurements and boolean test results; RouterOS
 records, credentials, addresses, and identifiers must never be included.
 
-Accepted record types are ``sample``, ``reconnect``, ``comparison``, and
-``security``.  A
+Accepted record types are ``sample``, ``reconnect``, ``comparison``,
+``security``, and ``verification``.  A
 sample may contain the fields understood by :mod:`scripts.telemetry_baseline`
 plus ``event_sequence``, ``event_lost``, ``event_duplicated``,
 ``out_of_order``, ``counter_reset``, and ``counter_reset_recovered``.
+A verification record explicitly attests that the operator collected latency,
+freshness, counter-reset, event-integrity, parity, and complete secret-scan
+evidence during the same window.
 """
 
 from __future__ import annotations
@@ -61,6 +64,18 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
     counter_reset_failures = 0
     duplicate_events = 0
     out_of_order_events = 0
+    sequence_evidence = 0
+    counter_reset_evidence = 0
+    verification_records: list[dict[str, bool]] = []
+    required_verifications = (
+        "event_latency_measured",
+        "traffic_freshness_measured",
+        "counter_reset_tested",
+        "event_integrity_tested",
+        "binary_rest_parity_tested",
+        "secret_scan_complete",
+    )
+    verification = {name: False for name in required_verifications}
 
     for line in lines:
         if not line.strip():
@@ -74,6 +89,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
             if "event_sequence" in record:
                 sequence = int(_number(record["event_sequence"], "event_sequence"))
                 sequences.append(sequence)
+                sequence_evidence += 1
             for name in ("event_lost", "event_duplicated", "out_of_order"):
                 if name in record and _boolean(record[name], name):
                     if name == "event_lost":
@@ -90,6 +106,8 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
                 _boolean(recovered, "counter_reset_recovered")
                 if not recovered:
                     counter_reset_failures += 1
+                else:
+                    counter_reset_evidence += 1
         elif record_type == "reconnect":
             reconnects.append(record)
             interrupted = _boolean(record.get("api_interruption_tested"), "api_interruption_tested")
@@ -116,8 +134,15 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
                 failures.append("secret_exposure")
             if not _boolean(record.get("secret_free_logs"), "secret_free_logs"):
                 failures.append("secret_exposure")
+        elif record_type == "verification":
+            current: dict[str, bool] = {}
+            for name in required_verifications:
+                if name in record:
+                    current[name] = _boolean(record[name], name)
+                    verification[name] = verification[name] or current[name]
+            verification_records.append(current)
         else:
-            raise ValueError("type must be sample, reconnect, comparison, or security")
+            raise ValueError("type must be sample, reconnect, comparison, security, or verification")
 
     if not samples:
         raise ValueError("at least one sample record is required")
@@ -133,6 +158,21 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         failures.append("out_of_order_events")
     if counter_reset_failures:
         failures.append("counter_reset_recovery")
+    if not verification_records:
+        failures.append("verification_evidence_missing")
+    else:
+        for name, present in verification.items():
+            if not present:
+                failures.append(f"{name}_missing")
+    decoded_samples = [json.loads(sample) for sample in samples]
+    if verification["event_latency_measured"] and not any("latency_ms" in sample for sample in decoded_samples):
+        failures.append("latency_evidence_missing")
+    if verification["traffic_freshness_measured"] and not any("event_age_seconds" in sample for sample in decoded_samples):
+        failures.append("event_age_evidence_missing")
+    if verification["event_integrity_tested"] and not sequence_evidence:
+        failures.append("event_sequence_evidence_missing")
+    if verification["counter_reset_tested"] and not counter_reset_evidence:
+        failures.append("counter_reset_evidence_missing")
 
     baseline_code, baseline = summarize(samples, limits={
         "latency_p95_ms": limits["latency_p95_ms"],
@@ -153,6 +193,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         "counter_resets": counter_resets,
         "duplicate_events": duplicate_events,
         "out_of_order_events": out_of_order_events,
+        "verification": verification,
     }
     return (0 if result["healthy"] else 1), result
 
