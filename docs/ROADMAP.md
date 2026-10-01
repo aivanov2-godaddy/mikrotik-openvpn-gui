@@ -200,8 +200,11 @@ has passed the immutable-image rollout checks. The first controlled acceptance
 window verified container health, REST fallback during an API-SSL interruption,
 and automatic Binary API recovery. A connected-client window then verified
 live connect/disconnect rendering, snapshot recovery, changing traffic
-samples, and two simultaneous dashboard clients; exact event-age,
-counter-reset, parity, and event-order evidence remain to be collected. The native
+samples, and two simultaneous dashboard clients. The latest immutable image
+also corrects live-rate spikes by using the full five-second sample cadence.
+Exact event-age, counter-reset, parity, and event-order evidence remain to be
+collected; the acceptance evaluator now requires explicit evidence attestations
+for those gates instead of allowing an incomplete window to pass. The native
 ASGI/Uvicorn WebSocket runtime is implemented behind
 ``SOCKETIO_ENGINE=asgi``; the dependency-free polling bridge remains the
 immediate rollback mode. Future work is limited to continued observation with

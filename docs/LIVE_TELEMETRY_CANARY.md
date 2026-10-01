@@ -60,6 +60,7 @@ ordering, counter-reset, and security checks:
 {"type":"reconnect","recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
 {"type":"comparison","binary_matches_rest":true}
 {"type":"security","unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
+{"type":"verification","event_latency_measured":true,"traffic_freshness_measured":true,"counter_reset_tested":true,"event_integrity_tested":true,"binary_rest_parity_tested":true,"secret_scan_complete":true}
 ```
 
 ```text
@@ -67,7 +68,9 @@ python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
 ```
 
 The command emits only aggregate metrics and failed gate names. It also
-requires at least one reconnect test and one security test.
+requires at least one reconnect test, one security test, and one explicit
+verification record covering every precision, reset, ordering, parity, and
+secret-scan gate. A window without those attestations cannot report pass.
 
 ## Acceptance window
 
