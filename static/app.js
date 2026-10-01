@@ -2,6 +2,10 @@ const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 const counters = new Map();
 const histories = new Map();
 const HISTORY_LIMIT = 60;
+// Live counters can arrive through both the status poll and the telemetry
+// stream.  Do not turn a near-duplicate snapshot into a multi-gigabit spike
+// just because the two responses were received a few milliseconds apart.
+const MIN_RATE_SAMPLE_INTERVAL_MS = 1000;
 const THEME_STORAGE_KEY = 'vpn-dashboard-theme';
 const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
@@ -370,6 +374,17 @@ function buildOfflineState() {
 function updateSessionCard(card, session, timestamp) {
   $('[data-session-uptime], .session-uptime', card).textContent = session.uptime || '—';
   const previous = counters.get(session.id);
+  if (previous && timestamp <= previous.timestamp) return;
+  if (previous && timestamp - previous.timestamp < MIN_RATE_SAMPLE_INTERVAL_MS) {
+    // Keep the last measured rate and baseline until a meaningful interval has
+    // elapsed.  Totals still reflect the newest RouterOS counters below.
+    $('.traffic-totals', card).textContent = `↓ ${formatBytes(session.rx_bytes)} · ↑ ${formatBytes(session.tx_bytes)}`;
+    card.dataset.rx = String(session.rx_bytes || 0);
+    card.dataset.tx = String(session.tx_bytes || 0);
+    card.dataset.rxPackets = String(session.rx_packets || 0);
+    card.dataset.txPackets = String(session.tx_packets || 0);
+    return;
+  }
   let rxRate = 0;
   let txRate = 0;
   let rxPacketRate = 0;
@@ -633,7 +648,11 @@ function updateTelemetryIndicator(status = {}) {
 
 function updateLiveSnapshot(payload) {
   if (!payload || !Array.isArray(payload.sessions)) return;
-  const timestamp = Number(payload.generated_at || Math.floor(Date.now() / 1000)) * 1000;
+  // Use the browser's receive time for every live source.  The SSE endpoint
+  // exposes whole-second server timestamps while Socket.IO frames use router
+  // timestamps; mixing either with Date.now() makes a normal counter delta
+  // appear to have happened in a few milliseconds.
+  const timestamp = Date.now();
   syncActiveSessions(payload.sessions, timestamp);
   $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
   $$('[data-nav-session-count]').forEach((item) => { item.textContent = payload.sessions.length; });

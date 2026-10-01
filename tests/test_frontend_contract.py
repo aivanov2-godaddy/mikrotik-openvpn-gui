@@ -15,6 +15,14 @@ class FrontendLiveUpdateContractTests(unittest.TestCase):
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("if (!user) return;", source)
 
+    def test_live_rates_use_one_receive_clock_and_ignore_short_intervals(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const MIN_RATE_SAMPLE_INTERVAL_MS = 1000;", source)
+        self.assertIn("if (previous && timestamp <= previous.timestamp) return;", source)
+        self.assertIn("if (previous && timestamp - previous.timestamp < MIN_RATE_SAMPLE_INTERVAL_MS)", source)
+        self.assertIn("const timestamp = Date.now();", source)
+        self.assertNotIn("Number(payload.generated_at || Math.floor(Date.now() / 1000)) * 1000", source)
+
 
 if __name__ == "__main__":
     unittest.main()
