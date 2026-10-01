@@ -5,7 +5,11 @@ const HISTORY_LIMIT = 60;
 // Live counters can arrive through both the status poll and the telemetry
 // stream.  Do not turn a near-duplicate snapshot into a multi-gigabit spike
 // just because the two responses were received a few milliseconds apart.
-const MIN_RATE_SAMPLE_INTERVAL_MS = 1000;
+// Socket.IO may deliver several counter updates between graph ticks.  Rates
+// are deliberately averaged over the same five-second window shown to the
+// operator; shorter deltas turn normal counter updates into false multi-Gbps
+// spikes.
+const MIN_RATE_SAMPLE_INTERVAL_MS = 5000;
 const THEME_STORAGE_KEY = 'vpn-dashboard-theme';
 const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
