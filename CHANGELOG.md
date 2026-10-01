@@ -4,7 +4,7 @@ All notable operator-visible changes are recorded here. The project follows the
 principles of [Keep a Changelog](https://keepachangelog.com/) and uses
 semantic-version style release tags.
 
-## Unreleased
+## 2.5.0 - 2026-10-01
 
 ### Added
 
