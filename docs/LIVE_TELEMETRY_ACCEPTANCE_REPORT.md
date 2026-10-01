@@ -1,6 +1,6 @@
 # Live telemetry acceptance report
 
-Status: **PARTIAL ACCEPTANCE — CLIENT TRAFFIC EVIDENCE PENDING**
+Status: **PARTIAL ACCEPTANCE — DISCONNECT AND PRECISION EVIDENCE PENDING**
 
 This report is the controlled acceptance record for the deployed Binary API
 telemetry image. It must be completed privately by the operator and committed
@@ -25,13 +25,13 @@ contains aggregate measurements and pass/fail results only.
 
 | Gate | Target | Result | Evidence reference |
 | --- | --- | --- | --- |
-| Router CPU | No unacceptable increase; record peak and baseline | OBSERVED 2% dashboard snapshot | acceptance-window-2026-10-01 |
-| Router memory | No unacceptable increase; record peak and baseline | OBSERVED 27% dashboard snapshot | acceptance-window-2026-10-01 |
+| Router CPU | No unacceptable increase; record peak and baseline | OBSERVED 2–3% dashboard snapshots | acceptance-window-2026-10-01 |
+| Router memory | No unacceptable increase; record peak and baseline | OBSERVED 27–28% dashboard snapshots | acceptance-window-2026-10-01 |
 | Router storage | Below the configured limit | OBSERVED 13% dashboard snapshot | acceptance-window-2026-10-01 |
-| Container health | Healthy for the full observation window | PASS; canary and production healthy throughout sampled window | acceptance-window-2026-10-01 |
-| Session event latency | p95 at or below 1 second | PENDING | <private evidence id> |
-| Traffic freshness | No sample older than 2 seconds | PENDING | <private evidence id> |
-| Live UI delivery | Connect/disconnect visible without refresh | PENDING | <private evidence id> |
+| Container health | Healthy for the full observation window | PASS; canary and production healthy across the sampled five-second window with one active client | acceptance-window-2026-10-01 |
+| Session event latency | p95 at or below 1 second | PENDING; the UI exposes no event timestamp for a precise p95 calculation | acceptance-window-2026-10-01-live-client |
+| Traffic freshness | No sample older than 2 seconds | PARTIAL; five consecutive live samples updated without refresh, but exact sample age is not exposed by the UI | acceptance-window-2026-10-01-live-client |
+| Live UI delivery | Connect/disconnect visible without refresh | PARTIAL; connect and live traffic appeared without refresh; disconnect still pending | acceptance-window-2026-10-01-live-client |
 | API interruption | Automatic reconnect observed | PASS; API-SSL restored and Binary API login returned after ~4s | acceptance-window-2026-10-01-api-fallback |
 | Snapshot recovery | Full snapshot restored after reconnect | PARTIAL; empty active snapshot restored; connected-client snapshot pending | acceptance-window-2026-10-01-api-fallback |
 | Counter reset | Rates remain correct after reset | PENDING | <private evidence id> |
@@ -53,7 +53,7 @@ contains aggregate measurements and pass/fail results only.
 
 ## Final decision
 
-Overall result: **PENDING — requires a connected VPN client for session-event, traffic, counter-reset, parity, and event-order evidence**
+Overall result: **PENDING — requires a deliberate client disconnect/reconnect and precise event, traffic, counter-reset, parity, and event-order evidence**
 
 The report may be marked **PASS** only when every gate above has a redacted
 evidence reference and the aggregate output from the acceptance evaluator exits
