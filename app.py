@@ -1785,12 +1785,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_health_checks Number of checks in the most recent snapshot.",
             "# TYPE vpn_dashboard_health_checks gauge",
             f"vpn_dashboard_health_checks {int(health[0].get('healthy_count', 0) + health[0].get('warning_count', 0) + health[0].get('unavailable_count', 0)) if health else 0}",
+        ]
+        socketio = getattr(self.server, "native_socketio", None)
+        socketio_metrics = socketio.metrics() if socketio is not None else {
+            "engine": self.server.socketio_engine,
+            "active_connections": 0,
+            "connections_total": 0,
+            "disconnects_total": 0,
+            "rejected_connections_total": 0,
+            "events_emitted_total": 0,
+        }
+        engine = self._metric_escape(socketio_metrics["engine"])
+        lines.extend([
+            "# HELP vpn_dashboard_socketio_active_connections Authenticated live Socket.IO connections currently open.",
+            "# TYPE vpn_dashboard_socketio_active_connections gauge",
+            f'vpn_dashboard_socketio_active_connections{{engine="{engine}"}} {int(socketio_metrics["active_connections"])}',
+            "# HELP vpn_dashboard_socketio_connections_total Authenticated live Socket.IO connections accepted.",
+            "# TYPE vpn_dashboard_socketio_connections_total counter",
+            f'vpn_dashboard_socketio_connections_total{{engine="{engine}"}} {int(socketio_metrics["connections_total"])}',
+            "# HELP vpn_dashboard_socketio_disconnects_total Authenticated live Socket.IO connections closed.",
+            "# TYPE vpn_dashboard_socketio_disconnects_total counter",
+            f'vpn_dashboard_socketio_disconnects_total{{engine="{engine}"}} {int(socketio_metrics["disconnects_total"])}',
+            "# HELP vpn_dashboard_socketio_rejected_connections_total Live Socket.IO connection attempts rejected by authentication or authorization.",
+            "# TYPE vpn_dashboard_socketio_rejected_connections_total counter",
+            f'vpn_dashboard_socketio_rejected_connections_total{{engine="{engine}"}} {int(socketio_metrics["rejected_connections_total"])}',
+            "# HELP vpn_dashboard_socketio_events_emitted_total Redacted live telemetry events emitted to Socket.IO clients.",
+            "# TYPE vpn_dashboard_socketio_events_emitted_total counter",
+            f'vpn_dashboard_socketio_events_emitted_total{{engine="{engine}"}} {int(socketio_metrics["events_emitted_total"])}',
             "# HELP vpn_dashboard_last_deployment_timestamp_seconds Last local release observation.",
             "# TYPE vpn_dashboard_last_deployment_timestamp_seconds gauge",
             f"vpn_dashboard_last_deployment_timestamp_seconds {int(deployments[0].get('created_at', 0)) if deployments else 0}",
             f"# vpn_dashboard_generated_at {now}",
             "",
-        ]
+        ])
         return "\n".join(lines)
 
     @staticmethod
