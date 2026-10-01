@@ -8,6 +8,20 @@ from asgi import DashboardHTTPASGI
 
 
 class ASGIContractTests(unittest.TestCase):
+    def test_native_socketio_metrics_are_secret_free_and_track_lifecycle(self) -> None:
+        from asgi import NativeSocketIO
+
+        native = object.__new__(NativeSocketIO)
+        native._subscriptions = {}
+        native._connections_total = 0
+        native._disconnects_total = 0
+        native._rejected_connections_total = 0
+        native._events_emitted_total = 0
+
+        self.assertEqual(native.metrics()["engine"], "asgi")
+        self.assertEqual(native.metrics()["active_connections"], 0)
+        self.assertNotIn("password", str(native.metrics()).lower())
+
     def test_http_adapter_preserves_cookie_and_body_without_hop_by_hop_headers(self) -> None:
         request = DashboardHTTPASGI._request_bytes(
             {

@@ -62,8 +62,9 @@ required checks before the immutable image was published and promoted.
 - Fallback transport verified: REST status polling remained live during API-SSL interruption
 - Multi-client smoke check: PASS; two authenticated dashboard clients simultaneously
   remained live and showed the same active-session snapshot
-- WebSocket-specific health metrics: not exposed by the current dashboard; long-duration
-  multi-client stability remains optional follow-up
+- WebSocket-specific health metrics: exposed through the authenticated `/metrics`
+  endpoint for active connections, accepted/rejected connections, disconnects,
+  and redacted events emitted
 - Rollback image: `sha-8336e297...-arm64` (previous production image; digest retained in private deployment record)
 - Rollback procedure exercised: **No**; no image rollback was needed
 - RouterOS configuration changed: **No persistent change**; API-SSL was toggled off/on only for this controlled test

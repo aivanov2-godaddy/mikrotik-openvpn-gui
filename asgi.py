@@ -204,7 +204,23 @@ class NativeSocketIO:
         self._subscriptions: dict[str, str] = {}
         self._session_ids: dict[str, str] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._connections_total = 0
+        self._disconnects_total = 0
+        self._rejected_connections_total = 0
+        self._events_emitted_total = 0
         self._register_handlers()
+
+    def metrics(self) -> dict[str, int | str]:
+        """Return secret-free ASGI Socket.IO connection metrics."""
+
+        return {
+            "engine": "asgi",
+            "active_connections": len(self._subscriptions),
+            "connections_total": self._connections_total,
+            "disconnects_total": self._disconnects_total,
+            "rejected_connections_total": self._rejected_connections_total,
+            "events_emitted_total": self._events_emitted_total,
+        }
 
     def _register_handlers(self) -> None:
         self.server.on("connect", self.connect, namespace=self.namespace)
@@ -215,17 +231,21 @@ class NativeSocketIO:
         scope = environ.get("asgi.scope", {})
         principal = self.runtime.principal_for_session(_session_id(scope))
         if principal is None or not principal.may_stream:
+            self._rejected_connections_total += 1
             return False
         try:
             subscription = self.runtime.gateway.open(principal)
         except Exception:  # noqa: BLE001 - refuse a subscription safely
+            self._rejected_connections_total += 1
             return False
         self._subscriptions[sid] = subscription
         self._session_ids[sid] = _session_id(scope)
         self._tasks[sid] = asyncio.create_task(self._pump(sid, subscription))
+        self._connections_total += 1
         return True
 
     async def disconnect(self, sid: str) -> None:
+        was_connected = sid in self._subscriptions
         task = self._tasks.pop(sid, None)
         if task:
             task.cancel()
@@ -233,6 +253,8 @@ class NativeSocketIO:
         self._session_ids.pop(sid, None)
         if subscription:
             self.runtime.gateway.close(subscription)
+        if was_connected:
+            self._disconnects_total += 1
 
     async def subscribe(self, sid: str, data: Any = None) -> dict[str, Any]:
         subscription = self._subscriptions.get(sid)
@@ -243,8 +265,12 @@ class NativeSocketIO:
         after = data.get("after_sequence") if isinstance(data, Mapping) else None
         frames = self.runtime.gateway.poll(subscription, after_sequence=after)
         for frame in frames:
-            await self.server.emit(frame["event"], frame, to=sid, namespace=self.namespace)
+            await self._emit(frame["event"], frame, to=sid)
         return {"protocol_version": 1, "frames": frames}
+
+    async def _emit(self, event: str, payload: Mapping[str, Any], *, to: str) -> None:
+        await self.server.emit(event, payload, to=to, namespace=self.namespace)
+        self._events_emitted_total += 1
 
     async def _pump(self, sid: str, subscription: str) -> None:
         try:
@@ -255,7 +281,7 @@ class NativeSocketIO:
                     await self.server.disconnect(sid, namespace=self.namespace)
                     return
                 for frame in self.runtime.gateway.poll(subscription):
-                    await self.server.emit(frame["event"], frame, to=sid, namespace=self.namespace)
+                    await self._emit(frame["event"], frame, to=sid)
                 await asyncio.sleep(0.25)
         except (asyncio.CancelledError, RuntimeError):
             return
@@ -277,6 +303,7 @@ def create_application() -> tuple[Any, DashboardServer, Any]:
     )
     threading.Thread(target=redirect_server.serve_forever, daemon=True).start()
     socketio_server = NativeSocketIO(server.telemetry_runtime)
+    server.native_socketio = socketio_server
     http_app = DashboardHTTPASGI(server)
     application = socketio.ASGIApp(socketio_server.server, other_asgi_app=http_app, socketio_path="socket.io")
     return application, server, redirect_server
