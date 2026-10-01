@@ -21,8 +21,11 @@ typography, security, and runtime dependency updates. The image was deployed
 and verified on the RouterOS canary and production containers. The first
 controlled acceptance window verified container health, REST fallback during a
 temporary API-SSL interruption, automatic Binary API recovery, authentication
-denial, and the deployed resource snapshot. Long-duration traffic and
-connected-client event evidence remains an operational follow-up. The
+denial, and the deployed resource snapshot. A connected-client window also
+verified live connect/disconnect rendering, snapshot recovery, changing
+traffic samples, and two simultaneous dashboard clients. Exact event-age,
+counter-reset, and Binary/REST parity evidence remains an operational
+follow-up. The
 previous published feature release was **v2.0.0**, which added read-only device
 posture checks while preserving the router-local data and immutable-image
 deployment model.
