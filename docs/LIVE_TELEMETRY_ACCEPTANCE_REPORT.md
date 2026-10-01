@@ -14,12 +14,12 @@ production rollout on 2026-10-02.
 | Field | Value |
 | --- | --- |
 | Repository | aivanov2-godaddy/mikrotik-openvpn-gui |
-| Production commit | 559694d (`559694dd8ba2ab65a35b0b59614c5bd76555beda`) |
-| Canary image tag | `sha-559694dd8ba2ab65a35b0b59614c5bd76555beda-arm64` |
-| Canary image digest | `sha256:b1b04e2d24533605542fbe43baaa6a272e8054dc434e3db6da0250d112cf01f0` |
-| Production image tag | `sha-559694dd8ba2ab65a35b0b59614c5bd76555beda-arm64` |
-| Production image digest | `sha256:b1b04e2d24533605542fbe43baaa6a272e8054dc434e3db6da0250d112cf01f0` |
-| Observation window | 2026-10-02 00:36:01–00:38:26 Europe/Sofia (watchdog canary validation and production promotion) |
+| Production commit | ffbf7f6 (`ffbf7f618df2fd23ce4bcee033680cd1ef882a8c`) |
+| Canary image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
+| Canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
+| Production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
+| Production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
+| Observation window | 2026-10-02 post-publication verification (RouterOS canary and production image tags, health, ASGI transport, and binary telemetry configuration) |
 | RouterOS version/architecture | RouterOS 7.24.4 stable / arm64 |
 
 The immutable watchdog promoted the canary-validated image to production at
