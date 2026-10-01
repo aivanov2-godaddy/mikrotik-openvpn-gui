@@ -26,7 +26,7 @@ Do not commit this file, paste it into an issue, or send it to a public service.
 Run the comparator locally:
 
 ```text
-python scripts/telemetry_canary.py --input private-samples.ndjson \
+python telemetry_canary.py --input private-samples.ndjson \
   --max-age 10 --required-consecutive 3
 ```
 
