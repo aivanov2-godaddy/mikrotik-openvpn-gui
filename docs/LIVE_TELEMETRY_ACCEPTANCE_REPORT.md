@@ -35,8 +35,8 @@ contains aggregate measurements and pass/fail results only.
 | API interruption | Automatic reconnect observed | PASS; API-SSL restored and Binary API login returned after ~4s | acceptance-window-2026-10-01-api-fallback |
 | Snapshot recovery | Full snapshot restored after reconnect | PASS; active connection, uptime, traffic, and history snapshot restored after reconnect | acceptance-window-2026-10-01-live-client |
 | Counter reset | Rates remain correct after reset | PENDING | <private evidence id> |
-| Binary/REST parity | Binary snapshot matches REST snapshot | PENDING | <private evidence id> |
-| Event integrity | No lost, duplicated, or out-of-order events | PENDING | <private evidence id> |
+| Binary/REST parity | Binary snapshot matches REST snapshot | PENDING; direct authenticated REST navigation was blocked by the browser client, so no parity claim is made | acceptance-window-2026-10-01-rest-blocked |
+| Event integrity | No lost, duplicated, or out-of-order events | PARTIAL; one clean reconnect cycle showed no duplicate UI rows, but sequence IDs are not exposed | acceptance-window-2026-10-01-live-client |
 | REST fallback | Available throughout the test | PASS; `/api/status` returned 200 while API-SSL was disabled | acceptance-window-2026-10-01-api-fallback |
 | Authentication | Unauthenticated telemetry denied | PASS; unauthenticated telemetry requests returned 401 | acceptance-window-2026-10-01-auth |
 | Secret scan | Payloads/logs contain no secrets or private data | PASS for observed redacted logs and contract checks; full window scan pending | acceptance-window-2026-10-01-security |
@@ -45,6 +45,10 @@ contains aggregate measurements and pass/fail results only.
 
 - Effective public transport: Socket.IO over ASGI/Uvicorn when API-SSL is available
 - Fallback transport verified: REST status polling remained live during API-SSL interruption
+- Multi-client smoke check: PASS; two authenticated dashboard clients simultaneously
+  remained live and showed the same active-session snapshot
+- WebSocket-specific health metrics: not exposed by the current dashboard; long-duration
+  multi-client stability remains optional follow-up
 - Rollback image: `sha-8336e297...-arm64` (previous production image; digest retained in private deployment record)
 - Rollback procedure exercised: **No**; no image rollback was needed
 - RouterOS configuration changed: **No persistent change**; API-SSL was toggled off/on only for this controlled test
