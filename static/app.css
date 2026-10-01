@@ -1344,7 +1344,36 @@ body { font-size: 14px; line-height: 1.45; }
 .graph-legend small { font-size: 11px; }
 .terminate-button { font-size: 13px; }
 
+/* Dashboard overview typography: keep every summary, status, and explainer
+   readable at the same scale as the rest of the application. */
+#overview .eyebrow { font-size: 12px; }
+#overview .view-heading p:not(.eyebrow) { font-size: 15px; line-height: 1.4; }
+#overview .metric small { font-size: 13px; line-height: 1.25; }
+#overview .metric span { font-size: 12px; line-height: 1.35; }
+#overview .metric .traffic-total { font-size: 14px; }
+#overview .panel-heading strong { font-size: 15px; }
+#overview .panel-heading small { font-size: 12px; line-height: 1.35; }
+#overview .posture-badge { font-size: 12px; }
+#overview .health-item > span { font-size: 12px; }
+#overview .health-item > small { font-size: 12px; }
+#overview .posture-score { font-size: 12px; }
+#overview .posture-list strong { font-size: 13px; }
+#overview .posture-list small { font-size: 12px; line-height: 1.35; }
+#overview .simple-steps b { font-size: 15px; }
+#overview .simple-steps small { font-size: 12px; line-height: 1.35; }
+#overview .update-bullets { font-size: 13px; line-height: 1.45; }
+#overview .architecture-paths article > header strong { font-size: 14px; }
+#overview .architecture-paths article > header small { font-size: 12px; }
+#overview .architecture-paths li span { font-size: 13px; line-height: 1.4; }
+#overview .architecture-panel > footer { font-size: 12px; line-height: 1.4; }
+
 @media (max-width: 760px) {
+  #overview .view-heading p:not(.eyebrow) { font-size: 14px; }
+  #overview .panel-heading strong { font-size: 14px; }
+  #overview .metric small { font-size: 12px; }
+  #overview .metric span { font-size: 11px; }
+  #overview .metric .traffic-total { font-size: 13px; }
+  #overview .update-bullets { font-size: 12px; }
   .user-card-header { min-height: 86px; padding: 12px; }
   .user-activity { padding: 0 11px 10px; }
   .user-activity span { font-size: 11px; }
