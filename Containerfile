@@ -8,12 +8,13 @@ FROM python:3.14-alpine@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec
 
 ARG VERSION
 ARG REVISION
+ARG INSTALL_REDIS=false
 
 WORKDIR /app
 
 # Runtime code is part of the immutable image. Production must not mount over /app.
-COPY app.py automation.py config.py favicon.py icons.py integrations.py profile_diagnostics.py qr.py routeros.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_runtime.py telemetry_state.py telemetry_supervisor.py routeros_binary.py ./
-COPY asgi.py entrypoint.py requirements-runtime.txt ./
+COPY app.py automation.py config.py event_safety.py favicon.py icons.py integrations.py profile_diagnostics.py qr.py routeros.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_runtime.py telemetry_state.py telemetry_supervisor.py routeros_binary.py ./
+COPY asgi.py entrypoint.py requirements-runtime.txt requirements-redis.txt ./
 COPY static ./static
 COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 
@@ -21,7 +22,8 @@ COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 # runtime environment variables through the unauthenticated readiness route.
 RUN printf '%s\n' "$VERSION" > /app/VERSION \
     && printf '%s\n' "$REVISION" > /app/REVISION \
-    && python -m pip install --disable-pip-version-check --no-cache-dir --no-compile --target /app/runtime -r /app/requirements-runtime.txt
+    && python -m pip install --disable-pip-version-check --no-cache-dir --no-compile --target /app/runtime -r /app/requirements-runtime.txt \
+    && if [ "$INSTALL_REDIS" = "true" ]; then python -m pip install --disable-pip-version-check --no-cache-dir --no-compile --target /app/runtime -r /app/requirements-redis.txt; fi
 
 # The application prepares database ownership as root and then drops to UID/GID 65534.
 RUN mkdir -p /data \

@@ -209,3 +209,15 @@ ASGI/Uvicorn WebSocket runtime is implemented behind
 ``SOCKETIO_ENGINE=asgi``; the dependency-free polling bridge remains the
 immediate rollback mode. Future work is limited to continued observation with
 a connected VPN client.
+
+## v2.6 — Durable integration delivery (implemented)
+
+SQLite WAL mode, busy timeouts, bounded autocheckpoints, and online atomic
+database backups protect router-local state. Sanitized audit events are written
+to a transactionally consistent SQLite outbox and delivered at least once with
+timestamped HMAC signatures, event IDs, retries, backoff, and circuit breaking.
+Redis Streams is an explicit optional build/runtime path for multi-consumer
+fan-out; it is not required by the single-container deployment. No GetStream
+SDK or provider-specific credentials are included in the public image; a future
+GetStream adapter must remain behind the same redaction, idempotency, and local
+REST/SSE fallback boundary.

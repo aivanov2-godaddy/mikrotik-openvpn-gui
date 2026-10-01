@@ -149,6 +149,9 @@ populated environment file.
 | `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
 | `WEBHOOK_URL` | Optional | HTTPS endpoint for sanitized, signed audit events; disabled unless paired with `WEBHOOK_SIGNING_SECRET` |
 | `WEBHOOK_SIGNING_SECRET` | Optional | At least 32 characters; used only to calculate `X-VPN-Dashboard-Signature` and never displayed or audited |
+| `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL; enables optional Redis Streams fan-out and requires the Redis image extra |
+| `REDIS_STREAM_KEY` | No | Bounded Redis stream name; defaults to `vpn-dashboard.events` |
+| `REDIS_STREAM_MAXLEN` | No | Approximate stream retention bound from 100 to 1,000,000; defaults to `10000` |
 | `TRUST_CLOUDFLARE` | Conditional | Enable only when every request reaches the app through a trusted Cloudflare origin proxy |
 | `TRUSTED_PROXY_SOURCES` | Conditional | Private proxy addresses allowed to set forwarded client headers |
 | `OVPN_PPP_PROFILE` | Yes for profile issuing | Existing RouterOS PPP profile for new OpenVPN users |

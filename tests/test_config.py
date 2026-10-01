@@ -13,6 +13,25 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.history_retention_days, 365)
         self.assertEqual(config.live_transport, "rest")
         self.assertEqual(config.topology, OpenVPNTopology())
+        self.assertIsNone(config.redis_stream_url)
+        self.assertEqual(config.redis_stream_key, "vpn-dashboard.events")
+        self.assertEqual(config.redis_stream_maxlen, 10_000)
+
+    def test_redis_stream_configuration_is_optional_and_bounded(self) -> None:
+        config = RuntimeConfig.from_environ(
+            {
+                "REDIS_STREAM_URL": "rediss://redis.example.test:6380/0",
+                "REDIS_STREAM_KEY": "vpn.events.production",
+                "REDIS_STREAM_MAXLEN": "5000",
+            }
+        )
+        self.assertEqual(config.redis_stream_url, "rediss://redis.example.test:6380/0")
+        self.assertEqual(config.redis_stream_key, "vpn.events.production")
+        self.assertEqual(config.redis_stream_maxlen, 5000)
+        with self.assertRaisesRegex(ConfigurationError, "redis:// or rediss://"):
+            RuntimeConfig.from_environ({"REDIS_STREAM_URL": "https://redis.example.test"})
+        with self.assertRaisesRegex(ConfigurationError, "between 100 and 1000000"):
+            RuntimeConfig.from_environ({"REDIS_STREAM_MAXLEN": "99"})
 
     def test_history_retention_has_safe_bounds(self) -> None:
         self.assertEqual(RuntimeConfig.from_environ({"HISTORY_RETENTION_DAYS": "30"}).history_retention_days, 30)

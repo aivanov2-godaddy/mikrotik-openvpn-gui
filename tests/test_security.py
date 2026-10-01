@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import time
 import hashlib
+import sqlite3
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -189,6 +190,32 @@ class SecurityTests(unittest.TestCase):
             store.verify_readiness()
 
             self.assertEqual(store.recent_audit(100), audit_before)
+
+    def test_sqlite_wal_checkpoint_and_backup_are_consistent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            backup = Path(temporary) / "backups" / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            store.set_audit_hook(lambda _event: None)
+            store.audit(actor="admin", action="backup.test", target="local", status="success", details={"nested": {"password": "secret", "safe": True}})
+
+            connection = sqlite3.connect(database)
+            try:
+                self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
+                self.assertEqual(connection.execute("PRAGMA busy_timeout").fetchone()[0], 5000)
+            finally:
+                connection.close()
+            checkpoint = store.checkpoint_wal()
+            self.assertEqual(checkpoint["mode"], "PASSIVE")
+            result = store.backup_database(str(backup))
+            self.assertGreater(result["bytes"], 0)
+            connection = sqlite3.connect(backup)
+            try:
+                self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0].lower(), "ok")
+                payload = connection.execute("SELECT payload FROM integration_outbox").fetchone()[0]
+                self.assertNotIn("password", payload)
+            finally:
+                connection.close()
 
     def test_database_readiness_success_is_cached_briefly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -4,12 +4,15 @@ import json
 import hashlib
 import os
 import sqlite3
+import tempfile
 import threading
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
+
+from event_safety import sanitize_payload
 
 
 class MetadataStore:
@@ -36,6 +39,11 @@ class MetadataStore:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA busy_timeout=5000")
+        # Keep WAL growth bounded without forcing a blocking checkpoint on
+        # every write.  The explicit maintenance method below is used for
+        # backups and operator-triggered checkpoints.
+        connection.execute("PRAGMA wal_autocheckpoint=1000")
+        connection.execute("PRAGMA synchronous=NORMAL")
         return connection
 
     @contextmanager
@@ -166,6 +174,17 @@ class MetadataStore:
                     created_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS integration_outbox (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at INTEGER NOT NULL,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    delivered_at INTEGER
+                );
+
                 CREATE TABLE IF NOT EXISTS api_tokens (
                     id TEXT PRIMARY KEY,
                     token_hash TEXT NOT NULL UNIQUE,
@@ -201,6 +220,8 @@ class MetadataStore:
                 CREATE INDEX IF NOT EXISTS idx_profile_migrations_user ON profile_migrations(vpn_user);
                 CREATE INDEX IF NOT EXISTS idx_deployment_events_created_at ON deployment_events(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_health_snapshots_created_at ON health_snapshots(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_integration_outbox_pending
+                    ON integration_outbox(delivered_at, next_attempt_at, created_at);
                 CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
                 CREATE INDEX IF NOT EXISTS idx_user_tags_tag ON user_tags(tag);
                 CREATE INDEX IF NOT EXISTS idx_saved_views_updated_at ON saved_views(updated_at DESC);
@@ -293,6 +314,70 @@ class MetadataStore:
                     connection.rollback()
                 connection.close()
             self._readiness_valid_until = time.monotonic() + 10.0
+
+    def checkpoint_wal(self, mode: str = "PASSIVE") -> dict[str, int | str]:
+        """Run a bounded SQLite WAL checkpoint and return its counters."""
+
+        selected = str(mode).upper()
+        if selected not in {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}:
+            raise ValueError("unsupported SQLite checkpoint mode")
+        with self._lock, self._connection() as connection:
+            result = connection.execute(f"PRAGMA wal_checkpoint({selected})").fetchone()
+        busy, log_frames, checkpointed_frames = (int(value) for value in (result or (0, 0, 0)))
+        return {
+            "mode": selected,
+            "busy": busy,
+            "log_frames": log_frames,
+            "checkpointed_frames": checkpointed_frames,
+        }
+
+    def backup_database(self, destination: str) -> dict[str, Any]:
+        """Create an atomic, consistent SQLite backup using the Backup API.
+
+        This is distinct from the portable metadata export: it preserves the
+        SQLite schema and WAL-consistent state for local recovery.  The target
+        is written beside the requested path and atomically replaced only after
+        integrity verification succeeds.
+        """
+
+        target = Path(destination)
+        if target.resolve() == self.path.resolve():
+            raise ValueError("SQLite backup destination must differ from the live database")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: Path | None = None
+        with self._lock:
+            file_descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+            )
+            os.close(file_descriptor)
+            temporary_path = Path(temporary_name)
+            try:
+                source = self._connect()
+                backup: sqlite3.Connection | None = None
+                try:
+                    backup = sqlite3.connect(temporary_path)
+                    source.backup(backup, pages=128, sleep=0.25)
+                    backup.commit()
+                    integrity = backup.execute("PRAGMA integrity_check").fetchone()
+                    if not integrity or str(integrity[0]).lower() != "ok":
+                        raise sqlite3.DatabaseError("SQLite backup integrity check failed")
+                finally:
+                    if backup is not None:
+                        backup.close()
+                    source.close()
+                try:
+                    os.chmod(temporary_path, 0o600)
+                except OSError:
+                    pass
+                os.replace(temporary_path, target)
+                temporary_path = None
+            finally:
+                if temporary_path is not None:
+                    try:
+                        temporary_path.unlink()
+                    except FileNotFoundError:
+                        pass
+        return {"path": str(target), "bytes": target.stat().st_size, "created_at": int(time.time())}
 
     @staticmethod
     def _control_defaults(username: str) -> dict[str, Any]:
@@ -902,12 +987,21 @@ class MetadataStore:
         status: str,
         details: dict[str, Any] | None = None,
     ) -> None:
-        safe_details = details or {}
-        forbidden = {
-            "password", "passphrase", "private_key", "authorization", "secret",
-            "token", "cookie", "credential", "private-key", "api_key", "api-key",
+        sanitized = sanitize_payload(details or {})
+        if not isinstance(sanitized, dict):
+            sanitized = {}
+        event_id = str(uuid.uuid4())
+        created = int(time.time())
+        event = {
+            "event": "audit",
+            "event_id": event_id,
+            "actor": str(actor)[:128],
+            "action": str(action)[:128],
+            "target": str(target)[:256],
+            "status": str(status)[:32],
+            "details": sanitized,
+            "created_at": created,
         }
-        sanitized = {key: value for key, value in safe_details.items() if key.lower() not in forbidden}
         with self._lock, self._connection() as connection:
             connection.execute(
                 "INSERT INTO audit(actor, action, target, status, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -917,14 +1011,76 @@ class MetadataStore:
                     target,
                     status,
                     json.dumps(sanitized, separators=(",", ":"), sort_keys=True),
-                    int(time.time()),
+                    created,
                 ),
             )
+            if self._audit_hook is not None:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO integration_outbox(
+                        event_id, event_type, payload, created_at, next_attempt_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (event_id, "audit", json.dumps(event, separators=(",", ":"), sort_keys=True), created, created),
+                )
         if self._audit_hook:
             try:
-                self._audit_hook({"event": "audit", "actor": actor, "action": action, "target": target, "status": status, "details": sanitized, "created_at": int(time.time())})
+                self._audit_hook(event)
             except Exception:
                 pass
+
+    def pending_integration_events(self, limit: int = 20, *, now: int | None = None) -> list[dict[str, Any]]:
+        """Claim due outbox events for at-least-once delivery."""
+
+        safe_limit = max(1, min(int(limit), 100))
+        current = int(time.time() if now is None else now)
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM integration_outbox
+                WHERE delivered_at IS NULL AND next_attempt_at <= ?
+                ORDER BY created_at, event_id
+                LIMIT ?
+                """,
+                (current, safe_limit),
+            ).fetchall()
+            claimed: list[dict[str, Any]] = []
+            for row in rows:
+                attempt = int(row["attempts"]) + 1
+                connection.execute(
+                    """
+                    UPDATE integration_outbox
+                    SET attempts=?, next_attempt_at=?, last_error=''
+                    WHERE event_id=? AND delivered_at IS NULL
+                    """,
+                    (attempt, current + 60, str(row["event_id"])),
+                )
+                item = dict(row)
+                item["attempts"] = attempt
+                try:
+                    item["payload"] = json.loads(str(item["payload"]))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    item["payload"] = {}
+                claimed.append(item)
+            return claimed
+
+    def mark_integration_delivered(self, event_id: str, *, now: int | None = None) -> None:
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                "UPDATE integration_outbox SET delivered_at=?, last_error='' WHERE event_id=?",
+                (int(time.time() if now is None else now), str(event_id)),
+            )
+
+    def mark_integration_failed(self, event_id: str, error: str, *, retry_at: int) -> None:
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE integration_outbox
+                SET next_attempt_at=?, last_error=?
+                WHERE event_id=? AND delivered_at IS NULL
+                """,
+                (int(retry_at), str(error)[:160], str(event_id)),
+            )
 
     def recent_audit(
         self, limit: int = 25, *, start_at: int | None = None, end_at: int | None = None
@@ -1136,11 +1292,22 @@ class MetadataStore:
             health = connection.execute(
                 "DELETE FROM health_snapshots WHERE created_at < ?", (int(before),)
             ).rowcount
+            integration = connection.execute(
+                "DELETE FROM integration_outbox WHERE delivered_at IS NOT NULL AND delivered_at < ?",
+                (int(before),),
+            ).rowcount
+        try:
+            self.checkpoint_wal()
+        except sqlite3.Error:
+            # Retention maintenance must not turn a healthy dashboard into an
+            # outage if the filesystem is temporarily unable to checkpoint.
+            pass
         return {
             "audit": max(0, audit),
             "connections": max(0, connections),
             "deployments": max(0, deployments),
             "health": max(0, health),
+            "integration_outbox": max(0, integration),
         }
 
     def connection_summaries(self) -> dict[str, dict[str, Any]]:
