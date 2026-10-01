@@ -101,6 +101,7 @@ jobs:
             VERSION=ci
             REVISION=${{ github.sha }}
             SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+            INSTALL_REDIS=true
           cache-from: type=gha,scope=ci-arm64
           cache-to: type=gha,mode=max,scope=ci-arm64
           sbom: false
@@ -119,5 +120,6 @@ jobs:
             sleep 1
           done
           test "${payload:-}" != ""
+          docker exec "$container_id" python3 -c 'import redis; print(redis.__version__)'
           printf '%s' "$payload" | grep -Fq '"revision":"${{ github.sha }}"'
           test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container_id")" = "${{ github.sha }}"
