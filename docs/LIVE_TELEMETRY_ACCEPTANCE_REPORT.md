@@ -30,10 +30,10 @@ contains aggregate measurements and pass/fail results only.
 | Router storage | Below the configured limit | OBSERVED 13% dashboard snapshot | acceptance-window-2026-10-01 |
 | Container health | Healthy for the full observation window | PASS; canary and production healthy across the sampled five-second window with one active client | acceptance-window-2026-10-01 |
 | Session event latency | p95 at or below 1 second | PENDING; the UI exposes no event timestamp for a precise p95 calculation | acceptance-window-2026-10-01-live-client |
-| Traffic freshness | No sample older than 2 seconds | PARTIAL; five consecutive live samples updated without refresh, but exact sample age is not exposed by the UI | acceptance-window-2026-10-01-live-client |
-| Live UI delivery | Connect/disconnect visible without refresh | PARTIAL; connect and live traffic appeared without refresh; disconnect still pending | acceptance-window-2026-10-01-live-client |
+| Traffic freshness | No sample older than 2 seconds | PARTIAL; ten consecutive live samples updated without refresh, but exact sample age is not exposed by the UI | acceptance-window-2026-10-01-live-client |
+| Live UI delivery | Connect/disconnect visible without refresh | PASS for one observed disconnect/reconnect cycle; both ended and connected rows appeared without refresh | acceptance-window-2026-10-01-live-client |
 | API interruption | Automatic reconnect observed | PASS; API-SSL restored and Binary API login returned after ~4s | acceptance-window-2026-10-01-api-fallback |
-| Snapshot recovery | Full snapshot restored after reconnect | PARTIAL; empty active snapshot restored; connected-client snapshot pending | acceptance-window-2026-10-01-api-fallback |
+| Snapshot recovery | Full snapshot restored after reconnect | PASS; active connection, uptime, traffic, and history snapshot restored after reconnect | acceptance-window-2026-10-01-live-client |
 | Counter reset | Rates remain correct after reset | PENDING | <private evidence id> |
 | Binary/REST parity | Binary snapshot matches REST snapshot | PENDING | <private evidence id> |
 | Event integrity | No lost, duplicated, or out-of-order events | PENDING | <private evidence id> |
@@ -53,7 +53,7 @@ contains aggregate measurements and pass/fail results only.
 
 ## Final decision
 
-Overall result: **PENDING — requires a deliberate client disconnect/reconnect and precise event, traffic, counter-reset, parity, and event-order evidence**
+Overall result: **PENDING — precise event/traffic metrics, counter-reset, Binary/REST parity, and event-order evidence remain**
 
 The report may be marked **PASS** only when every gate above has a redacted
 evidence reference and the aggregate output from the acceptance evaluator exits
