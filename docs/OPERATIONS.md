@@ -27,10 +27,13 @@ the signature before processing, and deduplicate by
 SQLite outbox, retried with exponential backoff, and protected by a circuit
 breaker, so a slow or unavailable receiver cannot block VPN administration.
 
-For multi-consumer fan-out, build with `--build-arg INSTALL_REDIS=true` and set
-`REDIS_STREAM_URL`. Redis delivery is at-least-once and bounded by
-`REDIS_STREAM_MAXLEN`; consumers must deduplicate by `event_id`. Redis is not
-required for the normal single-container deployment. Use `/healthz` for
+The published container image includes the optional Redis client; Redis itself
+remains a separate service and is enabled only when `REDIS_STREAM_URL` is set.
+The Redis Streams sink currently forwards sanitized audit/outbox events (not
+the dashboard's live RouterOS telemetry). Delivery is at-least-once and bounded
+by `REDIS_STREAM_MAXLEN`; consumers must deduplicate by `event_id`. Keep Redis
+on a private network, enable authentication, and persist its data directory.
+Use `/healthz` for
 liveness and `/readyz` for readiness; these endpoints never expose
 configuration or credentials.
 

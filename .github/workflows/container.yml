@@ -133,6 +133,7 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
             REVISION=${{ github.sha }}
             SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+            INSTALL_REDIS=true
           # RouterOS 7 compatibility takes precedence: attached attestations can
           # turn a single-platform image into an OCI index RouterOS may not pull.
           sbom: false
