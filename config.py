@@ -23,6 +23,7 @@ _ROUTEROS_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _TRUSTED_PROXY_HEADERS = {"cf-connecting-ip": "CF-Connecting-IP", "x-forwarded-for": "X-Forwarded-For"}
 _LIVE_TRANSPORTS = {"rest", "binary", "auto"}
+_REDIS_STREAM_KEY = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
 def _value(values: Mapping[str, str], name: str, default: str = "") -> str:
@@ -151,6 +152,37 @@ def _webhook_url(value: str) -> str | None:
     return value
 
 
+def _redis_url(value: str) -> str | None:
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname or parsed.fragment:
+        raise ConfigurationError("REDIS_STREAM_URL must be a redis:// or rediss:// URL")
+    try:
+        parsed.port
+    except ValueError as error:
+        raise ConfigurationError("REDIS_STREAM_URL contains an invalid port") from error
+    return value
+
+
+def _redis_stream_key(value: str) -> str:
+    candidate = value or "vpn-dashboard.events"
+    if not _REDIS_STREAM_KEY.fullmatch(candidate):
+        raise ConfigurationError("REDIS_STREAM_KEY contains unsupported characters")
+    return candidate
+
+
+def _bounded_integer(values: Mapping[str, str], name: str, default: int, *, minimum: int, maximum: int) -> int:
+    raw = _value(values, name, str(default))
+    try:
+        number = int(raw)
+    except ValueError as error:
+        raise ConfigurationError(f"{name} must be a whole number") from error
+    if not minimum <= number <= maximum:
+        raise ConfigurationError(f"{name} must be between {minimum} and {maximum}")
+    return number
+
+
 def _proxy_source(value: str) -> str:
     try:
         return ipaddress.ip_address(value).compressed
@@ -265,6 +297,9 @@ class RuntimeConfig:
     history_retention_days: int
     webhook_url: str | None
     webhook_secret: str | None
+    redis_stream_url: str | None
+    redis_stream_key: str
+    redis_stream_maxlen: int
     live_transport: str
     routeros_api_ssl_port: int
     topology: OpenVPNTopology
@@ -311,6 +346,7 @@ class RuntimeConfig:
             raise ConfigurationError("WEBHOOK_URL and WEBHOOK_SIGNING_SECRET must be set together")
         if webhook_secret and len(webhook_secret) < 32:
             raise ConfigurationError("WEBHOOK_SIGNING_SECRET must be at least 32 characters")
+        redis_stream_url = _redis_url(_value(source, "REDIS_STREAM_URL"))
         return cls(
             public_origin=public_origin,
             routeros_rest_url=routeros_rest_url,
@@ -329,6 +365,11 @@ class RuntimeConfig:
             history_retention_days=_retention_days(source),
             webhook_url=webhook_url,
             webhook_secret=webhook_secret,
+            redis_stream_url=redis_stream_url,
+            redis_stream_key=_redis_stream_key(_value(source, "REDIS_STREAM_KEY")),
+            redis_stream_maxlen=_bounded_integer(
+                source, "REDIS_STREAM_MAXLEN", 10_000, minimum=100, maximum=1_000_000
+            ),
             live_transport=_live_transport(source),
             routeros_api_ssl_port=_port(source, "ROUTEROS_API_SSL_PORT", 8729),
             topology=OpenVPNTopology.from_values(source),

@@ -27,7 +27,7 @@ from typing import Any
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from config import ConfigurationError, RuntimeConfig
 from favicon import FAVICON_SVG, ico_bytes
-from integrations import WebhookDispatcher
+from integrations import RedisStreamPublisher, WebhookDispatcher
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg
 from profile_diagnostics import diagnose_profile
@@ -273,6 +273,7 @@ class AppContext:
     release_revision: str = "unknown"
     telemetry_state: TelemetryRuntimeState | None = None
     telemetry_runtime: TelemetryRuntime | None = None
+    integration_dispatcher: WebhookDispatcher | None = None
 
     @property
     def public_origin(self) -> str:
@@ -367,12 +368,16 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         super().shutdown()
         self._telemetry_thread.join(timeout=2)
         self.telemetry_runtime.stop()
+        if self.context.integration_dispatcher is not None:
+            self.context.integration_dispatcher.stop()
 
     def close(self) -> None:
         """Stop runtime workers when the server is owned by another host."""
         self._telemetry_stop.set()
         self._telemetry_thread.join(timeout=2)
         self.telemetry_runtime.stop()
+        if self.context.integration_dispatcher is not None:
+            self.context.integration_dispatcher.stop()
         self.server_close()
 
 
@@ -3256,7 +3261,23 @@ class RedirectHandler(BaseHTTPRequestHandler):
 def build_context() -> AppContext:
     config = RuntimeConfig.from_environ()
     store = MetadataStore(config.database_path)
-    store.set_audit_hook(WebhookDispatcher(config.webhook_url, config.webhook_secret).publish)
+    redis_publisher = (
+        RedisStreamPublisher(
+            config.redis_stream_url,
+            config.redis_stream_key,
+            maxlen=config.redis_stream_maxlen,
+        )
+        if config.redis_stream_url
+        else None
+    )
+    integration_dispatcher = WebhookDispatcher(
+        config.webhook_url,
+        config.webhook_secret,
+        store=store,
+        redis_publisher=redis_publisher,
+    )
+    if integration_dispatcher.enabled:
+        store.set_audit_hook(integration_dispatcher.publish)
     store.prune_history(before=int(time.time()) - config.history_retention_days * 86400)
     router = RouterOSClient(
         config.routeros_rest_url,
@@ -3272,6 +3293,7 @@ def build_context() -> AppContext:
         config=config,
         release_version=baked_release_value("VERSION"),
         release_revision=baked_release_value("REVISION"),
+        integration_dispatcher=integration_dispatcher,
     )
     # Keep a local, non-secret release breadcrumb so the UI can show what is
     # actually running and whether a previous immutable release is available

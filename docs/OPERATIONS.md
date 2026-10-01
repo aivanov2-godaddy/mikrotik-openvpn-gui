@@ -20,10 +20,19 @@ environment to enable audit-event delivery. The URL must be HTTPS and the
 secret must be at least 32 characters; leaving either value unset disables the
 integration. Each JSON event is signed with
 `X-VPN-Dashboard-Signature: sha256=<hex>` using HMAC-SHA256 over the exact
-request body. Receivers should verify the signature before processing.
-Delivery is asynchronous with a bounded queue, so a slow receiver cannot block
-VPN administration. Use `/healthz` for liveness and `/readyz` for readiness;
-these endpoints never expose configuration or credentials.
+string `<timestamp>.<request body>`, where the timestamp is supplied in
+`X-VPN-Dashboard-Timestamp`. Receivers should reject stale timestamps, verify
+the signature before processing, and deduplicate by
+`X-VPN-Dashboard-Event-ID`. Delivery is asynchronous, persisted in the local
+SQLite outbox, retried with exponential backoff, and protected by a circuit
+breaker, so a slow or unavailable receiver cannot block VPN administration.
+
+For multi-consumer fan-out, build with `--build-arg INSTALL_REDIS=true` and set
+`REDIS_STREAM_URL`. Redis delivery is at-least-once and bounded by
+`REDIS_STREAM_MAXLEN`; consumers must deduplicate by `event_id`. Redis is not
+required for the normal single-container deployment. Use `/healthz` for
+liveness and `/readyz` for readiness; these endpoints never expose
+configuration or credentials.
 
 ## Safe update cadence
 
@@ -118,12 +127,15 @@ For an irreversible action, the dialog displays the exact RouterOS username that
 
 SQLite backups must be consistent:
 
-1. Stop the dashboard container during an approved maintenance window.
-2. Copy the complete `/data` source directory, including sidecar files, into an immutable checkpoint.
-3. Verify the recursive copy and SQLite integrity before restarting the writer.
-4. Start the container and verify `/readyz` immediately.
-5. Export the checkpoint to encrypted off-router storage.
-6. Test restoration periodically into an isolated canary, never over production.
+1. Run `python scripts/backup_sqlite.py --database /data/dashboard.sqlite --destination /secure/dashboard.sqlite` from an approved maintenance environment.
+2. Verify the reported integrity check and retain the destination with mode `0600`.
+3. Export the checkpoint to encrypted off-router storage.
+4. Start or leave the container running and verify `/readyz` immediately.
+5. Test restoration periodically into an isolated canary, never over production.
+
+The helper uses SQLite's online Backup API and is safe while the writer is
+running. Do not copy only `dashboard.sqlite` with a file-copy command while WAL
+is active; the sidecar state must be captured consistently by SQLite.
 
 Apply retention appropriate to the sensitivity of email ownership, address, usage, and audit metadata. Destroy expired backups securely.
 

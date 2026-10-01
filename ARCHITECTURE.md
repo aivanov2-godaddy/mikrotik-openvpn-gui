@@ -70,6 +70,12 @@ The router pulls from GHCR with an expiring package-read token. Deployment is pr
 
 ## Availability and rollback
 
-SQLite is the only mutable application state and remains on the RouterOS host. Every promotion takes a database checkpoint and records the running image digest before starting a canary. A rollback restores the previous proxy target/container and, only when required by a data migration, the matching database checkpoint.
+SQLite is the only mutable application state and remains on the RouterOS host. It runs in WAL mode with a five-second busy timeout and bounded autocheckpoints. Integration audit records are written to a durable local outbox in the same transaction, then delivered at least once to optional signed webhooks or Redis Streams. Every promotion takes a database checkpoint and records the running image digest before starting a canary. A rollback restores the previous proxy target/container and, only when required by a data migration, the matching database checkpoint.
+
+SQLite backups use the SQLite Backup API and are written atomically to a local
+filesystem target. Do not copy only `dashboard.sqlite` while the application is
+running; the WAL file is part of the live database state. Redis is not required
+for the single-container deployment and is enabled only for multi-consumer
+fan-out.
 
 Detailed procedures are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), [docs/ROLLBACK.md](docs/ROLLBACK.md), and [docs/OPERATIONS.md](docs/OPERATIONS.md).

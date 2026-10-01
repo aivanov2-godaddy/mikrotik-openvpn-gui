@@ -12,8 +12,10 @@ on:
       - "asgi.py"
       - "entrypoint.py"
       - "requirements-runtime.txt"
+      - "requirements-redis.txt"
       - "automation.py"
       - "config.py"
+      - "event_safety.py"
       - "favicon.py"
       - "icons.py"
       - "integrations.py"
@@ -71,7 +73,7 @@ jobs:
       - name: Check for committed secret patterns
         run: python scripts/check-secrets.py
       - name: Compile application
-        run: python -m compileall -q app.py asgi.py entrypoint.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py favicon.py icons.py install_routeros.py integrations.py qr.py routeros.py routeros_binary.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_runtime.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_state.py telemetry_supervisor.py update_routeros_app.py scripts/telemetry_acceptance.py
+        run: python -m compileall -q app.py asgi.py entrypoint.py automation.py cloudflare.py deploy_routeros_canary.py deployment.py event_safety.py favicon.py icons.py install_routeros.py integrations.py qr.py routeros.py routeros_binary.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_runtime.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_state.py telemetry_supervisor.py update_routeros_app.py scripts/backup_sqlite.py scripts/telemetry_acceptance.py
       - name: Run unit and mock integration tests
         run: python -m unittest discover -s tests -v
 
