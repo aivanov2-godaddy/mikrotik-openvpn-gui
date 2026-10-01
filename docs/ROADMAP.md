@@ -196,7 +196,11 @@ The public runtime uses the authenticated Socket.IO path with SSE and REST
 fallback. RouterOS REST remains the mutation path; OpenVPN CA material,
 certificates, profiles, users, RouterOS configuration, and router-local data
 remain outside the feature boundary. The deployed router image is healthy and
-has passed the immutable-image rollout checks; formal long-duration canary
-evidence remains to be collected. The native ASGI/Uvicorn WebSocket runtime is implemented
-behind ``SOCKETIO_ENGINE=asgi``; the dependency-free polling bridge remains
-the immediate rollback mode. Future work is limited to continued observation.
+has passed the immutable-image rollout checks. The first controlled acceptance
+window verified container health, REST fallback during an API-SSL interruption,
+and automatic Binary API recovery; connected-client traffic, counter-reset,
+parity, and event-order evidence remain to be collected. The native
+ASGI/Uvicorn WebSocket runtime is implemented behind
+``SOCKETIO_ENGINE=asgi``; the dependency-free polling bridge remains the
+immediate rollback mode. Future work is limited to continued observation with
+a connected VPN client.

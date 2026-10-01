@@ -18,8 +18,11 @@ audit, v2.3 enterprise operations foundations, v2.4 bulk operations and saved
 views, and v2.5 Binary API live telemetry with the Socket.IO gateway and
 fallback paths. The release also includes the subsequent live-stream stability,
 typography, security, and runtime dependency updates. The image was deployed
-and verified on the RouterOS canary and production containers; formal
-long-duration acceptance monitoring remains an operational follow-up. The
+and verified on the RouterOS canary and production containers. The first
+controlled acceptance window verified container health, REST fallback during a
+temporary API-SSL interruption, automatic Binary API recovery, authentication
+denial, and the deployed resource snapshot. Long-duration traffic and
+connected-client event evidence remains an operational follow-up. The
 previous published feature release was **v2.0.0**, which added read-only device
 posture checks while preserving the router-local data and immutable-image
 deployment model.
