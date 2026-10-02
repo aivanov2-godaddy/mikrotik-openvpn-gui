@@ -3373,11 +3373,64 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "user.suspend" if suspended else "user.restore"):
                 return
-            self.server.context.router.update_user(
-                credentials,
-                user_id=user_id,
-                disabled=suspended,
-            )
+            mutation_error: RouterOSError | None = None
+            try:
+                self.server.context.router.update_user(
+                    credentials,
+                    user_id=user_id,
+                    disabled=suspended,
+                )
+            except RouterOSError as error:
+                # RouterOS may commit the PATCH before its response is lost.
+                # Reconcile the exact account state before deciding whether
+                # the operator should retry.
+                mutation_error = error
+            try:
+                verified_user = self._find_user(credentials, user_id)
+            except (RouterOSError, ValueError):
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.suspend" if suspended else "user.restore",
+                    target=username,
+                    status="unknown",
+                    details={
+                        "phase": "routeros_readback",
+                        "reason": "verification_unavailable",
+                        "mutation_response_lost": mutation_error is not None,
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_unavailable",
+                        "error": "The account change may have applied, but RouterOS could not verify its current state. Check the user before retrying.",
+                        "verified": False,
+                        "verification": "unknown",
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+            if bool(verified_user.get("disabled")) != suspended:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.suspend" if suspended else "user.restore",
+                    target=username,
+                    status="failed",
+                    details={
+                        "phase": "routeros_readback",
+                        "reason": "state_mismatch",
+                        "mutation_response_lost": mutation_error is not None,
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_failed",
+                        "error": "RouterOS did not apply the requested account state. The dashboard did not report the change as successful.",
+                        "verified": False,
+                        "verification": "mismatch",
+                    },
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
             # A manual action always takes precedence over a previous
             # automated quota/schedule state. The next telemetry poll will
             # re-evaluate the policy if the restriction still applies.
@@ -3417,12 +3470,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 details={
                     "disconnected_sessions": disconnected,
                     "remaining_sessions": remaining if remaining is not None else "verification unavailable",
+                    "verification": "verified",
+                    "mutation_response_lost": mutation_error is not None,
                 },
             )
             self._json(
                 {
                     "ok": True,
                     "disabled": suspended,
+                    "verified": True,
+                    "verification": "verified",
+                    "reconciled": mutation_error is not None,
                     "disconnected": disconnected,
                     "remaining": remaining,
                 }
