@@ -24,6 +24,15 @@ _HIGH_IMPACT_POLICIES = {
     "local": "local-console-login",
 }
 
+# RouterOS' documented user-group policy vocabulary. If a newer RouterOS
+# release returns another flag, don't silently claim that the checked policy
+# set is complete. The raw flag is never included in diagnostic output.
+_KNOWN_POLICIES = frozenset({
+    "local", "telnet", "ssh", "ftp", "reboot", "read", "write", "policy",
+    "test", "winbox", "password", "web", "sniff", "sensitive", "api",
+    "rest-api", "romon",
+})
+
 
 def _truth(value: Any) -> bool | None:
     if value is None or str(value).strip() == "":
@@ -98,7 +107,20 @@ def exposure_doctor_snapshot(
         add("group-policies", statuses.get("group", "unknown"),
             "The signed-in account's effective group policy could not be verified.",
             "Review the assigned group and its effective policies in WinBox; do not add broad policies as a generic fix.")
+        add("unrecognized-policy-flags", "unknown",
+            "RouterOS policy-flag completeness could not be verified.",
+            "Review the group policy in WinBox; this diagnostic does not expose raw policy values.")
     else:
+        policy_tokens = _policy_set(group.get("policy")) or set()
+        unknown_policy_count = sum(
+            1 for token in policy_tokens
+            if token.removeprefix("!").strip() not in _KNOWN_POLICIES
+        )
+        add("unrecognized-policy-flags", "unknown" if unknown_policy_count else "verified",
+            "RouterOS returned policy flags this diagnostic does not recognize; effective permission posture is incomplete."
+            if unknown_policy_count else
+            "All returned RouterOS policy flags match the currently recognized policy vocabulary.",
+            "Review the group policy against the documentation for this RouterOS version; raw flag names are intentionally omitted.")
         feature_policies = (
             ("read", "configuration inspection"),
             ("rest-api", "REST API access"),
