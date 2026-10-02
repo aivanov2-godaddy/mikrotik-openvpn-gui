@@ -3442,19 +3442,156 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not self._require_target_confirmation(data, username):
                 return
             devices = self.server.context.store.devices_for_user(username)
+            if any(not str(device.get("certificate_id") or "") for device in devices):
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.delete",
+                    target=username,
+                    status="failed",
+                    details={"phase": "certificate_revocation", "verification": "missing_identity"},
+                )
+                self._json(
+                    {
+                        "code": "routeros.certificate_identity_missing",
+                        "error": "A managed device has no certificate identity to verify. The VPN user was not deleted.",
+                        "verified": False,
+                        "verification": "failed",
+                    },
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
             if not self._checkpoint(session, "user.delete"):
                 return
-            self.server.context.router.delete_user(credentials, user_id=user_id)
+
+            revoked_device_ids: list[str] = []
             for device in devices:
-                certificate_id = device.get("certificate_id")
-                if certificate_id:
-                    try:
-                        self.server.context.router.revoke_certificate(
-                            credentials, certificate_id=str(certificate_id)
-                        )
-                    except RouterOSError:
-                        pass
+                certificate_id = str(device["certificate_id"])
+                mutation_error: RouterOSError | None = None
+                try:
+                    self.server.context.router.revoke_certificate(
+                        credentials, certificate_id=certificate_id
+                    )
+                except RouterOSError as error:
+                    # A lost response is ambiguous; exact certificate read-back
+                    # decides whether the revocation committed.
+                    mutation_error = error
+                try:
+                    certificates = self.server.context.router.list_ovpn_client_certificates(
+                        credentials, include_legacy=True
+                    )
+                except RouterOSError as error:
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="user.delete",
+                        target=username,
+                        status="unknown",
+                        details={
+                            "phase": "certificate_revocation",
+                            "verification": "unavailable",
+                            "retired_devices": len(revoked_device_ids),
+                            "reason": type(error).__name__,
+                        },
+                    )
+                    self._json(
+                        {
+                            "code": "routeros.mutation_verification_unavailable",
+                            "error": "Certificate revocation could not be verified. The VPN user was not deleted; inspect Device Profiles before retrying.",
+                            "verified": False,
+                            "verification": "unknown",
+                            "user_deleted": False,
+                        },
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+                certificate = next(
+                    (item for item in certificates if str(item.get("id", "")) == certificate_id),
+                    None,
+                )
+                if not certificate or not certificate.get("revoked"):
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="user.delete",
+                        target=username,
+                        status="partial" if revoked_device_ids else "failed",
+                        details={
+                            "phase": "certificate_revocation",
+                            "verification": "mismatch",
+                            "mutation_response": "error" if mutation_error else "ok",
+                            "retired_devices": len(revoked_device_ids),
+                        },
+                    )
+                    self._json(
+                        {
+                            "code": "routeros.mutation_verification_failed",
+                            "error": "RouterOS did not confirm every managed certificate as revoked. The VPN user was not deleted; review Device Profiles before retrying.",
+                            "verified": False,
+                            "verification": "mismatch",
+                            "user_deleted": False,
+                            "retired_devices": len(revoked_device_ids),
+                        },
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
                 self.server.context.store.mark_revoked(str(device["id"]))
+                revoked_device_ids.append(str(device["id"]))
+
+            delete_error: RouterOSError | None = None
+            try:
+                self.server.context.router.delete_user(credentials, user_id=user_id)
+            except RouterOSError as error:
+                # Reconcile a lost DELETE response against the authoritative
+                # RouterOS list before deciding whether local state can change.
+                delete_error = error
+            try:
+                remaining_users = self.server.context.router.list_ovpn_users(credentials)
+            except RouterOSError as error:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.delete",
+                    target=username,
+                    status="unknown",
+                    details={
+                        "phase": "user_delete",
+                        "verification": "unavailable",
+                        "reason": type(error).__name__,
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_unavailable",
+                        "error": "The VPN user deletion may have reached RouterOS, but its state could not be verified. Local metadata was retained; check VPN Users before retrying.",
+                        "verified": False,
+                        "verification": "unknown",
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+            if any(
+                str(item.get("id", "")) == user_id or str(item.get("name", "")) == username
+                for item in remaining_users
+            ):
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.delete",
+                    target=username,
+                    status="failed",
+                    details={
+                        "phase": "user_delete",
+                        "verification": "still_present",
+                        "mutation_response": "error" if delete_error else "ok",
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_failed",
+                        "error": "RouterOS still reports this VPN user. Local metadata was retained; inspect the user before retrying.",
+                        "verified": False,
+                        "verification": "mismatch",
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+
             self.server.context.store.delete_user_email(username)
             self.server.context.store.delete_user_controls(username)
             self.server.context.store.audit(
@@ -3462,9 +3599,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action="user.delete",
                 target=username,
                 status="success",
-                details={"retired_devices": len(devices)},
+                details={"retired_devices": len(revoked_device_ids), "verification": "confirmed_absent"},
             )
-            self._json({"ok": True})
+            self._json({"ok": True, "verified": True, "retired_devices": len(revoked_device_ids)})
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
