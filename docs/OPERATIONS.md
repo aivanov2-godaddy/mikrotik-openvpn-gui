@@ -73,6 +73,22 @@ broad policies.
 
 Never follow `edge`, `latest`, a branch, or another mutable reference; never modify the container's mounts and environment during a routine update. Use the canary-first procedure in [DEPLOYMENT.md](DEPLOYMENT.md) for schema, data, or RouterOS-policy migrations before promoting them. The complete router-local promotion and rollback protocol is documented in [ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md).
 
+## Redacted diagnostic bundle
+
+An authenticated user with `health.read` may download
+`GET /api/reports/diagnostics.zip` when troubleshooting. The endpoint uses the
+latest stored health observation and current in-memory telemetry health; it
+does not make RouterOS requests or change router/dashboard configuration. The
+ZIP contains one fixed-schema `diagnostics.json` file and is capped at 32 KiB.
+It includes only release version/revision, aggregate health check IDs/states,
+and allowlisted telemetry freshness/reconnect counters. It excludes
+usernames, email addresses, IP addresses, hostnames, event payloads, logs,
+RouterOS records, credentials, tokens, certificates, keys, and VPN profiles.
+The export is audited as `report.diagnostics.export`; audit actor data stays in
+the local audit system and is not copied into the bundle. This is distinct
+from the compliance report, which intentionally contains operator and
+connection-history fields and should be handled as sensitive data.
+
 ## Database backup
 
 The dashboard's **Download backup** control creates a self-verifying metadata-only ZIP. Its manifest contains the SHA-256 checksum for `metadata.json`; it never includes RouterOS configuration, credentials, private keys, issued profiles, or active sessions. Keep it in an operator-controlled location.

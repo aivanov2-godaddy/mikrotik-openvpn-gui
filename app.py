@@ -27,6 +27,7 @@ from typing import Any
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from config import ConfigurationError, RuntimeConfig
 from connection_doctor import connection_doctor_snapshot
+from diagnostic_bundle import build_diagnostic_bundle
 from error_guidance import routeros_error_payload
 from exposure_doctor import exposure_doctor_snapshot
 from favicon import FAVICON_SVG, ico_bytes
@@ -990,6 +991,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/reports/compliance.zip":
             self._compliance_report()
+            return
+        if path == "/api/reports/diagnostics.zip":
+            self._diagnostic_bundle()
             return
         if path == "/api/release/verify":
             session = self._require_session(api=True)
@@ -2074,6 +2078,42 @@ class DashboardHandler(BaseHTTPRequestHandler):
             details={"audit_entries": len(audit), "connection_entries": len(connections)},
         )
         self._bytes(stream.getvalue(), content_type="application/zip", extra={"Content-Disposition": 'attachment; filename="vpn-compliance-report.zip"'})
+
+    def _diagnostic_bundle(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_capability(session, "health.read"):
+            return
+        try:
+            snapshots = self.server.context.store.recent_health_snapshots(1)
+            latest = snapshots[0] if snapshots else None
+            health = ({
+                "overall": latest.get("overall"),
+                "checked_at": latest.get("created_at"),
+                "checks": latest.get("checks", []),
+            } if latest else None)
+            archive = build_diagnostic_bundle(
+                version=self.server.context.release_version,
+                revision=self.server.context.release_revision,
+                generated_at=int(time.time()),
+                health=health,
+                telemetry=self._telemetry_status(),
+            )
+        except Exception as error:
+            print(f"diagnostic bundle unavailable reason={type(error).__name__}")
+            self._json({"error": "The redacted diagnostic bundle is temporarily unavailable."}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self.server.context.store.audit(
+            actor=session.username,
+            action="report.diagnostics.export",
+            target="diagnostic-bundle",
+            status="success",
+            details={"schema_version": 1, "bytes": len(archive)},
+        )
+        self._bytes(
+            archive,
+            content_type="application/zip",
+            extra={"Content-Disposition": 'attachment; filename="vpn-diagnostic-bundle.zip"'},
+        )
 
     def _release_verify(self, query: dict[str, list[str]]) -> None:
         image = str((query.get("image") or [""])[0]).strip()

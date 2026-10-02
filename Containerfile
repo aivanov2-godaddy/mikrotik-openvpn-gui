@@ -13,7 +13,7 @@ ARG INSTALL_REDIS=false
 WORKDIR /app
 
 # Runtime code is part of the immutable image. Production must not mount over /app.
-COPY app.py automation.py config.py connection_doctor.py error_guidance.py event_safety.py exposure_doctor.py favicon.py icons.py integrations.py profile_diagnostics.py qr.py routeros.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_runtime.py telemetry_state.py telemetry_supervisor.py routeros_binary.py ./
+COPY app.py automation.py config.py connection_doctor.py diagnostic_bundle.py error_guidance.py event_safety.py exposure_doctor.py favicon.py icons.py integrations.py profile_diagnostics.py qr.py routeros.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_socketio.py telemetry_socketio_polling.py telemetry_runtime.py telemetry_state.py telemetry_supervisor.py routeros_binary.py ./
 COPY asgi.py entrypoint.py requirements-runtime.txt requirements-redis.txt ./
 COPY static ./static
 COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
