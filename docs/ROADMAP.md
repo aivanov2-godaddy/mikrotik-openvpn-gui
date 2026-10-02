@@ -271,7 +271,7 @@ The next roadmap is tracked as [epic #205](https://github.com/aivanov2-godaddy/m
 - [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202) Standardize preview, apply, verify, and recovery for mutations.
 - [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) Publish verifiable SBOM/provenance and a tested RouterOS compatibility policy.
 
-### Execution status — 2026-10-02
+### Execution status — 2026-10-03
 
 The issues below remain open until their full acceptance criteria are met; these
 are verified partial milestones, not issue completions:
@@ -284,7 +284,7 @@ are verified partial milestones, not issue completions:
 | [#196](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/196) | Disposable-Redis outage/restart, ambiguous-delivery and idempotent-consumer tests (#224, #233); malformed-event classification, bounded retries and dead-letter metrics (#237); 45-event outage backlog draining (#238); pending-row recovery after Redis stream-state loss (#240). | Decide whether acknowledged stream entries need automated reconstruction after Redis data loss; production consumer semantics and canary/production soak evidence. |
 | [#197](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/197) | Isolated backup/restore and interrupted-write/disk-full tests; bounded lock-timeout recovery and WAL checkpoint behavior (#228, #234). | Sustained storage/lock stress, retention/restore operations, and a canary restore rehearsal. |
 | [#198](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/198) | Process-observation freshness metrics and acceptance collection (#227, #232); slow outbound-client isolation test (#235). | Device-backed latency/freshness percentiles, reconnect/snapshot and event-integrity tests, and proxy/browser recovery soak. |
-| [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Read-only health/readiness/metrics evidence collector (#226, #232). | A completed canary and production observation window using verified image digests and live RouterOS evidence. |
+| [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Read-only health/readiness/metrics evidence collector (#226, #232); 2026-10-03 canary soak and production repull both reported the a9deb20 image revision healthy, with `/readyz` checks passing. The GHCR ARM64 digest is recorded in `LIVE_TELEMETRY_ACCEPTANCE_REPORT.md`; zero active PPP/OpenVPN sessions were observed before the production repull. | Full 30-minute sampled canary/production window with latency/freshness percentiles, Redis delivery, reconnect/snapshot and event-integrity evidence; router-side manifest-digest verification and canary rollback drill. |
 | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | Stream-session revalidation tests and scoped ASVS evidence map (#218, #229). | Full route authorization review, independent assessment, deployed proxy/browser checks, and live-router session lifecycle evidence. |
 | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201) | Redacted read-only account/group/service diagnostics (#222). | Effective source/network-boundary verification and tested least-privilege mapping; firewall enforcement remains unknown until independently checked. |
 | [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202) | Policy-template apply revalidates a session-bound preview receipt and current RouterOS state (#223); session termination reads back RouterOS state and reports verified, failed, or unknown outcomes. | Apply/verify/recovery consistency across user, device, certificate, policy, and bulk mutations; review and recovery guidance for partial outcomes. |
@@ -292,11 +292,14 @@ are verified partial milestones, not issue completions:
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225). | Broader rendered UX review and remaining actionable error guidance. |
 
 The current `routeros-stable` manifest targets runtime commit
-`20093a8b040a34c806bc8f01194268d25abba90e`. Later merges #232–#235 contain
-acceptance tooling, tests, and documentation only, so they do not create a new
-runtime image. The live production digest and health are **not verified** in
-this workspace; public readiness is gated behind Cloudflare Access. Do not
-claim production rollout until the router-side immutable digest and health
-checks are observed.
+`a9deb20a50363712fa8c65f933163f2ffd5678ce`; its ARM64 image digest is
+`sha256:99f85730776a95c486bd3b212bb4a590a854961a64a5cf8448cccf2254f392bc`.
+On 2026-10-03, RouterOS showed this exact image revision and healthy
+`/readyz` checks on both canary and production after a 60-second canary soak
+and production repull. The GHCR manifest digest is verified by the publication
+workflow, but the inspected RouterOS UI does not expose that registry digest
+for independent on-device comparison. This is partial deployment evidence,
+not completion of #199's long-window acceptance criteria; public readiness
+remains gated behind Cloudflare Access.
 
 Each issue is delivered as a focused PR with CI and acceptance evidence. Dependency order may pull security or reliability work forward when required to make a feature safe. Core live telemetry, REST/SSE fallback, RouterOS as source of truth, redaction, and review-first destructive actions remain product invariants.

@@ -19,9 +19,9 @@ production rollout on 2026-10-02.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Current production commit | 89adec8 (`89adec8f577380f0c91be872ffdd8a414f2212af`) |
-| Current production image tag | `sha-89adec8f577380f0c91be872ffdd8a414f2212af-arm64` |
-| Current production image digest | `sha256:804ccae7081a05d0a506c235ea73c53d8bee9d29027bc099b1407303df8c7836` |
+| Current production commit | a9deb20 (`a9deb20a50363712fa8c65f933163f2ffd5678ce`) |
+| Current production image tag | `sha-a9deb20a50363712fa8c65f933163f2ffd5678ce-arm64` |
+| Current production image digest | `sha256:99f85730776a95c486bd3b212bb4a590a854961a64a5cf8448cccf2254f392bc` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS at acceptance / current | RouterOS 7.24.4 stable during acceptance; 7.24.5 stable currently / arm64 |
 
@@ -33,6 +33,31 @@ image, published with the Redis client for the optional sanitized audit/outbox
 sink; this build does not change the accepted telemetry behavior. The public
 endpoint remains behind Cloudflare Access; an unauthenticated `/readyz`
 request correctly receives the Access redirect.
+
+## Latest production rollout verification — 2026-10-03
+
+PR [#242](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/242)
+adds RouterOS read-back verification for session termination. Its immutable
+ARM64 image was published after required CI, Redis integration, security, and
+ARM64 smoke checks passed. The GHCR manifest digest below is from the signed
+publication workflow; RouterOS WinBox exposed the exact image revision and
+healthy status, but not the registry manifest digest itself.
+
+| Check | Result |
+| --- | --- |
+| Candidate image | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a9deb20a50363712fa8c65f933163f2ffd5678ce-arm64` |
+| Published ARM64 manifest digest | `sha256:99f85730776a95c486bd3b212bb4a590a854961a64a5cf8448cccf2254f392bc` |
+| Canary revision / health | `a9deb20a50363712fa8c65f933163f2ffd5678ce`; RouterOS healthy and `/readyz` healthcheck good after a 60-second soak |
+| Production revision / health | `a9deb20a50363712fa8c65f933163f2ffd5678ce`; RouterOS healthy and `/readyz` healthcheck good after repull |
+| Container resource sample | Production: 0.6% CPU, 32.3 MiB memory, 61.9 MiB app image; one instantaneous sample, not a baseline or peak |
+| Active PPP/OpenVPN sessions before production repull | 0 |
+| RouterOS changes | Image repull only; existing environment list, mounts, `/data`, and `/config` were preserved |
+| User, CA, certificate, VPN policy/data changes | None |
+
+This is a deployment/readiness check, not a replacement for the formal
+30-minute Redis/telemetry acceptance window. Router-side registry-digest
+attestation, long-window latency/freshness percentiles, Redis delivery evidence,
+and recovery/failure-injection gates remain outstanding.
 
 ## Latest deployed correction
 
