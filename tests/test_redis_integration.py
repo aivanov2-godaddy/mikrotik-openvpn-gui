@@ -104,6 +104,51 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         self.assertEqual(self.publisher.metrics()["publish_failures"], 1)
         self.assertEqual(self.publisher.metrics()["publish_successes"], 1)
 
+    def test_large_outage_backlog_drains_in_bounded_batches_after_recovery(self) -> None:
+        subprocess.run(
+            ["docker", "stop", self.container],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        for index in range(45):
+            self.store.audit(
+                actor="test-operator",
+                action="user.update",
+                target=f"test-user-{index}",
+                status="success",
+                details={"ordinal": index},
+            )
+        event_ids = [
+            str(record["event_id"])
+            for record in self.store.pending_integration_events(100)
+        ]
+        self.assertEqual(len(event_ids), 45)
+
+        # Model an extended outage: events continue accumulating durably while
+        # Redis is unavailable. No database row is acknowledged during this
+        # interval, so recovery must drain the entire backlog in page-sized
+        # batches without skipping or reordering events.
+        self._restart_redis()
+
+        delivered: list[str] = []
+        while pending := self.store.pending_integration_events(20, now=int(time.time()) + 120):
+            self.assertLessEqual(len(pending), 20)
+            for record in pending:
+                event_id = str(record["event_id"])
+                payload = record.get("payload")
+                self.assertIsInstance(payload, dict)
+                payload["event_id"] = event_id
+                self.publisher.publish(payload)
+                self.store.mark_integration_delivered(event_id)
+                delivered.append(event_id)
+
+        self.assertEqual(delivered, event_ids)
+        self.assertEqual(self.store.integration_outbox_metrics()["pending"], 0)
+        entries = self.client.xrange("vpn-dashboard.test.events")
+        self.assertEqual([fields["event_id"] for _, fields in entries], event_ids)
+
     def test_ambiguous_publish_retry_keeps_stable_id_for_consumer_deduplication(self) -> None:
         record = self._enqueue_event()
         event_id = str(record["event_id"])
