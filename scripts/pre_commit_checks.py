@@ -60,6 +60,7 @@ PYTHON_FILES = [
     "tests/test_telemetry_socketio.py",
     "tests/test_telemetry_socketio_polling.py",
     "tests/test_telemetry_supervisor.py",
+    "tests/test_telemetry_runtime.py",
 ]
 
 

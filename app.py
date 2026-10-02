@@ -1865,6 +1865,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         deployments = self.server.context.store.recent_deployment_events(1)
         outbox = self.server.context.store.integration_outbox_metrics(now=now)
         database = self.server.context.store.database_metrics()
+        telemetry_state = self.server.context.telemetry_state
+        telemetry = telemetry_state.as_dict() if telemetry_state is not None else {}
         dispatcher = self.server.context.integration_dispatcher
         integration = dispatcher.metrics() if dispatcher is not None else {
             "enabled": 0, "webhook_configured": 0,
@@ -1931,6 +1933,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_redis_last_publish_success_timestamp_seconds Unix timestamp of the last successful Redis XADD.",
             "# TYPE vpn_dashboard_redis_last_publish_success_timestamp_seconds gauge",
             f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {integration['redis_last_publish_success']}",
+            "# HELP vpn_dashboard_telemetry_session_event_age_seconds Age of the most recently observed aggregate session event; -1 means none observed.",
+            "# TYPE vpn_dashboard_telemetry_session_event_age_seconds gauge",
+            f"vpn_dashboard_telemetry_session_event_age_seconds {telemetry.get('session_event_age_seconds') if telemetry.get('session_event_age_seconds') is not None else -1}",
+            "# HELP vpn_dashboard_telemetry_session_event_timestamp_seconds Unix timestamp when the process last observed a session event; -1 means none observed.",
+            "# TYPE vpn_dashboard_telemetry_session_event_timestamp_seconds gauge",
+            f"vpn_dashboard_telemetry_session_event_timestamp_seconds {telemetry.get('last_session_event_at') if telemetry.get('last_session_event_at') is not None else -1}",
+            "# HELP vpn_dashboard_telemetry_session_events_total Session observations accepted by the live telemetry runtime.",
+            "# TYPE vpn_dashboard_telemetry_session_events_total counter",
+            f"vpn_dashboard_telemetry_session_events_total {telemetry.get('session_events', 0)}",
+            "# HELP vpn_dashboard_telemetry_traffic_sample_age_seconds Age of the most recently observed interface-counter sample; -1 means none observed.",
+            "# TYPE vpn_dashboard_telemetry_traffic_sample_age_seconds gauge",
+            f"vpn_dashboard_telemetry_traffic_sample_age_seconds {telemetry.get('traffic_sample_age_seconds') if telemetry.get('traffic_sample_age_seconds') is not None else -1}",
+            "# HELP vpn_dashboard_telemetry_traffic_sample_timestamp_seconds Unix timestamp when the process last observed an interface-counter sample; -1 means none observed.",
+            "# TYPE vpn_dashboard_telemetry_traffic_sample_timestamp_seconds gauge",
+            f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {telemetry.get('last_traffic_sample_at') if telemetry.get('last_traffic_sample_at') is not None else -1}",
+            "# HELP vpn_dashboard_telemetry_traffic_samples_total Interface-counter samples accepted by the live telemetry runtime.",
+            "# TYPE vpn_dashboard_telemetry_traffic_samples_total counter",
+            f"vpn_dashboard_telemetry_traffic_samples_total {telemetry.get('traffic_samples', 0)}",
         ]
         telemetry_runtime = self.server.context.telemetry_runtime
         gateway = telemetry_runtime.gateway.metrics() if telemetry_runtime is not None else {

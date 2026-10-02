@@ -38,3 +38,23 @@ Deployment identity comes from the image's baked `VERSION` and `REVISION`
 files. A revision is considered rollback-visible only when a previous runtime
 observation exists; selecting or applying that image still happens through the
 reviewed router-local immutable updater and its canary/readiness gates.
+
+## Live telemetry freshness metrics
+
+The authenticated, aggregate `GET /metrics` endpoint exposes independent age
+gauges for the most recently observed session event and interface-counter
+sample: `vpn_dashboard_telemetry_session_event_age_seconds` and
+`vpn_dashboard_telemetry_traffic_sample_age_seconds`. The corresponding
+`*_timestamp_seconds` gauges give the process observation time, and
+`*_total` counters report aggregate observations. These series have no labels
+and contain no usernames, addresses, session identifiers, event IDs, or
+payloads. A value of `-1` for an age or timestamp means that observation type
+has not yet been seen since process start; zero is a valid fresh age.
+
+Age measures elapsed wall time since this process accepted an observation. It
+is a freshness signal, not end-to-end RouterOS-to-browser latency or proof of
+delivery to every client. Session observations are marked by the REST/SSE
+reconciliation path and live session stream; traffic-sample freshness is marked
+when interface-counter events enter the telemetry runtime. A later acceptance
+collector can sample these gauges over a window without calling RouterOS or
+adding event-level/private data to metrics.

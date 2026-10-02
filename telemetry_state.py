@@ -33,6 +33,10 @@ class TelemetryRuntimeState:
         self._last_event_at: int | None = None
         self._last_reconciliation_at: int | None = None
         self._event_count = 0
+        self._last_session_event_at: float | None = None
+        self._last_traffic_sample_at: float | None = None
+        self._session_events = 0
+        self._traffic_samples = 0
         self._reconnects = 0
         self._last_error: str | None = None
 
@@ -40,10 +44,33 @@ class TelemetryRuntimeState:
         observed_at = int(self._clock() if now is None else now)
         with self._lock:
             self._last_event_at = observed_at
+            self._last_session_event_at = float(observed_at)
+            self._session_events += 1
             if reconciliation:
                 self._last_reconciliation_at = observed_at
             self._event_count += 1
             self._last_error = None
+
+    def mark_session_events(
+        self, count: int = 1, *, reconciliation: bool = False, now: float | None = None
+    ) -> None:
+        """Record aggregate session-event freshness without retaining event data."""
+        observed_at = float(self._clock() if now is None else now)
+        with self._lock:
+            self._last_event_at = int(observed_at)
+            self._last_session_event_at = observed_at
+            self._session_events += max(0, int(count))
+            if reconciliation:
+                self._last_reconciliation_at = int(observed_at)
+            self._event_count += max(0, int(count))
+            self._last_error = None
+
+    def mark_traffic_samples(self, count: int = 1, *, now: float | None = None) -> None:
+        """Record freshness of aggregate interface-counter samples."""
+        observed_at = float(self._clock() if now is None else now)
+        with self._lock:
+            self._last_traffic_sample_at = observed_at
+            self._traffic_samples += max(0, int(count))
 
     def mark_reconnect(self) -> None:
         with self._lock:
@@ -54,8 +81,9 @@ class TelemetryRuntimeState:
         with self._lock:
             self._last_error = safe_code
 
-    def as_dict(self, *, now: int | None = None) -> dict[str, Any]:
-        current = int(self._clock() if now is None else now)
+    def as_dict(self, *, now: float | None = None) -> dict[str, Any]:
+        current_exact = float(self._clock() if now is None else now)
+        current = int(current_exact)
         with self._lock:
             event_age = (
                 max(0, current - self._last_event_at)
@@ -65,6 +93,16 @@ class TelemetryRuntimeState:
             reconciliation_age = (
                 max(0, current - self._last_reconciliation_at)
                 if self._last_reconciliation_at is not None
+                else None
+            )
+            session_event_age = (
+                max(0.0, current_exact - self._last_session_event_at)
+                if self._last_session_event_at is not None
+                else None
+            )
+            traffic_sample_age = (
+                max(0.0, current_exact - self._last_traffic_sample_at)
+                if self._last_traffic_sample_at is not None
                 else None
             )
             if self._last_error:
@@ -85,6 +123,12 @@ class TelemetryRuntimeState:
                 "event_age_seconds": event_age,
                 "reconciliation_age_seconds": reconciliation_age,
                 "event_count": self._event_count,
+                "last_session_event_at": self._last_session_event_at,
+                "session_event_age_seconds": session_event_age,
+                "session_events": self._session_events,
+                "last_traffic_sample_at": self._last_traffic_sample_at,
+                "traffic_sample_age_seconds": traffic_sample_age,
+                "traffic_samples": self._traffic_samples,
                 "reconnects": self._reconnects,
                 "last_error": self._last_error,
             }
