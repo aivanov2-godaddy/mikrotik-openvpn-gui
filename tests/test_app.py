@@ -492,6 +492,31 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertEqual(set(archive.namelist()), {"summary.json", "audit.csv", "connections.csv"})
             self.assertNotIn(b"routerpass", archive.read("summary.json"))
 
+        self.server.context.store.record_health_snapshot({
+            "overall": "healthy",
+            "checks": [{"id": "routeros-rest", "status": "healthy", "remediation": "private-host-marker"},
+                       {"id": "private-user-marker", "status": "healthy"}],
+        })
+        status, headers, payload = self.request("GET", "/api/reports/diagnostics.zip")
+        self.assertEqual(status, 200)
+        self.assertIn("vpn-diagnostic-bundle.zip", headers["content-disposition"])
+        self.assertLessEqual(len(payload), 32 * 1024)
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            self.assertEqual(archive.namelist(), ["diagnostics.json"])
+            diagnostics = archive.read("diagnostics.json")
+        self.assertIn(b"routeros-rest", diagnostics)
+        self.assertNotIn(b"private-host-marker", diagnostics)
+        self.assertNotIn(b"private-user-marker", diagnostics)
+        self.assertNotIn(b"admin", diagnostics)
+        self.assertNotIn(b"routerpass", diagnostics)
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["action"], "report.diagnostics.export")
+
+        self.cookie = ""
+        status, _, payload = self.request("GET", "/api/reports/diagnostics.zip")
+        self.assertEqual(status, 401)
+        self.assertNotIn(b"diagnostics", payload)
+        self.login()
+
         status, _, payload = self.request(
             "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567&revision=0123456789abcdef0123456789abcdef01234567",
         )
