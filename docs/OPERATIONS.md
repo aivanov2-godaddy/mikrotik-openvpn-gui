@@ -38,6 +38,11 @@ backlog/age, retries, last successful delivery, and Redis publish outcomes. A
 Redis availability value of `-1` means no publish has yet tested the connection;
 the metrics endpoint never probes Redis or emits stream keys, event IDs, or
 payloads.
+The same endpoint exports aggregate `vpn_dashboard_sqlite_file_bytes` for the
+database/WAL/SHM and `vpn_dashboard_sqlite_volume_free_bytes` for the containing
+filesystem (`-1` means the measurement was unavailable); it never exposes the
+database path or its records. Alert on sustained WAL growth or low free space
+before backup and writes are affected.
 CI also exercises Redis restart recovery and the ambiguous case where a stream
 append succeeds but its SQLite acknowledgement is lost. The integration job
 uses an isolated disposable Redis container; it never connects to a project or

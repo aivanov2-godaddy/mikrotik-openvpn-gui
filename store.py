@@ -4,6 +4,7 @@ import json
 import hashlib
 import os
 import sqlite3
+import shutil
 import tempfile
 import threading
 import time
@@ -330,6 +331,27 @@ class MetadataStore:
             "log_frames": log_frames,
             "checkpointed_frames": checkpointed_frames,
         }
+
+    def database_metrics(self) -> dict[str, int]:
+        """Return aggregate SQLite and containing-volume sizes, not paths or data."""
+
+        sizes: dict[str, int] = {}
+        for name, path in (
+            ("database_bytes", self.path),
+            ("wal_bytes", Path(f"{self.path}-wal")),
+            ("shm_bytes", Path(f"{self.path}-shm")),
+        ):
+            try:
+                sizes[name] = int(path.stat().st_size)
+            except FileNotFoundError:
+                sizes[name] = 0
+            except OSError:
+                sizes[name] = -1
+        try:
+            sizes["volume_free_bytes"] = int(shutil.disk_usage(self.path.parent).free)
+        except OSError:
+            sizes["volume_free_bytes"] = -1
+        return sizes
 
     def backup_database(self, destination: str) -> dict[str, Any]:
         """Create an atomic, consistent SQLite backup using the Backup API.
