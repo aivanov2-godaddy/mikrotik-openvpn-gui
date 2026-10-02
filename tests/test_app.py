@@ -19,7 +19,7 @@ from unittest import mock
 
 from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, container_image_target, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
-from routeros import RouterOSClient, RouterOSCredentials
+from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from security import LoginRateLimiter, SessionStore
 from store import MetadataStore
 from templates import evaluate_device_posture
@@ -1148,12 +1148,58 @@ class DashboardIntegrationTests(unittest.TestCase):
             {"confirmation": "user-two"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload), {"ok": True})
+        self.assertEqual(json.loads(payload), {"ok": True, "verified": True})
         self.assertNotIn(session_id, self.mock.state.active_sessions)
         self.assertIn(
             "session.terminate",
             [item["action"] for item in self.server.context.store.recent_audit()],
         )
+
+    def test_session_termination_is_not_reported_successful_while_router_still_shows_it(self) -> None:
+        self.login()
+        session_id = next(iter(self.mock.state.active_sessions))
+        with mock.patch.object(self.server.context.router, "terminate_session"):
+            status, _, payload = self.json_request(
+                "DELETE",
+                f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+                {"confirmation": "user-two"},
+            )
+
+        self.assertEqual(status, 409)
+        response = json.loads(payload)
+        self.assertEqual(response["code"], "routeros.mutation_verification_failed")
+        self.assertFalse(response["verified"])
+        self.assertIn(session_id, self.mock.state.active_sessions)
+        latest = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(latest["action"], "session.terminate")
+        self.assertEqual(latest["status"], "failed")
+
+    def test_session_termination_reports_unknown_when_router_readback_fails(self) -> None:
+        self.login()
+        session_id = next(iter(self.mock.state.active_sessions))
+        credentials = RouterOSCredentials("admin", "routerpass")
+        router = self.server.context.router
+        active_sessions = router.list_active_ovpn_sessions(credentials)
+        with mock.patch.object(
+            router,
+            "list_active_ovpn_sessions",
+            side_effect=[active_sessions, RouterOSError("private router detail", 503)],
+        ):
+            status, _, payload = self.json_request(
+                "DELETE",
+                f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+                {"confirmation": "user-two"},
+            )
+
+        self.assertEqual(status, 502)
+        response = json.loads(payload)
+        self.assertEqual(response["code"], "routeros.mutation_verification_unavailable")
+        self.assertFalse(response["verified"])
+        self.assertNotIn("private router detail", payload.decode("utf-8"))
+        self.assertNotIn(session_id, self.mock.state.active_sessions)
+        latest = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(latest["action"], "session.terminate")
+        self.assertEqual(latest["status"], "unknown")
 
     def test_suspend_disconnects_all_sessions_and_restore_reenables_access(self) -> None:
         self.login()
