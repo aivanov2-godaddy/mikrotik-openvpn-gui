@@ -209,6 +209,21 @@ label { color: #d0d7dc; }
 .service-health-check small { color: #aebac1; font-size: 12px; }
 .service-health-check p { margin: 3px 0 0; color: #8e9da6; font-size: 11px; line-height: 1.5; }
 .service-health-check p b { color: #c6d0d6; }
+.doctor-panel { padding: 14px; }
+.doctor-panel form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.doctor-panel form label { display: grid; min-width: min(100%, 280px); flex: 1 1 280px; gap: 5px; color: var(--muted); font-size: 12px; }
+.doctor-panel form input { width: 100%; min-height: 38px; }
+.doctor-panel form button { min-height: 38px; }
+.doctor-privacy { margin: 10px 0; color: var(--muted); font-size: 12px; }
+.doctor-results { display: grid; gap: 8px; }
+.doctor-check { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--dim); border-radius: 5px; background: var(--panel-2); }
+.doctor-check.pass { border-left-color: var(--green); }
+.doctor-check.warning, .doctor-check.stale { border-left-color: var(--amber); }
+.doctor-check.error, .doctor-check.unavailable { border-left-color: var(--red); }
+.doctor-check > strong { color: var(--text-bright); font-size: 13px; }
+.doctor-check > span { color: var(--muted); font-size: 11px; }
+.doctor-check > p { grid-column: 1 / -1; margin: 0; color: var(--text); font-size: 12px; }
+.doctor-check > small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .observability-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; margin-top: 8px; }
 .observability-panel { min-width: 0; margin-top: 0; }
 .observability-table { min-width: 520px; }

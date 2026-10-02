@@ -226,6 +226,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'data-view="live-sessions"', page)
         self.assertIn(b'data-view="profile-security"', page)
         self.assertIn(b'data-view="service-health"', page)
+        self.assertIn(b'data-view="connection-doctor"', page)
+        self.assertIn(b'data-connection-doctor-form', page)
         self.assertIn(b'data-view="audit-log"', page)
         self.assertIn(b"Change History", page)
         self.assertNotIn(b"What changed", page)
@@ -243,7 +245,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b">MONITOR</span>", page)
         self.assertIn(b">MANAGE</span>", page)
         self.assertIn(b">ADMINISTRATION</span>", page)
-        for label in (b"Dashboard", b"VPN Users", b"Connections", b"Device Profiles", b"Policy Templates", b"Service Health", b"Change History", b"Setup Planner"):
+        for label in (b"Dashboard", b"VPN Users", b"Connections", b"Device Profiles", b"Policy Templates", b"Service Health", b"Connection Doctor", b"Change History", b"Setup Planner"):
             self.assertIn(b'aria-label="' + label + b'"', page)
         self.assertIn(b"RouterOS certificate inventory", page)
         self.assertIn(b'<details class="panel profile-onboarding">', page)
@@ -497,6 +499,24 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.json_request("POST", "/api/profile/diagnose", {"profile": profile})
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload)["status"], "pass")
+
+        status, _, payload = self.json_request("POST", "/api/connection-doctor", {"username": "user-two"})
+        self.assertEqual(status, 200)
+        doctor = json.loads(payload)
+        doctor_checks = {item["id"]: item for item in doctor["checks"]}
+        self.assertEqual(doctor_checks["server"]["status"], "pass")
+        self.assertEqual(doctor_checks["session"]["status"], "pass")
+        self.assertIn("source", doctor_checks["router"])
+        self.assertIn("confidence", doctor_checks["compatibility"])
+        self.assertNotIn(b"user-two", payload)
+        self.assertNotIn(b"198.51.100.40", payload)
+        self.assertNotIn(b"198.18.0.48", payload)
+
+        status, _, payload = self.json_request("POST", "/api/connection-doctor", {"username": "invalid name"})
+        self.assertEqual(status, 400)
+
+        status, _, _ = self.json_request("POST", "/api/connection-doctor", {"username": "user-two"}, csrf=False)
+        self.assertEqual(status, 403)
 
         status, _, payload = self.json_request("POST", "/api/network/segment-plan", {"zone": "lan", "cidrs": ["192.0.2.0/24"]})
         self.assertEqual(status, 200)
