@@ -14,7 +14,6 @@ import math
 import os
 from pathlib import Path
 import re
-import sys
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
