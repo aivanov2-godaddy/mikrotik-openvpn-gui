@@ -3489,16 +3489,92 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("This device has no revocable certificate identity")
             if not self._checkpoint(session, "device.revoke"):
                 return
-            self.server.context.router.revoke_certificate(credentials, certificate_id=certificate_id)
+            mutation_error: RouterOSError | None = None
+            try:
+                self.server.context.router.revoke_certificate(credentials, certificate_id=certificate_id)
+            except RouterOSError as error:
+                # A lost REST response does not tell us whether RouterOS
+                # committed the revocation. The exact certificate read-back is
+                # authoritative before changing local device state.
+                mutation_error = error
+            try:
+                certificates = self.server.context.router.list_ovpn_client_certificates(
+                    credentials, include_legacy=True
+                )
+            except RouterOSError as error:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="device.revoke",
+                    target=device_name,
+                    status="unknown",
+                    details={"verification": "unavailable", "reason": type(error).__name__},
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_unavailable",
+                        "error": (
+                            "The certificate revocation request may have reached RouterOS, "
+                            "but its state could not be verified. Check Device Profiles before retrying."
+                        ),
+                        "verified": False,
+                        "verification": "unknown",
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+            certificate = next(
+                (item for item in certificates if str(item.get("id", "")) == certificate_id),
+                None,
+            )
+            if not certificate or not certificate.get("revoked"):
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="device.revoke",
+                    target=device_name,
+                    status="failed",
+                    details={
+                        "verification": "mismatch",
+                        "mutation_response": "error" if mutation_error else "ok",
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_failed",
+                        "error": (
+                            "RouterOS read-back did not confirm this certificate as revoked. "
+                            "The local device remains active; inspect RouterOS before retrying."
+                        ),
+                        "verified": False,
+                        "verification": "mismatch",
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
             self.server.context.store.mark_revoked(device_id)
             self.server.context.store.audit(
                 actor=session.username,
                 action="device.revoke",
                 target=device_name,
                 status="success",
-                details={"vpn_user": str(device.get("vpn_user", "")), "certificate": str(device.get("certificate_name", ""))},
+                details={
+                    "vpn_user": str(device.get("vpn_user", "")),
+                    "certificate": str(device.get("certificate_name", "")),
+                    "verification": "routeros_revoked",
+                    "mutation_response": "error" if mutation_error else "ok",
+                    "active_session_termination_verified": False,
+                    "client_rejection_verified": False,
+                },
             )
-            self._json({"ok": True, "device": device_name})
+            self._json(
+                {
+                    "ok": True,
+                    "device": device_name,
+                    "verified": True,
+                    "verification": "routeros_revoked",
+                    "active_session_termination_verified": False,
+                    "client_rejection_verified": False,
+                }
+            )
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 

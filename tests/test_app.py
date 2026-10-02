@@ -197,6 +197,19 @@ class DashboardIntegrationTests(unittest.TestCase):
             headers["X-CSRF-Token"] = self.csrf
         return self.request(method, path, body=json.dumps(value or {}).encode(), headers=headers)
 
+    def _managed_device_revoke_request(self) -> tuple[str, str]:
+        self.login()
+        device_id = "managed-device-revoke-test"
+        self.server.context.store.add_device(
+            device_id=device_id,
+            vpn_user="user-one",
+            device_name="Managed test phone",
+            certificate_name="ovpn-user-one-device-a",
+            certificate_id="*CL1",
+            fingerprint="A1:EX:26",
+        )
+        return f"/api/devices/{device_id}/revoke", device_id
+
     def _policy_template_review(self) -> tuple[str, str, dict[str, Any]]:
         status, _, payload = self.json_request(
             "POST", "/api/policy-templates",
@@ -876,7 +889,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(json.loads(payload), {"ok": True})
         self.assertNotIn("maria", [item["name"] for item in self.mock.state.users.values()])
         self.assertNotIn("maria", self.server.context.store.user_emails())
-        self.assertEqual(set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2"})
+        self.assertEqual(
+            set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2", "*C1", "*C2"}
+        )
+        self.assertTrue(self.mock.state.certificates["*CA"].get("revoked") in (None, "no"))
+        self.assertTrue(all(self.mock.state.certificates[item]["revoked"] for item in ("*C1", "*C2")))
         self.assertTrue(all(item["revoked_at"] for item in self.server.context.store.devices_for_user("maria", include_revoked=True)))
 
     def test_qr_profile_share_is_a_bounded_zip_download(self) -> None:
@@ -1191,6 +1208,79 @@ class DashboardIntegrationTests(unittest.TestCase):
         latest = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(latest["action"], "session.terminate")
         self.assertEqual(latest["status"], "failed")
+
+    def test_device_revoke_marks_local_state_only_after_routeros_readback(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+
+        status, _, payload = self.json_request(
+            "POST", path, {"confirmation": "Managed test phone"}
+        )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertTrue(response["verified"])
+        self.assertEqual(response["verification"], "routeros_revoked")
+        self.assertFalse(response["active_session_termination_verified"])
+        self.assertFalse(response["client_rejection_verified"])
+        self.assertIsNotNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
+        self.assertIn("POST /certificate/issued-revoke", self.mock.state.mutation_requests)
+
+    def test_device_revoke_accepts_lost_mutation_response_when_readback_confirms_commit(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        revoke = self.server.context.router.revoke_certificate
+
+        def commit_then_lose_response(*args: Any, **kwargs: Any) -> None:
+            revoke(*args, **kwargs)
+            raise RouterOSError("response lost after commit", 503)
+
+        with mock.patch.object(
+            self.server.context.router,
+            "revoke_certificate",
+            side_effect=commit_then_lose_response,
+        ):
+            status, _, payload = self.json_request(
+                "POST", path, {"confirmation": "Managed test phone"}
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertTrue(response["verified"])
+        self.assertIsNotNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "success")
+
+    def test_device_revoke_does_not_mark_local_state_when_routeros_readback_mismatches(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        with mock.patch.object(self.server.context.router, "revoke_certificate"):
+            status, _, payload = self.json_request(
+                "POST", path, {"confirmation": "Managed test phone"}
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["verification"], "mismatch")
+        self.assertFalse(response["verified"])
+        self.assertIsNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "failed")
+
+    def test_device_revoke_reports_unknown_when_routeros_readback_is_unavailable(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        with mock.patch.object(
+            self.server.context.router,
+            "list_ovpn_client_certificates",
+            side_effect=RouterOSError("private router detail", 503),
+        ):
+            status, _, payload = self.json_request(
+                "POST", path, {"confirmation": "Managed test phone"}
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["verification"], "unknown")
+        self.assertFalse(response["verified"])
+        self.assertNotIn("private router detail", payload.decode("utf-8"))
+        self.assertIsNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
 
     def test_session_termination_reports_unknown_when_router_readback_fails(self) -> None:
         self.login()

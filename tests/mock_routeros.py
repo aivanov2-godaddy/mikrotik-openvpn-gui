@@ -377,6 +377,13 @@ class MockHandler(BaseHTTPRequestHandler):
                 state.certificates[body["number"]]["issuer"] = "vpn-ca"
                 state.certificates[body["number"]]["ca"] = body["ca"]
                 self._empty()
+            elif path == "/certificate/issued-revoke":
+                certificate = state.certificates.get(str(body.get("numbers", "")))
+                if not certificate:
+                    self._json({"error": "not found"}, 404)
+                    return
+                certificate["revoked"] = "2026-10-03 12:00:00"
+                self._empty()
             elif path == "/certificate/export-certificate":
                 cert = state.certificates[body["numbers"]]
                 name = cert["name"]

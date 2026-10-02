@@ -712,8 +712,14 @@ class RouterOSClient:
         self._request("DELETE", f"/ppp/secret/{safe_id}", credentials)
 
     def revoke_certificate(self, credentials: RouterOSCredentials, *, certificate_id: str) -> None:
-        safe_id = urllib.parse.quote(certificate_id, safe="*")
-        self._request("DELETE", f"/certificate/{safe_id}", credentials)
+        # Issued certificates must be revoked, not removed. RouterOS records the
+        # revocation timestamp on the certificate and includes it in its CRL.
+        self._request(
+            "POST",
+            "/certificate/issued-revoke",
+            credentials,
+            body={"numbers": certificate_id},
+        )
 
     def _files(self, credentials: RouterOSCredentials) -> dict[str, dict[str, Any]]:
         records = _records(
