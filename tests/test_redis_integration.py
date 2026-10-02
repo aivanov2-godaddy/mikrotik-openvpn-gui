@@ -166,6 +166,29 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         self.assertEqual([fields["event_id"] for _, fields in entries], [event_id, event_id])
         self.assertEqual(self.store.integration_outbox_metrics()["pending"], 0)
 
+    def test_pending_outbox_recovers_when_redis_loses_unacknowledged_stream_data(self) -> None:
+        record = self._enqueue_event()
+        event_id = str(record["event_id"])
+
+        # Redis accepted the append, but SQLite did not record its ack. Simulate
+        # Redis losing all in-memory stream state before the durable outbox is
+        # retried (for example, restart without recoverable persistence).
+        self.publisher.publish(record["payload"])
+        self.store.mark_integration_failed(
+            event_id, "acknowledgement_lost", retry_at=int(time.time()) + 1
+        )
+        self.client.flushdb()
+
+        retry = self.store.pending_integration_events(now=int(time.time()) + 2)[0]
+        self.assertEqual(retry["event_id"], event_id)
+        self.publisher.publish(retry["payload"])
+        self.store.mark_integration_delivered(event_id)
+
+        entries = self.client.xrange("vpn-dashboard.test.events")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0][1]["event_id"], event_id)
+        self.assertEqual(self.store.integration_outbox_metrics()["pending"], 0)
+
     def test_worker_restart_after_xadd_retries_durable_event_with_same_id(self) -> None:
         record = self._enqueue_event()
         event_id = str(record["event_id"])
