@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -119,6 +120,38 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         self.assertEqual(len(entries), 2)
         self.assertEqual([fields["event_id"] for _, fields in entries], [event_id, event_id])
         self.assertEqual(self.store.integration_outbox_metrics()["pending"], 0)
+
+    def test_worker_restart_after_xadd_retries_durable_event_with_same_id(self) -> None:
+        record = self._enqueue_event()
+        event_id = str(record["event_id"])
+        database_path = Path(self.tempdir.name) / "outbox.sqlite"
+
+        # The first worker receives XADD's success, then dies before recording
+        # the SQLite acknowledgement. Reopening the database models a fresh
+        # process: the row must remain pending and safe to retry.
+        self.publisher.publish(record["payload"])
+
+        restarted_store = MetadataStore(str(database_path))
+        restarted_publisher = RedisStreamPublisher(
+            self.redis_url,
+            stream="vpn-dashboard.test.events",
+            client=self.client,
+        )
+        retry = restarted_store.pending_integration_events(now=int(time.time()) + 120)[0]
+        self.assertEqual(retry["event_id"], event_id)
+        self.assertEqual(retry["attempts"], 2)
+
+        restarted_publisher.publish(retry["payload"])
+        restarted_store.mark_integration_delivered(event_id)
+
+        entries = self.client.xrange("vpn-dashboard.test.events")
+        self.assertEqual(len(entries), 2)
+        self.assertEqual([fields["event_id"] for _, fields in entries], [event_id, event_id])
+        self.assertEqual(
+            [json.loads(fields["payload"]) for _, fields in entries][0],
+            json.loads(entries[1][1]["payload"]),
+        )
+        self.assertEqual(restarted_store.integration_outbox_metrics()["pending"], 0)
 
 
 if __name__ == "__main__":
