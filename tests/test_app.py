@@ -215,6 +215,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Terminate", page)
         self.assertIn(b"Byte Graph", page)
         self.assertIn(b"Packet Graph", page)
+        self.assertIn(b'data-graph-view="both"', page)
+        self.assertIn(b'aria-label="Visible traffic graphs"', page)
         self.assertIn(b"data-rx-packets=\"387\"", page)
         self.assertIn(b"router.example.test", page)
         self.assertNotIn(b">Session</span>", page)

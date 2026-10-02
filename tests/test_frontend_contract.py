@@ -23,6 +23,13 @@ class FrontendLiveUpdateContractTests(unittest.TestCase):
         self.assertIn("const timestamp = Date.now();", source)
         self.assertNotIn("Number(payload.generated_at || Math.floor(Date.now() / 1000)) * 1000", source)
 
+    def test_graph_visibility_controls_do_not_pause_live_sample_updates(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("graphs.dataset.graphView = selected;", source)
+        self.assertIn("function updateGraphs(card, rates)", source)
+        self.assertIn("document.addEventListener('click', (event) => {", source)
+        self.assertIn("data-graph-view", source)
+
 
 if __name__ == "__main__":
     unittest.main()

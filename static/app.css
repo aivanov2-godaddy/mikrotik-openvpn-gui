@@ -450,6 +450,13 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .terminate-button { min-height: 27px; padding: 3px 7px; color: #eea1a5; border-color: #72464a; background: #412a2e; font-size: 10px; }
 .terminate-button:hover { border-color: #b85c63; background: #5b3036; }
 .session-graphs { display: grid; min-width: 0; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(300px, 1fr)); gap: 10px; padding-top: 4px; }
+.graph-controls { display: flex; grid-column: 1 / -1; align-items: center; gap: 5px; }
+.graph-controls > span { margin-right: 3px; color: var(--muted); font-size: 11px; }
+.graph-controls button { min-height: 30px; padding: 3px 9px; color: var(--text); border: 1px solid var(--line); border-radius: 5px; background: var(--panel); cursor: pointer; font-size: 11px; }
+.graph-controls button[aria-pressed="true"] { color: var(--text-bright); border-color: var(--blue); background: var(--blue-select); }
+.graph-controls button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.session-graphs[data-graph-view="bytes"] [data-graph-type="packets"],
+.session-graphs[data-graph-view="packets"] [data-graph-type="bytes"] { display: none; }
 .traffic-graph { min-width: 0; padding: 7px 8px 6px; border: 1px solid #34414b; background: #25313a; }
 .traffic-graph > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
 .traffic-graph > header strong { color: #edf2f4; font-size: 12px; font-weight: 600; }
