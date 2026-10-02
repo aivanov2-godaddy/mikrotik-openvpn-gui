@@ -10,6 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_runtime_diagnostic_module_is_bundled_in_the_container(self) -> None:
+        containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
+        self.assertIn("exposure_doctor.py", containerfile)
+        workflows = ROOT / ".github" / "workflows"
+        for workflow in ("ci.yml", "container.yml"):
+            self.assertIn("exposure_doctor.py", (workflows / workflow).read_text(encoding="utf-8"))
+
     def test_public_repository_has_no_router_deployment_workflow(self) -> None:
         workflows = ROOT / ".github" / "workflows"
         self.assertFalse((workflows / "deploy-production.yml").exists())

@@ -73,7 +73,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Compile application
-        run: python -m compileall -q app.py automation.py cloudflare.py connection_doctor.py error_guidance.py deploy_routeros_canary.py deployment.py event_safety.py favicon.py icons.py install_routeros.py integrations.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py scripts/backup_sqlite.py
+        run: python -m compileall -q app.py automation.py cloudflare.py connection_doctor.py error_guidance.py exposure_doctor.py deploy_routeros_canary.py deployment.py event_safety.py favicon.py icons.py install_routeros.py integrations.py qr.py routeros.py security.py store.py templates.py update_routeros_app.py scripts/backup_sqlite.py
       - name: Run unit and mock integration tests
         run: python -m unittest discover -s tests -v
 
