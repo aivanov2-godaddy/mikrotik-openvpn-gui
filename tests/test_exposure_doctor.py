@@ -26,6 +26,9 @@ class ExposureDoctorTests(unittest.TestCase):
         self.assertEqual(checks["service-www"]["status"], "warning")
         self.assertIn("unencrypted", checks["service-www"]["message"])
         self.assertEqual(checks["service-api-ssl"]["status"], "verified")
+        self.assertEqual(checks["unrecognized-policy-flags"]["status"], "verified")
+        self.assertIn("broad RouterOS configuration changes (write) is enabled", checks["feature-access"]["message"])
+        self.assertIn("RouterOS user/group policy management (policy) is not enabled", checks["feature-access"]["message"])
         serialized = str(result)
         for private_value in ("router-admin-private", "custom-private", "10.22.0.0/24", "do-not-return", "private-note", "private-cert-name", "'port':", "'80'"):
             self.assertNotIn(private_value, serialized)
@@ -42,6 +45,7 @@ class ExposureDoctorTests(unittest.TestCase):
         self.assertEqual(checks["group-policies"]["status"], "unknown")
         self.assertEqual(checks["service-www-ssl"]["status"], "unknown")
         self.assertEqual(checks["service-api-ssl"]["status"], "unknown")
+        self.assertEqual(checks["unrecognized-policy-flags"]["status"], "unknown")
 
     def test_unavailable_and_unsupported_sources_remain_distinct(self):
         result = exposure_doctor_snapshot(
@@ -53,6 +57,25 @@ class ExposureDoctorTests(unittest.TestCase):
         self.assertEqual(checks["group-policies"]["status"], "unknown")
         self.assertEqual(checks["management-services"]["status"], "unsupported")
         self.assertEqual(checks["firewall-boundary"]["status"], "unknown")
+
+    def test_unrecognized_routeros_policy_flags_make_posture_unknown_without_echoing_values(self):
+        values = self.inputs()
+        values["group"]["policy"] = "read,api,rest-api,policy-nextgen"
+        result = exposure_doctor_snapshot(**values)
+        checks = {item["id"]: item for item in result["checks"]}
+        self.assertEqual(checks["unrecognized-policy-flags"]["status"], "unknown")
+        self.assertIn("does not recognize", checks["unrecognized-policy-flags"]["message"])
+        self.assertNotIn("policy-nextgen", str(result))
+        self.assertNotIn("raw policy values", checks["unrecognized-policy-flags"]["message"])
+
+    def test_negated_known_routeros_policies_do_not_trigger_unknown_flag(self):
+        values = self.inputs()
+        values["group"]["policy"] = "read,api,rest-api,!write,!policy,!ftp"
+        result = exposure_doctor_snapshot(**values)
+        checks = {item["id"]: item for item in result["checks"]}
+        self.assertEqual(checks["unrecognized-policy-flags"]["status"], "verified")
+        self.assertIn("broad RouterOS configuration changes (write) is not enabled", checks["feature-access"]["message"])
+        self.assertNotIn("file-transfer-login", checks["high-impact-policies"]["message"])
 
     def test_all_address_catchalls_are_not_misreported_as_restricted(self):
         values = self.inputs()
