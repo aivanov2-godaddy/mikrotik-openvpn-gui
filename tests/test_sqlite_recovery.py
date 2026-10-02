@@ -14,6 +14,72 @@ from store import MetadataStore
 
 
 class SQLiteRecoveryTests(unittest.TestCase):
+    def test_write_lock_contention_times_out_and_store_recovers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            store.audit(actor="test", action="before.lock", target="local", status="success")
+            lock_holder = sqlite3.connect(database, timeout=1, isolation_level=None)
+            try:
+                lock_holder.execute("BEGIN IMMEDIATE")
+                started = time.monotonic()
+                with self.assertRaisesRegex(sqlite3.OperationalError, "locked"):
+                    store.audit(
+                        actor="test",
+                        action="contended.write",
+                        target="local",
+                        status="success",
+                    )
+                elapsed = time.monotonic() - started
+                self.assertGreaterEqual(elapsed, 4.5)
+                self.assertLess(elapsed, 8)
+            finally:
+                lock_holder.rollback()
+                lock_holder.close()
+
+            store.verify_readiness()
+            store.audit(actor="test", action="after.lock", target="local", status="success")
+            actions = {item["action"] for item in store.recent_audit(10)}
+            self.assertIn("before.lock", actions)
+            self.assertIn("after.lock", actions)
+            self.assertNotIn("contended.write", actions)
+
+    def test_passive_checkpoint_respects_reader_and_completes_after_reader_closes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            reader = sqlite3.connect(database, isolation_level=None)
+            try:
+                reader.execute("BEGIN")
+                reader.execute("SELECT COUNT(*) FROM audit").fetchone()
+                for index in range(20):
+                    store.audit(
+                        actor="checkpoint-test",
+                        action="checkpoint.write",
+                        target=f"row-{index}",
+                        status="success",
+                        details={"index": index},
+                    )
+
+                while_reader_open = store.checkpoint_wal("PASSIVE")
+                self.assertEqual(while_reader_open["mode"], "PASSIVE")
+                self.assertGreaterEqual(while_reader_open["log_frames"], 0)
+                self.assertGreaterEqual(while_reader_open["checkpointed_frames"], 0)
+                self.assertLessEqual(
+                    while_reader_open["checkpointed_frames"], while_reader_open["log_frames"]
+                )
+            finally:
+                reader.rollback()
+                reader.close()
+
+            after_reader_close = store.checkpoint_wal("PASSIVE")
+            self.assertEqual(after_reader_close["mode"], "PASSIVE")
+            self.assertEqual(after_reader_close["busy"], 0)
+            self.assertEqual(
+                after_reader_close["checkpointed_frames"], after_reader_close["log_frames"]
+            )
+            store.verify_readiness()
+
     def test_backup_rejects_live_database_and_wal_sidecars(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"
