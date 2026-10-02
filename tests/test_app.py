@@ -231,6 +231,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'data-exposure-doctor', page)
         self.assertIn(b'data-view="audit-log"', page)
         self.assertIn(b"Change History", page)
+        self.assertIn(b"not a complete RouterOS telemetry timeline", page)
+        self.assertIn(b"up to 100 entries \xc2\xb7 audit only", page)
         self.assertIn(b'data-history-category aria-label="Filter history by event"', page)
         self.assertIn(b'data-history-outcome aria-label="Filter history by outcome"', page)
         self.assertIn(b'data-history-created=', page)
