@@ -49,6 +49,47 @@ RouterOS labels some 32-bit hardware `arm`. This project does not publish an
 `arm` image because ARM32/ARMv5 compatibility has not been verified. Validate
 the exact RouterOS release and hardware before using any new architecture.
 
+### Build provenance and SBOM
+
+For each published architecture, the container workflow generates an SPDX
+JSON SBOM from the pushed image digest and creates GitHub artifact attestations
+for both the image provenance and its SBOM. These attestations are stored by
+GitHub, not embedded in the image or pushed as OCI referrers, so the
+single-platform runtime manifest consumed by RouterOS remains unchanged. The
+SBOM is also uploaded as a workflow artifact named
+`sbom-<architecture>-<commit>`; the workflow summary records the matching
+image digest. Workflow artifact retention follows the repository's GitHub
+Actions retention policy, while attestations can be independently verified
+against the immutable image tag.
+
+Install GitHub CLI with attestation support, then verify an architecture image
+using its immutable commit tag:
+
+```sh
+gh attestation verify oci://ghcr.io/OWNER/REPOSITORY:sha-COMMIT-arm64 \
+  --repo OWNER/REPOSITORY
+```
+
+The verified image attestation includes the SBOM predicate. Download the
+matching `sbom-arm64-COMMIT` workflow artifact to inspect the SPDX document.
+Repeat with `amd64` for the CHR/x86 image. Never verify a mutable `edge` tag as
+release evidence.
+
+### Compatibility and validation matrix
+
+| Target | Published artifact | What CI proves | RouterOS/device certification |
+| --- | --- | --- | --- |
+| ARM64 | `sha-<commit>-arm64` | Native architecture image is built, pulled by digest, and `/readyz` is smoke-tested | Validate on the exact RouterOS release and hardware before production use; CI emulation is not hardware certification |
+| AMD64 / CHR | `sha-<commit>-amd64` | Native architecture image is built, pulled by digest, and `/readyz` is smoke-tested | CHR/x86 target; validate the target hypervisor and RouterOS release before production use |
+| ARM32 / ARMv5 | Not published | No CI build or runtime claim | Unsupported / unverified |
+
+The application targets RouterOS 7 REST APIs and uses the RouterOS container
+feature for hosting; API behavior, container capability, architecture support,
+storage, and resource headroom vary by RouterOS version and device. Public CI
+does not certify every RouterOS release or hardware model. Treat untested
+combinations as unverified, and record hardware-specific acceptance privately
+without publishing router identity, address, user data, or configuration.
+
 ## Public-source boundary
 
 This repository contains public source, public image publishing, and a generic
@@ -73,9 +114,11 @@ repository.
    the ARM64 image build, to pass.
 4. Merge the reviewed pull request to `main`.
 5. Verify the architecture-specific image tags and their digests in GHCR.
-6. Perform a canary validation outside this repository before any production
+6. Verify the image's GitHub provenance attestation and download its matching
+   architecture-specific SPDX SBOM artifact.
+7. Perform a canary validation outside this repository before any production
    router update.
-7. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
+8. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
 
 The repository's next release version is kept in [`VERSION`](../VERSION). Run
 `python scripts/validate_release.py --tag v2.5.0` before creating a tag. The
