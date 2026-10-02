@@ -40,6 +40,12 @@ METRIC_NAMES = {
     "vpn_dashboard_redis_last_publish_success_timestamp_seconds",
     "vpn_dashboard_integration_outbox_pending",
     "vpn_dashboard_integration_outbox_oldest_age_seconds",
+    "vpn_dashboard_telemetry_session_event_age_seconds",
+    "vpn_dashboard_telemetry_session_event_timestamp_seconds",
+    "vpn_dashboard_telemetry_session_events_total",
+    "vpn_dashboard_telemetry_traffic_sample_age_seconds",
+    "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
+    "vpn_dashboard_telemetry_traffic_samples_total",
 }
 METRIC_LINE = re.compile(
     r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+'
@@ -153,6 +159,19 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         last.get("vpn_dashboard_redis_publish_total_failure", 0)
         < first.get("vpn_dashboard_redis_publish_total_failure", 0)
     )
+
+    def observation_age(metric_name: str, timestamp_name: str) -> dict[str, Any]:
+        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
+        observed = [value for value in values if value >= 0]
+        timestamps = [sample[timestamp_name] for sample in metric_samples if sample.get(timestamp_name, -1) >= 0]
+        return {
+            "last_seconds": values[-1] if values else None,
+            "max_seconds": max(observed) if observed else None,
+            "observed_samples": len(observed),
+            "unknown_samples": sum(value < 0 for value in values),
+            "last_observed_timestamp_seconds": timestamps[-1] if timestamps else None,
+        }
+
     return {
         "available": True,
         "redis_configured": last.get("vpn_dashboard_redis_configured"),
@@ -162,6 +181,17 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         "redis_publish_failure_counter_reset": failure_counter_reset,
         "outbox_pending_last": last.get("vpn_dashboard_integration_outbox_pending"),
         "outbox_oldest_age_seconds_last": last.get("vpn_dashboard_integration_outbox_oldest_age_seconds"),
+        "telemetry_process_observation_age": {
+            "session_event": observation_age(
+                "vpn_dashboard_telemetry_session_event_age_seconds",
+                "vpn_dashboard_telemetry_session_event_timestamp_seconds",
+            ),
+            "traffic_sample": observation_age(
+                "vpn_dashboard_telemetry_traffic_sample_age_seconds",
+                "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
+            ),
+            "meaning": "Age since this process observed telemetry; not RouterOS-to-browser delivery latency.",
+        },
     }
 
 

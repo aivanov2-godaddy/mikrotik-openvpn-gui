@@ -98,7 +98,10 @@ Notes: <no credentials, addresses, hosts, profiles, or exports>
 `GET /readyz` on both private app origins. It checks the readiness revision
 against the immutable image tag, records the observation window and sample
 gaps, and can optionally sample the authenticated aggregate `GET /metrics`
-endpoint. It does not call RouterOS APIs, restart containers, or modify state.
+endpoint, including Redis/outbox health and process-observation ages for
+session events and traffic samples. Those age gauges are not end-to-end
+RouterOS-to-browser latency. It does not call RouterOS APIs, restart
+containers, or modify state.
 
 Start from the [evidence schema example](release-acceptance-evidence.example.json)
 and fill its RouterOS-only and exercise results locally. Keep that file private.
