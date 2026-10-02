@@ -1489,6 +1489,103 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("user.suspend", actions)
         self.assertIn("user.restore", actions)
 
+    def test_user_suspend_reconciles_lost_patch_response_from_routeros_readback(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        update_user = router.update_user
+
+        def update_then_lose_response(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+            raise RouterOSError("private router detail", 503)
+
+        with mock.patch.object(router, "update_user", side_effect=update_then_lose_response):
+            status, _, payload = self.json_request(
+                "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
+                {"confirmation": "user-two"},
+            )
+
+        self.assertEqual(status, 200)
+        result = json.loads(payload)
+        self.assertTrue(result["verified"])
+        self.assertTrue(result["reconciled"])
+        self.assertTrue(result["disabled"])
+        disabled = next(item for item in self.mock.state.users.values() if item["name"] == "user-two")
+        self.assertEqual(disabled["disabled"], "yes")
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "success")
+        self.assertTrue(json.loads(audit["details"])["mutation_response_lost"])
+        self.assertNotIn("private router detail", payload.decode("utf-8"))
+
+    def test_user_suspend_reports_mismatch_without_claiming_success(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+
+        with mock.patch.object(router, "update_user"):
+            status, _, payload = self.json_request(
+                "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
+                {"confirmation": "user-two"},
+            )
+
+        self.assertEqual(status, 409)
+        result = json.loads(payload)
+        self.assertEqual(result["code"], "routeros.mutation_verification_failed")
+        self.assertFalse(result["verified"])
+        unchanged = next(item for item in self.mock.state.users.values() if item["name"] == "user-two")
+        self.assertEqual(unchanged["disabled"], "no")
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "failed")
+
+    def test_user_access_reports_unknown_when_routeros_readback_is_unavailable(self) -> None:
+        self.login()
+        router = self.server.context.router
+        self.server.context.store.set_user_controls(
+            "user-two", policy="full-tunnel", expires_at=None, max_sessions=1,
+            rate_limit_kbps=0, dns_mode="router", notifications=True,
+        )
+        self.server.context.store.set_enforcement_state("user-two", "quota")
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        update_user = router.update_user
+        list_users = router.list_ovpn_users
+
+        def update_then_readback_fails(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+
+        def list_with_failed_verification(credentials: RouterOSCredentials) -> list[dict[str, Any]]:
+            # The handler's initial lookup succeeds; only the post-mutation
+            # verification read is unavailable.
+            if list_with_failed_verification.calls == 0:
+                list_with_failed_verification.calls += 1
+                return list_users(credentials)
+            raise RouterOSError("private router detail", 503)
+
+        list_with_failed_verification.calls = 0  # type: ignore[attr-defined]
+        with (
+            mock.patch.object(router, "update_user", side_effect=update_then_readback_fails),
+            mock.patch.object(router, "list_ovpn_users", side_effect=list_with_failed_verification),
+        ):
+            status, _, payload = self.json_request(
+                "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
+                {"confirmation": "user-two"},
+            )
+
+        self.assertEqual(status, 502)
+        result = json.loads(payload)
+        self.assertEqual(result["verification"], "unknown")
+        self.assertFalse(result["verified"])
+        self.assertNotIn("private router detail", payload.decode("utf-8"))
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
+        self.assertEqual(self.server.context.store.user_controls("user-two")["enforcement_state"], "quota")
+
     def test_bulk_tag_is_reviewed_idempotent_and_supports_saved_views(self) -> None:
         self.login()
         users = {
