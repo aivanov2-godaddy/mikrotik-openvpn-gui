@@ -822,13 +822,15 @@ def dashboard_page(
   </header>
 
   <aside class="winbox-sidebar" aria-label="VPN Dashboard navigation">
+    <span class="nav-section-title">MONITOR</span>
     <a href="#overview" class="active" data-view-target="overview" aria-label="Dashboard" title="Dashboard">{_icon('dashboard')}<span>Dashboard</span></a>
-    <a href="#vpn-users" data-view-target="vpn-users" aria-label="VPN Users" title="VPN Users">{_icon('users')}<span>VPN Users</span></a>
     <a href="#live-sessions" data-view-target="live-sessions" aria-label="Connections" title="Connections">{_icon('session')}<span>Connections</span><strong class="nav-count" data-nav-session-count>{len(sessions)}</strong></a>
+    <a href="#service-health" data-view-target="service-health" aria-label="Service Health" title="Service Health">{_icon('health')}<span>Service Health</span></a>
+    <span class="nav-section-title">MANAGE</span>
+    <a href="#vpn-users" data-view-target="vpn-users" aria-label="VPN Users" title="VPN Users">{_icon('users')}<span>VPN Users</span></a>
     <a href="#profile-security" data-view-target="profile-security" aria-label="Device Profiles" title="Device Profiles">{_icon('device')}<span>Device Profiles</span></a>
     <a href="#policy-templates" data-view-target="policy-templates" aria-label="Policy Templates" title="Policy Templates">{_icon('template')}<span>Policy Templates</span></a>
-    <a href="#service-health" data-view-target="service-health" aria-label="Service Health" title="Service Health">{_icon('health')}<span>Service Health</span></a>
-    <span class="nav-section-title">AUDIT LOG</span>
+    <span class="nav-section-title">ADMINISTRATION</span>
     <a href="#audit-log" class="nav-subitem" data-view-target="audit-log" aria-label="Change History" title="Change History">{_icon('log')}<span>Change History</span></a>
     <a href="#admin-sessions" class="nav-subitem" data-view-target="admin-sessions" aria-label="Administrator Sessions" title="Administrator Sessions">{_icon('shield')}<span>Admin sessions</span></a>
     <span class="nav-section-title">SETUP</span>
