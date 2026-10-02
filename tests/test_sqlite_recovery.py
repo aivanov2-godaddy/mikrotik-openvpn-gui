@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -23,7 +24,6 @@ class SQLiteRecoveryTests(unittest.TestCase):
 
             def write_rows() -> None:
                 try:
-                    started.set()
                     for index in range(400):
                         writer.audit(
                             actor="backup-test",
@@ -32,6 +32,10 @@ class SQLiteRecoveryTests(unittest.TestCase):
                             status="success",
                             details={"index": index},
                         )
+                        if index == 0:
+                            started.set()
+                        if index % 5 == 0:
+                            time.sleep(0.002)
                 except BaseException as error:
                     errors.append(error)
 
