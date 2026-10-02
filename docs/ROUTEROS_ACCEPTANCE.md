@@ -92,6 +92,59 @@ Rollback rehearsal: pass | review | fail
 Notes: <no credentials, addresses, hosts, profiles, or exports>
 ```
 
+## Collect a bounded app-health window
+
+`scripts/collect_release_acceptance.py` samples only `GET /healthz` and
+`GET /readyz` on both private app origins. It checks the readiness revision
+against the immutable image tag, records the observation window and sample
+gaps, and can optionally sample the authenticated aggregate `GET /metrics`
+endpoint. It does not call RouterOS APIs, restart containers, or modify state.
+
+Start from the [evidence schema example](release-acceptance-evidence.example.json)
+and fill its RouterOS-only and exercise results locally. Keep that file private.
+The collector overwrites app health, readiness, timestamps, sample counts,
+sample gaps, and—when metrics are sampled—Redis publish evidence. Unknown input
+fields are dropped from output. Metrics output is restricted to aggregate
+health, Redis, and outbox numbers; response bodies, labels, URLs, and cookies
+are never written to the report. Use a short-lived, least-privileged dashboard
+session through an environment variable if `/metrics` is enabled. Avoid
+putting the cookie literal in a command line or shell history; enter it at a
+secure prompt in the same PowerShell session:
+
+```powershell
+$secureCookie = Read-Host 'Short-lived session Cookie header value' -AsSecureString
+try {
+  $env:VPN_ACCEPTANCE_COOKIE = [Net.NetworkCredential]::new('', $secureCookie).Password
+python scripts/collect_release_acceptance.py `
+  --input private-evidence.json `
+  --output private-collected-evidence.json `
+  --canary-url http://<private-canary-origin> `
+  --production-url http://<private-production-origin> `
+  --canary-metrics-url https://<approved-canary-origin> `
+  --production-metrics-url https://<approved-production-origin> `
+  --cookie-env VPN_ACCEPTANCE_COOKIE `
+  --duration-seconds 1800 --interval-seconds 60
+python scripts/release_acceptance.py --input private-collected-evidence.json `
+  --output private-acceptance-report.json
+} finally {
+  Remove-Item Env:VPN_ACCEPTANCE_COOKIE -ErrorAction SilentlyContinue
+  $secureCookie.Dispose()
+}
+```
+
+Cookies are sent only to HTTPS metrics origins; unauthenticated health and
+readiness probes can use a private HTTP origin. The acceptance window is at
+least 30 minutes, with at least 30 health samples
+per environment and no sample gap over 120 seconds. Duration is capped at 24
+hours, sampling at 10,000 observations, request timeout at 30 seconds, and
+redirects are not followed. The supplied image digest is recorded but not
+fetched or independently verified against a registry. Keep the output local or redact it before sharing. The
+collector cannot independently prove router CPU/memory/storage, VPN event
+latency/freshness, event loss/ordering, API interruption/recovery, snapshot
+recovery, REST/Binary parity, SQLite restore, rollback, unauthenticated access,
+or secret-free logs. Those remain real-router/operator measurements and must be
+recorded in the input evidence; a successful HTTP probe is not a substitute.
+
 Promote only a fully passing candidate through the operator-installed
 [router-local automation](ROUTER_LOCAL_AUTOMATION.md). If a check needs review,
 leave production on its current immutable image and investigate in the local
