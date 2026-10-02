@@ -25,7 +25,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20261002-dashboard-command-center-v1"
+    asset_version = "20261002-task-navigation-v2"
     script_tag = (
         f'<script src="/static/socket.io.min.js?v={asset_version}" defer></script>'
         f'<script src="/static/app.js?v={asset_version}" defer></script>'
