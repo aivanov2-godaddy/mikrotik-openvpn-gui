@@ -347,6 +347,13 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .profile-count { display: grid; }
 .profile-count strong { color: #e3e9ec; font-size: 15px; }
 .profile-count span { color: #91a0a9; font-size: 10px; }
+.user-activity-disclosure { border-top: 1px solid var(--line-soft); }
+.user-activity-disclosure > summary { min-height: 34px; padding: 8px 12px 8px 53px; color: var(--muted); cursor: pointer; font-size: 12px; list-style: none; }
+.user-activity-disclosure > summary::-webkit-details-marker { display: none; }
+.user-activity-disclosure > summary::after { content: "Show details"; margin-left: 7px; color: var(--blue); font-size: 11px; }
+.user-activity-disclosure[open] > summary::after { content: "Hide details"; }
+.user-activity-disclosure > summary:hover { color: var(--text-bright); }
+.user-activity-disclosure > summary:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 
 .action-menu { position: relative; justify-self: end; }
 .action-menu summary { display: inline-flex; min-width: 94px; height: 31px; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; color: #d3dce0; border: 1px solid #46535c; border-radius: 3px; list-style: none; background: #35414a; cursor: pointer; font-size: 12px; }
@@ -678,6 +685,7 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .winbox-statusbar { min-height: 29px; overflow-x: auto; }
   .user-table-head { display: none; }
   .user-card-header { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+  .user-activity-disclosure > summary { padding-left: 10px; }
   .user-activity { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 9px 8px; }
   .user-activity > div:first-child { grid-column: 1 / -1; }
   .connection-badge { grid-column: 1; margin-left: 38px; }

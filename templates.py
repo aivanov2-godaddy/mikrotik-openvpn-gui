@@ -25,7 +25,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20261002-task-navigation-v2"
+    asset_version = "20261002-scannable-user-cards-v3"
     script_tag = (
         f'<script src="/static/socket.io.min.js?v={asset_version}" defer></script>'
         f'<script src="/static/app.js?v={asset_version}" defer></script>'
@@ -467,7 +467,7 @@ def dashboard_page(
               </div>
             </details>
           </header>
-          <div class="user-activity" aria-label="Activity summary for {html.escape(name, quote=True)}">
+          <details class="user-activity-disclosure"><summary>Account details</summary><div class="user-activity" aria-label="Activity summary for {html.escape(name, quote=True)}">
             <div><span>Access health</span><strong class="{'activity-suspended' if disabled else ('activity-online' if connected else '')}">{html.escape(access_health)}</strong></div>
             <div><span>Last activity</span><strong>{html.escape(last_activity)}</strong></div>
             <div><span>Connections</span><strong>{connection_count}</strong></div>
@@ -479,7 +479,7 @@ def dashboard_page(
             <div><span>Schedule</span><strong>{html.escape(_schedule_label(schedule))}</strong></div>
             <div><span>Concurrent devices</span><strong>{max_sessions}</strong></div>
             <div><span>Policy group</span><strong>{html.escape(str((user.get('template') or {}).get('group_name', 'Custom')))}</strong></div>
-          </div>
+          </div></details>
         </article>"""
         )
     user_markup = "".join(rows) or """

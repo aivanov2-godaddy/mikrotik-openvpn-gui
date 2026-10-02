@@ -236,6 +236,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"View connections", page)
         self.assertIn(b"Manage devices", page)
         self.assertIn(b"Connection history", page)
+        self.assertIn(b'<details class="user-activity-disclosure">', page)
+        self.assertIn(b"Account details", page)
         self.assertIn(b">MONITOR</span>", page)
         self.assertIn(b">MANAGE</span>", page)
         self.assertIn(b">ADMINISTRATION</span>", page)
