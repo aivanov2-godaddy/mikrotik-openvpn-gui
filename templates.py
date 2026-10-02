@@ -163,13 +163,15 @@ def evaluate_device_posture(
     devices: list[dict[str, Any]],
     certificates: list[dict[str, Any]],
     current_ca: str,
+    *,
+    now: int | None = None,
 ) -> list[dict[str, str]]:
     """Evaluate managed device certificates without changing RouterOS state.
 
-    A profile is approved only when its exact certificate is present in the
-    current inventory, is not revoked, and names the configured current CA.
-    Returning an explicit reason keeps missing and legacy identities
-    actionable instead of collapsing every failure into a generic warning.
+    An inventory match requires the exact certificate to be present, not
+    revoked, issued by the configured current CA, and known to be unexpired.
+    This is inventory evidence only; it does not establish CRL enforcement,
+    active-session termination, or rejection by a live VPN reconnect.
     """
 
     certificate_by_name = {
@@ -214,7 +216,32 @@ def evaluate_device_posture(
                     f"Issued by {issuer}; the configured current CA is {configured_ca}.",
                 )
             else:
-                state, label, reason = "approved", "Approved", "Issued by the current CA and not revoked."
+                expiry_value = certificate.get("invalid_after") or certificate.get("expires_after")
+                expiry_label, _ = _certificate_expiry(expiry_value, now=now)
+                if expiry_label == "Expired":
+                    state, label, reason = (
+                        "expired",
+                        "Needs review",
+                        "Certificate expiry has passed; live RouterOS rejection was not tested.",
+                    )
+                elif expiry_label == "Expiry unknown":
+                    state, label, reason = (
+                        "warning",
+                        "Needs review",
+                        "Certificate expiry is unavailable or unparseable, so validity cannot be confirmed.",
+                    )
+                elif expiry_label.startswith("Expires"):
+                    state, label, reason = (
+                        "warning",
+                        "Expiring soon",
+                        f"{expiry_label}; issue and test a replacement before retiring this identity.",
+                    )
+                else:
+                    state, label, reason = (
+                        "approved",
+                        "Inventory match",
+                        "Present, unrevoked, unexpired, and issued by the configured current CA; live rejection was not tested.",
+                    )
         posture.append(
             {
                 "device_id": device_id,
@@ -604,8 +631,8 @@ def dashboard_page(
     user_ids = {str(item.get("name", "")): str(item.get("id", "")) for item in users}
     device_posture = evaluate_device_posture(devices, certificates, current_ca)
     posture_by_device_id = {item["device_id"]: item for item in device_posture}
-    approved_devices = sum(item["state"] == "approved" for item in device_posture)
-    review_devices = len(device_posture) - approved_devices
+    matched_devices = sum(item["state"] == "approved" for item in device_posture)
+    review_devices = len(device_posture) - matched_devices
     device_rows: list[str] = []
     for device in devices:
         owner = str(device.get("vpn_user", "")) or "—"
@@ -646,8 +673,8 @@ def dashboard_page(
 
     posture_panel = f"""<section class="panel posture-overview" aria-label="Device posture summary">
       <div class="panel-heading"><div>{_icon('shield')}<span><strong>Device posture</strong><small>Read-only certificate checks for every managed profile</small></span></div><span class="posture-badge">RouterOS inventory</span></div>
-      <div class="posture-metrics"><div class="posture-metric approved"><strong>{approved_devices}</strong><span>Approved</span><small>Current CA · not revoked</small></div><div class="posture-metric warning"><strong>{review_devices}</strong><span>Needs review</span><small>Missing, revoked, or legacy issuer</small></div></div>
-      <p class="posture-overview-note">Approved means the profile certificate is present in the current RouterOS inventory, is not revoked, and is issued by <strong>{html.escape(current_ca or 'the configured current CA')}</strong>. Review items are informational only; no certificates, CA material, or RouterOS settings are changed.</p>
+      <div class="posture-metrics"><div class="posture-metric approved"><strong>{matched_devices}</strong><span>Inventory match</span><small>Current CA · not revoked · unexpired</small></div><div class="posture-metric warning"><strong>{review_devices}</strong><span>Needs review</span><small>Missing, revoked, expired, expiring, or unknown</small></div></div>
+      <p class="posture-overview-note">An inventory match confirms only that the certificate is present, unrevoked, unexpired, and issued by <strong>{html.escape(current_ca or 'the configured current CA')}</strong>. It does not prove CRL enforcement, disconnect an active VPN session, or verify rejection on reconnect. This view is read-only; no certificates, CA material, sessions, or RouterOS settings are changed.</p>
     </section>"""
 
     devices_by_certificate = {
