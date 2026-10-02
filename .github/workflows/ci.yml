@@ -77,9 +77,39 @@ jobs:
       - name: Run unit and mock integration tests
         run: python -m unittest discover -s tests -v
 
+  redis-integration:
+    name: Redis outbox recovery integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install the optional Redis client
+        run: python -m pip install --disable-pip-version-check --requirement requirements-redis.txt
+      - name: Start disposable Redis
+        run: docker run --detach --name vpn-dashboard-redis-test -p 127.0.0.1:6379:6379 redis:7.4-alpine
+      - name: Wait for disposable Redis
+        run: |
+          for attempt in $(seq 1 30); do
+            if docker exec vpn-dashboard-redis-test redis-cli ping | grep -Fxq PONG; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Verify outbox outage recovery and duplicate semantics
+        env:
+          REDIS_TEST_URL: redis://127.0.0.1:6379/0
+          REDIS_TEST_CONTAINER: vpn-dashboard-redis-test
+        run: python -m unittest tests.test_redis_integration -v
+      - name: Remove disposable Redis
+        if: always()
+        run: docker rm --force vpn-dashboard-redis-test || true
+
   arm64-build:
     name: ARM64 image build
-    needs: [secret-patterns, tests]
+    needs: [secret-patterns, tests, redis-integration]
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
