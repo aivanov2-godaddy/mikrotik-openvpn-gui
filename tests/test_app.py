@@ -228,6 +228,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'data-view="service-health"', page)
         self.assertIn(b'data-view="connection-doctor"', page)
         self.assertIn(b'data-connection-doctor-form', page)
+        self.assertIn(b'data-exposure-doctor', page)
         self.assertIn(b'data-view="audit-log"', page)
         self.assertIn(b"Change History", page)
         self.assertIn(b'data-history-category aria-label="Filter history by event"', page)
@@ -523,6 +524,25 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 400)
 
         status, _, _ = self.json_request("POST", "/api/connection-doctor", {"username": "user-two"}, csrf=False)
+        self.assertEqual(status, 403)
+
+        before_mutations = list(self.mock.state.mutation_requests)
+        status, _, payload = self.json_request("POST", "/api/security/exposure-doctor", {})
+        self.assertEqual(status, 200)
+        exposure = json.loads(payload)
+        exposure_checks = {item["id"]: item for item in exposure["checks"]}
+        self.assertTrue(exposure["read_only"])
+        self.assertEqual(exposure_checks["service-www"]["status"], "verified")
+        self.assertEqual(exposure_checks["service-www-ssl"]["status"], "verified")
+        self.assertEqual(exposure_checks["service-ssh"]["status"], "warning")
+        self.assertEqual(exposure_checks["firewall-boundary"]["status"], "unknown")
+        self.assertNotIn(b"admin", payload)
+        self.assertNotIn(b"routerpass", payload)
+        self.assertNotIn(b"172.31.250.0/24", payload)
+        self.assertNotIn(b"web-cert", payload)
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
+        status, _, _ = self.json_request("POST", "/api/security/exposure-doctor", {}, csrf=False)
         self.assertEqual(status, 403)
 
         status, _, payload = self.json_request("POST", "/api/network/segment-plan", {"zone": "lan", "cidrs": ["192.0.2.0/24"]})

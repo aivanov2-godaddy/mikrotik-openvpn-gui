@@ -206,6 +206,7 @@ class RouterOSClient:
                 payload = response.read()
         except urllib.error.HTTPError as error:
             if error.code in {401, 403}:
+                error.close()
                 raise RouterOSError("RouterOS rejected the supplied credentials", error.code) from None
             detail = ""
             try:
@@ -218,6 +219,7 @@ class RouterOSClient:
                     ).strip()
             except (UnicodeDecodeError, json.JSONDecodeError, OSError):
                 pass
+            error.close()
             suffix = f": {detail}" if detail else ""
             raise RouterOSError(
                 f"RouterOS request failed with HTTP {error.code}{suffix}", error.code
@@ -301,6 +303,47 @@ class RouterOSClient:
         if group in {"full", "owner"}:
             return "owner"
         return "read_only"
+
+    def get_management_exposure(self, credentials: RouterOSCredentials) -> dict[str, Any]:
+        """Read a tightly allowlisted RouterOS access snapshot; never mutate state."""
+
+        states: dict[str, str] = {}
+
+        def read(path: str, source: str, proplist: str, *, name: str | None = None) -> list[dict[str, Any]] | None:
+            query: dict[str, Any] = {".proplist": proplist}
+            if name is not None:
+                query["name"] = name
+            try:
+                records = _records(self._request("GET", path, credentials, query=query))
+            except RouterOSError as error:
+                states[source] = "unsupported" if error.status == 404 else "unknown"
+                return None
+            states[source] = "verified"
+            # Some RouterOS versions and test doubles may disregard .proplist.
+            # Keep unrequested values, including passwords and addresses other than
+            # the derived scope flag, from ever crossing this boundary.
+            allowed = set(proplist.split(","))
+            return [{key: value for key, value in record.items() if key in allowed} for record in records]
+
+        account_records = read("/user", "account", "name,group,disabled,address", name=credentials.username)
+        account = next(
+            (record for record in account_records or [] if str(record.get("name", "")) == credentials.username),
+            None,
+        )
+        if account is None and states.get("account") == "verified":
+            states["account"] = "unknown"
+        group_name = str(account.get("group", "")).strip() if account else ""
+        group_records = read("/user/group", "group", "name,policy", name=group_name) if group_name else None
+        group = next(
+            (record for record in group_records or [] if str(record.get("name", "")).casefold() == group_name.casefold()),
+            None,
+        )
+        if group_name and group is None and states.get("group") == "verified":
+            states["group"] = "unknown"
+        services = read(
+            "/ip/service", "services", "name,disabled,address,certificate",
+        )
+        return {"account": account, "group": group, "services": services, "source_status": states}
 
     def create_configuration_export(
         self, credentials: RouterOSCredentials, *, name: str

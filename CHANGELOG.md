@@ -12,6 +12,8 @@ semantic-version style release tags.
   Prometheus endpoint, plus retry/recovery and duplicate-event-ID tests.
 - Isolated SQLite backup restore rehearsal coverage and a read-only,
   redacted canary-to-production release acceptance evidence validator.
+- Read-only RouterOS account, policy-category, and management-service exposure
+  diagnostics with derived-only output and explicit unknown firewall status.
 
 ## 2.5.0 - 2026-10-01
 

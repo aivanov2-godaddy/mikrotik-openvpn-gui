@@ -28,6 +28,7 @@ from automation import AutomationMixin, simultaneous_session_sources  # noqa: F4
 from config import ConfigurationError, RuntimeConfig
 from connection_doctor import connection_doctor_snapshot
 from error_guidance import routeros_error_payload
+from exposure_doctor import exposure_doctor_snapshot
 from favicon import FAVICON_SVG, ico_bytes
 from integrations import RedisStreamPublisher, WebhookDispatcher
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
@@ -1505,6 +1506,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/connection-doctor":
             self._connection_doctor()
             return
+        if path == "/api/security/exposure-doctor":
+            self._exposure_doctor()
+            return
         if path == "/api/backups/preflight":
             self._backup_preflight()
             return
@@ -1807,6 +1811,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.server.context.store.audit(
             actor=session.username,
             action="connection.doctor",
+            target="redacted-read-only-check",
+            status=result["overall"],
+            details={"check_count": len(result["checks"]), "overall": result["overall"]},
+        )
+        self._json(result)
+
+    def _exposure_doctor(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "health.read"):
+            return
+        try:
+            self._read_json()
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        try:
+            snapshot = self.server.context.router.get_management_exposure(self._credentials(session))
+        except RouterOSError:
+            # Never relay RouterOS error details into a report or audit record.
+            snapshot = {"account": None, "group": None, "services": None,
+                        "source_status": {"account": "unknown", "group": "unknown", "services": "unknown"}}
+        result = exposure_doctor_snapshot(**snapshot, checked_at=int(time.time()))
+        self.server.context.store.audit(
+            actor=session.username,
+            action="security.exposure.doctor",
             target="redacted-read-only-check",
             status=result["overall"],
             details={"check_count": len(result["checks"]), "overall": result["overall"]},
