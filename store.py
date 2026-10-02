@@ -183,6 +183,7 @@ class MetadataStore:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     next_attempt_at INTEGER NOT NULL,
                     last_error TEXT NOT NULL DEFAULT '',
+                    dead_lettered_at INTEGER,
                     delivered_at INTEGER
                 );
 
@@ -244,6 +245,17 @@ class MetadataStore:
                 except sqlite3.OperationalError as error:
                     if "duplicate column name" not in str(error).lower():
                         raise
+            try:
+                connection.execute(
+                    "ALTER TABLE integration_outbox ADD COLUMN dead_lettered_at INTEGER"
+                )
+            except sqlite3.OperationalError as error:
+                if "duplicate column name" not in str(error).lower():
+                    raise
+            connection.execute(
+                """CREATE INDEX IF NOT EXISTS idx_integration_outbox_active
+                   ON integration_outbox(delivered_at, dead_lettered_at, next_attempt_at, created_at)"""
+            )
             # Older releases used 0 for an unlimited device cap. The product
             # now keeps the simple, bounded 1–5 device model and defaults
             # existing accounts to five concurrent sessions.
@@ -1065,7 +1077,7 @@ class MetadataStore:
             rows = connection.execute(
                 """
                 SELECT * FROM integration_outbox
-                WHERE delivered_at IS NULL AND next_attempt_at <= ?
+                WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND next_attempt_at <= ?
                 ORDER BY created_at, event_id
                 LIMIT ?
                 """,
@@ -1078,23 +1090,30 @@ class MetadataStore:
                     """
                     UPDATE integration_outbox
                     SET attempts=?, next_attempt_at=?, last_error=''
-                    WHERE event_id=? AND delivered_at IS NULL
+                    WHERE event_id=? AND delivered_at IS NULL AND dead_lettered_at IS NULL
                     """,
                     (attempt, current + 60, str(row["event_id"])),
                 )
                 item = dict(row)
                 item["attempts"] = attempt
                 try:
-                    item["payload"] = json.loads(str(item["payload"]))
+                    decoded = json.loads(str(item["payload"]))
                 except (TypeError, ValueError, json.JSONDecodeError):
                     item["payload"] = {}
+                    item["payload_error"] = "invalid_json"
+                else:
+                    if isinstance(decoded, dict):
+                        item["payload"] = decoded
+                    else:
+                        item["payload"] = {}
+                        item["payload_error"] = "not_object"
                 claimed.append(item)
             return claimed
 
     def mark_integration_delivered(self, event_id: str, *, now: int | None = None) -> None:
         with self._lock, self._connection() as connection:
             connection.execute(
-                "UPDATE integration_outbox SET delivered_at=?, last_error='' WHERE event_id=?",
+                "UPDATE integration_outbox SET delivered_at=?, last_error='' WHERE event_id=? AND dead_lettered_at IS NULL",
                 (int(time.time() if now is None else now), str(event_id)),
             )
 
@@ -1104,9 +1123,24 @@ class MetadataStore:
                 """
                 UPDATE integration_outbox
                 SET next_attempt_at=?, last_error=?
-                WHERE event_id=? AND delivered_at IS NULL
+                WHERE event_id=? AND delivered_at IS NULL AND dead_lettered_at IS NULL
                 """,
                 (int(retry_at), str(error)[:160], str(event_id)),
+            )
+
+    def mark_integration_dead_lettered(
+        self, event_id: str, reason: str, *, now: int | None = None
+    ) -> None:
+        """Stop automatic retries while retaining the private outbox record for review."""
+
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE integration_outbox
+                SET dead_lettered_at=?, last_error=?
+                WHERE event_id=? AND delivered_at IS NULL AND dead_lettered_at IS NULL
+                """,
+                (int(time.time() if now is None else now), str(reason)[:80], str(event_id)),
             )
 
     def integration_outbox_metrics(self, *, now: int | None = None) -> dict[str, int]:
@@ -1117,10 +1151,11 @@ class MetadataStore:
             row = connection.execute(
                 """
                 SELECT
-                    SUM(CASE WHEN delivered_at IS NULL THEN 1 ELSE 0 END) AS pending,
-                    SUM(CASE WHEN delivered_at IS NULL AND next_attempt_at <= ? THEN 1 ELSE 0 END) AS due,
-                    SUM(CASE WHEN delivered_at IS NULL AND attempts > 0 THEN 1 ELSE 0 END) AS retried,
-                    MIN(CASE WHEN delivered_at IS NULL THEN created_at END) AS oldest_pending,
+                    SUM(CASE WHEN delivered_at IS NULL AND dead_lettered_at IS NULL THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN delivered_at IS NULL AND dead_lettered_at IS NULL AND next_attempt_at <= ? THEN 1 ELSE 0 END) AS due,
+                    SUM(CASE WHEN delivered_at IS NULL AND dead_lettered_at IS NULL AND attempts > 0 THEN 1 ELSE 0 END) AS retried,
+                    SUM(CASE WHEN delivered_at IS NULL AND dead_lettered_at IS NOT NULL THEN 1 ELSE 0 END) AS dead_lettered,
+                    MIN(CASE WHEN delivered_at IS NULL AND dead_lettered_at IS NULL THEN created_at END) AS oldest_pending,
                     MAX(delivered_at) AS last_delivered
                 FROM integration_outbox
                 """,
@@ -1131,6 +1166,7 @@ class MetadataStore:
             "pending": int(row["pending"] or 0) if row else 0,
             "due": int(row["due"] or 0) if row else 0,
             "retried": int(row["retried"] or 0) if row else 0,
+            "dead_lettered": int(row["dead_lettered"] or 0) if row else 0,
             "oldest_pending_age": max(0, current - oldest) if oldest else 0,
             "last_delivered": int(row["last_delivered"] or 0) if row else 0,
         }
@@ -1346,8 +1382,8 @@ class MetadataStore:
                 "DELETE FROM health_snapshots WHERE created_at < ?", (int(before),)
             ).rowcount
             integration = connection.execute(
-                "DELETE FROM integration_outbox WHERE delivered_at IS NOT NULL AND delivered_at < ?",
-                (int(before),),
+                "DELETE FROM integration_outbox WHERE (delivered_at IS NOT NULL AND delivered_at < ?) OR (dead_lettered_at IS NOT NULL AND dead_lettered_at < ?)",
+                (int(before), int(before)),
             ).rowcount
         try:
             self.checkpoint_wal()

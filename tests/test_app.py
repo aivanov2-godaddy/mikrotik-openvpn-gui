@@ -480,6 +480,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"vpn_dashboard_info", payload)
         self.assertIn(b"vpn_dashboard_integration_outbox_pending", payload)
+        self.assertIn(b"vpn_dashboard_integration_outbox_dead_lettered", payload)
         self.assertIn(b"vpn_dashboard_redis_last_observed_available", payload)
         self.assertIn(b"vpn_dashboard_sqlite_file_bytes", payload)
         self.assertIn(b"vpn_dashboard_sqlite_volume_free_bytes", payload)

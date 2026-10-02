@@ -39,6 +39,7 @@ METRIC_NAMES = {
     "vpn_dashboard_redis_publish_total",
     "vpn_dashboard_redis_last_publish_success_timestamp_seconds",
     "vpn_dashboard_integration_outbox_pending",
+    "vpn_dashboard_integration_outbox_dead_lettered",
     "vpn_dashboard_integration_outbox_oldest_age_seconds",
     "vpn_dashboard_telemetry_session_event_age_seconds",
     "vpn_dashboard_telemetry_session_event_timestamp_seconds",
@@ -180,6 +181,7 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         "redis_publish_failure_delta": failure_delta,
         "redis_publish_failure_counter_reset": failure_counter_reset,
         "outbox_pending_last": last.get("vpn_dashboard_integration_outbox_pending"),
+        "outbox_dead_lettered_last": last.get("vpn_dashboard_integration_outbox_dead_lettered"),
         "outbox_oldest_age_seconds_last": last.get("vpn_dashboard_integration_outbox_oldest_age_seconds"),
         "telemetry_process_observation_age": {
             "session_event": observation_age(

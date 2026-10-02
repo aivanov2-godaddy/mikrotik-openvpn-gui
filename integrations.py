@@ -27,6 +27,9 @@ class IntegrationOutbox(Protocol):
     def mark_integration_failed(self, event_id: str, error: str, *, retry_at: int) -> None:
         ...
 
+    def mark_integration_dead_lettered(self, event_id: str, reason: str) -> None:
+        ...
+
 
 class RedisStreamPublisher:
     """Optional Redis Streams sink with bounded, at-least-once delivery.
@@ -129,6 +132,7 @@ class WebhookDispatcher:
         max_backoff: float = 60.0,
         circuit_threshold: int = 3,
         circuit_cooldown: float = 60.0,
+        max_outbox_attempts: int = 10,
     ) -> None:
         self._url = url
         self._secret = secret.encode("utf-8") if secret else None
@@ -141,6 +145,7 @@ class WebhookDispatcher:
         self._max_backoff = max(self._base_backoff, float(max_backoff))
         self._circuit_threshold = max(1, int(circuit_threshold))
         self._circuit_cooldown = max(1.0, float(circuit_cooldown))
+        self._max_outbox_attempts = max(1, min(int(max_outbox_attempts), 100))
         self._failure_streak = 0
         self._circuit_open_until = 0.0
         self._metrics_lock = threading.Lock()
@@ -225,19 +230,29 @@ class WebhookDispatcher:
                 if self._stop.is_set():
                     return
                 event_id = str(record.get("event_id", ""))
+                if record.get("payload_error"):
+                    self._store.mark_integration_dead_lettered(
+                        event_id, f"malformed_payload_{record['payload_error']}"
+                    )
+                    continue
                 payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
                 payload["event_id"] = event_id
                 try:
                     self._deliver_with_retries(payload)
                 except Exception as error:  # noqa: BLE001 - boundary records and retries safely
-                    retry_delay = (
-                        self._circuit_cooldown
-                        if self._failure_streak >= self._circuit_threshold
-                        else self._backoff_for_attempt(int(record.get("attempts", 1)))
-                    )
-                    self._store.mark_integration_failed(
-                        event_id, type(error).__name__, retry_at=int(time.time() + retry_delay)
-                    )
+                    if int(record.get("attempts", 1)) >= self._max_outbox_attempts:
+                        self._store.mark_integration_dead_lettered(
+                            event_id, f"retry_limit_{type(error).__name__}"
+                        )
+                    else:
+                        retry_delay = (
+                            self._circuit_cooldown
+                            if self._failure_streak >= self._circuit_threshold
+                            else self._backoff_for_attempt(int(record.get("attempts", 1)))
+                        )
+                        self._store.mark_integration_failed(
+                            event_id, type(error).__name__, retry_at=int(time.time() + retry_delay)
+                        )
                 else:
                     self._store.mark_integration_delivered(event_id)
 
