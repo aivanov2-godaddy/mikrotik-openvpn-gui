@@ -30,6 +30,15 @@ class FrontendLiveUpdateContractTests(unittest.TestCase):
         self.assertIn("document.addEventListener('click', (event) => {", source)
         self.assertIn("data-graph-view", source)
 
+    def test_history_filters_are_local_and_count_visible_rows(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("function applyHistoryFilters()", source)
+        self.assertIn("data-history-category", source)
+        self.assertIn("data-history-outcome", source)
+        self.assertIn("data-history-from", source)
+        self.assertIn("data-history-to", source)
+        self.assertIn("${shown} shown · ${rows.length} loaded", source)
+
 
 if __name__ == "__main__":
     unittest.main()

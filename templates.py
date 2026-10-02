@@ -548,6 +548,21 @@ def dashboard_page(
         raw_action = str(item.get("action", ""))
         action = action_labels.get(raw_action, raw_action.replace(".", " ").title())
         status = str(item.get("status", "success"))
+        prefix = raw_action.split(".", 1)[0].casefold()
+        category = {
+            "user": "access",
+            "profile": "devices",
+            "device": "devices",
+            "session": "sessions",
+            "admin": "security",
+            "auth": "security",
+            "security": "security",
+            "alert": "alerts",
+            "deployment": "system",
+            "health": "system",
+            "backup": "system",
+            "setup": "system",
+        }.get(prefix, "other")
         try:
             details = json.loads(str(item.get("details", "{}")))
         except (TypeError, ValueError, json.JSONDecodeError):
@@ -560,7 +575,7 @@ def dashboard_page(
         actor_name = str(item.get("actor", "")) or "system"
         search_text = f"{when} {action} {target} {actor_name} {status} {details}"
         audit_rows.append(
-            f"""<tr data-history-row data-history-search="{html.escape(search_text.lower(), quote=True)}">
+            f"""<tr data-history-row data-history-category="{category}" data-history-outcome="{'success' if status.casefold() == 'success' else 'issue'}" data-history-created="{int(item.get('created_at', 0) or 0)}" data-history-search="{html.escape(search_text.lower(), quote=True)}">
               <td><time>{html.escape(when)}</time></td>
               <td><span class="history-action"><i class="audit-icon {html.escape(status, quote=True)}"></i><strong>{html.escape(action)}</strong></span></td>
               <td>{html.escape(target)}</td><td>{html.escape(actor_name)}</td>
@@ -930,10 +945,10 @@ def dashboard_page(
       </section>
 
       <section class="app-view" id="audit-log" data-view="audit-log" hidden>
-        <header class="view-heading"><div><p class="eyebrow">AUDIT LOG</p><h1>Change History</h1><p>A read-only record of dashboard sign-ins and every access change.</p></div><div class="heading-actions"><label class="page-search">{_icon('search')}<input type="search" data-history-search placeholder="Find a change" aria-label="Find a history entry"></label><form class="report-export" method="get" action="/api/audit.csv"><label>From<input type="date" name="from" aria-label="Report start date"></label><label>To<input type="date" name="to" aria-label="Report end date"></label><button class="quiet" type="submit">{_icon('download')}<span>Export CSV</span></button><button class="quiet" type="submit" formaction="/api/audit.json">{_icon('download')}<span>JSON</span></button><button class="quiet" type="submit" formaction="/api/reports/compliance.zip">{_icon('download')}<span>Compliance ZIP</span></button></form></div></header>
+        <header class="view-heading"><div><p class="eyebrow">AUDIT LOG</p><h1>Change History</h1><p>A read-only record of dashboard sign-ins and every access change.</p></div><div class="heading-actions"><label class="page-search">{_icon('search')}<input type="search" data-history-search placeholder="Find a change" aria-label="Find a history entry"></label><form class="report-export" method="get" action="/api/audit.csv"><label>From<input type="date" name="from" aria-label="Report start date" data-history-from></label><label>To<input type="date" name="to" aria-label="Report end date" data-history-to></label><button class="quiet" type="submit">{_icon('download')}<span>Export CSV</span></button><button class="quiet" type="submit" formaction="/api/audit.json">{_icon('download')}<span>JSON</span></button><button class="quiet" type="submit" formaction="/api/reports/compliance.zip">{_icon('download')}<span>Compliance ZIP</span></button></form></div></header>
         <section class="history-notice">{_icon('shield')}<span><strong>Passwords and private keys are never written here.</strong><small>History records the action, target, operator, result, and safe details only. Exports honour the selected inclusive date range.</small></span></section>
         <section class="panel capability-panel"><div class="panel-heading"><div>{_icon('users')}<span><strong>Administrator capabilities</strong><small>Permissions come directly from the signed-in RouterOS account.</small></span></div></div><div class="responsive-table"><table class="capability-table"><thead><tr><th>Role</th><th>Inspect and export</th><th>Manage access</th><th>Destructive actions</th></tr></thead><tbody><tr><td><strong>Read-only</strong></td><td>Allowed</td><td>Not allowed</td><td>Not allowed</td></tr><tr><td><strong>Operator</strong></td><td>Allowed</td><td>Allowed</td><td>Exact target confirmation</td></tr><tr><td><strong>Owner</strong></td><td>Allowed</td><td>Allowed</td><td>Exact target confirmation</td></tr></tbody></table></div></section>
-        <section class="panel table-panel"><div class="panel-heading"><div>{_icon('log')}<span><strong>System history</strong><small>Newest changes first · up to 100 entries</small></span></div><span class="muted-label">{len(audit)} recorded</span></div><div class="responsive-table"><table class="history-table"><thead><tr><th>When</th><th>Change</th><th>Target</th><th>By</th><th>Result</th><th>Details</th></tr></thead><tbody>{audit_markup}</tbody></table></div></section>
+        <section class="panel table-panel"><div class="panel-heading"><div>{_icon('log')}<span><strong>System history</strong><small>Newest changes first · up to 100 entries</small></span></div><span class="muted-label" data-history-count role="status">{len(audit)} shown · {len(audit)} loaded</span></div><div class="history-filter-row"><label><span>Event</span><select data-history-category aria-label="Filter history by event"><option value="all">All events</option><option value="access">Access</option><option value="devices">Devices and profiles</option><option value="sessions">Sessions</option><option value="security">Sign-in and security</option><option value="alerts">Alerts</option><option value="system">System and backups</option><option value="other">Other</option></select></label><label><span>Outcome</span><select data-history-outcome aria-label="Filter history by outcome"><option value="all">All outcomes</option><option value="success">Successful</option><option value="issue">Needs attention</option></select></label><small>Search covers actor, target, event, and safe details. Dates also apply to exports.</small></div><div class="responsive-table"><table class="history-table"><thead><tr><th>When</th><th>Change</th><th>Target</th><th>By</th><th>Result</th><th>Details</th></tr></thead><tbody>{audit_markup}</tbody></table></div></section>
       </section>
 
       <section class="app-view" id="setup-planner" data-view="setup-planner" hidden>

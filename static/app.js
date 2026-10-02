@@ -1198,12 +1198,35 @@ if (bulkRoot) {
   });
 }
 
-$('[data-history-search]')?.addEventListener('input', (event) => {
-  const query = event.currentTarget.value.trim().toLocaleLowerCase();
-  $$('[data-history-row]').forEach((row) => {
-    row.classList.toggle('is-filtered-out', Boolean(query) && !row.dataset.historySearch.includes(query));
+function applyHistoryFilters() {
+  const query = $('[data-history-search]')?.value.trim().toLocaleLowerCase() || '';
+  const category = $('[data-history-category]')?.value || 'all';
+  const outcome = $('[data-history-outcome]')?.value || 'all';
+  const fromValue = $('[data-history-from]')?.value || '';
+  const toValue = $('[data-history-to]')?.value || '';
+  const from = fromValue ? new Date(`${fromValue}T00:00:00`).getTime() / 1000 : null;
+  const to = toValue ? new Date(`${toValue}T00:00:00`).getTime() / 1000 + 86400 : null;
+  const rows = $$('[data-history-row]');
+  let shown = 0;
+  rows.forEach((row) => {
+    const created = Number(row.dataset.historyCreated || 0);
+    const matches = (!query || row.dataset.historySearch.includes(query))
+      && (category === 'all' || row.dataset.historyCategory === category)
+      && (outcome === 'all' || row.dataset.historyOutcome === outcome)
+      && (from === null || created >= from)
+      && (to === null || created < to);
+    row.classList.toggle('is-filtered-out', !matches);
+    if (matches) shown += 1;
   });
-});
+  const count = $('[data-history-count]');
+  if (count) count.textContent = `${shown} shown · ${rows.length} loaded`;
+}
+
+['[data-history-search]', '[data-history-category]', '[data-history-outcome]', '[data-history-from]', '[data-history-to]']
+  .forEach((selector) => {
+    const control = $(selector);
+    control?.addEventListener(control.matches('input[type="search"]') ? 'input' : 'change', applyHistoryFilters);
+  });
 
 $('[data-connection-search]')?.addEventListener('input', (event) => {
   applyConnectionSearch();
