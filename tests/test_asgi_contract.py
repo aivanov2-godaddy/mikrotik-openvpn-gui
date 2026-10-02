@@ -11,6 +11,61 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    def test_slow_socket_client_does_not_block_gateway_event_ingestion(self) -> None:
+        from asgi import NativeSocketIO
+        from telemetry_broker import TelemetryBroker, TelemetryEvent
+        from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
+
+        principal = TelemetryPrincipal(
+            True,
+            auth_method="routeros",
+            role="owner",
+            capabilities=None,
+        )
+        gateway = TelemetryGatewayContract(TelemetryBroker(clock=lambda: 100), clock=lambda: 100)
+        subscription = gateway.open(principal)
+        gateway.publish([TelemetryEvent("telemetry.reconciled", 1, 100, {"status": "online"})])
+
+        class Runtime:
+            @staticmethod
+            def principal_for_session(_session_id: str) -> TelemetryPrincipal:
+                return principal
+
+        class SlowServer:
+            def __init__(self) -> None:
+                self.emit_started = asyncio.Event()
+                self.release_emit = asyncio.Event()
+
+            async def emit(self, _event, _payload, *, to, namespace) -> None:
+                self.emit_started.set()
+                await self.release_emit.wait()
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = Runtime()
+        native.runtime.gateway = gateway
+        native.server = SlowServer()
+        native._subscriptions = {"slow-client": subscription}
+        native._session_ids = {"slow-client": "opaque-session"}
+        native._events_emitted_total = 0
+
+        async def exercise() -> None:
+            pump = asyncio.create_task(native._pump("slow-client", subscription))
+            try:
+                await asyncio.wait_for(native.server.emit_started.wait(), timeout=1)
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        gateway.publish,
+                        [TelemetryEvent("telemetry.reconciled", 2, 101, {"status": "online"})],
+                    ),
+                    timeout=1,
+                )
+                self.assertEqual(gateway.metrics()["published_events"], 2)
+            finally:
+                pump.cancel()
+                await asyncio.gather(pump, return_exceptions=True)
+
+        asyncio.run(exercise())
+
     def test_native_socketio_metrics_are_secret_free_and_track_lifecycle(self) -> None:
         from asgi import NativeSocketIO
 
