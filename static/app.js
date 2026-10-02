@@ -1498,8 +1498,20 @@ function showTemplatePreview(form, payload) {
   const safe = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   preview.innerHTML = `<strong>${safe(payload.template.name)} preview</strong><small>${affected.length} of ${payload.users.length} selected user(s) will change.</small><ul>${payload.users.map((user) => `<li><b>${safe(user.username)}</b><span>${user.changes.length ? safe(user.changes.join(', ')) : 'Already matches'}</span></li>`).join('')}</ul>`;
   preview.hidden = false;
+  form.dataset.policyReviewToken = payload.review_token || '';
   $('[data-template-apply-button]', form).disabled = false;
 }
+
+function clearTemplatePreview(form) {
+  form.dataset.policyReviewToken = '';
+  const preview = $('[data-template-preview]', form);
+  if (preview) preview.hidden = true;
+  $('[data-template-apply-button]', form).disabled = true;
+}
+
+$('[data-template-apply]')?.addEventListener('change', (event) => {
+  clearTemplatePreview(event.currentTarget);
+});
 
 $('[data-template-preview-button]')?.addEventListener('click', async () => {
   const form = $('[data-template-apply]');
@@ -1528,12 +1540,13 @@ $('[data-template-apply]')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Creating a RouterOS checkpoint and applying the reviewed policy…');
   try {
-    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/apply`, { method: 'POST', body: { user_ids: userIds } }));
+    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/apply`, { method: 'POST', body: { user_ids: userIds, review_token: form.dataset.policyReviewToken || '' } }));
     const payload = await response.json();
+    clearTemplatePreview(form);
     setStatus(form, `Applied to ${payload.selected} selected user(s).`);
     toast('Policy template applied and recorded in Change History.');
     setTimeout(() => location.reload(), 700);
-  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) { clearTemplatePreview(form); setStatus(form, error.message, true); setBusy(form, false); }
 });
 
 $('#terminate-form')?.addEventListener('submit', async (event) => {

@@ -2959,14 +2959,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if missing:
                 raise ValueError("One or more selected VPN users no longer exist; refresh and try again")
             preview = []
+            review_basis = []
             control_keys = ("policy", "expires_at", "max_sessions", "rate_limit_kbps", "dns_mode", "notifications", "quota_mb", "schedule")
             for user_id in sorted(requested):
                 user = users[user_id]
                 current = self.server.context.store.user_controls(str(user["name"]))
                 changes = [key for key in control_keys if current.get(key) != controls.get(key)]
                 preview.append({"id": user_id, "username": str(user["name"]), "changes": changes})
+                review_basis.append({
+                    "id": user_id,
+                    "username": str(user["name"]),
+                    "router_profile": str(user.get("profile", "")),
+                    "current": {key: current.get(key) for key in control_keys},
+                })
+            receipt_payload = json.dumps(
+                {
+                    "template_id": template_id,
+                    "template": template,
+                    "users": review_basis,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            review_token = hmac.new(
+                session.csrf_token.encode("utf-8"), receipt_payload, hashlib.sha256,
+            ).hexdigest()
             if action == "preview":
-                self._json({"template": template, "users": preview, "changed_users": sum(bool(item["changes"]) for item in preview)})
+                self._json({
+                    "template": template,
+                    "users": preview,
+                    "changed_users": sum(bool(item["changes"]) for item in preview),
+                    "review_token": review_token,
+                })
+                return
+            supplied_review_token = str(data.get("review_token", ""))
+            if not supplied_review_token or not hmac.compare_digest(supplied_review_token, review_token):
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="policy_template.apply",
+                    target=template_id,
+                    status="failed",
+                    details={"reason": "stale_or_missing_review"},
+                )
+                self._json(
+                    {"error": "The reviewed template or user state has changed. Preview the selected users again before applying."},
+                    status=HTTPStatus.CONFLICT,
+                )
                 return
             if not self._checkpoint(session, "policy-template-apply"):
                 return

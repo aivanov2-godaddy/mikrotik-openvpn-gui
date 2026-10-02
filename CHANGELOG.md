@@ -8,6 +8,9 @@ semantic-version style release tags.
 
 ### Added
 
+- Session-bound policy-template review receipts that reject apply requests when
+  the selected users, template controls, current RouterOS profiles, or current
+  policy state differ from the preview.
 - Secret-free Redis and SQLite outbox delivery metrics on the authenticated
   Prometheus endpoint, plus retry/recovery and duplicate-event-ID tests.
 - Isolated SQLite backup restore rehearsal coverage and a read-only,

@@ -1231,15 +1231,72 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
         )
         self.assertEqual(status, 200)
-        self.assertIn("rate_limit_kbps", json.loads(payload)["users"][0]["changes"])
+        preview = json.loads(payload)
+        self.assertIn("rate_limit_kbps", preview["users"][0]["changes"])
+        self.assertTrue(preview["review_token"])
+
+        # Direct apply without a server-issued preview receipt is rejected.
         status, _, payload = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply", {"user_ids": [target["id"]]},
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("Preview the selected users again", json.loads(payload)["error"])
+
+        # A live RouterOS profile edit between review and apply also invalidates it.
+        original_profile = self.mock.state.users[target["id"]]["profile"]
+        self.mock.state.users[target["id"]]["profile"] = "manual-router-change"
+        status, _, _ = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/apply",
+            {"user_ids": [target["id"]], "review_token": preview["review_token"]},
+        )
+        self.assertEqual(status, 409)
+        self.mock.state.users[target["id"]]["profile"] = original_profile
+
+        # Reusing the receipt with a different selection cannot apply an unreviewed user.
+        other = next(item for item in users if item["id"] != target["id"])
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/apply",
+            {"user_ids": [target["id"], other["id"]], "review_token": preview["review_token"]},
+        )
+        self.assertEqual(status, 409)
+        self.assertNotIn("user-one", self.server.context.store.user_template_assignments())
+
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/apply",
+            {"user_ids": [target["id"]], "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload)["applied"], ["user-one"])
         self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 10240)
         self.assertEqual(self.server.context.store.user_template_assignments()["user-one"]["template_id"], template["id"])
         self.assertIn("policy_template.apply", [item["action"] for item in self.server.context.store.recent_audit(10)])
+
+        # A state change after preview invalidates that review before checkpoint/apply.
+        current = self.server.context.store.user_controls("user-one")
+        self.server.context.store.set_user_controls(
+            "user-one", policy=current["policy"], expires_at=current["expires_at"],
+            max_sessions=current["max_sessions"], rate_limit_kbps=2048,
+            dns_mode=current["dns_mode"], notifications=current["notifications"],
+            quota_mb=current["quota_mb"], schedule=current["schedule"],
+        )
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+        )
+        self.assertEqual(status, 200)
+        stale_review = json.loads(payload)["review_token"]
+        current = self.server.context.store.user_controls("user-one")
+        self.server.context.store.set_user_controls(
+            "user-one", policy=current["policy"], expires_at=current["expires_at"],
+            max_sessions=current["max_sessions"], rate_limit_kbps=4096,
+            dns_mode=current["dns_mode"], notifications=current["notifications"],
+            quota_mb=current["quota_mb"], schedule=current["schedule"],
+        )
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/apply",
+            {"user_ids": [target["id"]], "review_token": stale_review},
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 4096)
 
 
 class RedirectTests(unittest.TestCase):
