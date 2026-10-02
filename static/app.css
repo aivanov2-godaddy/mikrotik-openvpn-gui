@@ -262,6 +262,19 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .posture-list small { color: #77858e; font-size: 10px; }
 
 .overview-grid { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(420px, 1.2fr); gap: 8px; }
+.overview-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.dashboard-reference { margin-top: 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.dashboard-reference > summary, .profile-onboarding > summary { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; color: var(--text); cursor: pointer; list-style: none; }
+.dashboard-reference > summary::-webkit-details-marker, .profile-onboarding > summary::-webkit-details-marker { display: none; }
+.dashboard-reference > summary::after, .profile-onboarding > summary::after { content: "+"; color: var(--blue); font-size: 18px; }
+.dashboard-reference[open] > summary::after, .profile-onboarding[open] > summary::after { content: "−"; }
+.dashboard-reference-content { display: grid; gap: 9px; padding: 0 9px 9px; }
+.profile-onboarding { margin: 8px 0; }
+.profile-onboarding > summary strong { font-size: 13px; }
+.profile-onboarding > summary span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.profile-onboarding-content { padding: 0 9px 9px; }
+.panel-footer-link { display: flex; justify-content: flex-end; padding: 0 10px 9px; }
+.dashboard-reference summary:focus-visible, .profile-onboarding summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .architecture-panel { min-width: 0; }
 .architecture-paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; padding: 8px; }
 .architecture-paths > article { min-width: 0; border: 1px solid #34414b; background: #202b34; }
