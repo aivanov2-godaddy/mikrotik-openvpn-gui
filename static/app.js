@@ -788,6 +788,51 @@ function renderConnectionDoctor(payload) {
   status.textContent = `Read-only check ${payload.overall || 'unknown'} · ${Number(payload.freshness_seconds) || 0} seconds old. No router settings were changed.`;
 }
 
+function renderExposureDoctor(payload) {
+  const results = $('[data-exposure-doctor-results]');
+  const status = $('[data-exposure-doctor-status]');
+  if (!results || !status) return;
+  const labels = {
+    account: 'Signed-in account',
+    'account-source': 'Account source restriction',
+    'group-policies': 'Group policy visibility',
+    'feature-access': 'RouterOS feature access',
+    'high-impact-policies': 'High-impact permissions',
+    'management-services': 'Management services',
+    'firewall-boundary': 'Firewall boundary',
+  };
+  results.replaceChildren(...(Array.isArray(payload.checks) ? payload.checks : []).map((check) => {
+    const effectiveStatus = check.status || 'unknown';
+    const item = node('article', `doctor-check ${effectiveStatus}`);
+    const serviceLabels = {
+      'service-www': 'REST over HTTP', 'service-www-ssl': 'REST over HTTPS',
+      'service-api': 'RouterOS API', 'service-api-ssl': 'RouterOS API over TLS',
+      'service-telnet': 'Telnet', 'service-ftp': 'FTP', 'service-ssh': 'SSH', 'service-winbox': 'WinBox',
+    };
+    item.append(node('strong', '', labels[check.id] || serviceLabels[check.id] || 'Management access check'));
+    item.append(node('span', '', effectiveStatus.toUpperCase()));
+    item.append(node('p', '', check.message || 'No diagnostic detail is available.'));
+    item.append(node('small', '', `Safe next step: ${check.next_step || 'Review the related RouterOS state in WinBox.'}`));
+    return item;
+  }));
+  status.textContent = `Read-only assessment ${payload.overall || 'unknown'} · ${formatObservationTime(payload.checked_at)}. No RouterOS configuration was changed.`;
+}
+
+const exposureDoctorButton = $('[data-exposure-doctor]');
+exposureDoctorButton?.addEventListener('click', async () => {
+  exposureDoctorButton.disabled = true;
+  $('[data-exposure-doctor-status]').textContent = 'Checking signed-in account and management services…';
+  try {
+    const response = await resultOrError(await api('/api/security/exposure-doctor', { method: 'POST', body: {} }));
+    renderExposureDoctor(await response.json());
+  } catch (error) {
+    $('[data-exposure-doctor-status]').textContent = error.message || 'The access check could not be completed.';
+    $('[data-exposure-doctor-results]').replaceChildren();
+  } finally {
+    exposureDoctorButton.disabled = false;
+  }
+});
+
 const doctorForm = $('[data-connection-doctor-form]');
 doctorForm?.addEventListener('submit', async (event) => {
   event.preventDefault();

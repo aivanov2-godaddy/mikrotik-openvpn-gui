@@ -218,7 +218,9 @@ label { color: #d0d7dc; }
 .doctor-results { display: grid; gap: 8px; }
 .doctor-check { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--dim); border-radius: 5px; background: var(--panel-2); }
 .doctor-check.pass { border-left-color: var(--green); }
+.doctor-check.verified { border-left-color: var(--green); }
 .doctor-check.warning, .doctor-check.stale { border-left-color: var(--amber); }
+.doctor-check.unsupported, .doctor-check.unknown { border-left-color: var(--dim); }
 .doctor-check.error, .doctor-check.unavailable { border-left-color: var(--red); }
 .doctor-check > strong { color: var(--text-bright); font-size: 13px; }
 .doctor-check > span { color: var(--muted); font-size: 11px; }

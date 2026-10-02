@@ -94,6 +94,9 @@ class State:
         self.certificate_crls: list[dict[str, Any]] = []
         self.fail_certificate_inventory = False
         self.certificate_queries: list[dict[str, list[str]]] = []
+        self.mutation_requests: list[str] = []
+        self.rest_reads: list[tuple[str, dict[str, list[str]]]] = []
+        self.unsupported_management_services = False
         self.active_sessions: dict[str, dict[str, Any]] = {
             "*A1": {
                 ".id": "*A1",
@@ -138,6 +141,20 @@ class State:
         self.next_cert = 1
         self.next_file = 1
         self.admin_group = "full"
+        self.user_groups = [{
+            "name": "full",
+            "policy": "local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,rest-api,romon",
+        }]
+        self.ip_services = [
+            {"name": "www", "disabled": "yes", "address": "", "certificate": "none"},
+            {"name": "www-ssl", "disabled": "no", "address": "172.31.250.0/24", "certificate": "web-cert"},
+            {"name": "api", "disabled": "yes", "address": "", "certificate": "none"},
+            {"name": "api-ssl", "disabled": "no", "address": "172.31.250.0/24", "certificate": "api-cert"},
+            {"name": "telnet", "disabled": "yes", "address": "", "certificate": "none"},
+            {"name": "ftp", "disabled": "yes", "address": "", "certificate": "none"},
+            {"name": "ssh", "disabled": "no", "address": "", "certificate": "none"},
+            {"name": "winbox", "disabled": "no", "address": "172.31.250.0/24", "certificate": "none"},
+        ]
         self.lock = threading.RLock()
 
     def file(self, name: str, contents: str, file_type: str) -> dict[str, Any]:
@@ -191,6 +208,7 @@ class MockHandler(BaseHTTPRequestHandler):
         if not self._auth():
             return
         path, query = self._parts()
+        self.server.state.rest_reads.append((path, query))
         state = self.server.state
         with state.lock:
             if path == "/system/resource":
@@ -203,7 +221,20 @@ class MockHandler(BaseHTTPRequestHandler):
             elif path == "/system/package":
                 self._json([{"name": "container", "version": "7.23.3", "disabled": "no"}])
             elif path == "/user":
-                self._json([{"name": "admin", "group": state.admin_group, "disabled": "no"}])
+                records = [{"name": "admin", "group": state.admin_group, "disabled": "no", "address": ""}]
+                if query.get("name"):
+                    records = [item for item in records if item.get("name") == query["name"][0]]
+                self._json(records)
+            elif path == "/user/group":
+                records = state.user_groups
+                if query.get("name"):
+                    records = [item for item in records if item.get("name") == query["name"][0]]
+                self._json(records)
+            elif path == "/ip/service":
+                if state.unsupported_management_services:
+                    self._json({"error": "not found"}, 404)
+                    return
+                self._json(state.ip_services)
             elif path == "/ppp/secret":
                 self._json(list(state.users.values()))
             elif path == "/ppp/profile":
@@ -250,6 +281,7 @@ class MockHandler(BaseHTTPRequestHandler):
         if not self._auth():
             return
         path, _ = self._parts()
+        self.server.state.mutation_requests.append("PUT " + path)
         body = self._body()
         state = self.server.state
         with state.lock:
@@ -285,6 +317,7 @@ class MockHandler(BaseHTTPRequestHandler):
         if not self._auth():
             return
         path, _ = self._parts()
+        self.server.state.mutation_requests.append("PATCH " + path)
         body = self._body()
         state = self.server.state
         with state.lock:
@@ -306,6 +339,7 @@ class MockHandler(BaseHTTPRequestHandler):
         if not self._auth():
             return
         path, _ = self._parts()
+        self.server.state.mutation_requests.append("DELETE " + path)
         state = self.server.state
         with state.lock:
             if path.startswith("/ppp/secret/"):
@@ -335,6 +369,7 @@ class MockHandler(BaseHTTPRequestHandler):
         if not self._auth():
             return
         path, _ = self._parts()
+        self.server.state.mutation_requests.append("POST " + path)
         body = self._body()
         state = self.server.state
         with state.lock:

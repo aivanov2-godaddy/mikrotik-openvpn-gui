@@ -19,6 +19,43 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_management_exposure_uses_only_allowlisted_read_probes(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
+
+        self.assertEqual(snapshot["account"]["name"], "admin")
+        self.assertNotIn("password", snapshot["account"])
+        self.assertEqual(set(snapshot["group"]), {"name", "policy"})
+        self.assertTrue(all(set(service) <= {"name", "disabled", "address", "certificate"} for service in snapshot["services"]))
+        self.assertEqual({path for path, _ in mock.state.rest_reads}, {"/user", "/user/group", "/ip/service"})
+        self.assertEqual(
+            {path: query.get(".proplist") for path, query in mock.state.rest_reads},
+            {"/user": ["name,group,disabled,address"], "/user/group": ["name,policy"],
+             "/ip/service": ["name,disabled,address,certificate"]},
+        )
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_missing_routeros_group_is_unknown_not_verified(self) -> None:
+        with MockRouterOS() as mock:
+            mock.state.user_groups = []
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
+
+        self.assertIsNone(snapshot["group"])
+        self.assertEqual(snapshot["source_status"]["group"], "unknown")
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_unsupported_management_service_endpoint_is_not_misreported(self) -> None:
+        with MockRouterOS() as mock:
+            mock.state.unsupported_management_services = True
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
+
+        self.assertIsNone(snapshot["services"])
+        self.assertEqual(snapshot["source_status"]["services"], "unsupported")
+        self.assertEqual(mock.state.mutation_requests, [])
+
     def test_certificate_inventory_treats_revocation_timestamp_as_revoked(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)

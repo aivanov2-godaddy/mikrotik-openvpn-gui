@@ -98,6 +98,30 @@ Avoid routine use of a full RouterOS owner account. An optional identity
 perimeter such as Cloudflare Access can provide an independent first factor and
 identity allowlist, but it does not replace RouterOS authorization.
 
+The Connection Doctor's **RouterOS access and exposure** check performs only
+fixed-property `GET` requests for the signed-in RouterOS account, its group, and
+`/ip/service`. It reports a derived allowlist-scope result and a small set of
+permission categories; it does not return account/group names, source ranges,
+service ports, certificate names, or raw RouterOS records. A missing property
+or unsupported endpoint is reported as unknown/unsupported, not as a pass.
+RouterOS `read`, `rest-api`, and `api` policies describe different access
+surfaces; `write` grants broad configuration-write capability and `policy`
+grants user/policy management. These RouterOS policies are not a reliable
+one-to-one map to dashboard features, whose separate authorization checks must
+still be enforced. The report intentionally does not generate a replacement
+policy or recommend granting a broad group as a generic fix.
+
+The per-service `address` field is only a RouterOS service-level source filter.
+An empty value is reported as unrestricted at that layer; a configured value
+is reported only as configured, without exposing the range or claiming it
+matches the dashboard's source. Neither result proves the effective network
+perimeter: firewall rules and upstream controls remain an explicit manual
+review. HTTP management services are flagged as unencrypted. For HTTPS/TLS
+services, the check reports whether a certificate assignment is observable,
+not whether the certificate chain/hostname is valid. See MikroTik's
+[User and User Groups documentation](https://help.mikrotik.com/docs/spaces/ROS/pages/8978504/User)
+and [IP Services documentation](https://help.mikrotik.com/docs/spaces/ROS/pages/103841820/Services).
+
 ### Authentication and authorization audit events
 
 Change History records successful and failed sign-ins, the role assigned to a
