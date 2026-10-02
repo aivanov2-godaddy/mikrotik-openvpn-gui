@@ -789,9 +789,9 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 @media (max-width: 520px) {
   .mikrotik-wordmark strong { font-size: 13px; }
   .brand-host { font-size: 9px; }
-  .top-logout button span, .winbox-sidebar a span { display: none; }
-  .winbox-sidebar a { width: 44px; min-height: 42px; justify-content: center; padding: 4px; }
-  .winbox-sidebar a span:not(.nav-count) { display: block; position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .top-logout button span { display: none; }
+  .winbox-sidebar a { width: auto; min-width: max-content; min-height: 42px; justify-content: center; padding: 4px 10px; }
+  .winbox-sidebar a span:not(.nav-count) { display: inline; position: static; width: auto; height: auto; padding: 0; overflow: visible; clip: auto; white-space: nowrap; border: 0; }
   .workspace-toolbar { padding: 0 4px; }
   .toolbar-actions button span, .toolbar-actions a span { display: none; }
   .toolbar-search input { width: 78px; }

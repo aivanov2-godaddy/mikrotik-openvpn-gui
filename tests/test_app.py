@@ -236,6 +236,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"View connections", page)
         self.assertIn(b"Manage devices", page)
         self.assertIn(b"Connection history", page)
+        self.assertIn(b">MONITOR</span>", page)
+        self.assertIn(b">MANAGE</span>", page)
+        self.assertIn(b">ADMINISTRATION</span>", page)
         for label in (b"Dashboard", b"VPN Users", b"Connections", b"Device Profiles", b"Policy Templates", b"Service Health", b"Change History", b"Setup Planner"):
             self.assertIn(b'aria-label="' + label + b'"', page)
         self.assertIn(b"RouterOS certificate inventory", page)
