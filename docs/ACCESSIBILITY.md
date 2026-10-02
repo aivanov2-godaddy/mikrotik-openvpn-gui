@@ -38,10 +38,16 @@ alone.
 ## Regression gate
 
 Every UI pull request runs the repository pre-commit suite and Python tests,
-including the frontend live-update contract tests. CSS regression tests verify
-that global focus treatment, reduced-motion behavior, forced-colors support,
-and mobile breakpoints remain present. These checks are deterministic and do
-not use sleeps to assert streaming behavior.
+including the frontend live-update contract tests. The deterministic CSS
+contract tests inspect the declarations inside the actual rules: keyboard focus
+must retain a visible outline and offset, reduced-motion mode must limit
+animation and transition duration and disable smooth scrolling, and forced
+colors must retain a system-color focus outline and control borders. Mobile
+breakpoints are checked as well. Run this focused gate with
+`python -m unittest tests.test_accessibility_contract -v`; CI also runs it as
+part of the full Python test suite. These source-level checks do not prove the
+rendered UI is accessible; they do not replace browser, assistive-technology,
+or human review, and they do not use sleeps to assert streaming behavior.
 
 Before merging a user-visible layout change, reviewers also inspect Dashboard,
 VPN Users, and Connections at 1440×900, 768×1024, and 390×844; at 200% browser
