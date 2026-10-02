@@ -1829,6 +1829,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         health_value = {"healthy": 1, "warning": 0.5, "unavailable": 0}.get(health_state, 0)
         deployments = self.server.context.store.recent_deployment_events(1)
         outbox = self.server.context.store.integration_outbox_metrics(now=now)
+        database = self.server.context.store.database_metrics()
         dispatcher = self.server.context.integration_dispatcher
         integration = dispatcher.metrics() if dispatcher is not None else {
             "enabled": 0, "webhook_configured": 0,
@@ -1867,6 +1868,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_integration_outbox_last_delivered_timestamp_seconds Unix timestamp of the last delivered outbox event.",
             "# TYPE vpn_dashboard_integration_outbox_last_delivered_timestamp_seconds gauge",
             f"vpn_dashboard_integration_outbox_last_delivered_timestamp_seconds {outbox['last_delivered']}",
+            "# HELP vpn_dashboard_sqlite_file_bytes Current SQLite database, WAL, and shared-memory file sizes.",
+            "# TYPE vpn_dashboard_sqlite_file_bytes gauge",
+            f'vpn_dashboard_sqlite_file_bytes{{file="database"}} {database["database_bytes"]}',
+            f'vpn_dashboard_sqlite_file_bytes{{file="wal"}} {database["wal_bytes"]}',
+            f'vpn_dashboard_sqlite_file_bytes{{file="shm"}} {database["shm_bytes"]}',
+            "# HELP vpn_dashboard_sqlite_volume_free_bytes Free bytes on the filesystem containing SQLite; -1 means unavailable.",
+            "# TYPE vpn_dashboard_sqlite_volume_free_bytes gauge",
+            f"vpn_dashboard_sqlite_volume_free_bytes {database['volume_free_bytes']}",
             "# HELP vpn_dashboard_integration_delivery_total Outbox delivery attempts completed by this process, labeled by outcome.",
             "# TYPE vpn_dashboard_integration_delivery_total counter",
             f'vpn_dashboard_integration_delivery_total{{outcome="success"}} {integration["delivery_successes"]}',
