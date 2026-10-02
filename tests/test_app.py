@@ -460,6 +460,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"vpn_dashboard_sqlite_volume_free_bytes", payload)
         self.assertIn(b'vpn_dashboard_telemetry_gateway_events_total{outcome="snapshot_recovery"}', payload)
         self.assertIn(b"vpn_dashboard_telemetry_gateway_rejected_clients_total", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_session_event_age_seconds", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_traffic_sample_age_seconds", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_session_events_total", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_traffic_samples_total", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_traffic_sample_age_seconds -1", payload)
         self.assertNotIn(b"routerpass", payload)
 
         status, _, payload = self.json_request(

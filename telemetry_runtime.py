@@ -136,9 +136,18 @@ class TelemetryRuntime:
         if not events:
             return
         self.gateway.publish(events)
-        self.state.mark_event(
-            reconciliation=any(event.name == "telemetry.snapshot" for event in events)
+        session_events = sum(
+            event.name.startswith("vpn.session.") or event.name == "telemetry.snapshot"
+            for event in events
         )
+        traffic_samples = sum(event.name == "vpn.interface.counters" for event in events)
+        if session_events:
+            self.state.mark_session_events(
+                session_events,
+                reconciliation=any(event.name == "telemetry.snapshot" for event in events),
+            )
+        if traffic_samples:
+            self.state.mark_traffic_samples(traffic_samples)
 
     def _run_sampler(self) -> None:
         assert self.sampler is not None
