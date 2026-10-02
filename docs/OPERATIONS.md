@@ -44,13 +44,21 @@ are retained as dead-letter rows and excluded from automatic retries. The
 aggregate count. Investigate through the protected local database backup and
 support process; do not export raw outbox contents. Normal metadata retention
 prunes dead-letter rows alongside old audit records.
+The outbox retries events only until SQLite records delivery. If Redis later
+loses stream data that was already acknowledged, the dashboard does not
+automatically reconstruct those entries from SQLite; use Redis persistence and
+tested backups when downstream stream retention is required. The local audit
+record remains the application-side source of truth only until normal metadata
+retention removes it. CI verifies recovery for events that are still pending,
+including loss of Redis stream state before the SQLite delivery acknowledgement.
 The same endpoint exports aggregate `vpn_dashboard_sqlite_file_bytes` for the
 database/WAL/SHM and `vpn_dashboard_sqlite_volume_free_bytes` for the containing
 filesystem (`-1` means the measurement was unavailable); it never exposes the
 database path or its records. Alert on sustained WAL growth or low free space
 before backup and writes are affected.
-CI also exercises Redis restart recovery and the ambiguous case where a stream
-append succeeds but its SQLite acknowledgement is lost. The integration job
+CI also exercises Redis restart recovery, loss of stream state while the
+outbox row is pending, multi-batch backlog drain, and the ambiguous case where
+a stream append succeeds but its SQLite acknowledgement is lost. The integration job
 uses an isolated disposable Redis container; it never connects to a project or
 production Redis instance. Treat stream delivery as at-least-once, not exactly
 once, and use `event_id` for consumer-side deduplication. A Redis-local effect
