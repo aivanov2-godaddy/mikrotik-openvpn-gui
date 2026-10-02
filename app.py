@@ -3387,7 +3387,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 mutation_error = error
             try:
                 verified_user = self._find_user(credentials, user_id)
-            except (RouterOSError, ValueError) as error:
+            except (RouterOSError, ValueError):
                 self.server.context.store.audit(
                     actor=session.username,
                     action="user.suspend" if suspended else "user.restore",
