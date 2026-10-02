@@ -1,16 +1,70 @@
-# Accessibility
+# Accessible, consistent operator UI
 
-The dashboard keeps the responsive layout usable with keyboard, high-contrast,
-and reduced-motion settings:
+The dashboard uses WCAG 2.2 AA as an informed target, while recognizing that
+automated checks do not replace assistive-technology and human review. The UI
+is a single-router operations console: live state must remain live, risky
+RouterOS changes stay review-first, and status meaning must never rely on color
+alone.
 
-- Every keyboard-focusable control uses a high-contrast `:focus-visible` ring.
-- Windows High Contrast/forced-colors mode receives system-colored outlines and
-  borders instead of relying on the dashboard palette.
-- `prefers-reduced-motion: reduce` disables smooth scrolling and reduces CSS
-  transitions/animations to an effectively static state.
-- These preferences are CSS-only and do not change RouterOS configuration,
-  stored dashboard data, or deployment behavior.
+## Shared design rules
 
-When reviewing UI changes, test keyboard-only navigation (Tab, Shift+Tab,
-Enter, and Escape), a browser zoom of 200%, and both reduced-motion and
-forced-colors modes. The responsive breakpoints remain unchanged.
+- Use the shared system font stack and the existing `--text`, `--text-bright`,
+  `--muted`, `--dim`, `--blue`, `--green`, `--amber`, and `--red` tokens.
+  Body copy uses the standard page size; small uppercase labels are metadata,
+  never the only way to identify an action or status.
+- Reuse the existing spacing rhythm (4/8/12/16/24 px), panel surfaces, and
+  common button classes. Primary actions are visually distinct; secondary and
+  destructive actions are not presented with equal emphasis.
+- Status includes readable text and an icon/shape in addition to its color.
+  Live state indicates freshness or delay; it must not imply that the operator
+  needs to refresh the page.
+- Interactive controls must have an accessible name, keyboard operation, a
+  visible focus indicator, and a target suitable for touch. Use native buttons,
+  links, labels, and disclosure elements where possible.
+- Prefer short labels and progressive disclosure over dense explanatory copy.
+  Keep live telemetry and current form values intact when views update.
+
+## WCAG-informed review map
+
+| UI area | Review points |
+| --- | --- |
+| Login and forms | Labels and instructions; required/invalid state; errors announced and associated with their controls; password-manager compatibility. |
+| Navigation and page views | Landmark and heading hierarchy; current view is perceivable; links/buttons have clear names; keyboard users can reach every view. |
+| Live connections and graphs | Connected/disconnected and stale states are text-labelled; graph controls expose pressed state; live updates do not steal focus or announce every sample. |
+| Users and device actions | Status is not color-only; selection and review actions are keyboard operable; destructive operations explain impact and require the existing confirmation. |
+| Dialogs and disclosures | Native open/close behavior; summary/button name is clear; focus remains visible; Escape and close controls work. |
+| Tables, audit, and health | Headers and row meaning are understandable; empty/error states are explicit; charts and health states have textual equivalents. |
+
+## Regression gate
+
+Every UI pull request runs the repository pre-commit suite and Python tests,
+including the frontend live-update contract tests. CSS regression tests verify
+that global focus treatment, reduced-motion behavior, forced-colors support,
+and mobile breakpoints remain present. These checks are deterministic and do
+not use sleeps to assert streaming behavior.
+
+Before merging a user-visible layout change, reviewers also inspect Dashboard,
+VPN Users, and Connections at 1440×900, 768×1024, and 390×844; at 200% browser
+zoom; with keyboard only; with reduced motion enabled; and with Windows forced
+colors/high contrast. Compare against the reviewed primary-view references in
+`docs/screenshots/` where the component is represented, and add or update a
+redacted screenshot when a persistent visual state changes. Do not capture
+credentials, real VPN names, addresses, QR codes, or production data.
+
+## Five operator usability tasks
+
+Run with an administrator familiar with VPN basics but not the implementation.
+Use a seeded, redacted test installation. A task succeeds only when completed
+without moderator hints and without a wrong/destructive action.
+
+| Task | Success criterion | Error signal |
+| --- | --- | --- |
+| Find whether a named VPN user is connected | Correct user and current state found within 30 seconds | Wrong account/state, or a manual page refresh is attempted |
+| Find a connection's current throughput | Correct Rx/Tx rates and units identified within 30 seconds | Cumulative totals are mistaken for rates, or units/direction are reversed |
+| Add a device profile to an existing user | Correct user/device workflow reached within 45 seconds; no profile is issued to another user | Wrong user, unintended access change, or moderator hint required |
+| Diagnose a VPN service warning | Relevant health check and safe next step found within 45 seconds | Operator is directed to an unsafe mutation or cannot identify the affected service |
+| Review a proposed destructive user action | Impact and target are correctly stated before confirming; cancel leaves state unchanged | Wrong target, unclear impact, or action executes without explicit confirmation |
+
+Record completion time, unassisted completion, wrong turns, and task errors.
+Do not claim usability improvement from visual preference alone; compare the
+same tasks before and after a material navigation or interaction redesign.
