@@ -90,6 +90,12 @@ class ReleaseCollectionTests(unittest.TestCase):
                 f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {now}\n"
                 "vpn_dashboard_integration_outbox_pending 0\n"
                 "vpn_dashboard_integration_outbox_oldest_age_seconds 0\n"
+                "vpn_dashboard_telemetry_session_event_age_seconds 0.25\n"
+                f"vpn_dashboard_telemetry_session_event_timestamp_seconds {now - 0.25}\n"
+                "vpn_dashboard_telemetry_session_events_total 4\n"
+                "vpn_dashboard_telemetry_traffic_sample_age_seconds 0.75\n"
+                f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {now - 0.75}\n"
+                "vpn_dashboard_telemetry_traffic_samples_total 12\n"
                 "vpn_dashboard_info{revision=\"private-label\"} 1\n"
             )
             return 200, payload.encode()
@@ -119,12 +125,33 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertGreaterEqual(collected["deployments"][0]["health_sample_count"], 2)
         self.assertTrue(collected["deployments"][0]["redis_publish_verified"])
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_last"], 0)
+        telemetry = report["deployments"][0]["metrics"]["telemetry_process_observation_age"]
+        self.assertEqual(telemetry["session_event"]["max_seconds"], 0.25)
+        self.assertEqual(telemetry["traffic_sample"]["max_seconds"], 0.75)
+        self.assertIn("not RouterOS-to-browser delivery latency", telemetry["meaning"])
         self.assertTrue(all(cookie == "session=secret-cookie" for url, cookie in seen if url.endswith("/metrics")))
         serialized = json.dumps(report)
         self.assertNotIn("must-not-appear-in-output", serialized)
         self.assertNotIn("private-label", serialized)
         self.assertNotIn("session=secret-cookie", serialized)
         self.assertNotIn("192.168.1.2", serialized)
+
+    def test_unknown_telemetry_age_is_not_reported_as_fresh(self) -> None:
+        from scripts.collect_release_acceptance import _metric_window
+
+        metrics = {
+            "vpn_dashboard_health": 1,
+            "vpn_dashboard_telemetry_session_event_age_seconds": -1,
+            "vpn_dashboard_telemetry_session_event_timestamp_seconds": -1,
+            "vpn_dashboard_telemetry_traffic_sample_age_seconds": -1,
+            "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds": -1,
+        }
+        summary = _metric_window([{"metrics": metrics}], 0, 1)
+        telemetry = summary["telemetry_process_observation_age"]
+        self.assertIsNone(telemetry["session_event"]["max_seconds"])
+        self.assertEqual(telemetry["session_event"]["unknown_samples"], 1)
+        self.assertIsNone(telemetry["traffic_sample"]["max_seconds"])
+        self.assertEqual(telemetry["traffic_sample"]["unknown_samples"], 1)
 
     def test_readiness_or_revision_mismatch_fails_closed(self) -> None:
         code, report, _ = self.run_collection(ready=False)
