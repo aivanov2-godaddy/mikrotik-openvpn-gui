@@ -7,6 +7,7 @@ import ipaddress
 import json
 import re
 import secrets
+import socket
 import ssl
 import urllib.error
 import urllib.parse
@@ -19,9 +20,16 @@ from config import ConfigurationError, OpenVPNTopology
 
 
 class RouterOSError(RuntimeError):
-    def __init__(self, message: str, status: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        *,
+        failure_kind: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status = status
+        self.failure_kind = failure_kind
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +53,7 @@ def _records(value: Any) -> list[dict[str, Any]]:
         return [item for item in value if isinstance(item, dict)]
     if isinstance(value, dict):
         return [value]
-    raise RouterOSError("RouterOS returned an unexpected JSON shape")
+    raise RouterOSError("RouterOS returned an unexpected JSON shape", failure_kind="invalid_response")
 
 
 def _yes(value: Any) -> bool:
@@ -225,13 +233,23 @@ class RouterOSClient:
                 f"RouterOS request failed with HTTP {error.code}{suffix}", error.code
             ) from None
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise RouterOSError(f"RouterOS is unavailable: {error}") from None
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            if isinstance(reason, ssl.SSLError):
+                failure_kind = "tls"
+            elif isinstance(reason, (TimeoutError, socket.timeout)):
+                failure_kind = "timeout"
+            else:
+                failure_kind = None
+            raise RouterOSError(f"RouterOS is unavailable: {error}", failure_kind=failure_kind) from None
         if not payload:
             return None
         try:
             return json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            raise RouterOSError("RouterOS returned an invalid JSON response") from None
+            raise RouterOSError(
+                "RouterOS returned an invalid JSON response",
+                failure_kind="invalid_response",
+            ) from None
 
     def verify_credentials(self, credentials: RouterOSCredentials) -> dict[str, Any]:
         records = _records(self._request("GET", "/system/resource", credentials))
