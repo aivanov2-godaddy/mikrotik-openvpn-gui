@@ -231,7 +231,10 @@ REST/SSE fallback boundary.
 - Validate redacted release evidence for canary then production, requiring the
   same immutable image and digest, health/readiness, telemetry freshness and
   latency targets, Redis publish verification, REST fallback, and reconnect/
-  snapshot recovery.
+  snapshot recovery. The v2 evidence gate additionally requires a 30-minute
+  sampled window, zero recorded delivery/health/event-integrity failures,
+  resource peaks, and a canary rollback drill before production protection is
+  considered verified.
 - Keep the validator read-only: it reports evidence and never promotes an
   image or changes RouterOS policy, users, certificates, or data.
 

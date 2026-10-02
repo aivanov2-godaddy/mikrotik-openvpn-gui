@@ -9,6 +9,7 @@ complete, consistent, and within the project's live-data targets.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import math
 import re
@@ -23,6 +24,8 @@ IMAGE = re.compile(
 )
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 ENVIRONMENTS = ("canary", "production")
+MIN_SOAK_SECONDS = 1800
+MIN_HEALTH_SAMPLES = 30
 
 
 def _boolean(record: dict[str, Any], field: str) -> bool:
@@ -45,9 +48,29 @@ def _number(record: dict[str, Any], field: str) -> float:
     return parsed
 
 
+def _timestamp(record: dict[str, Any], field: str) -> datetime:
+    value = record.get(field)
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be an ISO-8601 timestamp with timezone")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{field} must be an ISO-8601 timestamp with timezone") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field} must include a timezone")
+    return parsed
+
+
+def _count(record: dict[str, Any], field: str) -> int:
+    value = _number(record, field)
+    if not value.is_integer():
+        raise ValueError(f"{field} must be a whole-number count")
+    return int(value)
+
+
 def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
-    if not isinstance(document, dict) or document.get("format") != "vpn-dashboard-release-evidence-v1":
-        raise ValueError("format must be vpn-dashboard-release-evidence-v1")
+    if not isinstance(document, dict) or document.get("format") != "vpn-dashboard-release-evidence-v2":
+        raise ValueError("format must be vpn-dashboard-release-evidence-v2")
     deployments = document.get("deployments")
     if not isinstance(deployments, list) or len(deployments) != 2:
         raise ValueError("deployments must contain canary followed by production")
@@ -78,8 +101,30 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
         reconnect = _boolean(record, "reconnect_recovered")
         snapshot = _boolean(record, "snapshot_recovered")
         backup_restore = _boolean(record, "sqlite_restore_verified")
+        rollback = _boolean(record, "rollback_drill_passed")
+        production_protected = _boolean(record, "production_untouched_on_canary_failure")
         latency = _number(record, "session_event_p95_ms")
         sample_age = _number(record, "traffic_sample_age_seconds")
+        started = _timestamp(record, "observation_started_at")
+        ended = _timestamp(record, "observation_ended_at")
+        soak_seconds = (ended - started).total_seconds()
+        health_samples = _count(record, "health_sample_count")
+        max_sample_gap = _number(record, "max_sample_gap_seconds")
+        failure_counts = {
+            name: _count(record, name)
+            for name in (
+                "health_failures", "stale_sample_count", "lost_event_count",
+                "duplicate_event_count", "out_of_order_event_count",
+                "redis_delivery_failure_count",
+            )
+        }
+        resource_peaks = {
+            name: _number(record, name)
+            for name in (
+                "router_cpu_peak_percent", "router_memory_peak_percent",
+                "router_storage_peak_percent",
+            )
+        }
 
         if not healthy:
             failures.append(f"{expected_environment}_container_unhealthy")
@@ -97,6 +142,23 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
             failures.append(f"{expected_environment}_session_event_latency_exceeded")
         if sample_age > 2:
             failures.append(f"{expected_environment}_traffic_sample_stale")
+        if soak_seconds < MIN_SOAK_SECONDS:
+            failures.append(f"{expected_environment}_soak_window_too_short")
+        if health_samples < MIN_HEALTH_SAMPLES:
+            failures.append(f"{expected_environment}_health_samples_insufficient")
+        if max_sample_gap > 120:
+            failures.append(f"{expected_environment}_health_sample_gap_exceeded")
+        if soak_seconds <= 0:
+            failures.append(f"{expected_environment}_observation_window_invalid")
+        if any(value > 0 for value in failure_counts.values()):
+            failures.append(f"{expected_environment}_soak_failures_observed")
+        for resource, limit in zip(resource_peaks, (80, 90, 90)):
+            if resource_peaks[resource] > limit:
+                failures.append(f"{expected_environment}_{resource}_exceeded")
+        if expected_environment == "canary" and not rollback:
+            failures.append("canary_rollback_drill_failed")
+        if expected_environment == "canary" and not production_protected:
+            failures.append("production_protection_unverified")
 
         safe_records.append({
             "environment": expected_environment,
@@ -114,6 +176,15 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
             "sqlite_restore_verified": backup_restore,
             "session_event_p95_ms": latency,
             "traffic_sample_age_seconds": sample_age,
+            "observation_started_at": started.isoformat(),
+            "observation_ended_at": ended.isoformat(),
+            "observation_window_seconds": soak_seconds,
+            "health_sample_count": health_samples,
+            "max_sample_gap_seconds": max_sample_gap,
+            **failure_counts,
+            **resource_peaks,
+            "rollback_drill_passed": rollback,
+            "production_untouched_on_canary_failure": production_protected,
         })
 
     if safe_records[0]["image"] != safe_records[1]["image"]:
@@ -121,7 +192,7 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
     if safe_records[0]["digest"] != safe_records[1]["digest"]:
         failures.append("canary_production_digest_mismatch")
     report = {
-        "format": "vpn-dashboard-release-acceptance-report-v1",
+        "format": "vpn-dashboard-release-acceptance-report-v2",
         "passed": not failures,
         "failed_gates": sorted(set(failures)),
         "deployments": safe_records,

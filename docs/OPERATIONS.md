@@ -173,14 +173,19 @@ and validate them with:
 python scripts/release_acceptance.py --input release-evidence.json --output release-report.json
 ```
 
-The validator requires the same full immutable image tag and OCI digest in
-canary and production; healthy container and app readiness; ASGI WebSocket (or
-documented SSE fallback), REST fallback, verified Redis publish, reconnect and
-snapshot recovery, a SQLite restore rehearsal, session-event p95 at or below
-1 second, and traffic samples no older than 2 seconds. It emits only the
-release identity and aggregate pass/fail evidence. The JSON input is an
-operator-collected attestation, not an automatic RouterOS probe; keep it free
-of credentials, VPN-user data, addresses, and raw logs.
+The v2 validator requires the same full immutable image tag and OCI digest in
+canary and production; a 30-minute window with at least 30 health samples and
+no gap over 120 seconds in each environment; zero health, stale-sample, event
+loss/duplication/order, or Redis delivery failures; and p95/freshness targets
+within limits. It also requires router CPU/memory/storage peaks, Redis status,
+REST fallback, reconnect and snapshot recovery, a SQLite restore rehearsal,
+and an isolated canary rollback drill. Production must remain untouched when
+canary fails. Resource gates are CPU <=80%, memory <=90%, and storage <=90%.
+It emits only release identity, observation window, aggregate measurements,
+and pass/fail evidence. The JSON input is still an operator-collected
+attestation, not an automatic RouterOS probe; keep it free of credentials,
+VPN-user data, addresses, and raw logs. The example JSON contains illustrative
+values only and is not production evidence.
 
 Apply retention appropriate to the sensitivity of email ownership, address, usage, and audit metadata. Destroy expired backups securely.
 
