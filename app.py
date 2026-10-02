@@ -3477,17 +3477,71 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.server.context.router.terminate_session(
                 credentials, session_id=session_id
             )
+            try:
+                remaining = self.server.context.router.list_active_ovpn_sessions(credentials)
+            except RouterOSError as error:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="session.terminate",
+                    target=str(active["name"]),
+                    status="unknown",
+                    details={
+                        "verification": "unavailable",
+                        "reason": type(error).__name__,
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_unavailable",
+                        "error": (
+                            "RouterOS received the termination request, but the session state "
+                            "could not be verified. Check Connections before retrying."
+                        ),
+                        "verified": False,
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+            original_router_session_id = str(active.get("session_id", ""))
+            if any(
+                str(item.get("id", "")) == session_id
+                and (
+                    not original_router_session_id
+                    or str(item.get("session_id", "")) == original_router_session_id
+                )
+                for item in remaining
+            ):
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="session.terminate",
+                    target=str(active["name"]),
+                    status="failed",
+                    details={"verification": "session_still_active"},
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_failed",
+                        "error": (
+                            "RouterOS still reports this session as active. Check its current "
+                            "state before retrying."
+                        ),
+                        "verified": False,
+                    },
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
             self.server.context.store.audit(
                 actor=session.username,
                 action="session.terminate",
                 target=str(active["name"]),
                 status="success",
                 details={
+                    "verification": "session_absent",
                     "source_address": active.get("source_address", ""),
                     "vpn_address": active.get("vpn_address", ""),
                 },
             )
-            self._json({"ok": True})
+            self._json({"ok": True, "verified": True})
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
