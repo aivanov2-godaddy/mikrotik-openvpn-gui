@@ -70,6 +70,11 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0]["event"], "telemetry.snapshot")
         self.assertEqual(len(frames[0]["payload"]["sessions"]), 3)
+        metrics = self.gateway.metrics()
+        self.assertEqual(metrics["published_events"], 3)
+        self.assertEqual(metrics["snapshot_recoveries"], 1)
+        self.assertEqual(metrics["replayed_events"], 0)
+        self.assertNotIn("subscription_id", str(metrics))
 
     def test_counter_reset_frames_are_supported_and_redacted(self) -> None:
         subscription = self.gateway.open(self.principal)
@@ -105,6 +110,9 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         self.assertTrue(self.gateway.close(subscription))
         self.assertFalse(self.gateway.close(subscription))
         self.assertEqual(self.gateway.client_count, 0)
+        metrics = self.gateway.metrics()
+        self.assertEqual(metrics["active_clients"], 0)
+        self.assertEqual(metrics["rejected_clients"], 1)
 
 
 if __name__ == "__main__":

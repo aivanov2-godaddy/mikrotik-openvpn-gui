@@ -10,6 +10,7 @@ enable this contract yet.
 from __future__ import annotations
 
 import copy
+import threading
 import time
 import uuid
 from collections import deque
@@ -135,6 +136,11 @@ class TelemetryGatewayContract:
         self._events: deque[dict[str, Any]] = deque(maxlen=max(1, int(max_replay)))
         self._clients: dict[str, TelemetrySubscription] = {}
         self._max_clients = max(1, int(max_clients))
+        self._lock = threading.RLock()
+        self._published_events = 0
+        self._replayed_events = 0
+        self._snapshot_recoveries = 0
+        self._rejected_clients = 0
 
     @staticmethod
     def _authorize(principal: TelemetryPrincipal) -> None:
@@ -197,27 +203,36 @@ class TelemetryGatewayContract:
     def open(self, principal: TelemetryPrincipal) -> str:
         """Authorize and create an opaque subscription identifier."""
 
-        self._authorize(principal)
-        if len(self._clients) >= self._max_clients:
-            raise TelemetrySubscriptionError("telemetry client limit reached")
-        subscription_id = uuid.uuid4().hex
-        self._clients[subscription_id] = TelemetrySubscription(
-            subscription_id=subscription_id,
-            created_at=int(self._clock()),
-        )
-        return subscription_id
+        with self._lock:
+            try:
+                self._authorize(principal)
+            except TelemetryAuthorizationError:
+                self._rejected_clients += 1
+                raise
+            if len(self._clients) >= self._max_clients:
+                self._rejected_clients += 1
+                raise TelemetrySubscriptionError("telemetry client limit reached")
+            subscription_id = uuid.uuid4().hex
+            self._clients[subscription_id] = TelemetrySubscription(
+                subscription_id=subscription_id,
+                created_at=int(self._clock()),
+            )
+            return subscription_id
 
     def close(self, subscription_id: str) -> bool:
-        return self._clients.pop(subscription_id, None) is not None
+        with self._lock:
+            return self._clients.pop(subscription_id, None) is not None
 
     def publish(self, events: Iterable[TelemetryEvent]) -> int:
         """Append broker events after applying the gateway privacy boundary."""
 
-        count = 0
-        for event in events:
-            self._events.append(self._frame(event))
-            count += 1
-        return count
+        with self._lock:
+            count = 0
+            for event in events:
+                self._events.append(self._frame(event))
+                count += 1
+            self._published_events += count
+            return count
 
     def _snapshot_frame(self) -> dict[str, Any]:
         sequence = self._broker.sequence
@@ -233,19 +248,36 @@ class TelemetryGatewayContract:
     def poll(self, subscription_id: str, *, after_sequence: int | None = None) -> list[dict[str, Any]]:
         """Return new frames, recovering with a snapshot when replay is stale."""
 
-        subscription = self._clients.get(subscription_id)
-        if subscription is None:
-            raise TelemetrySubscriptionError("telemetry subscription is not active")
-        cursor = subscription.last_seen_sequence if after_sequence is None else int(after_sequence)
-        frames = list(self._events)
-        if frames and cursor < frames[0]["sequence"] - 1:
-            result = [self._snapshot_frame()]
-        else:
-            result = [frame for frame in frames if frame["sequence"] > cursor]
-        if result:
-            subscription.last_seen_sequence = max(frame["sequence"] for frame in result)
-        return copy.deepcopy(result)
+        with self._lock:
+            subscription = self._clients.get(subscription_id)
+            if subscription is None:
+                raise TelemetrySubscriptionError("telemetry subscription is not active")
+            cursor = subscription.last_seen_sequence if after_sequence is None else int(after_sequence)
+            frames = list(self._events)
+            if frames and cursor < frames[0]["sequence"] - 1:
+                result = [self._snapshot_frame()]
+                self._snapshot_recoveries += 1
+            else:
+                result = [frame for frame in frames if frame["sequence"] > cursor]
+                self._replayed_events += len(result)
+            if result:
+                subscription.last_seen_sequence = max(frame["sequence"] for frame in result)
+            return copy.deepcopy(result)
+
+    def metrics(self) -> dict[str, int]:
+        """Return aggregate delivery counters with no client/event identifiers."""
+
+        with self._lock:
+            return {
+                "active_clients": len(self._clients),
+                "buffered_events": len(self._events),
+                "published_events": self._published_events,
+                "replayed_events": self._replayed_events,
+                "snapshot_recoveries": self._snapshot_recoveries,
+                "rejected_clients": self._rejected_clients,
+            }
 
     @property
     def client_count(self) -> int:
-        return len(self._clients)
+        with self._lock:
+            return len(self._clients)
