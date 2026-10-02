@@ -52,6 +52,13 @@ def _yes(value: Any) -> bool:
     return str(value).lower() in {"yes", "true", "1"}
 
 
+def _certificate_is_revoked(value: Any) -> bool:
+    """RouterOS exposes ``revoked`` as a timestamp, not a yes/no flag."""
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().casefold() not in {"", "no", "false", "0", "none"}
+
+
 def _integer(value: Any) -> int:
     try:
         return max(0, int(str(value or "0")))
@@ -454,7 +461,7 @@ class RouterOSClient:
                     "certificate_authority": certificate_authority,
                     "invalid_after": str(item.get("invalid-after", "")),
                     "expires_after": str(item.get("expires-after", "")),
-                    "revoked": _yes(item.get("revoked", "no")),
+                    "revoked": _certificate_is_revoked(item.get("revoked", "no")),
                     "trusted": _yes(item.get("trusted", "no")),
                 }
             )

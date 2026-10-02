@@ -19,6 +19,18 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_certificate_inventory_treats_revocation_timestamp_as_revoked(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            mock.state.certificates["*CL1"]["revoked"] = "2026-09-15 12:34:56"
+
+            certificates = client.list_ovpn_client_certificates(credentials)
+
+        by_name = {item["name"]: item for item in certificates}
+        self.assertTrue(by_name["ovpn-user-one-device-a"]["revoked"])
+        self.assertFalse(by_name["ovpn-user-two-device-b"]["revoked"])
+
     def test_authentication_and_crud(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)

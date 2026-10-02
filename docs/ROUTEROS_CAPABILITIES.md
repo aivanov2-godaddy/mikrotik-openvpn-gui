@@ -28,3 +28,8 @@ Every result reports its source, observation time, freshness, and confidence.
 Missing permissions, malformed data, or unavailable RouterOS responses become
 `unknown`, never an inferred pass. Any improvement to this map must cite the
 current MikroTik manual and add tests for the relevant RouterOS version bounds.
+
+Certificate inventory treats RouterOS' `revoked` property as a revocation
+timestamp: any populated value means revoked, while an empty value or an
+explicit `no`/`false` means not revoked. This follows the current
+[MikroTik certificate reference](https://manual.mikrotik.com/docs/authentication-authorization-accounting/certificates/).
