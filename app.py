@@ -1897,6 +1897,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# TYPE vpn_dashboard_redis_last_publish_success_timestamp_seconds gauge",
             f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {integration['redis_last_publish_success']}",
         ]
+        telemetry_runtime = self.server.context.telemetry_runtime
+        gateway = telemetry_runtime.gateway.metrics() if telemetry_runtime is not None else {
+            "active_clients": 0,
+            "buffered_events": 0,
+            "published_events": 0,
+            "replayed_events": 0,
+            "snapshot_recoveries": 0,
+            "rejected_clients": 0,
+        }
+        lines.extend([
+            "# HELP vpn_dashboard_telemetry_gateway_clients Current authorized telemetry subscriptions.",
+            "# TYPE vpn_dashboard_telemetry_gateway_clients gauge",
+            f"vpn_dashboard_telemetry_gateway_clients {gateway['active_clients']}",
+            "# HELP vpn_dashboard_telemetry_gateway_buffered_events Events retained in the bounded in-memory replay window.",
+            "# TYPE vpn_dashboard_telemetry_gateway_buffered_events gauge",
+            f"vpn_dashboard_telemetry_gateway_buffered_events {gateway['buffered_events']}",
+            "# HELP vpn_dashboard_telemetry_gateway_events_total Gateway event outcomes, labeled by aggregate outcome only.",
+            "# TYPE vpn_dashboard_telemetry_gateway_events_total counter",
+            f'vpn_dashboard_telemetry_gateway_events_total{{outcome="published"}} {gateway["published_events"]}',
+            f'vpn_dashboard_telemetry_gateway_events_total{{outcome="replayed"}} {gateway["replayed_events"]}',
+            f'vpn_dashboard_telemetry_gateway_events_total{{outcome="snapshot_recovery"}} {gateway["snapshot_recoveries"]}',
+            "# HELP vpn_dashboard_telemetry_gateway_rejected_clients_total Subscription attempts rejected by authentication, authorization, or client limit.",
+            "# TYPE vpn_dashboard_telemetry_gateway_rejected_clients_total counter",
+            f"vpn_dashboard_telemetry_gateway_rejected_clients_total {gateway['rejected_clients']}",
+        ])
         socketio = getattr(self.server, "native_socketio", None)
         socketio_metrics = socketio.metrics() if socketio is not None else {
             "engine": self.server.socketio_engine,
