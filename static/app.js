@@ -763,11 +763,50 @@ function seedCounters() {
   $$('.session-card').forEach((card) => updateGraphs(card, { rxBytes: 0, txBytes: 0, rxPackets: 0, txPackets: 0 }));
 }
 
-const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'admin-sessions', 'profile-security', 'policy-templates', 'service-health', 'audit-log', 'setup-planner']);
+const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'admin-sessions', 'profile-security', 'policy-templates', 'service-health', 'connection-doctor', 'audit-log', 'setup-planner']);
 
 function healthLabel(status) {
   return ({ healthy: 'Operational', warning: 'Attention needed', unavailable: 'Unavailable' }[status] || 'Unavailable');
 }
+
+function renderConnectionDoctor(payload) {
+  const results = $('[data-doctor-results]');
+  const status = $('[data-doctor-status]');
+  if (!results || !status) return;
+  const checks = Array.isArray(payload.checks) ? payload.checks : [];
+  const labels = { router: 'RouterOS reachability', server: 'OpenVPN server', account: 'VPN account', session: 'Active session', routes: 'Server route settings', compatibility: 'Version compatibility', 'client-path': 'Client DNS and route' };
+  results.replaceChildren(...checks.map((check) => {
+    const effectiveStatus = check.freshness === 'stale' ? 'stale' : check.status || 'unknown';
+    const item = node('article', `doctor-check ${effectiveStatus}`);
+    item.append(node('strong', '', labels[check.id] || 'Diagnostic check'));
+    item.append(node('span', '', `${String(effectiveStatus).toUpperCase()} · ${String(check.confidence || 'none')} confidence`));
+    item.append(node('p', '', check.message || 'No diagnostic detail is available.'));
+    item.append(node('small', '', `Source: ${check.source || 'unknown'} · ${formatObservationTime(check.checked_at)} · ${check.freshness || 'unknown'} (${Number(check.age_seconds) || 0}s old)`));
+    item.append(node('small', '', `Safe next step: ${check.next_step || 'Review the related RouterOS state.'}`));
+    return item;
+  }));
+  status.textContent = `Read-only check ${payload.overall || 'unknown'} · ${Number(payload.freshness_seconds) || 0} seconds old. No router settings were changed.`;
+}
+
+const doctorForm = $('[data-connection-doctor-form]');
+doctorForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const submit = $('button[type="submit"]', doctorForm);
+  submit.disabled = true;
+  $('[data-doctor-status]').textContent = 'Checking RouterOS read-only sources…';
+  try {
+    const response = await resultOrError(await api('/api/connection-doctor', {
+      method: 'POST',
+      body: { username: String(new FormData(doctorForm).get('username') || '').trim() },
+    }));
+    renderConnectionDoctor(await response.json());
+  } catch (error) {
+    $('[data-doctor-status]').textContent = error.message || 'The connection check could not be completed.';
+    $('[data-doctor-results]').replaceChildren();
+  } finally {
+    submit.disabled = false;
+  }
+});
 
 function renderServiceHealth(payload) {
   const list = $('[data-service-health-list]');

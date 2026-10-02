@@ -25,7 +25,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20261002-live-graph-controls-v4"
+    asset_version = "20261002-connection-doctor-v5"
     script_tag = (
         f'<script src="/static/socket.io.min.js?v={asset_version}" defer></script>'
         f'<script src="/static/app.js?v={asset_version}" defer></script>'
@@ -827,6 +827,7 @@ def dashboard_page(
     <a href="#overview" class="active" data-view-target="overview" aria-label="Dashboard" title="Dashboard">{_icon('dashboard')}<span>Dashboard</span></a>
     <a href="#live-sessions" data-view-target="live-sessions" aria-label="Connections" title="Connections">{_icon('session')}<span>Connections</span><strong class="nav-count" data-nav-session-count>{len(sessions)}</strong></a>
     <a href="#service-health" data-view-target="service-health" aria-label="Service Health" title="Service Health">{_icon('health')}<span>Service Health</span></a>
+    <a href="#connection-doctor" data-view-target="connection-doctor" aria-label="Connection Doctor" title="Connection Doctor">{_icon('health')}<span>Connection Doctor</span></a>
     <span class="nav-section-title">MANAGE</span>
     <a href="#vpn-users" data-view-target="vpn-users" aria-label="VPN Users" title="VPN Users">{_icon('users')}<span>VPN Users</span></a>
     <a href="#profile-security" data-view-target="profile-security" aria-label="Device Profiles" title="Device Profiles">{_icon('device')}<span>Device Profiles</span></a>
@@ -860,7 +861,7 @@ def dashboard_page(
           </div></article>
           <article class="panel security-posture-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Security posture</strong><small>Controls verified against RouterOS now</small></span></div><span class="posture-score">{sum((server_enabled, client_certificates, strong_cipher, tls_restricted, full_tunnel))}/5 enforced</span></div><ul class="posture-list"><li class="{'pass' if client_certificates else 'fail'}"><i></i><span><strong>Device certificate required</strong></span></li><li class="{'pass' if strong_cipher else 'fail'}"><i></i><span><strong>AES-256-GCM encryption</strong></span></li><li class="{'pass' if tls_restricted else 'fail'}"><i></i><span><strong>TLS restricted · {html.escape(str(ovpn_server.get('tls_version', 'Unknown')))}</strong></span></li><li class="{'pass' if full_tunnel else 'fail'}"><i></i><span><strong>Full-tunnel routing</strong></span></li><li class="pass"><i></i><span><strong>HTTPS dashboard access · {access_layer}</strong></span></li></ul><div class="panel-footer-link"><button type="button" class="quiet" data-view-target="profile-security">View security details</button></div></article>
         </section>
-        <section class="overview-actions" aria-label="Quick actions"><button type="button" class="quiet" data-view-target="profile-security">{_icon('device')}<span>Manage devices</span></button><button type="button" class="quiet" data-view-target="service-health">{_icon('health')}<span>Check service health</span></button></section>
+        <section class="overview-actions" aria-label="Quick actions"><button type="button" class="quiet" data-view-target="profile-security">{_icon('device')}<span>Manage devices</span></button><button type="button" class="quiet" data-view-target="service-health">{_icon('health')}<span>Check service health</span></button><button type="button" class="quiet" data-view-target="connection-doctor">{_icon('health')}<span>Diagnose a connection</span></button></section>
         <details class="dashboard-reference"><summary>How this dashboard works</summary><div class="dashboard-reference-content">
         <section class="panel architecture-panel"><div class="panel-heading"><div>{_icon('traffic')}<span><strong>What happens under the hood</strong><small>Two separate paths keep administration and VPN traffic simple and secure</small></span></div><span class="posture-badge">Automatic</span></div><div class="architecture-paths">
           <article><header>{_icon('lock')}<span><strong>Managing the VPN website</strong><small>Control plane</small></span></header><ol><li><b>1</b><span>{access_layer} protects the dashboard.</span></li><li><b>2</b><span>RouterOS verifies the same credentials as WinBox.</span></li><li><b>3</b><span>The dashboard applies changes through the private RouterOS REST service.</span></li></ol></article>
@@ -913,6 +914,12 @@ def dashboard_page(
            <article class="panel observability-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Health timeline</strong><small>Recent read-only check outcomes</small></span></div></div><ol class="health-timeline" data-health-timeline>{timeline_markup}</ol></article>
         </section>
         <section class="panel rollback-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Rollback visibility</strong><small>Immutable image identity and data-safety boundary</small></span></div><span class="posture-badge {rollback_class}" data-rollback-state>{rollback_label}</span></div><div class="rollback-summary"><div><span>Running release</span><strong data-observability-current>{html.escape(str(current_release.get("version", "unknown")))}</strong><small class="mono-value" data-observability-revision>{html.escape(str(current_release.get("revision", "unknown")))}</small></div><div><span>Previous known release</span><strong data-observability-previous>{html.escape(str(rollback.get("version") or "Not recorded"))}</strong><small class="mono-value">{html.escape(rollback_short or "—")}</small></div><p>{html.escape(str(rollback.get("message", "Rollback state is local to the router.")))}</p></div></section>
+      </section>
+
+      <section class="app-view" id="connection-doctor" data-view="connection-doctor" hidden>
+        <header class="view-heading"><div><p class="eyebrow">READ-ONLY DIAGNOSTICS</p><h1>Connection Doctor</h1><p>Check the RouterOS server, account, session, and documented capabilities. This page never changes router settings.</p></div></header>
+        <section class="panel doctor-panel"><form data-connection-doctor-form><label><span>OpenVPN username</span><input name="username" required maxlength="64" pattern="[A-Za-z0-9_.@-]+" autocomplete="off" placeholder="Enter the account to check"></label><button type="submit" class="primary">{_icon('health')}<span>Run read-only checks</span></button></form><p class="doctor-privacy">Results omit usernames, addresses, credentials, profile contents, and private keys. Client-side DNS and destination reachability must still be checked on the device.</p><p class="form-status" data-doctor-status role="status" aria-live="polite"></p><div class="doctor-results" data-doctor-results></div></section>
+        <section class="overview-actions" aria-label="Related diagnostics"><button type="button" class="quiet" data-view-target="live-sessions">{_icon('session')}<span>View live connections</span></button><button type="button" class="quiet" data-view-target="service-health">{_icon('health')}<span>Open service health</span></button><button type="button" class="quiet" data-view-target="profile-security">{_icon('device')}<span>Check device profiles</span></button></section>
       </section>
 
       <section class="app-view" id="policy-templates" data-view="policy-templates" hidden>

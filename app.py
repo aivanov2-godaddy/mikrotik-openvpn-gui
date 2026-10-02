@@ -26,6 +26,7 @@ from typing import Any
 
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from config import ConfigurationError, RuntimeConfig
+from connection_doctor import connection_doctor_snapshot
 from favicon import FAVICON_SVG, ico_bytes
 from integrations import RedisStreamPublisher, WebhookDispatcher
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
@@ -1500,6 +1501,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/profile/diagnose":
             self._diagnose_profile()
             return
+        if path == "/api/connection-doctor":
+            self._connection_doctor()
+            return
         if path == "/api/backups/preflight":
             self._backup_preflight()
             return
@@ -1755,6 +1759,56 @@ class DashboardHandler(BaseHTTPRequestHandler):
             target="uploaded-profile",
             status="success" if result["status"] == "pass" else "warning",
             details={"check_count": len(result["checks"]), "error_count": result["summary"]["errors"]},
+        )
+        self._json(result)
+
+    def _connection_doctor(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "health.read"):
+            return
+        try:
+            data = self._read_json()
+            username = str(data.get("username", "")).strip()
+            if not USERNAME_PATTERN.fullmatch(username):
+                raise ValueError("Enter a valid OpenVPN username")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        credentials = self._credentials(session)
+        router = server = users = active_sessions = None
+        client = self.server.context.router
+        try:
+            router = client.verify_credentials(credentials)
+        except RouterOSError:
+            pass
+        if router is not None:
+            try:
+                server = client.get_ovpn_server_status(credentials)
+            except RouterOSError:
+                pass
+            try:
+                users = client.list_ovpn_users(credentials)
+            except RouterOSError:
+                pass
+            try:
+                active_sessions = client.list_active_ovpn_sessions(credentials)
+            except RouterOSError:
+                pass
+        result = connection_doctor_snapshot(
+            username=username,
+            router=router,
+            server=server,
+            users=users,
+            sessions=active_sessions,
+            checked_at=int(time.time()),
+        )
+        self.server.context.store.audit(
+            actor=session.username,
+            action="connection.doctor",
+            target="redacted-read-only-check",
+            status=result["overall"],
+            details={"check_count": len(result["checks"]), "overall": result["overall"]},
         )
         self._json(result)
 
