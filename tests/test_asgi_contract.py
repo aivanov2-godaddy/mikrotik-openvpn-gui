@@ -22,6 +22,66 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(native.metrics()["active_connections"], 0)
         self.assertNotIn("password", str(native.metrics()).lower())
 
+    def test_live_pump_disconnects_when_session_is_revoked(self) -> None:
+        from asgi import NativeSocketIO
+
+        class RevokedRuntime:
+            @staticmethod
+            def principal_for_session(_session_id: str) -> None:
+                return None
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = RevokedRuntime()
+        native.server = FakeServer()
+        native._subscriptions = {"socket-1": "subscription-1"}
+        native._session_ids = {"socket-1": "revoked-session"}
+        native._events_emitted_total = 0
+
+        asyncio.run(native._pump("socket-1", "subscription-1"))
+
+        self.assertEqual(native.server.disconnected, [("socket-1", "/telemetry")])
+        self.assertEqual(native._events_emitted_total, 0)
+
+    def test_live_pump_disconnects_when_session_loses_stream_capability(self) -> None:
+        from asgi import NativeSocketIO
+        from telemetry_gateway import TelemetryPrincipal
+
+        class RestrictedRuntime:
+            @staticmethod
+            def principal_for_session(_session_id: str) -> TelemetryPrincipal:
+                return TelemetryPrincipal(
+                    True,
+                    auth_method="routeros",
+                    role="read_only",
+                    capabilities=frozenset(),
+                )
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = RestrictedRuntime()
+        native.server = FakeServer()
+        native._subscriptions = {"socket-2": "subscription-2"}
+        native._session_ids = {"socket-2": "role-changed-session"}
+        native._events_emitted_total = 0
+
+        asyncio.run(native._pump("socket-2", "subscription-2"))
+
+        self.assertEqual(native.server.disconnected, [("socket-2", "/telemetry")])
+        self.assertEqual(native._events_emitted_total, 0)
+
     def test_http_adapter_preserves_cookie_and_body_without_hop_by_hop_headers(self) -> None:
         request = DashboardHTTPASGI._request_bytes(
             {
