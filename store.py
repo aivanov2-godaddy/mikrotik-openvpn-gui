@@ -363,8 +363,13 @@ class MetadataStore:
         """
 
         target = Path(destination)
-        if target.resolve() == self.path.resolve():
-            raise ValueError("SQLite backup destination must differ from the live database")
+        protected_paths = {
+            self.path.resolve(),
+            Path(f"{self.path}-wal").resolve(),
+            Path(f"{self.path}-shm").resolve(),
+        }
+        if target.resolve() in protected_paths:
+            raise ValueError("SQLite backup destination must not be the live database or its sidecars")
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
         with self._lock:

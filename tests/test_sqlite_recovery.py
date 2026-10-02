@@ -8,11 +8,46 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from store import MetadataStore
 
 
 class SQLiteRecoveryTests(unittest.TestCase):
+    def test_backup_rejects_live_database_and_wal_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            store.audit(actor="test", action="preserve.me", target="local", status="success")
+
+            for destination in (database, Path(f"{database}-wal"), Path(f"{database}-shm")):
+                with self.subTest(destination=destination.name):
+                    original = destination.read_bytes() if destination.exists() else None
+                    with self.assertRaisesRegex(ValueError, "live database or its sidecars"):
+                        store.backup_database(str(destination))
+                    if original is not None:
+                        self.assertEqual(destination.read_bytes(), original)
+
+            store.verify_readiness()
+            self.assertEqual(store.recent_audit(1)[0]["action"], "preserve.me")
+
+    def test_failed_atomic_replace_preserves_previous_backup_and_cleans_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = MetadataStore(str(root / "dashboard.sqlite"))
+            destination = root / "backups" / "dashboard.sqlite"
+            destination.parent.mkdir()
+            previous_backup = b"previous verified backup"
+            destination.write_bytes(previous_backup)
+
+            with mock.patch("store.os.replace", side_effect=OSError("injected replace failure")):
+                with self.assertRaisesRegex(OSError, "injected replace failure"):
+                    store.backup_database(str(destination))
+
+            self.assertEqual(destination.read_bytes(), previous_backup)
+            self.assertEqual(list(destination.parent.glob(f".{destination.name}.*.tmp")), [])
+            store.verify_readiness()
+
     def test_backup_is_consistent_while_an_independent_writer_is_active(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"

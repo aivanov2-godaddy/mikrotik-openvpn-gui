@@ -193,8 +193,21 @@ SQLite backups must be consistent:
 The helper uses SQLite's online Backup API and is safe while the writer is
 running. Do not copy only `dashboard.sqlite` with a file-copy command while WAL
 is active; the sidecar state must be captured consistently by SQLite.
+The backup destination must be a separate path: the helper refuses to target
+the live database, its `-wal` file, or its `-shm` file. It writes a temporary
+file beside the destination, validates it, then atomically replaces the
+destination. If validation or replacement fails, the previous destination is
+left intact and the temporary file is removed.
 
-The repository's backup test suite also performs an isolated restore rehearsal:
+The repository's backup test suite performs an isolated restore rehearsal and
+fault-injects a failed atomic replacement to verify the previous backup is
+preserved. Run the focused recovery tests with:
+
+```powershell
+python -m unittest tests.test_sqlite_recovery -v
+```
+
+The security test also performs an isolated restore rehearsal:
 it copies the generated backup into a temporary database, opens it with the
 current store, runs the readiness probe, and verifies restored audit/outbox
 records. Run it before a release with:
