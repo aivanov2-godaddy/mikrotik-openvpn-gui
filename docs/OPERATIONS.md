@@ -47,7 +47,12 @@ CI also exercises Redis restart recovery and the ambiguous case where a stream
 append succeeds but its SQLite acknowledgement is lost. The integration job
 uses an isolated disposable Redis container; it never connects to a project or
 production Redis instance. Treat stream delivery as at-least-once, not exactly
-once, and use `event_id` for consumer-side deduplication.
+once, and use `event_id` for consumer-side deduplication. A Redis-local effect
+can atomically record the dedupe key and apply the effect in one transaction or
+Lua script; for effects in another database/service, commit the idempotency key
+with that system's effect (or use its native idempotency support). The
+integration test demonstrates this contract with a disposable Redis counter;
+it is not an application consumer or proof of downstream production behavior.
 Use `/healthz` for
 liveness and `/readyz` for readiness; these endpoints never expose
 configuration or credentials.
