@@ -197,6 +197,24 @@ class DashboardIntegrationTests(unittest.TestCase):
             headers["X-CSRF-Token"] = self.csrf
         return self.request(method, path, body=json.dumps(value or {}).encode(), headers=headers)
 
+    def _policy_template_review(self) -> tuple[str, str, dict[str, Any]]:
+        status, _, payload = self.json_request(
+            "POST", "/api/policy-templates",
+            {"name": "Field team", "description": "Limited field support access.", "group_name": "Field",
+             "policy": "lan-only", "max_sessions": 2, "rate_limit_kbps": 10240,
+             "quota_mb": 5120, "schedule": "weekdays", "dns_mode": "router", "notifications": True},
+        )
+        self.assertEqual(status, 201)
+        template = json.loads(payload)["template"]
+        users = self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+        target = next(item for item in users if item["name"] == "user-one")
+        path = f"/api/policy-templates/{template['id']}/apply"
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+        )
+        self.assertEqual(status, 200)
+        return path, target["id"], json.loads(payload)
+
     def test_login_health_and_authentication_boundaries(self) -> None:
         status, headers, payload = self.request("GET", "/healthz")
         self.assertEqual(status, 200)
@@ -1388,7 +1406,10 @@ class DashboardIntegrationTests(unittest.TestCase):
             {"user_ids": [target["id"]], "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload)["applied"], ["user-one"])
+        result = json.loads(payload)
+        self.assertEqual(result["status"], "verified")
+        self.assertEqual(result["applied"], ["user-one"])
+        self.assertEqual(result["outcomes"], [{"username": "user-one", "status": "verified"}])
         self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 10240)
         self.assertEqual(self.server.context.store.user_template_assignments()["user-one"]["template_id"], template["id"])
         self.assertIn("policy_template.apply", [item["action"] for item in self.server.context.store.recent_audit(10)])
@@ -1419,6 +1440,61 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 409)
         self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 4096)
+
+    def test_policy_template_apply_reports_router_failure_and_readback_unknown(self) -> None:
+        self.login()
+        path, user_id, preview = self._policy_template_review()
+        with mock.patch.object(self.server.context.router, "update_user", side_effect=RouterOSError("router rejected update")):
+            status, _, payload = self.json_request(
+                "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+            )
+        self.assertEqual(status, 200)
+        result = json.loads(payload)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["outcomes"], [{
+            "username": "user-one", "status": "failed", "reason": "RouterOSError",
+        }])
+        self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 0)
+
+    def test_policy_template_apply_verifies_commit_after_routeros_response_loss(self) -> None:
+        self.login()
+        path, user_id, preview = self._policy_template_review()
+        router = self.server.context.router
+        update_user = router.update_user
+
+        def commit_then_lose_response(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+            raise RouterOSError("response lost after commit")
+
+        with mock.patch.object(router, "update_user", side_effect=commit_then_lose_response):
+            status, _, payload = self.json_request(
+                "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+            )
+        self.assertEqual(status, 200)
+        result = json.loads(payload)
+        self.assertEqual(result["status"], "verified")
+        self.assertEqual(result["outcomes"], [{"username": "user-one", "status": "verified"}])
+        self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 10240)
+
+
+    def test_policy_template_apply_reports_unknown_when_readback_is_unavailable(self) -> None:
+        self.login()
+        path, user_id, preview = self._policy_template_review()
+        credentials = RouterOSCredentials("admin", "routerpass")
+        initial_users = self.server.context.router.list_ovpn_users(credentials)
+        with mock.patch.object(
+            self.server.context.router,
+            "list_ovpn_users",
+            side_effect=[initial_users, RouterOSError("read-back unavailable")],
+        ):
+            status, _, payload = self.json_request(
+                "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+            )
+        self.assertEqual(status, 200)
+        result = json.loads(payload)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["outcomes"], [{"username": "user-one", "status": "unknown"}])
+        self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 0)
 
 
 class RedirectTests(unittest.TestCase):
