@@ -153,6 +153,49 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         )
         self.assertEqual(restarted_store.integration_outbox_metrics()["pending"], 0)
 
+    def test_duplicate_stream_delivery_has_one_idempotent_consumer_effect(self) -> None:
+        record = self._enqueue_event()
+        event_id = str(record["event_id"])
+
+        # Reproduce the ambiguous window: Redis appended the event, but the
+        # worker lost its SQLite acknowledgement and therefore retries it.
+        self.publisher.publish(record["payload"])
+        self.store.mark_integration_failed(
+            event_id, "acknowledgement_lost", retry_at=int(time.time()) + 1
+        )
+        retry = self.store.pending_integration_events(now=int(time.time()) + 2)[0]
+        self.assertEqual(retry["event_id"], event_id)
+        self.publisher.publish(retry["payload"])
+        self.store.mark_integration_delivered(event_id)
+
+        entries = self.client.xrange("vpn-dashboard.test.events")
+        self.assertEqual(len(entries), 2, "delivery remains at-least-once")
+        self.assertEqual([fields["event_id"] for _, fields in entries], [event_id, event_id])
+
+        # Model a Redis-local consumer effect. The dedupe marker and effect
+        # commit atomically, so replaying the same event ID has no second
+        # side effect. Real consumers must use an equivalent transaction or
+        # persistent idempotency key with their own side-effect store.
+        apply_once = """
+        if redis.call('SET', KEYS[1], '1', 'NX') then
+            redis.call('INCR', KEYS[2])
+            return 1
+        end
+        return 0
+        """
+        applied = [
+            int(self.client.eval(
+                apply_once,
+                2,
+                f"vpn-dashboard.test.processed:{fields['event_id']}",
+                "vpn-dashboard.test.side_effects",
+            ))
+            for _, fields in entries
+        ]
+        self.assertEqual(applied, [1, 0])
+        self.assertEqual(self.client.get("vpn-dashboard.test.side_effects"), "1")
+        self.assertEqual(self.store.integration_outbox_metrics()["pending"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
