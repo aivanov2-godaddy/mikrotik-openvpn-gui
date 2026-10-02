@@ -252,6 +252,7 @@ class SecurityTests(unittest.TestCase):
             pending = store.integration_outbox_metrics(now=int(time.time()) + 5)
             self.assertEqual(pending["pending"], 1)
             self.assertEqual(pending["due"], 1)
+            self.assertEqual(pending["dead_lettered"], 0)
             self.assertNotIn("event_id", pending)
             event_id = store.pending_integration_events(1)[0]["event_id"]
             store.mark_integration_failed(event_id, "ConnectionError", retry_at=int(time.time()) + 30)
@@ -261,6 +262,7 @@ class SecurityTests(unittest.TestCase):
             store.mark_integration_delivered(event_id)
             delivered = store.integration_outbox_metrics()
             self.assertEqual(delivered["pending"], 0)
+            self.assertEqual(delivered["dead_lettered"], 0)
             self.assertGreater(delivered["last_delivered"], 0)
 
     def test_database_readiness_success_is_cached_briefly(self) -> None:

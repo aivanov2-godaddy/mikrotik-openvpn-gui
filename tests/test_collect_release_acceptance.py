@@ -89,6 +89,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_redis_publish_total{outcome=\"failure\"} 0\n"
                 f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {now}\n"
                 "vpn_dashboard_integration_outbox_pending 0\n"
+                "vpn_dashboard_integration_outbox_dead_lettered 0\n"
                 "vpn_dashboard_integration_outbox_oldest_age_seconds 0\n"
                 "vpn_dashboard_telemetry_session_event_age_seconds 0.25\n"
                 f"vpn_dashboard_telemetry_session_event_timestamp_seconds {now - 0.25}\n"
@@ -125,6 +126,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertGreaterEqual(collected["deployments"][0]["health_sample_count"], 2)
         self.assertTrue(collected["deployments"][0]["redis_publish_verified"])
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_last"], 0)
+        self.assertEqual(report["deployments"][0]["metrics"]["outbox_dead_lettered_last"], 0)
         telemetry = report["deployments"][0]["metrics"]["telemetry_process_observation_age"]
         self.assertEqual(telemetry["session_event"]["max_seconds"], 0.25)
         self.assertEqual(telemetry["traffic_sample"]["max_seconds"], 0.75)
