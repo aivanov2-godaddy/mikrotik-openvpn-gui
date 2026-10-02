@@ -72,3 +72,37 @@ for (const view of views) {
     expect(unexpected, `${view.name}: new serious/critical WCAG findings`).toEqual([]);
   });
 }
+
+test('diagnostic ZIP can be previewed and downloaded only on explicit keyboard activation', async ({ page }) => {
+  await page.getByRole('link', { name: 'Change History', exact: true }).click();
+  const preview = page.getByText('Preview what the ZIP contains', { exact: true });
+  await expect(preview).toBeVisible();
+  const disclosure = page.locator('.diagnostic-export-preview');
+  await expect(disclosure).not.toHaveAttribute('open', '');
+
+  let downloads = 0;
+  page.on('download', () => { downloads += 1; });
+  await preview.focus();
+  await page.keyboard.press('Enter');
+  await expect(disclosure).toHaveAttribute('open', '');
+  await expect(page.getByText(/fixed description; it does not inspect RouterOS/)).toBeVisible();
+  await expect(page.getByText(/RouterOS credentials or tokens/)).toBeVisible();
+  await expect(page.getByText(/Raw RouterOS configuration or records, logs, event payloads/)).toBeVisible();
+  expect(downloads, 'opening the preview must not start a download').toBe(0);
+
+  const downloadLink = page.getByRole('link', { name: 'Download redacted diagnostic ZIP' });
+  await downloadLink.focus();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.keyboard.press('Enter'),
+  ]);
+  expect(download.suggestedFilename()).toBe('vpn-diagnostic-bundle.zip');
+  expect(downloads, 'one download starts after explicit keyboard activation').toBe(1);
+
+  const accessibility = await new AxeBuilder({ page })
+    .include('.diagnostic-export-panel')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(accessibility.violations.filter(({ impact }) => ['critical', 'serious'].includes(impact)))
+    .toEqual([]);
+});

@@ -559,7 +559,21 @@ class DashboardIntegrationTests(unittest.TestCase):
             "checks": [{"id": "routeros-rest", "status": "healthy", "remediation": "private-host-marker"},
                        {"id": "private-user-marker", "status": "healthy"}],
         })
-        status, headers, payload = self.request("GET", "/api/reports/diagnostics.zip")
+        status, _, dashboard = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        for disclosure in (
+            "Preview what the ZIP contains", "Dashboard version, source revision, and bundle creation time",
+            "RouterOS credentials or tokens", "VPN profiles, certificates, private keys",
+            "Raw RouterOS configuration or records, logs, event payloads",
+            "without making a RouterOS request", "Download redacted diagnostic ZIP",
+        ):
+            self.assertIn(disclosure.encode(), dashboard)
+
+        with mock.patch.object(
+            self.server.context.router, "_request",
+            side_effect=AssertionError("diagnostic export must not query RouterOS"),
+        ):
+            status, headers, payload = self.request("GET", "/api/reports/diagnostics.zip")
         self.assertEqual(status, 200)
         self.assertIn("vpn-diagnostic-bundle.zip", headers["content-disposition"])
         self.assertLessEqual(len(payload), 32 * 1024)
