@@ -6,6 +6,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendLiveUpdateContractTests(unittest.TestCase):
+    def test_policy_template_apply_requires_the_current_review_receipt(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("form.dataset.policyReviewToken = payload.review_token || ''", source)
+        self.assertIn("form.dataset.policyReviewToken = ''", source)
+        self.assertIn("clearTemplatePreview(event.currentTarget)", source)
+        self.assertIn("review_token: form.dataset.policyReviewToken || ''", source)
+        self.assertIn("catch (error) { clearTemplatePreview(form);", source)
+
     def test_status_updates_only_compare_rendered_user_cards(self) -> None:
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("$('.user-card[data-user-id][data-user-name]')", source)

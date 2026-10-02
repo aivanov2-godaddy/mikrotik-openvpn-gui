@@ -135,6 +135,18 @@ only targets dashboard-managed, currently active device certificates; it never
 changes the configured CA or server certificate. A retry reports already
 completed work as skipped rather than repeating it.
 
+## Policy template review and apply
+
+Preview selected users before applying a policy template. The server returns a
+session-bound review receipt covering the template controls, selected RouterOS
+user IDs, each user's current RouterOS profile, and current dashboard policy
+controls. Apply re-reads those values and rejects a missing or stale receipt
+before creating a RouterOS checkpoint. Review again if the template, selection,
+or current policy state has changed.
+Changing the template or selected users in the page also clears the displayed
+review and disables Apply. The receipt does not replace the explicit Apply
+action, capability checks, or checkpoint, and it contains no credentials.
+
 The result lists each selected username with an outcome such as applied,
 skipped, partial, or failed. Partial failures are safe to retry after the
 underlying RouterOS problem is corrected. Change History records the action,
