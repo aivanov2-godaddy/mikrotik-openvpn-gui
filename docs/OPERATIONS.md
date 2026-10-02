@@ -80,9 +80,12 @@ with concise `error` and `next_step` fields when RouterOS requests fail. These
 responses do not echo RouterOS response bodies, private host names, or raw
 transport exception text. Current codes are `routeros.authentication_failed`,
 `routeros.permission_denied`, `routeros.endpoint_unavailable`,
-`routeros.request_failed`, and `routeros.unavailable`. Permission guidance asks
-operators to inspect effective permissions; it does not recommend granting
-broad policies.
+`routeros.request_failed`, `routeros.tls_untrusted`, `routeros.timeout`,
+`routeros.invalid_response`, and `routeros.unavailable`. TLS guidance directs
+operators to check the configured certificate/CA without disabling validation;
+permission guidance asks operators to inspect effective permissions and does
+not recommend granting broad policies. Unknown failure kinds retain the generic
+`routeros.unavailable` response.
 
 1. Review dependency alerts and every available repository security signal.
 2. Merge through a pull request with the required pre-commit, secret, test, and ARM64 checks.
