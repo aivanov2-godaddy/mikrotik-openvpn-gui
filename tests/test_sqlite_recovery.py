@@ -160,6 +160,34 @@ class SQLiteRecoveryTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_backup_restore_rehearsal_recovers_a_consistent_point_in_time_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_path = root / "dashboard.sqlite"
+            backup_path = root / "backup" / "dashboard.sqlite"
+            source = MetadataStore(str(source_path))
+            source.audit(actor="restore-test", action="before.backup", target="local", status="success")
+
+            result = source.backup_database(str(backup_path))
+            self.assertGreater(result["bytes"], 0)
+
+            # Continue writing after the snapshot, then open the backup as a
+            # separate database to rehearse restore without replacing the live
+            # source or copying WAL/SHM sidecars by hand.
+            source.audit(actor="restore-test", action="after.backup", target="local", status="success")
+            restored = MetadataStore(str(backup_path))
+            restored.verify_readiness()
+            actions = {item["action"] for item in restored.recent_audit(10)}
+            self.assertIn("before.backup", actions)
+            self.assertNotIn("after.backup", actions)
+
+            connection = sqlite3.connect(backup_path)
+            try:
+                self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            finally:
+                connection.close()
+            source.verify_readiness()
+
     def test_process_death_during_transaction_rolls_back_and_store_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"
