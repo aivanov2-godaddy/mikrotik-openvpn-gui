@@ -114,6 +114,33 @@ class SQLiteRecoveryTests(unittest.TestCase):
             self.assertEqual(list(destination.parent.glob(f".{destination.name}.*.tmp")), [])
             store.verify_readiness()
 
+    def test_backup_storage_failure_preserves_previous_backup_and_cleans_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            store.audit(actor="test", action="backup.before.failure", target="local", status="success")
+            destination = root / "backups" / "dashboard.sqlite"
+            destination.parent.mkdir()
+            previous_backup = b"previous verified backup"
+            destination.write_bytes(previous_backup)
+
+            sqlite_connect = sqlite3.connect
+
+            def fail_backup_target(path: str | Path, *args: object, **kwargs: object) -> sqlite3.Connection:
+                if Path(path).parent == destination.parent:
+                    raise sqlite3.OperationalError("database or disk is full")
+                return sqlite_connect(path, *args, **kwargs)
+
+            with mock.patch("store.sqlite3.connect", side_effect=fail_backup_target):
+                with self.assertRaisesRegex(sqlite3.OperationalError, "disk is full"):
+                    store.backup_database(str(destination))
+
+            self.assertEqual(destination.read_bytes(), previous_backup)
+            self.assertEqual(list(destination.parent.glob(f".{destination.name}.*.tmp")), [])
+            store.verify_readiness()
+            self.assertEqual(store.recent_audit(1)[0]["action"], "backup.before.failure")
+
     def test_backup_is_consistent_while_an_independent_writer_is_active(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"
