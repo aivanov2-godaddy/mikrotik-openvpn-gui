@@ -73,6 +73,21 @@ for (const view of views) {
   });
 }
 
+test('forced-colors mode keeps Dashboard navigation and keyboard focus visible', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await expect.poll(() => page.evaluate(() => window.matchMedia('(forced-colors: active)').matches))
+    .toBe(true);
+
+  await page.keyboard.press('Tab');
+  const focused = page.locator(':focus-visible');
+  await expect(focused).toBeVisible();
+  await expect.poll(() => focused.evaluate((element) => getComputedStyle(element).outlineStyle))
+    .toBe('solid');
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'VPN Users', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add VPN user' })).toBeVisible();
+});
+
 test('diagnostic ZIP can be previewed and downloaded only on explicit keyboard activation', async ({ page }) => {
   await page.getByRole('link', { name: 'Change History', exact: true }).click();
   const preview = page.getByText('Preview what the ZIP contains', { exact: true });
