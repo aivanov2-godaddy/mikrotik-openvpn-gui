@@ -104,7 +104,10 @@ class TelemetryRuntime:
         return value
 
     def principal_for_session(self, session_id: str) -> TelemetryPrincipal | None:
-        session = self.sessions.get(session_id)
+        # Live-stream authorization is a read-only revalidation, not evidence
+        # of operator activity. Otherwise an unattended socket could keep an
+        # otherwise-idle dashboard session alive indefinitely.
+        session = self.sessions.get(session_id, touch=False)
         if session is None:
             return None
         return TelemetryPrincipal.from_session(session)
