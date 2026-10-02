@@ -292,17 +292,15 @@ are verified partial milestones, not issue completions:
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
 The current `routeros-stable` manifest targets runtime commit
-`961f7e7840226fbe7e6ceb617de946ff6d080a77`; the published ARM64 image digest
-is `sha256:aba8d1b9887137050bb990db21740bae265388c34d41f04db702f8112b930c01`.
-Publication run 37073632353 succeeded, and the image provenance and detached
+`194b6f4264f8ec96eb775dbe71e6ee76bce33efe`; the published ARM64 image digest
+is `sha256:c42dca20cf0703d65fb2b2da7d74ae5c2430b5340a4f927a0d4dac5d0ca99a75`.
+Publication run [37076261020](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37076261020) succeeded, and the image provenance and detached
 SPDX attestation verified against the expected workflow and source commit. The
 most recent router observation on 2026-10-03 was still revision
 `a9deb20a50363712fa8c65f933163f2ffd5678ce` with healthy `/readyz` on canary and
 production after a 60-second canary soak and production repull. Thus the newer
 stable candidate `194b6f4` is published but is not yet observed on the router.
-Its ARM64 digest is `sha256:c42dca20cf0703d65fb2b2da7d74ae5c2430b5340a4f927a0d4dac5d0ca99a75`.
-The
-RouterOS UI does not expose the registry manifest digest for independent
+The RouterOS UI does not expose the registry manifest digest for independent
 on-device comparison. This is partial deployment evidence, not completion of
 #199's long-window acceptance criteria; public readiness remains gated behind
 Cloudflare Access.
