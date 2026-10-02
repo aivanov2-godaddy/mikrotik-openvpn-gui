@@ -27,6 +27,7 @@ from typing import Any
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from config import ConfigurationError, RuntimeConfig
 from connection_doctor import connection_doctor_snapshot
+from error_guidance import routeros_error_payload
 from favicon import FAVICON_SVG, ico_bytes
 from integrations import RedisStreamPublisher, WebhookDispatcher
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
@@ -1012,7 +1013,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 users = self._users_with_metadata(self._credentials(session))
                 self._json({"users": users})
             except RouterOSError as error:
-                self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+                self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
             return
         if path == "/api/bulk/views":
             session = self._require_session(api=True)
@@ -1050,7 +1051,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     }
                 )
             except RouterOSError as error:
-                self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+                self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
             return
         if path == "/api/service-health":
             session = self._require_session(api=True)
@@ -1155,7 +1156,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "checks": checks,
                 })
             except RouterOSError as error:
-                self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+                self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
             return
         if path == "/api/audit.csv":
             session = self._require_session(api=True)
