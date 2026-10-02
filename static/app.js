@@ -232,16 +232,33 @@ function buildTrafficGraph(title, canvasAttribute, legendItems) {
 
 function buildTrafficGraphs() {
   const graphs = node('div', 'session-graphs');
+  graphs.dataset.graphView = 'both';
   graphs.setAttribute('aria-label', 'Live connection traffic');
+  const controls = node('div', 'graph-controls');
+  controls.setAttribute('role', 'group');
+  controls.setAttribute('aria-label', 'Visible traffic graphs');
+  controls.append(node('span', '', 'Show'));
+  [['both', 'Both'], ['bytes', 'Bytes'], ['packets', 'Packets']].forEach(([value, label]) => {
+    const button = node('button', '', label);
+    button.type = 'button';
+    button.dataset.graphView = value;
+    button.setAttribute('aria-pressed', String(value === 'both'));
+    controls.append(button);
+  });
+  const bytes = buildTrafficGraph('Byte Graph', 'data-byte-graph', [
+    { direction: 'tx', attribute: 'data-graph-tx-rate', value: '0 bps', label: 'Tx' },
+    { direction: 'rx', attribute: 'data-graph-rx-rate', value: '0 bps', label: 'Rx' },
+  ]);
+  bytes.dataset.graphType = 'bytes';
+  const packets = buildTrafficGraph('Packet Graph', 'data-packet-graph', [
+    { direction: 'tx', attribute: 'data-graph-tx-packets', value: '0 p/s', label: 'Tx Packet' },
+    { direction: 'rx', attribute: 'data-graph-rx-packets', value: '0 p/s', label: 'Rx Packet' },
+  ]);
+  packets.dataset.graphType = 'packets';
   graphs.append(
-    buildTrafficGraph('Byte Graph', 'data-byte-graph', [
-      { direction: 'tx', attribute: 'data-graph-tx-rate', value: '0 bps', label: 'Tx' },
-      { direction: 'rx', attribute: 'data-graph-rx-rate', value: '0 bps', label: 'Rx' },
-    ]),
-    buildTrafficGraph('Packet Graph', 'data-packet-graph', [
-      { direction: 'tx', attribute: 'data-graph-tx-packets', value: '0 p/s', label: 'Tx Packet' },
-      { direction: 'rx', attribute: 'data-graph-rx-packets', value: '0 p/s', label: 'Rx Packet' },
-    ]),
+    controls,
+    bytes,
+    packets,
   );
   return graphs;
 }
@@ -321,6 +338,17 @@ function updateGraphs(card, rates) {
   drawGraph($('[data-byte-graph]', card), samples, 'txBytes', 'rxBytes', formatRate);
   drawGraph($('[data-packet-graph]', card), samples, 'txPackets', 'rxPackets', formatPacketRate);
 }
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-graph-view]');
+  const graphs = button?.closest('.session-graphs');
+  if (!button || !graphs) return;
+  const selected = button.dataset.graphView;
+  graphs.dataset.graphView = selected;
+  $$('[data-graph-view]', graphs).forEach((option) => {
+    option.setAttribute('aria-pressed', String(option === button));
+  });
+});
 
 function buildSessionCard(session) {
   const card = node('article', 'session-card');

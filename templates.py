@@ -25,7 +25,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20261002-scannable-user-cards-v3"
+    asset_version = "20261002-live-graph-controls-v4"
     script_tag = (
         f'<script src="/static/socket.io.min.js?v={asset_version}" defer></script>'
         f'<script src="/static/app.js?v={asset_version}" defer></script>'
@@ -280,13 +280,14 @@ def _session_card(session: dict[str, Any], *, can_terminate: bool = True) -> str
         <div><dt>Traffic</dt><dd><span class="rx-rate" data-rx-rate>↓ 0 bps</span> · <span class="tx-rate" data-tx-rate>↑ 0 bps</span><small class="traffic-totals">↓ {_bytes(rx_bytes)} · ↑ {_bytes(tx_bytes)}</small></dd></div>
       </dl>
       {terminate}
-      <div class="session-graphs" aria-label="Live connection traffic">
-        <section class="traffic-graph">
+      <div class="session-graphs" data-graph-view="both" aria-label="Live connection traffic">
+        <div class="graph-controls" role="group" aria-label="Visible traffic graphs"><span>Show</span><button type="button" data-graph-view="both" aria-pressed="true">Both</button><button type="button" data-graph-view="bytes" aria-pressed="false">Bytes</button><button type="button" data-graph-view="packets" aria-pressed="false">Packets</button></div>
+        <section class="traffic-graph" data-graph-type="bytes">
           <header><strong>Byte Graph</strong><span>Live · 5 second samples</span></header>
           <canvas data-byte-graph aria-label="Transmit and receive traffic rate graph">Live byte-rate graph</canvas>
           <div class="graph-legend"><span class="graph-tx"><i></i><strong data-graph-tx-rate>0 bps</strong><small>Tx</small></span><span class="graph-rx"><i></i><strong data-graph-rx-rate>0 bps</strong><small>Rx</small></span></div>
         </section>
-        <section class="traffic-graph">
+        <section class="traffic-graph" data-graph-type="packets">
           <header><strong>Packet Graph</strong><span>Live · 5 second samples</span></header>
           <canvas data-packet-graph aria-label="Transmit and receive packet rate graph">Live packet-rate graph</canvas>
           <div class="graph-legend"><span class="graph-tx"><i></i><strong data-graph-tx-packets>0 p/s</strong><small>Tx Packet</small></span><span class="graph-rx"><i></i><strong data-graph-rx-packets>0 p/s</strong><small>Rx Packet</small></span></div>
