@@ -1,6 +1,10 @@
 const { defineConfig } = require('@playwright/test');
 
-const baseURL = 'http://127.0.0.1:18080';
+const requestedPort = Number(process.env.PLAYWRIGHT_TEST_PORT);
+const port = Number.isInteger(requestedPort) && requestedPort >= 1024 && requestedPort <= 65535
+  ? requestedPort
+  : 18080;
+const baseURL = `http://127.0.0.1:${port}`;
 
 module.exports = defineConfig({
   testDir: './browser-tests',
@@ -34,7 +38,7 @@ module.exports = defineConfig({
     { name: 'mobile-390', use: { viewport: { width: 390, height: 844 } } },
   ],
   webServer: {
-    command: 'python -m tests.run_mock_app --port 18080',
+    command: `python -m tests.run_mock_app --port ${port}`,
     url: `${baseURL}/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
