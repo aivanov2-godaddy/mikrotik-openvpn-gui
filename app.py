@@ -3102,25 +3102,65 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not self._checkpoint(session, "policy-template-apply"):
                 return
             applied: list[str] = []
+            outcomes: list[dict[str, str]] = []
             for item in preview:
                 if not item["changes"]:
                     self.server.context.store.assign_policy_template(item["username"], template_id)
+                    outcomes.append({"username": item["username"], "status": "unchanged"})
                     continue
-                router_profile = self.server.context.router.ensure_rate_profile(
-                    credentials, username=item["username"], rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                try:
+                    router_profile = self.server.context.router.ensure_rate_profile(
+                        credentials, username=item["username"], rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                    )
+                except (RouterOSError, ValueError) as error:
+                    outcomes.append({"username": item["username"], "status": "failed", "reason": type(error).__name__})
+                    continue
+                mutation_error: RouterOSError | None = None
+                try:
+                    self.server.context.router.update_user(
+                        credentials, user_id=item["id"], profile=router_profile,
+                    )
+                except RouterOSError as error:
+                    # A transport error may happen after RouterOS committed the
+                    # PATCH. Read back before deciding whether retry is safe.
+                    mutation_error = error
+                try:
+                    current_users = self.server.context.router.list_ovpn_users(credentials)
+                except RouterOSError:
+                    outcomes.append({"username": item["username"], "status": "unknown"})
+                    continue
+                current_user = next(
+                    (user for user in current_users if str(user.get("id", "")) == str(item["id"])),
+                    None,
                 )
-                self.server.context.router.update_user(
-                    credentials, user_id=item["id"], profile=router_profile,
-                )
+                if current_user is None or str(current_user.get("profile", "")) != router_profile:
+                    outcomes.append({
+                        "username": item["username"],
+                        "status": "failed",
+                        "reason": "readback_mismatch" if mutation_error is None else type(mutation_error).__name__,
+                    })
+                    continue
                 self.server.context.store.set_enforcement_state(item["username"], "")
                 self.server.context.store.set_user_controls(item["username"], **controls)
                 self.server.context.store.assign_policy_template(item["username"], template_id)
                 applied.append(item["username"])
+                outcomes.append({"username": item["username"], "status": "verified"})
+            failed = sum(item["status"] == "failed" for item in outcomes)
+            unknown = sum(item["status"] == "unknown" for item in outcomes)
+            overall = "partial" if failed or unknown else "verified"
             self.server.context.store.audit(
                 actor=session.username, action="policy_template.apply", target=template_id,
-                status="success", details={"group": template["group_name"], "users": applied, "selected": len(preview)},
+                status=overall,
+                details={
+                    "group": template["group_name"], "verified": len(applied),
+                    "failed": failed, "unknown": unknown, "selected": len(preview),
+                },
             )
-            self._json({"ok": True, "template": template, "applied": applied, "selected": len(preview)})
+            self._json({
+                "ok": not (failed or unknown), "status": overall,
+                "template": template, "applied": applied,
+                "selected": len(preview), "outcomes": outcomes,
+            })
         except (ValueError, RouterOSError) as error:
             self.server.context.store.audit(
                 actor=session.username, action=f"policy_template.{action}", target=template_id,
