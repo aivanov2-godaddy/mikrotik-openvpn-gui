@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from copy import deepcopy
 
 from scripts.release_acceptance import evaluate
 
@@ -9,7 +10,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def setUp(self) -> None:
         revision = "a" * 40
         self.evidence = {
-            "format": "vpn-dashboard-release-evidence-v1",
+            "format": "vpn-dashboard-release-evidence-v2",
             "deployments": [
                 {
                     "environment": environment,
@@ -24,8 +25,23 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     "reconnect_recovered": True,
                     "snapshot_recovered": True,
                     "sqlite_restore_verified": True,
+                    "rollback_drill_passed": True,
+                    "production_untouched_on_canary_failure": True,
                     "session_event_p95_ms": 450,
                     "traffic_sample_age_seconds": 1.2,
+                    "observation_started_at": "2026-10-02T10:00:00Z",
+                    "observation_ended_at": "2026-10-02T10:30:00Z",
+                    "health_sample_count": 30,
+                    "max_sample_gap_seconds": 60,
+                    "health_failures": 0,
+                    "stale_sample_count": 0,
+                    "lost_event_count": 0,
+                    "duplicate_event_count": 0,
+                    "out_of_order_event_count": 0,
+                    "redis_delivery_failure_count": 0,
+                    "router_cpu_peak_percent": 25,
+                    "router_memory_peak_percent": 40,
+                    "router_storage_peak_percent": 20,
                 }
                 for environment in ("canary", "production")
             ],
@@ -56,6 +72,32 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.evidence["deployments"].reverse()
         with self.assertRaisesRegex(ValueError, "ordered canary"):
             evaluate(self.evidence)
+
+    def test_short_or_interrupted_soak_fails_closed(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["observation_ended_at"] = "2026-10-02T10:10:00Z"
+        evidence["deployments"][1]["lost_event_count"] = 1
+        code, report = evaluate(evidence)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_soak_window_too_short", report["failed_gates"])
+        self.assertIn("production_soak_failures_observed", report["failed_gates"])
+
+    def test_missing_resource_and_rollback_evidence_is_rejected(self) -> None:
+        evidence = deepcopy(self.evidence)
+        del evidence["deployments"][0]["router_cpu_peak_percent"]
+        with self.assertRaisesRegex(ValueError, "router_cpu_peak_percent"):
+            evaluate(evidence)
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["rollback_drill_passed"] = False
+        code, report = evaluate(evidence)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_rollback_drill_failed", report["failed_gates"])
+
+    def test_observation_timestamps_must_include_timezone(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["observation_started_at"] = "2026-10-02T10:00:00"
+        with self.assertRaisesRegex(ValueError, "include a timezone"):
+            evaluate(evidence)
 
 
 if __name__ == "__main__":
