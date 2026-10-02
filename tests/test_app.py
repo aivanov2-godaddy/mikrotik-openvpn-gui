@@ -900,7 +900,10 @@ class DashboardIntegrationTests(unittest.TestCase):
             {"confirmation": "maria"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload), {"ok": True})
+        self.assertEqual(
+            json.loads(payload),
+            {"ok": True, "verified": True, "retired_devices": 2},
+        )
         self.assertNotIn("maria", [item["name"] for item in self.mock.state.users.values()])
         self.assertNotIn("maria", self.server.context.store.user_emails())
         self.assertEqual(
@@ -1294,6 +1297,128 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertFalse(response["verified"])
         self.assertNotIn("private router detail", payload.decode("utf-8"))
         self.assertIsNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
+
+    def test_user_delete_does_not_delete_account_when_certificate_revocation_fails(self) -> None:
+        self._managed_device_revoke_request()
+        router = self.server.context.router
+        with mock.patch.object(
+            router, "revoke_certificate", side_effect=RouterOSError("private detail", 503)
+        ):
+            status, _, payload = self.json_request(
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertFalse(response["user_deleted"])
+        self.assertIn("*1", self.mock.state.users)
+        self.assertEqual(self.mock.state.certificates["*CL1"].get("revoked"), "no")
+        self.assertIsNone(self.server.context.store.device_by_id("managed-device-revoke-test")["revoked_at"])
+        self.assertFalse(
+            any(item.startswith("DELETE /ppp/secret") for item in self.mock.state.mutation_requests)
+        )
+        self.assertNotIn("private detail", payload.decode("utf-8"))
+
+    def test_user_delete_reconciles_lost_certificate_revocation_response(self) -> None:
+        self._managed_device_revoke_request()
+        router = self.server.context.router
+        revoke_certificate = router.revoke_certificate
+
+        def revoke_then_lose_response(credentials: Any, *, certificate_id: str) -> None:
+            revoke_certificate(credentials, certificate_id=certificate_id)
+            raise RouterOSError("private detail", 503)
+
+        with mock.patch.object(router, "revoke_certificate", side_effect=revoke_then_lose_response):
+            status, _, payload = self.json_request(
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["verified"])
+        self.assertNotIn("*1", self.mock.state.users)
+        self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
+
+    def test_user_delete_retains_local_metadata_when_routeros_user_remains(self) -> None:
+        self._managed_device_revoke_request()
+        router = self.server.context.router
+        with mock.patch.object(router, "delete_user"):
+            status, _, payload = self.json_request(
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["verification"], "mismatch")
+        self.assertIn("*1", self.mock.state.users)
+        self.assertIsNotNone(
+            self.server.context.store.device_by_id("managed-device-revoke-test")["revoked_at"]
+        )
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "failed")
+
+    def test_user_delete_response_loss_is_reconciled_by_routeros_readback(self) -> None:
+        self._managed_device_revoke_request()
+        router = self.server.context.router
+        delete_user = router.delete_user
+
+        def delete_then_lose_response(credentials: Any, *, user_id: str) -> None:
+            delete_user(credentials, user_id=user_id)
+            raise RouterOSError("private detail", 503)
+
+        with mock.patch.object(router, "delete_user", side_effect=delete_then_lose_response):
+            status, _, payload = self.json_request(
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["verified"])
+        self.assertNotIn("*1", self.mock.state.users)
+
+    def test_user_delete_preserves_account_when_certificate_readback_is_unavailable(self) -> None:
+        self._managed_device_revoke_request()
+        router = self.server.context.router
+
+        def unavailable_readback(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            raise RouterOSError("private router detail", 503)
+
+        with mock.patch.object(
+            router, "list_ovpn_client_certificates", side_effect=unavailable_readback
+        ):
+            status, _, payload = self.json_request(
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["verification"], "unknown")
+        self.assertTrue(response["user_deleted"] is False)
+        self.assertIn("*1", self.mock.state.users)
+        self.assertIsNone(self.server.context.store.device_by_id("managed-device-revoke-test")["revoked_at"])
+
+    def test_user_delete_preserves_local_metadata_when_account_readback_is_unavailable(self) -> None:
+        self._managed_device_revoke_request()
+        self.server.context.store.set_user_email("user-one", "user-one@example.invalid")
+        router = self.server.context.router
+        list_users = router.list_ovpn_users
+
+        def fail_only_after_delete(credentials: Any) -> list[dict[str, Any]]:
+            if "*1" not in self.mock.state.users:
+                raise RouterOSError("private router detail", 503)
+            return list_users(credentials)
+
+        with mock.patch.object(router, "list_ovpn_users", side_effect=fail_only_after_delete):
+            status, _, payload = self.json_request(
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["verification"], "unknown")
+        self.assertNotIn("*1", self.mock.state.users)
+        self.assertEqual(
+            self.server.context.store.user_emails()["user-one"],
+            "user-one@example.invalid",
+        )
         self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
 
     def test_session_termination_reports_unknown_when_router_readback_fails(self) -> None:
