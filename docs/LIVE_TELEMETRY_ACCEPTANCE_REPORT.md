@@ -14,19 +14,25 @@ production rollout on 2026-10-02.
 | Field | Value |
 | --- | --- |
 | Repository | aivanov2-godaddy/mikrotik-openvpn-gui |
-| Production commit | ffbf7f6 (`ffbf7f618df2fd23ce4bcee033680cd1ef882a8c`) |
-| Canary image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
-| Canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
-| Production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Observation window | 2026-10-02 post-publication verification (RouterOS canary and production image tags, health, ASGI transport, and binary telemetry configuration) |
-| RouterOS version/architecture | RouterOS 7.24.4 stable / arm64 |
+| Accepted telemetry commit | ffbf7f6 (`ffbf7f618df2fd23ce4bcee033680cd1ef882a8c`) |
+| Acceptance canary image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
+| Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
+| Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
+| Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
+| Current production commit | 89adec8 (`89adec8f577380f0c91be872ffdd8a414f2212af`) |
+| Current production image tag | `sha-89adec8f577380f0c91be872ffdd8a414f2212af-arm64` |
+| Current production image digest | `sha256:804ccae7081a05d0a506c235ea73c53d8bee9d29027bc099b1407303df8c7836` |
+| Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
+| RouterOS at acceptance / current | RouterOS 7.24.4 stable during acceptance; 7.24.5 stable currently / arm64 |
 
-The immutable watchdog promoted the canary-validated image to production at
+The immutable watchdog promoted the accepted telemetry image to production at
 2026-10-01 23:58:47 Europe/Sofia. Both RouterOS containers were subsequently
-verified healthy with the same tag, `LIVE_TRANSPORT=binary`, and
-`SOCKETIO_ENGINE=asgi`. The public endpoint remained behind Cloudflare Access;
-an unauthenticated `/readyz` request correctly returned the Access redirect.
+verified healthy with that accepted image, `LIVE_TRANSPORT=binary`, and
+`SOCKETIO_ENGINE=asgi`. Production now reports the newer immutable 89adec8
+image, published with the Redis client for the optional sanitized audit/outbox
+sink; this build does not change the accepted telemetry behavior. The public
+endpoint remains behind Cloudflare Access; an unauthenticated `/readyz`
+request correctly receives the Access redirect.
 
 ## Latest deployed correction
 
