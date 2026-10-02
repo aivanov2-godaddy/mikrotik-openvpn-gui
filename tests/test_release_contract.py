@@ -26,6 +26,21 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", publish)
         self.assertNotIn("ROUTEROS_", publish)
 
+    def test_release_sbom_and_provenance_are_detached_from_runtime_image(self) -> None:
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        release_notes = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")
+
+        self.assertIn("sbom: false", publish)
+        self.assertIn("provenance: false", publish)
+        self.assertIn("anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610", publish)
+        self.assertIn("actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6", publish)
+        self.assertIn("subject-digest: ${{ steps.build.outputs.digest }}", publish)
+        self.assertIn("push-to-registry: false", publish)
+        self.assertIn("upload-release-assets: false", publish)
+        self.assertIn("gh attestation verify oci://", release_notes)
+        self.assertIn("Compatibility and validation matrix", release_notes)
+        self.assertIn("ARM32 / ARMv5", release_notes)
+
     def test_release_documentation_describes_the_safe_boundary(self) -> None:
         release_notes = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")
         deployment = (ROOT / "docs/DEPLOYMENT.md").read_text(encoding="utf-8")
