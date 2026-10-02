@@ -54,6 +54,17 @@ configuration or credentials.
 
 ## Safe update cadence
 
+### RouterOS API error guidance
+
+The user list, status, and service-health endpoints return stable `code` values
+with concise `error` and `next_step` fields when RouterOS requests fail. These
+responses do not echo RouterOS response bodies, private host names, or raw
+transport exception text. Current codes are `routeros.authentication_failed`,
+`routeros.permission_denied`, `routeros.endpoint_unavailable`,
+`routeros.request_failed`, and `routeros.unavailable`. Permission guidance asks
+operators to inspect effective permissions; it does not recommend granting
+broad policies.
+
 1. Review dependency alerts and every available repository security signal.
 2. Merge through a pull request with the required pre-commit, secret, test, and ARM64 checks.
 3. Select and validate an immutable full-commit `sha-` tag using the local procedure in [DEPLOYMENT.md](DEPLOYMENT.md), or let the tested router-local controller validate the approved public release manifest.
