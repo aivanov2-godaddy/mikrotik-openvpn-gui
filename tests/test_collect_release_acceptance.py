@@ -96,7 +96,7 @@ class ReleaseCollectionTests(unittest.TestCase):
 
         code, report = collect(
             evidence(),
-            readyz_urls={"canary": "http://192.168.1.2", "production": "https://private.example"},
+            readyz_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
             metrics_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
             cookie="session=secret-cookie",
             duration_seconds=1,
@@ -167,6 +167,38 @@ class ReleaseCollectionTests(unittest.TestCase):
                 readyz_urls={"canary": "http://192.168.1.2", "production": "https://private.example"},
                 metrics_urls={"canary": "http://192.168.1.2"},
                 cookie="session=secret-cookie",
+                duration_seconds=1,
+                minimum_soak_seconds=1,
+            )
+
+    def test_rejects_cross_host_metrics_origin_before_sending_cookie(self) -> None:
+        with self.assertRaisesRegex(ValueError, "origin must exactly match"):
+            collect(
+                evidence(),
+                readyz_urls={"canary": "https://canary.example", "production": "https://production.example"},
+                metrics_urls={"canary": "https://attacker.example"},
+                cookie="session=secret-cookie",
+                duration_seconds=1,
+                minimum_soak_seconds=1,
+            )
+
+    def test_rejects_arbitrary_enum_and_typed_evidence_values(self) -> None:
+        invalid_enum = evidence()
+        invalid_enum["deployments"][0]["transport"] = "secret-string-that-is-not-an-enum"
+        with self.assertRaisesRegex(ValueError, "transport"):
+            collect(
+                invalid_enum,
+                readyz_urls={"canary": "https://canary.example", "production": "https://production.example"},
+                duration_seconds=1,
+                minimum_soak_seconds=1,
+            )
+
+        invalid_type = evidence()
+        invalid_type["deployments"][0]["session_event_p95_ms"] = "sensitive-string"
+        with self.assertRaisesRegex(ValueError, "session_event_p95_ms"):
+            collect(
+                invalid_type,
+                readyz_urls={"canary": "https://canary.example", "production": "https://production.example"},
                 duration_seconds=1,
                 minimum_soak_seconds=1,
             )

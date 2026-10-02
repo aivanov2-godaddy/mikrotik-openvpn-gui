@@ -118,8 +118,8 @@ try {
 python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
-  --canary-url http://<private-canary-origin> `
-  --production-url http://<private-production-origin> `
+  --canary-url https://<approved-canary-origin> `
+  --production-url https://<approved-production-origin> `
   --canary-metrics-url https://<approved-canary-origin> `
   --production-metrics-url https://<approved-production-origin> `
   --cookie-env VPN_ACCEPTANCE_COOKIE `
@@ -133,8 +133,10 @@ python scripts/release_acceptance.py --input private-collected-evidence.json `
 ```
 
 Cookies are sent only to HTTPS metrics origins; unauthenticated health and
-readiness probes can use a private HTTP origin. The acceptance window is at
-least 30 minutes, with at least 30 health samples
+readiness probes can use a private HTTP origin when metrics are disabled. If
+metrics are enabled, each metrics origin must exactly match that environment's
+health/readiness origin (scheme, hostname, and effective port). The acceptance
+window is at least 30 minutes, with at least 30 health samples
 per environment and no sample gap over 120 seconds. Duration is capped at 24
 hours, sampling at 10,000 observations, request timeout at 30 seconds, and
 redirects are not followed. The supplied image digest is recorded but not

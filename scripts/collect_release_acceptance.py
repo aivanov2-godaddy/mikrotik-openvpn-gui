@@ -21,9 +21,9 @@ from urllib.parse import urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
-    from release_acceptance import DIGEST, ENVIRONMENTS, IMAGE
+    from release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
 except ModuleNotFoundError:
-    from scripts.release_acceptance import DIGEST, ENVIRONMENTS, IMAGE
+    from scripts.release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
 
 
 MAX_RESPONSE_BYTES = 1_000_000
@@ -46,17 +46,6 @@ METRIC_LINE = re.compile(
     r'(?P<value>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|NaN|[+-]?Inf)(?:\s+\d+)?$'
 )
 REVISION_IN_IMAGE = re.compile(r":sha-(?P<revision>[0-9a-f]{40})(?:-(?:arm64|amd64))?$")
-EVIDENCE_FIELDS = {
-    "environment", "image", "digest", "container_healthy", "app_ready", "transport",
-    "rest_fallback", "redis_configured", "redis_publish_verified", "reconnect_recovered",
-    "snapshot_recovered", "sqlite_restore_verified", "rollback_drill_passed",
-    "production_untouched_on_canary_failure", "session_event_p95_ms",
-    "traffic_sample_age_seconds", "observation_started_at", "observation_ended_at",
-    "health_sample_count", "max_sample_gap_seconds", "health_failures",
-    "stale_sample_count", "lost_event_count", "duplicate_event_count",
-    "out_of_order_event_count", "redis_delivery_failure_count", "router_cpu_peak_percent",
-    "router_memory_peak_percent", "router_storage_peak_percent",
-}
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -77,6 +66,14 @@ def _probe_url(base_url: str, path: str) -> str:
     if parsed.path not in {"", "/"}:
         raise ValueError("probe URL must be an origin without a path")
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _origin(base_url: str) -> tuple[str, str, int]:
+    parsed = urlsplit(_probe_url(base_url, "/"))
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").rstrip(".").lower()
+    port = parsed.port or (443 if scheme == "https" else 80)
+    return scheme, host, port
 
 
 def _get(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
@@ -186,9 +183,11 @@ def collect(
 ) -> tuple[int, dict[str, Any]]:
     if not isinstance(evidence, dict) or evidence.get("format") != "vpn-dashboard-release-evidence-v2":
         raise ValueError("evidence must use vpn-dashboard-release-evidence-v2")
-    records = evidence.get("deployments")
-    if not isinstance(records, list) or len(records) != 2:
-        raise ValueError("evidence must contain canary and production records")
+    # The shared validator enforces every field's type, enum, bounds, and
+    # timestamp format, then returns a strict allowlisted projection. Use that
+    # projection as the only source of caller-supplied values in output.
+    _, validated_evidence = validate_evidence(evidence)
+    records = validated_evidence["deployments"]
     if not math.isfinite(duration_seconds) or duration_seconds <= 0 or duration_seconds > MAX_DURATION_SECONDS:
         raise ValueError("duration must be greater than zero and no more than 86400 seconds")
     if duration_seconds < minimum_soak_seconds:
@@ -205,6 +204,9 @@ def collect(
     metrics_urls = metrics_urls or {}
     if not set(metrics_urls).issubset(ENVIRONMENTS):
         raise ValueError("metrics URL environment must be canary or production")
+    for environment, metrics_url in metrics_urls.items():
+        if _origin(metrics_url) != _origin(readyz_urls[environment]):
+            raise ValueError(f"{environment} metrics URL origin must exactly match its readiness probe origin")
     if cookie and any(urlsplit(url).scheme != "https" for url in metrics_urls.values()):
         raise ValueError("authenticated metrics probes require HTTPS")
 
@@ -218,9 +220,7 @@ def collect(
             raise ValueError(f"{environment} evidence needs an immutable image tag and digest")
         if environment in safe_records and safe_records[environment]["image"] != image:
             raise ValueError("canary and production must use the same image")
-        # Do not carry arbitrary operator input into output: copy only fields
-        # recognized by the v2 evidence schema, even if the source has secrets.
-        safe_records[environment] = {key: value for key, value in record.items() if key in EVIDENCE_FIELDS}
+        safe_records[environment] = dict(record)
 
     if safe_records["canary"]["image"] != safe_records["production"]["image"]:
         raise ValueError("canary and production must use the same image")
