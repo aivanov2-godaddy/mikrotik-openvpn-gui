@@ -51,29 +51,66 @@ the exact RouterOS release and hardware before using any new architecture.
 
 ### Build provenance and SBOM
 
-For each published architecture, the container workflow generates an SPDX
-JSON SBOM from the pushed image digest and creates GitHub artifact attestations
-for both the image provenance and its SBOM. These attestations are stored by
-GitHub, not embedded in the image or pushed as OCI referrers, so the
-single-platform runtime manifest consumed by RouterOS remains unchanged. The
-SBOM is also uploaded as a workflow artifact named
-`sbom-<architecture>-<commit>`; the workflow summary records the matching
-image digest. Workflow artifact retention follows the repository's GitHub
-Actions retention policy, while attestations can be independently verified
-against the immutable image tag.
+For each published architecture, the workflow first pushes and smoke-tests the
+single-platform runtime image with Buildx SBOM and provenance generation
+disabled. It then scans that exact pushed digest with Syft, creates a signed
+GitHub artifact attestation for SLSA build provenance, and creates a separate
+signed SBOM predicate attestation whose subject is the same image digest. The
+attestations are stored by GitHub, not embedded in the image or pushed as OCI
+referrers; this keeps the runtime manifest/index that RouterOS pulls unchanged.
+The SPDX JSON is also uploaded as a workflow artifact named
+`sbom-<architecture>-<commit>` for convenience. Its retention follows the
+repository's Actions artifact-retention policy; the signed SBOM predicate is
+retrievable and verifiable through the attestation API independently of that
+downloadable copy.
 
-Install GitHub CLI with attestation support, then verify an architecture image
-using its immutable commit tag:
+The signatures use GitHub Actions OIDC and short-lived Sigstore certificates.
+This establishes the attestation signer and binds each statement to the image
+digest; it is not a claim that the build is reproducible, that the workflow is
+an independently hardened trusted builder, or that the SBOM is complete for
+runtime-downloaded components. Verify the workflow identity and expected source
+commit rather than relying on a tag or an attestation's descriptive fields.
+
+Install a current GitHub CLI with `gh attestation` support and authenticate to
+GHCR if required to resolve the image. Set the exact immutable digest from the
+`Build and publish` workflow summary, not a mutable tag:
 
 ```sh
-gh attestation verify oci://ghcr.io/OWNER/REPOSITORY:sha-COMMIT-arm64 \
-  --repo OWNER/REPOSITORY
+REPOSITORY=OWNER/REPOSITORY
+COMMIT=<40-character-source-commit>
+DIGEST=sha256:<published-image-digest>
+IMAGE="ghcr.io/${REPOSITORY}@${DIGEST}"
+SIGNER_WORKFLOW="${REPOSITORY}/.github/workflows/container.yml"
+
+# Verify SLSA provenance signature, signer workflow, and source commit.
+gh attestation verify "oci://${IMAGE}" \
+  --repo "${REPOSITORY}" \
+  --signer-workflow "${SIGNER_WORKFLOW}" \
+  --source-digest "${COMMIT}"
+
+# Verify the separately signed SPDX SBOM predicate for the same image digest.
+gh attestation verify "oci://${IMAGE}" \
+  --repo "${REPOSITORY}" \
+  --signer-workflow "${SIGNER_WORKFLOW}" \
+  --source-digest "${COMMIT}" \
+  --predicate-type https://spdx.dev/Document/v2.3
+
+# Optional: extract the verified SBOM predicate as JSON for inspection.
+gh attestation verify "oci://${IMAGE}" \
+  --repo "${REPOSITORY}" \
+  --signer-workflow "${SIGNER_WORKFLOW}" \
+  --source-digest "${COMMIT}" \
+  --predicate-type https://spdx.dev/Document/v2.3 \
+  --format json \
+  --jq '.[].verificationResult.statement.predicate' > sbom.spdx.json
 ```
 
-The verified image attestation includes the SBOM predicate. Download the
-matching `sbom-arm64-COMMIT` workflow artifact to inspect the SPDX document.
-Repeat with `amd64` for the CHR/x86 image. Never verify a mutable `edge` tag as
-release evidence.
+Repeat for `amd64` when validating the CHR/x86 image. The attestation API is
+GitHub-hosted; verification requires GitHub's attestation service and is not an
+offline trust-root procedure. The workflow artifact copy is convenient for
+inspection but is not a substitute for successful signature, signer, source,
+predicate-type, and image-digest verification. Never verify a mutable `edge`
+tag as release evidence.
 
 ### Compatibility and validation matrix
 
