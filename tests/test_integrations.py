@@ -53,6 +53,19 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(dispatcher.metrics()["delivery_successes"], 1)
         dispatcher.stop()
 
+    def test_delivery_backoff_is_exponential_and_bounded(self):
+        dispatcher = WebhookDispatcher(
+            None,
+            None,
+            redis_publisher=RedisStreamPublisher("redis://localhost", client=FakeRedis()),
+            base_backoff=0.2,
+            max_backoff=0.5,
+        )
+        self.assertEqual(dispatcher._backoff_for_attempt(1), 0.2)
+        self.assertEqual(dispatcher._backoff_for_attempt(2), 0.4)
+        self.assertEqual(dispatcher._backoff_for_attempt(3), 0.5)
+        dispatcher.stop()
+
     def test_signed_webhook_uses_timestamp_and_event_id_headers(self):
         dispatcher = WebhookDispatcher(
             "https://events.example.test/ingest",
