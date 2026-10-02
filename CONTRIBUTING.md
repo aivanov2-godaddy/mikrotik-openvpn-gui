@@ -33,6 +33,14 @@ python -m compileall -q app.py automation.py cloudflare.py deploy_routeros_canar
 python -m unittest discover -s tests -v
 ```
 
+### Rendered browser regressions
+
+The Dashboard, VPN Users, and Connections browser suite uses deterministic
+mock RouterOS data and pinned Playwright/axe-core dependencies. It captures
+Chromium screenshots at 1440, 768, and 390 CSS pixels and runs axe checks at
+each size. See [Browser regression tests](docs/BROWSER_REGRESSION.md) for
+installation, commands, and the baseline-update procedure.
+
 ## Engineering rules
 
 - RouterOS remains the source of truth for VPN identities and active sessions.
