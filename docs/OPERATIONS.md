@@ -33,6 +33,11 @@ The Redis Streams sink currently forwards sanitized audit/outbox events (not
 the dashboard's live RouterOS telemetry). Delivery is at-least-once and bounded
 by `REDIS_STREAM_MAXLEN`; consumers must deduplicate by `event_id`. Keep Redis
 on a private network, enable authentication, and persist its data directory.
+The authenticated Prometheus `/metrics` endpoint reports aggregate outbox
+backlog/age, retries, last successful delivery, and Redis publish outcomes. A
+Redis availability value of `-1` means no publish has yet tested the connection;
+the metrics endpoint never probes Redis or emits stream keys, event IDs, or
+payloads.
 Use `/healthz` for
 liveness and `/readyz` for readiness; these endpoints never expose
 configuration or credentials.
@@ -139,6 +144,33 @@ SQLite backups must be consistent:
 The helper uses SQLite's online Backup API and is safe while the writer is
 running. Do not copy only `dashboard.sqlite` with a file-copy command while WAL
 is active; the sidecar state must be captured consistently by SQLite.
+
+The repository's backup test suite also performs an isolated restore rehearsal:
+it copies the generated backup into a temporary database, opens it with the
+current store, runs the readiness probe, and verifies restored audit/outbox
+records. Run it before a release with:
+
+```powershell
+python -m unittest tests.test_security.SecurityTests.test_sqlite_wal_checkpoint_and_backup_are_consistent
+```
+
+For release acceptance, collect the redacted canary and production observations
+in the format shown by
+[`release-acceptance-evidence.example.json`](release-acceptance-evidence.example.json)
+and validate them with:
+
+```powershell
+python scripts/release_acceptance.py --input release-evidence.json --output release-report.json
+```
+
+The validator requires the same full immutable image tag and OCI digest in
+canary and production; healthy container and app readiness; ASGI WebSocket (or
+documented SSE fallback), REST fallback, verified Redis publish, reconnect and
+snapshot recovery, a SQLite restore rehearsal, session-event p95 at or below
+1 second, and traffic samples no older than 2 seconds. It emits only the
+release identity and aggregate pass/fail evidence. The JSON input is an
+operator-collected attestation, not an automatic RouterOS probe; keep it free
+of credentials, VPN-user data, addresses, and raw logs.
 
 Apply retention appropriate to the sensitivity of email ownership, address, usage, and audit metadata. Destroy expired backups securely.
 

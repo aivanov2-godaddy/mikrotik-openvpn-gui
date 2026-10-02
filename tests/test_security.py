@@ -4,6 +4,7 @@ import tempfile
 import time
 import hashlib
 import sqlite3
+import shutil
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -216,6 +217,32 @@ class SecurityTests(unittest.TestCase):
                 self.assertNotIn("password", payload)
             finally:
                 connection.close()
+
+            restored = Path(temporary) / "restore-rehearsal.sqlite"
+            shutil.copy2(backup, restored)
+            restored_store = MetadataStore(str(restored))
+            restored_store.verify_readiness()
+            self.assertEqual(restored_store.recent_audit(10)[0]["action"], "backup.test")
+            self.assertEqual(restored_store.integration_outbox_metrics()["pending"], 1)
+
+    def test_outbox_metrics_are_aggregate_and_reflect_retry_and_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            store.set_audit_hook(lambda _event: None)
+            store.audit(actor="admin", action="metrics.test", target="local", status="success", details={})
+            pending = store.integration_outbox_metrics(now=int(time.time()) + 5)
+            self.assertEqual(pending["pending"], 1)
+            self.assertEqual(pending["due"], 1)
+            self.assertNotIn("event_id", pending)
+            event_id = store.pending_integration_events(1)[0]["event_id"]
+            store.mark_integration_failed(event_id, "ConnectionError", retry_at=int(time.time()) + 30)
+            retried = store.integration_outbox_metrics(now=int(time.time()))
+            self.assertEqual(retried["retried"], 1)
+            self.assertEqual(retried["due"], 0)
+            store.mark_integration_delivered(event_id)
+            delivered = store.integration_outbox_metrics()
+            self.assertEqual(delivered["pending"], 0)
+            self.assertGreater(delivered["last_delivered"], 0)
 
     def test_database_readiness_success_is_cached_briefly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

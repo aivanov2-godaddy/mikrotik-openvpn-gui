@@ -1082,6 +1082,32 @@ class MetadataStore:
                 (int(retry_at), str(error)[:160], str(event_id)),
             )
 
+    def integration_outbox_metrics(self, *, now: int | None = None) -> dict[str, int]:
+        """Aggregate outbox backlog without returning event IDs or payloads."""
+
+        current = int(time.time() if now is None else now)
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN delivered_at IS NULL THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN delivered_at IS NULL AND next_attempt_at <= ? THEN 1 ELSE 0 END) AS due,
+                    SUM(CASE WHEN delivered_at IS NULL AND attempts > 0 THEN 1 ELSE 0 END) AS retried,
+                    MIN(CASE WHEN delivered_at IS NULL THEN created_at END) AS oldest_pending,
+                    MAX(delivered_at) AS last_delivered
+                FROM integration_outbox
+                """,
+                (current,),
+            ).fetchone()
+        oldest = int(row["oldest_pending"]) if row and row["oldest_pending"] is not None else 0
+        return {
+            "pending": int(row["pending"] or 0) if row else 0,
+            "due": int(row["due"] or 0) if row else 0,
+            "retried": int(row["retried"] or 0) if row else 0,
+            "oldest_pending_age": max(0, current - oldest) if oldest else 0,
+            "last_delivered": int(row["last_delivered"] or 0) if row else 0,
+        }
+
     def recent_audit(
         self, limit: int = 25, *, start_at: int | None = None, end_at: int | None = None
     ) -> list[dict[str, Any]]:

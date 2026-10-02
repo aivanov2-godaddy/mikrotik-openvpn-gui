@@ -1774,6 +1774,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         health_state = str(health[0].get("overall", "unavailable")) if health else "unavailable"
         health_value = {"healthy": 1, "warning": 0.5, "unavailable": 0}.get(health_state, 0)
         deployments = self.server.context.store.recent_deployment_events(1)
+        outbox = self.server.context.store.integration_outbox_metrics(now=now)
+        dispatcher = self.server.context.integration_dispatcher
+        integration = dispatcher.metrics() if dispatcher is not None else {
+            "enabled": 0, "webhook_configured": 0,
+            "delivery_successes": 0, "delivery_failures": 0, "last_delivery_success": 0,
+            "redis_configured": 0, "redis_available": -1, "redis_publish_successes": 0,
+            "redis_publish_failures": 0, "redis_last_publish_success": 0,
+        }
         lines = [
             "# HELP vpn_dashboard_info Runtime release identity.",
             "# TYPE vpn_dashboard_info gauge",
@@ -1790,6 +1798,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_health_checks Number of checks in the most recent snapshot.",
             "# TYPE vpn_dashboard_health_checks gauge",
             f"vpn_dashboard_health_checks {int(health[0].get('healthy_count', 0) + health[0].get('warning_count', 0) + health[0].get('unavailable_count', 0)) if health else 0}",
+            "# HELP vpn_dashboard_integration_outbox_pending Undelivered integration events in the durable SQLite outbox.",
+            "# TYPE vpn_dashboard_integration_outbox_pending gauge",
+            f"vpn_dashboard_integration_outbox_pending {outbox['pending']}",
+            "# HELP vpn_dashboard_integration_outbox_due Events currently eligible for delivery retry.",
+            "# TYPE vpn_dashboard_integration_outbox_due gauge",
+            f"vpn_dashboard_integration_outbox_due {outbox['due']}",
+            "# HELP vpn_dashboard_integration_outbox_retried Pending events that have required at least one retry.",
+            "# TYPE vpn_dashboard_integration_outbox_retried gauge",
+            f"vpn_dashboard_integration_outbox_retried {outbox['retried']}",
+            "# HELP vpn_dashboard_integration_outbox_oldest_age_seconds Age of the oldest pending integration event.",
+            "# TYPE vpn_dashboard_integration_outbox_oldest_age_seconds gauge",
+            f"vpn_dashboard_integration_outbox_oldest_age_seconds {outbox['oldest_pending_age']}",
+            "# HELP vpn_dashboard_integration_outbox_last_delivered_timestamp_seconds Unix timestamp of the last delivered outbox event.",
+            "# TYPE vpn_dashboard_integration_outbox_last_delivered_timestamp_seconds gauge",
+            f"vpn_dashboard_integration_outbox_last_delivered_timestamp_seconds {outbox['last_delivered']}",
+            "# HELP vpn_dashboard_integration_delivery_total Outbox delivery attempts completed by this process, labeled by outcome.",
+            "# TYPE vpn_dashboard_integration_delivery_total counter",
+            f'vpn_dashboard_integration_delivery_total{{outcome="success"}} {integration["delivery_successes"]}',
+            f'vpn_dashboard_integration_delivery_total{{outcome="failure"}} {integration["delivery_failures"]}',
+            "# HELP vpn_dashboard_integration_last_delivery_success_timestamp_seconds Unix timestamp of the last successful outbox delivery.",
+            "# TYPE vpn_dashboard_integration_last_delivery_success_timestamp_seconds gauge",
+            f"vpn_dashboard_integration_last_delivery_success_timestamp_seconds {integration['last_delivery_success']}",
+            "# HELP vpn_dashboard_redis_configured Whether the optional Redis Streams publisher is configured.",
+            "# TYPE vpn_dashboard_redis_configured gauge",
+            f"vpn_dashboard_redis_configured {integration['redis_configured']}",
+            "# HELP vpn_dashboard_redis_last_observed_available Last observed Redis publish result; -1 means not yet observed.",
+            "# TYPE vpn_dashboard_redis_last_observed_available gauge",
+            f"vpn_dashboard_redis_last_observed_available {integration['redis_available']}",
+            "# HELP vpn_dashboard_redis_publish_total Redis XADD outcomes observed by this process.",
+            "# TYPE vpn_dashboard_redis_publish_total counter",
+            f'vpn_dashboard_redis_publish_total{{outcome="success"}} {integration["redis_publish_successes"]}',
+            f'vpn_dashboard_redis_publish_total{{outcome="failure"}} {integration["redis_publish_failures"]}',
+            "# HELP vpn_dashboard_redis_last_publish_success_timestamp_seconds Unix timestamp of the last successful Redis XADD.",
+            "# TYPE vpn_dashboard_redis_last_publish_success_timestamp_seconds gauge",
+            f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {integration['redis_last_publish_success']}",
         ]
         socketio = getattr(self.server, "native_socketio", None)
         socketio_metrics = socketio.metrics() if socketio is not None else {

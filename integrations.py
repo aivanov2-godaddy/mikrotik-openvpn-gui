@@ -46,6 +46,11 @@ class RedisStreamPublisher:
     ) -> None:
         self.stream = str(stream)
         self.maxlen = max(100, min(int(maxlen), 1_000_000))
+        self._metrics_lock = threading.Lock()
+        self._publish_successes = 0
+        self._publish_failures = 0
+        self._last_publish_success = 0
+        self._last_publish_succeeded: bool | None = None
         if client is not None:
             self._client = client
             return
@@ -67,17 +72,40 @@ class RedisStreamPublisher:
         payload = sanitize_payload(event)
         event_id = str(payload.get("event_id") or uuid.uuid4())
         payload["event_id"] = event_id
-        stream_id = self._client.xadd(
-            self.stream,
-            {
-                "event_id": event_id,
-                "event_type": str(payload.get("event", "audit")),
-                "payload": json.dumps(payload, separators=(",", ":"), sort_keys=True),
-            },
-            maxlen=self.maxlen,
-            approximate=True,
-        )
+        try:
+            stream_id = self._client.xadd(
+                self.stream,
+                {
+                    "event_id": event_id,
+                    "event_type": str(payload.get("event", "audit")),
+                    "payload": json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                },
+                maxlen=self.maxlen,
+                approximate=True,
+            )
+        except Exception:
+            with self._metrics_lock:
+                self._publish_failures += 1
+                self._last_publish_succeeded = False
+            raise
+        with self._metrics_lock:
+            self._publish_successes += 1
+            self._last_publish_success = int(time.time())
+            self._last_publish_succeeded = True
         return str(stream_id)
+
+    def metrics(self) -> dict[str, int]:
+        """Return aggregate delivery health; never probes Redis or exposes config."""
+
+        with self._metrics_lock:
+            observed = self._last_publish_succeeded
+            return {
+                "configured": 1,
+                "available": -1 if observed is None else int(observed),
+                "publish_successes": self._publish_successes,
+                "publish_failures": self._publish_failures,
+                "last_publish_success": self._last_publish_success,
+            }
 
 
 class WebhookDispatcher:
@@ -115,6 +143,10 @@ class WebhookDispatcher:
         self._circuit_cooldown = max(1.0, float(circuit_cooldown))
         self._failure_streak = 0
         self._circuit_open_until = 0.0
+        self._metrics_lock = threading.Lock()
+        self._delivery_successes = 0
+        self._delivery_failures = 0
+        self._last_delivery_success = 0
         self._thread: threading.Thread | None = None
         if self.enabled:
             self._thread = threading.Thread(target=self._run, name="vpn-integration", daemon=True)
@@ -144,6 +176,27 @@ class WebhookDispatcher:
         self._wake.set()
         if self._thread is not None:
             self._thread.join(max(0.0, float(timeout)))
+
+    def metrics(self) -> dict[str, int]:
+        """Return secret-free integration configuration and process counters."""
+
+        with self._metrics_lock:
+            values = {
+                "enabled": int(self.enabled),
+                "webhook_configured": int(bool(self._url and self._secret)),
+                "redis_configured": int(self._redis is not None),
+                "delivery_successes": self._delivery_successes,
+                "delivery_failures": self._delivery_failures,
+                "last_delivery_success": self._last_delivery_success,
+            }
+        redis_values = self._redis.metrics() if self._redis is not None else {
+            "configured": 0,
+            "available": -1,
+            "publish_successes": 0,
+            "publish_failures": 0,
+            "last_publish_success": 0,
+        }
+        return {**values, **{f"redis_{key}": value for key, value in redis_values.items()}}
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -200,8 +253,13 @@ class WebhookDispatcher:
                 continue
             self._failure_streak = 0
             self._circuit_open_until = 0.0
+            with self._metrics_lock:
+                self._delivery_successes += 1
+                self._last_delivery_success = int(time.time())
             return
         self._failure_streak += 1
+        with self._metrics_lock:
+            self._delivery_failures += 1
         if self._failure_streak >= self._circuit_threshold:
             self._circuit_open_until = time.monotonic() + self._circuit_cooldown
         raise last_error or RuntimeError("integration delivery failed")
