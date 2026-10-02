@@ -135,7 +135,13 @@ class SessionStore:
             self._sessions[session.session_id] = session
         return session
 
-    def get(self, session_id: str, now: float | None = None) -> Session | None:
+    def get(
+        self,
+        session_id: str,
+        now: float | None = None,
+        *,
+        touch: bool = True,
+    ) -> Session | None:
         if not session_id:
             return None
         current = time.time() if now is None else now
@@ -148,7 +154,8 @@ class SessionStore:
             if idle_expired or absolute_expired:
                 self._sessions.pop(session_id, None)
                 return None
-            session.last_seen = current
+            if touch:
+                session.last_seen = current
             return session
 
     def destroy(self, session_id: str) -> None:

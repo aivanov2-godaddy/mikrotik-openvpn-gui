@@ -41,6 +41,17 @@ class SecurityTests(unittest.TestCase):
         session = SessionStore().create("admin", "secret", role="operator")
         self.assertEqual(session.role, "administrator")
 
+    def test_session_tokens_are_fresh_csprng_reference_values(self) -> None:
+        store = SessionStore()
+        with mock.patch("security.secrets.token_urlsafe", side_effect=("session-one", "csrf-one", "session-two", "csrf-two")) as token:
+            first = store.create("admin", "secret")
+            second = store.create("admin", "secret")
+
+        self.assertEqual(first.session_id, "session-one")
+        self.assertEqual(second.session_id, "session-two")
+        self.assertNotEqual(first.session_id, second.session_id)
+        self.assertEqual(token.call_args_list, [mock.call(32), mock.call(32), mock.call(32), mock.call(32)])
+
     def test_router_uptime_display(self) -> None:
         self.assertEqual(_router_uptime("1d22h44m45s"), "1d 22:44:45s")
         self.assertEqual(_router_uptime("1w2d3h4m5s"), "9d 03:04:05s")
@@ -73,6 +84,14 @@ class SecurityTests(unittest.TestCase):
 
         session = store.create("admin", "secret", now=200)
         self.assertIsNone(store.get(session.session_id, now=231))
+
+    def test_read_only_session_revalidation_does_not_extend_idle_timeout(self) -> None:
+        store = SessionStore(idle_seconds=10, absolute_seconds=30)
+        session = store.create("admin", "secret", now=100)
+
+        self.assertIs(store.get(session.session_id, now=109, touch=False), session)
+        self.assertEqual(session.last_seen, 100)
+        self.assertIsNone(store.get(session.session_id, now=111, touch=False))
 
     def test_session_snapshot_is_safe_and_revoke_is_scoped(self) -> None:
         store = SessionStore(idle_seconds=60, absolute_seconds=600)

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import time
 import unittest
 
 from asgi import DashboardHTTPASGI
+from security import SessionStore
+from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
@@ -81,6 +84,72 @@ class ASGIContractTests(unittest.TestCase):
 
         self.assertEqual(native.server.disconnected, [("socket-2", "/telemetry")])
         self.assertEqual(native._events_emitted_total, 0)
+
+    def test_expired_live_session_is_disconnected_without_emitting_telemetry(self) -> None:
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore(idle_seconds=1, absolute_seconds=60)
+        expired = sessions.create("operator", "router-password-marker")
+        expired.last_seen = time.time() - 2
+        runtime = object.__new__(TelemetryRuntime)
+        runtime.sessions = sessions
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = FakeServer()
+        native._subscriptions = {"socket-expired": "subscription-expired"}
+        native._session_ids = {"socket-expired": expired.session_id}
+        native._events_emitted_total = 0
+
+        asyncio.run(native._pump("socket-expired", "subscription-expired"))
+
+        self.assertIsNone(sessions.get(expired.session_id))
+        self.assertEqual(native.server.disconnected, [("socket-expired", "/telemetry")])
+        self.assertEqual(native._events_emitted_total, 0)
+        self.assertNotIn("router-password-marker", repr(runtime.principal_for_session(expired.session_id)))
+
+    def test_live_pump_rechecks_capabilities_on_the_current_session(self) -> None:
+        from asgi import NativeSocketIO
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "router-password-marker", role="administrator")
+        runtime = object.__new__(TelemetryRuntime)
+        runtime.sessions = sessions
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = FakeServer()
+        native._subscriptions = {"socket-downgraded": "subscription-downgraded"}
+        native._session_ids = {"socket-downgraded": session.session_id}
+        native._events_emitted_total = 0
+
+        last_seen = session.last_seen
+        self.assertTrue(TelemetryPrincipal.from_session(runtime.principal_for_session(session.session_id)).may_stream)
+        self.assertEqual(session.last_seen, last_seen, "stream revalidation must not count as user activity")
+        session.capabilities = frozenset()
+        asyncio.run(native._pump("socket-downgraded", "subscription-downgraded"))
+
+        self.assertEqual(native.server.disconnected, [("socket-downgraded", "/telemetry")])
+        self.assertEqual(native._events_emitted_total, 0)
+        principal = runtime.principal_for_session(session.session_id)
+        self.assertIsNotNone(principal)
+        self.assertNotIn(session.session_id, repr(principal))
+        self.assertNotIn("router-password-marker", repr(principal))
 
     def test_http_adapter_preserves_cookie_and_body_without_hop_by_hop_headers(self) -> None:
         request = DashboardHTTPASGI._request_bytes(
