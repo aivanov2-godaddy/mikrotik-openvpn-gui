@@ -4,6 +4,15 @@ All notable operator-visible changes are recorded here. The project follows the
 principles of [Keep a Changelog](https://keepachangelog.com/) and uses
 semantic-version style release tags.
 
+## Unreleased
+
+### Added
+
+- Secret-free Redis and SQLite outbox delivery metrics on the authenticated
+  Prometheus endpoint, plus retry/recovery and duplicate-event-ID tests.
+- Isolated SQLite backup restore rehearsal coverage and a read-only,
+  redacted canary-to-production release acceptance evidence validator.
+
 ## 2.5.0 - 2026-10-01
 
 ### Added

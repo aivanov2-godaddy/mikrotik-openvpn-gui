@@ -202,13 +202,13 @@ and automatic Binary API recovery. A connected-client window then verified
 live connect/disconnect rendering, snapshot recovery, changing traffic
 samples, and two simultaneous dashboard clients. The latest immutable image
 also corrects live-rate spikes by using the full five-second sample cadence.
-Exact event-age, counter-reset, parity, and event-order evidence remain to be
-collected; the acceptance evaluator now requires explicit evidence attestations
-for those gates instead of allowing an incomplete window to pass. The native
-ASGI/Uvicorn WebSocket runtime is implemented behind
+The controlled acceptance report records passing event-age, counter-reset,
+parity, event-order, reconnect, security, and fallback evidence. The acceptance
+evaluator requires explicit evidence attestations rather than allowing an
+incomplete window to pass. The native ASGI/Uvicorn WebSocket runtime is
+implemented behind
 ``SOCKETIO_ENGINE=asgi``; the dependency-free polling bridge remains the
-immediate rollback mode. Future work is limited to continued observation with
-a connected VPN client.
+immediate rollback mode.
 
 ## v2.6 — Durable integration delivery (implemented)
 
@@ -221,3 +221,16 @@ fan-out; it is not required by the single-container deployment. No GetStream
 SDK or provider-specific credentials are included in the public image; a future
 GetStream adapter must remain behind the same redaction, idempotency, and local
 REST/SSE fallback boundary.
+
+## Next release — Integration and rollout confidence
+
+- Expose authenticated, payload-free metrics for Redis publishes, retries,
+  SQLite outbox backlog and age, and last successful delivery.
+- Test transient Redis loss/recovery, duplicate event-ID behavior, and an
+  isolated SQLite backup restore rehearsal.
+- Validate redacted release evidence for canary then production, requiring the
+  same immutable image and digest, health/readiness, telemetry freshness and
+  latency targets, Redis publish verification, REST fallback, and reconnect/
+  snapshot recovery.
+- Keep the validator read-only: it reports evidence and never promotes an
+  image or changes RouterOS policy, users, certificates, or data.

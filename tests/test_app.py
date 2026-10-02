@@ -435,6 +435,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.request("GET", "/metrics")
         self.assertEqual(status, 200)
         self.assertIn(b"vpn_dashboard_info", payload)
+        self.assertIn(b"vpn_dashboard_integration_outbox_pending", payload)
+        self.assertIn(b"vpn_dashboard_redis_last_observed_available", payload)
         self.assertNotIn(b"routerpass", payload)
 
         status, _, payload = self.json_request(

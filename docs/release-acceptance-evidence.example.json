@@ -1,0 +1,37 @@
+{
+  "format": "vpn-dashboard-release-evidence-v1",
+  "deployments": [
+    {
+      "environment": "canary",
+      "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-arm64",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "container_healthy": true,
+      "app_ready": true,
+      "transport": "asgi-websocket",
+      "rest_fallback": true,
+      "redis_configured": true,
+      "redis_publish_verified": true,
+      "reconnect_recovered": true,
+      "snapshot_recovered": true,
+      "sqlite_restore_verified": true,
+      "session_event_p95_ms": 500,
+      "traffic_sample_age_seconds": 1.5
+    },
+    {
+      "environment": "production",
+      "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-arm64",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "container_healthy": true,
+      "app_ready": true,
+      "transport": "asgi-websocket",
+      "rest_fallback": true,
+      "redis_configured": true,
+      "redis_publish_verified": true,
+      "reconnect_recovered": true,
+      "snapshot_recovered": true,
+      "sqlite_restore_verified": true,
+      "session_event_p95_ms": 500,
+      "traffic_sample_age_seconds": 1.5
+    }
+  ]
+}
