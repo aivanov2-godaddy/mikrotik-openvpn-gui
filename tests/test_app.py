@@ -65,7 +65,7 @@ class DevicePostureTests(unittest.TestCase):
             {"id": "unknown-issuer", "certificate_name": "client-unknown"},
         ]
         certificates = [
-            {"name": "client-current", "certificate_authority": "vpn-ca", "revoked": False},
+            {"name": "client-current", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2035-08-03 00:00:00"},
             {"name": "client-revoked", "certificate_authority": "vpn-ca", "revoked": True},
             {"name": "client-legacy", "certificate_authority": "old-ca", "revoked": False},
             {"name": "client-unknown", "revoked": False},
@@ -74,11 +74,33 @@ class DevicePostureTests(unittest.TestCase):
         result = evaluate_device_posture(devices, certificates, "vpn-ca")
 
         self.assertEqual([item["state"] for item in result], ["approved", "warning", "revoked", "warning", "warning"])
-        self.assertEqual(result[0]["label"], "Approved")
+        self.assertEqual(result[0]["label"], "Inventory match")
         self.assertIn("not present", result[1]["reason"])
         self.assertIn("revoked", result[2]["reason"])
         self.assertIn("old-ca", result[3]["reason"])
         self.assertIn("unknown CA", result[4]["reason"])
+
+    def test_posture_marks_expired_expiring_and_unknown_certificates_for_review(self) -> None:
+        now = int(time.mktime(time.strptime("2030-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")))
+        devices = [
+            {"id": "expired", "certificate_name": "expired-cert"},
+            {"id": "soon", "certificate_name": "soon-cert"},
+            {"id": "unknown", "certificate_name": "unknown-cert"},
+            {"id": "valid", "certificate_name": "valid-cert"},
+        ]
+        certificates = [
+            {"name": "expired-cert", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2029-12-31 23:59:59"},
+            {"name": "soon-cert", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2030-01-15 00:00:00"},
+            {"name": "unknown-cert", "certificate_authority": "vpn-ca", "revoked": False},
+            {"name": "valid-cert", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2031-01-01 00:00:00"},
+        ]
+
+        result = evaluate_device_posture(devices, certificates, "vpn-ca", now=now)
+
+        self.assertEqual([item["state"] for item in result], ["expired", "warning", "warning", "approved"])
+        self.assertEqual(result[1]["label"], "Expiring soon")
+        self.assertIn("unavailable or unparseable", result[2]["reason"])
+        self.assertIn("live rejection was not tested", result[3]["reason"])
 
     def test_posture_does_not_approve_when_current_ca_is_unavailable(self) -> None:
         result = evaluate_device_posture(
@@ -258,7 +280,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"First time adding a phone?", page)
         self.assertIn(b"Device posture", page)
         self.assertIn(b"Read-only certificate checks for every managed profile", page)
-        self.assertIn(b"Approved", page)
+        self.assertIn(b"Inventory match", page)
+        self.assertIn(b"does not prove CRL enforcement", page)
         self.assertIn(b"Per-device revocation needs CA migration", page)
 
         self.assertIn(b"ovpn-user-one-device-a", page)
