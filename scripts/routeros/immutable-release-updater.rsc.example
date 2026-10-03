@@ -134,11 +134,14 @@
     :return false
 }
 
-# One in-memory lock prevents overlapping scheduler instances.  The known good
-# image is also written to a router-local external-storage file for operator
-# review.  The state file contains no credentials or application data.
+# RouterOS job state is authoritative for overlap detection. The legacy global
+# is retained only as a diagnostic flag: it may remain true after an interrupted
+# run and must never prevent a later run from recovering. The known-good image
+# is also written to router-local storage for operator review; that file contains
+# no credentials or application data.
 :global vpnGuiImmutableUpdateLock
-:if ($vpnGuiImmutableUpdateLock = true) do={
+:local activeUpdaterRuns [/system script job print count-only as-value where script=[:jobname]]
+:if ($activeUpdaterRuns > 1) do={
     :log warning "vpn-gui immutable updater: another run is active; skipping"
     :error "vpn-gui immutable updater lock held"
 }

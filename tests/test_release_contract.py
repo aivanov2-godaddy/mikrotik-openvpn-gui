@@ -129,6 +129,21 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("outside maintenance window", updater)
         self.assertIn("currentHour", updater)
 
+    def test_updater_recovers_stale_global_lock_and_serializes_live_jobs(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        guard = executable[executable.index(":global vpnGuiImmutableUpdateLock"):]
+        guard = guard[:guard.index(":do {")]
+
+        self.assertIn("/system script job print count-only as-value where script=[:jobname]", guard)
+        self.assertIn(":if ($activeUpdaterRuns > 1) do={", guard)
+        self.assertNotIn("if ($vpnGuiImmutableUpdateLock = true)", guard)
+        self.assertIn("may remain true after an interrupted\n# run", updater)
+
     def test_manual_rollback_helper_is_immutable_and_data_safe(self) -> None:
         helper = (ROOT / "scripts" / "routeros" / "rollback-last-good.rsc.example").read_text(
             encoding="utf-8"
