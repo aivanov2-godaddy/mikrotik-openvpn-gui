@@ -539,6 +539,8 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .history-filter-row label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
 .history-filter-row select { min-width: 150px; min-height: 34px; }
 .history-filter-row > small { margin-left: auto; color: var(--muted); font-size: 12px; }
+.history-coverage-note { margin: 0; padding: 10px 16px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.operations-timeline-panel .panel-heading small { color: var(--muted); }
 .history-action { display: inline-flex; min-width: 145px; align-items: center; gap: 7px; }
 .history-status { display: inline-flex; padding: 3px 7px; color: #afe3c8; border: 1px solid #35644f; border-radius: 2px; background: #244235; font-size: 11px; }
 .history-status.failed { color: #f2a0a4; border-color: #71464a; background: #432a2e; }
