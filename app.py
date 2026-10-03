@@ -3713,7 +3713,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 username = str(user.get("name", ""))
                 router_state = {
                     "id": user_id, "username": username,
-                    "disabled": bool(user.get("disabled")),
+                    "disabled": str(user.get("disabled", "no")).strip().lower() in {"yes", "true", "1"},
                     "profile": str(user.get("profile", "")),
                 }
                 if action == "suspend":
