@@ -327,11 +327,12 @@ class DashboardIntegrationTests(unittest.TestCase):
         return json.loads(payload)
 
     def preview_session_termination(self, session_id: str) -> dict[str, Any]:
+        reason = "Operator requested session disconnect"
         status, _, payload = self.json_request(
-            "POST", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}/preview", {},
+            "POST", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}/preview", {"reason": reason},
         )
         self.assertEqual(status, 200, payload.decode("utf-8"))
-        return json.loads(payload)
+        return {**json.loads(payload), "reason": reason}
 
     def preview_bulk_action(
         self, action: str, user_ids: list[str], *, tag: str = "",
@@ -2291,12 +2292,44 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-            {"confirmation": "user-two", "review_token": termination_review["review_token"]},
+            {"confirmation": "user-two", "reason": termination_review["reason"], "review_token": termination_review["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload), {"ok": True, "verified": True})
         self.assertNotIn(session_id, self.mock.state.active_sessions)
-        self.assertIn("session.terminate", [item["action"] for item in self.server.context.store.recent_audit()])
+        termination_audit = next(
+            item for item in self.server.context.store.recent_audit()
+            if item["action"] == "session.terminate"
+        )
+        self.assertEqual(json.loads(termination_audit["details"])["rationale"], termination_review["reason"])
+
+    def test_session_termination_reason_is_bound_to_review_and_audited(self) -> None:
+        self.login()
+        session_id = next(iter(self.mock.state.active_sessions))
+        review = self.preview_session_termination(session_id)
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+            {"confirmation": "user-two", "reason": "Different operator rationale", "review_token": review["review_token"]},
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertIn(session_id, self.mock.state.active_sessions)
+
+    def test_session_termination_rejects_missing_rationale_before_routeros_read(self) -> None:
+        self.login()
+        session_id = next(iter(self.mock.state.active_sessions))
+
+        status, _, payload = self.json_request(
+            "POST", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}/preview", {},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(self.mock.state.mutation_requests, [])
+        self.assertIn("reason", json.loads(payload)["error"])
 
     def test_duplicate_user_review_rejects_changed_copied_settings_before_mutation(self) -> None:
         self.login()
@@ -2335,7 +2368,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             status, _, payload = self.json_request(
                 "DELETE",
                 f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-                {"confirmation": "user-two", "review_token": review["review_token"]},
+                {"confirmation": "user-two", "reason": review["reason"], "review_token": review["review_token"]},
             )
 
         self.assertEqual(status, 409)
@@ -2361,7 +2394,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         with mock.patch.object(router, "terminate_session", side_effect=commit_then_lose_response):
             status, _, payload = self.json_request(
                 "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-                {"confirmation": "user-two", "review_token": review["review_token"]},
+                {"confirmation": "user-two", "reason": review["reason"], "review_token": review["review_token"]},
             )
 
         self.assertEqual(status, 200)
@@ -2398,7 +2431,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         ):
             status, _, payload = self.json_request(
                 "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-                {"confirmation": "user-two", "review_token": review["review_token"]},
+                {"confirmation": "user-two", "reason": review["reason"], "review_token": review["review_token"]},
             )
 
         response = json.loads(payload)
@@ -2689,7 +2722,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             status, _, payload = self.json_request(
                 "DELETE",
                 f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-                {"confirmation": "user-two", "review_token": review["review_token"]},
+                {"confirmation": "user-two", "reason": review["reason"], "review_token": review["review_token"]},
             )
 
         self.assertEqual(status, 502)
@@ -2711,7 +2744,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-            {"confirmation": "user-two", "review_token": review["review_token"]},
+            {"confirmation": "user-two", "reason": review["reason"], "review_token": review["review_token"]},
         )
 
         self.assertEqual(status, 409)

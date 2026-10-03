@@ -5077,11 +5077,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = self._credentials(session)
         try:
             data = self._read_json()
+            reason = str(data.get("reason", "")).strip()
+            if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
             active = self._find_session(credentials, session_id)
             reviewed_state = {
                 key: str(active.get(key, ""))
                 for key in ("id", "name", "session_id", "source_address", "vpn_address", "interface", "comment")
             }
+            reviewed_state["reason"] = reason
             intent_digest = hashlib.sha256(json.dumps(
                 reviewed_state, sort_keys=True, separators=(",", ":"),
             ).encode("utf-8")).hexdigest()
@@ -5090,6 +5094,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "username": str(active["name"]),
                     "source_address": str(active.get("source_address", "")),
                     "vpn_address": str(active.get("vpn_address", "")),
+                    "reason": reason,
                     "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
                 })
                 return
@@ -5100,7 +5105,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ):
                 self.server.context.store.audit(
                     actor=session.username, action="session.terminate", target=str(active["name"]),
-                    status="failed", details={"reason": "stale_or_missing_review"},
+                    status="failed", details={"reason": "stale_or_missing_review", "rationale": reason},
                 )
                 self._json({
                     "code": "routeros.review_stale",
@@ -5129,6 +5134,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     details={
                         "verification": "unavailable",
                         "reason": type(error).__name__,
+                        "rationale": reason,
                         **({"mutation_response": "unknown"} if mutation_error else {}),
                     },
                 )
@@ -5160,6 +5166,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     status="failed",
                     details={
                         "verification": "session_still_active",
+                        "rationale": reason,
                         **({"mutation_response": "error"} if mutation_error else {}),
                     },
                 )
@@ -5182,6 +5189,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status="success",
                 details={
                     "verification": "session_absent",
+                    "rationale": reason,
                     **({"mutation_response": "lost"} if mutation_error else {}),
                 },
             )
