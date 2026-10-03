@@ -77,6 +77,7 @@ def operations_timeline(
     health: list[dict[str, Any]],
     *,
     integrations: list[dict[str, Any]] | None = None,
+    connections: list[dict[str, Any]] | None = None,
     now: int | None = None,
 ) -> dict[str, Any]:
     """Join bounded, already-redacted dashboard ledgers without implying completeness."""
@@ -167,10 +168,114 @@ def operations_timeline(
                 f"Audit delivery {outcome} · {max(0, int(item.get('attempts', 0) or 0))} attempts"
             ),
         })
+    connections_included = connections is not None
+    for item in connections or []:
+        row_id = int(item.get("id", 0) or 0)
+        username = str(item.get("vpn_user", ""))[:64]
+        connected_at = int(item.get("connected_at", 0) or 0)
+        if row_id <= 0 or connected_at <= 0:
+            continue
+        events.append({
+            "id": f"connection:{row_id}:connected",
+            "occurred_at": connected_at,
+            "source": "session snapshot history",
+            "type": "session",
+            "actor": "",
+            "target": username,
+            "outcome": "observed",
+            "severity": "info",
+            "timestamp_quality": "uptime-derived",
+            "summary": "VPN session appeared in a RouterOS snapshot",
+        })
+        disconnected_at = int(item.get("disconnected_at", 0) or 0)
+        if disconnected_at > 0:
+            events.append({
+                "id": f"connection:{row_id}:absent",
+                "occurred_at": disconnected_at,
+                "source": "session snapshot history",
+                "type": "session",
+                "actor": "",
+                "target": username,
+                "outcome": "not-observed",
+                "severity": "info",
+                "timestamp_quality": "absence-observed",
+                "summary": "VPN session was absent from a later RouterOS snapshot",
+            })
     events.sort(key=lambda item: (item["occurred_at"], item["id"]), reverse=True)
     bounded = events[:150]
     for event in bounded:
         event["age_seconds"] = max(0, generated_at - event["occurred_at"])
+        event["related_events"] = []
+
+    audit_events = {event["id"]: event for event in bounded if event["type"] == "change"}
+    def source_row_id(event: dict[str, Any], expected_type: str) -> int:
+        if event.get("type") != expected_type:
+            return 0
+        try:
+            return int(str(event.get("id", "")).split(":", 1)[1])
+        except (IndexError, ValueError):
+            return 0
+
+    integration_events = {}
+    for event in bounded:
+        row_id = source_row_id(event, "integration")
+        if row_id:
+            integration_events[row_id] = event
+    for event in bounded:
+        related: list[dict[str, Any]] = []
+        source_id = source_row_id(event, "integration")
+        if event["type"] == "integration" and source_id:
+            source_event = audit_events.get(f"audit:{source_id}")
+            if source_event is not None:
+                related.append({
+                    "event_id": source_event["id"], "source": source_event["source"],
+                    "relation": "delivery-of", "delta_seconds": event["occurred_at"] - source_event["occurred_at"],
+                })
+        if event["type"] == "change":
+            source_id = source_row_id(event, "change")
+            delivery_event = integration_events.get(source_id)
+            if delivery_event is not None:
+                related.append({
+                    "event_id": delivery_event["id"], "source": delivery_event["source"],
+                    "relation": "delivery-status", "delta_seconds": event["occurred_at"] - delivery_event["occurred_at"],
+                })
+        for other in bounded:
+            if other["id"] == event["id"]:
+                continue
+            delta = event["occurred_at"] - other["occurred_at"]
+            same_account = (
+                {event["type"], other["type"]} == {"session", "change"}
+                and bool(event.get("target"))
+                and str(event.get("target", "")).casefold() == str(other.get("target", "")).casefold()
+                and abs(delta) <= 300
+            )
+            global_context = (
+                event["type"] in {"health", "deployment"}
+                and other["type"] in {"session", "change"}
+                or other["type"] in {"health", "deployment"}
+                and event["type"] in {"session", "change"}
+            ) and abs(delta) <= 120
+            if same_account:
+                related.append({
+                    "event_id": other["id"], "source": other["source"],
+                    "relation": "same-account-near-time", "delta_seconds": delta,
+                })
+            elif global_context:
+                related.append({
+                    "event_id": other["id"], "source": other["source"],
+                    "relation": "nearby-context", "delta_seconds": delta,
+                })
+        event["related_events"] = sorted(
+            related,
+            key=lambda item: (0 if item["relation"] in {"delivery-of", "delivery-status"} else 1 if item["relation"] == "same-account-near-time" else 2, abs(item["delta_seconds"]), item["event_id"]),
+        )[:5]
+        relations = {item["relation"] for item in event["related_events"]}
+        event["relationship_summary"] = (
+            "Delivery status for this audit event" if relations & {"delivery-of", "delivery-status"} else
+            "Same account within five minutes · temporal association, not proof of cause" if "same-account-near-time" in relations else
+            "Nearby health/deployment signal · context only, not proof of cause" if "nearby-context" in relations else
+            ""
+        )
     return {
         "events": bounded,
         "generated_at": generated_at,
@@ -178,7 +283,12 @@ def operations_timeline(
             "complete": False,
             "message": (
                 "Bounded dashboard audit, health, deployment, and integration-delivery observations only. "
-                "RouterOS session/traffic events are live telemetry, not a durable full-history feed; gaps are possible."
+                + (
+                    "Session starts are estimated from RouterOS uptime; an end is recorded when a later snapshot omits the session. "
+                    "Same-account/time and nearby health/deployment links are context, not proof of cause. "
+                    if connections_included else ""
+                )
+                + "RouterOS session/traffic events are not a complete durable feed; gaps are possible."
             ),
         },
     }
@@ -980,7 +1090,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # store is temporarily locked or read-only.
             print(f"health timeline write unavailable reason={type(error).__name__}")
 
-    def _observability(self, *, include_audit: bool = False) -> dict[str, Any]:
+    def _observability(
+        self, *, include_audit: bool = False, include_sessions: bool = False
+    ) -> dict[str, Any]:
         """Return local deployment history, health timeline, and rollback state."""
         events = self.server.context.store.recent_deployment_events(20)
         health_timeline = self.server.context.store.recent_health_snapshots(30)
@@ -991,6 +1103,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             integrations=(
                 self.server.context.store.recent_integration_delivery_events(50)
                 if include_audit else []
+            ),
+            connections=(
+                self.server.context.store.recent_connection_timeline(50)
+                if include_sessions else []
             ),
         )
         current = {
@@ -1226,7 +1342,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "capabilities": sorted(role_capabilities(session.role)),
                         "router": router,
                         "observability": self._observability(
-                            include_audit=self._capability_allowed(session, "audit.read")
+                            include_audit=self._capability_allowed(session, "audit.read"),
+                            include_sessions=self._capability_allowed(session, "sessions.read"),
                         ),
                         "telemetry": {"protocol_version": 1, **self._telemetry_status()},
                         "generated_at": int(time.time()),
@@ -1246,7 +1363,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not session:
                 return
             self._json(self._observability(
-                include_audit=self._capability_allowed(session, "audit.read")
+                include_audit=self._capability_allowed(session, "audit.read"),
+                include_sessions=self._capability_allowed(session, "sessions.read"),
             ))
             return
         if path == "/api/setup-preflight":
@@ -1378,7 +1496,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/operations-timeline.json":
             session = self._require_session(api=True)
-            if not session or not self._require_capability(session, "audit.read"):
+            if (
+                not session
+                or not self._require_capability(session, "audit.read")
+                or not self._require_capability(session, "sessions.read")
+            ):
                 return
             try:
                 start_at, end_at = self._report_range(query)
@@ -1391,6 +1513,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 store.recent_deployment_events(20),
                 store.recent_health_snapshots(30),
                 integrations=store.recent_integration_delivery_events(50),
+                connections=store.recent_connection_timeline(
+                    50, start_at=start_at, end_at=end_at,
+                ),
             )
             report["events"] = [
                 item for item in report["events"]
@@ -1667,7 +1792,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 access_layer_label=self.server.context.config.access_layer_label,
                 health=health,
                 observability=self._observability(
-                    include_audit=self._capability_allowed(session, "audit.read")
+                    include_audit=self._capability_allowed(session, "audit.read"),
+                    include_sessions=self._capability_allowed(session, "sessions.read"),
                 ),
             )
         )

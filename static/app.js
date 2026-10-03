@@ -949,7 +949,7 @@ function renderObservability(payload) {
   if (operationBody) {
     const renderKey = JSON.stringify(operations.map((event) => [
       event.id, event.occurred_at, event.source, event.type, event.actor,
-      event.target, event.outcome, event.severity, event.summary, event.age_seconds,
+      event.target, event.outcome, event.severity, event.summary, event.age_seconds, event.relationship_summary,
     ]));
     if (operationBody.dataset.renderKey !== renderKey) {
       operationBody.dataset.renderKey = renderKey;
@@ -960,7 +960,7 @@ function renderObservability(payload) {
         row.dataset.operationOutcome = String(event.outcome || 'unknown');
         row.dataset.operationSeverity = String(event.severity || 'info');
         row.dataset.operationCreated = String(Number(event.occurred_at) || 0);
-        row.dataset.operationSearch = [event.source, event.type, event.actor, event.target, event.outcome, event.summary]
+        row.dataset.operationSearch = [event.source, event.type, event.actor, event.target, event.outcome, event.summary, event.relationship_summary]
           .map((value) => String(value || '')).join(' ').toLocaleLowerCase();
         const when = node('td');
         when.append(node('time', '', formatObservationTime(event.occurred_at)));
@@ -968,6 +968,7 @@ function renderObservability(payload) {
         const description = node('td');
         description.append(node('strong', '', event.summary || 'Event'));
         description.append(node('small', 'table-secondary', event.source || 'unknown'));
+        if (event.relationship_summary) description.append(node('small', 'table-secondary', event.relationship_summary));
         const status = node('td');
         status.append(node('span', `history-status ${event.severity || 'info'}`, String(event.outcome || 'unknown').replace(/\b\w/g, (letter) => letter.toUpperCase())));
         row.append(when, description, node('td', '', event.target || '—'), node('td', '', event.actor || '—'), status);

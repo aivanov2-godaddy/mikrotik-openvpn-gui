@@ -57,6 +57,32 @@ class ContainerImageTargetTests(unittest.TestCase):
 
 
 class OperationsTimelineTests(unittest.TestCase):
+    def test_session_rows_are_redacted_and_linked_as_noncausal_context(self) -> None:
+        result = operations_timeline(
+            [{"id": 7, "created_at": 98, "actor": "operator", "action": "user.update", "target": "alice", "status": "success"}],
+            [], [],
+            connections=[{"id": 12, "vpn_user": "alice", "connected_at": 100, "disconnected_at": 0,
+                          "session_id": "private-session", "source_address": "192.0.2.8"}],
+            now=110,
+        )
+        session = next(item for item in result["events"] if item["type"] == "session")
+        self.assertEqual(session["timestamp_quality"], "uptime-derived")
+        self.assertIn("not proof of cause", session["relationship_summary"])
+        self.assertNotIn("private-session", json.dumps(result))
+        self.assertNotIn("192.0.2.8", json.dumps(result))
+        without_sessions = operations_timeline([], [], [], now=110)
+        self.assertFalse(without_sessions["coverage"]["complete"])
+        self.assertNotIn("Session starts", without_sessions["coverage"]["message"])
+
+    def test_audit_delivery_and_session_context_are_linked_without_payloads(self) -> None:
+        result = operations_timeline(
+            [{"id": 7, "created_at": 98, "actor": "operator", "action": "user.update", "target": "alice", "status": "success"}],
+            [], [], integrations=[{"source_id": 7, "event_type": "audit", "created_at": 99, "delivered_at": 100, "attempts": 1}],
+            connections=[{"id": 12, "vpn_user": "alice", "connected_at": 100}], now=110,
+        )
+        audit = next(item for item in result["events"] if item["type"] == "change")
+        self.assertEqual({item["relation"] for item in audit["related_events"]}, {"same-account-near-time", "delivery-status"})
+
     def test_join_is_ordered_redacted_and_explicitly_incomplete(self) -> None:
         result = operations_timeline(
             [{
@@ -982,6 +1008,12 @@ class DashboardIntegrationTests(unittest.TestCase):
         audit_token = json.loads(payload)["token"]
         status, _, payload = self.request(
             "GET", "/api/reports/compliance.zip",
+            headers={"Authorization": f"Bearer {audit_token}", "Cookie": ""},
+        )
+        self.assertEqual(status, 403)
+        self.assertIn(b'"required_capability":"sessions.read"', payload)
+        status, _, payload = self.request(
+            "GET", "/api/operations-timeline.json",
             headers={"Authorization": f"Bearer {audit_token}", "Cookie": ""},
         )
         self.assertEqual(status, 403)
