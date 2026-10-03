@@ -94,6 +94,25 @@ test('bulk destructive rationale stays hidden until needed and invalidates a sta
   await expect(page.locator('[data-bulk-review]')).toBeHidden();
 });
 
+test('account deletion requires and binds a reason before enabling apply', async ({ page }) => {
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  const firstUser = page.locator('.user-card').first();
+  await firstUser.locator('.action-menu summary').click();
+  await firstUser.locator('[data-delete]').click();
+  const dialog = page.locator('#delete-dialog');
+  const reason = dialog.getByLabel('Reason for removing access');
+  const review = dialog.getByRole('button', { name: 'Review impact' });
+  const apply = dialog.getByRole('button', { name: 'Remove access' });
+  await expect(apply).toBeDisabled();
+  await reason.fill('Quarterly access review approved');
+  await review.click();
+  await expect(dialog.locator('.form-status')).toContainText('Reason: Quarterly access review approved');
+  await dialog.locator('[name="confirmation"]').fill(await dialog.locator('[data-delete-user]').textContent());
+  await expect(apply).toBeEnabled();
+  await reason.fill('Different reason after review');
+  await expect(apply).toBeDisabled();
+});
+
 async function tabTo(page, locator) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;
