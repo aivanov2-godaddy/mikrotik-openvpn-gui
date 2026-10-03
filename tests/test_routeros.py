@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from config import OpenVPNTopology
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError, harden_profile
@@ -155,6 +156,35 @@ class RouterOSClientTests(unittest.TestCase):
                 ["vpn-ca.crt"],
                 "temporary certificate/key/profile files must be removed",
             )
+
+    def test_failed_profile_cleanup_reports_unremoved_certificate(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def fail_certificate_delete(method, path, *args, **kwargs):
+                if method == "DELETE" and path.startswith("/certificate/"):
+                    raise RouterOSError("injected certificate cleanup failure")
+                return request(method, path, *args, **kwargs)
+
+            with (
+                patch.object(client, "_ensure_ca_export", side_effect=RouterOSError("injected export failure")),
+                patch.object(client, "_request", side_effect=fail_certificate_delete),
+            ):
+                with self.assertRaisesRegex(RouterOSError, "partial RouterOS certificate remains"):
+                    client.provision_profile(
+                        credentials,
+                        vpn_user="user-one",
+                        device_name="Cleanup test",
+                        key_passphrase="private-passphrase",
+                    )
+
+            partial = [
+                item for item in mock.state.certificates.values()
+                if item.get("name", "").startswith("ovpn-ui-user-one-cleanup-test-")
+            ]
+            self.assertEqual(len(partial), 1, "failed cleanup must remain visible for operator recovery")
 
     def test_live_session_telemetry_and_termination(self) -> None:
         with MockRouterOS() as mock:
