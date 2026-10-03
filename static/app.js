@@ -1043,12 +1043,22 @@ $$('dialog').forEach((modal) => {
 });
 
 $('[data-open-add]')?.addEventListener('click', () => {
-  $('#add-form').reset();
+  const form = $('#add-form');
+  form.reset();
+  delete form.dataset.reviewDelivery;
+  $('[data-create-review]', form).hidden = true;
+  $('[data-delivery="qr"]', form).textContent = 'Review QR';
+  $('[data-delivery="zip"]', form).textContent = 'Review ZIP';
   openDialog('add-dialog');
 });
 
 $$('[data-open-add]').slice(1).forEach((button) => button.addEventListener('click', () => {
-  $('#add-form').reset();
+  const form = $('#add-form');
+  form.reset();
+  delete form.dataset.reviewDelivery;
+  $('[data-create-review]', form).hidden = true;
+  $('[data-delivery="qr"]', form).textContent = 'Review QR';
+  $('[data-delivery="zip"]', form).textContent = 'Review ZIP';
   openDialog('add-dialog');
 }));
 
@@ -1338,6 +1348,9 @@ document.addEventListener('click', async (event) => {
   } else if (button.matches('[data-duplicate]') && row) {
     const form = $('#duplicate-form');
     form.reset();
+    delete form.dataset.reviewReady;
+    $('[data-create-review]', form).hidden = true;
+    $('button[type="submit"]', form).textContent = 'Review account';
     form.source_id.value = row.dataset.userId;
     form.username.value = `${row.dataset.userName}-copy`.slice(0, 64);
     form.email.value = '';
@@ -1490,11 +1503,31 @@ $('#add-form')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const data = new FormData(form);
   const delivery = event.submitter?.dataset.delivery || 'zip';
-  data.set('delivery', delivery);
   setBusy(form, true);
-  setStatus(form, 'Preparing the user and secure phone file…');
   try {
-    const response = await resultOrError(await api('/api/users', { method: 'POST', body: Object.fromEntries(data) }));
+    const values = Object.fromEntries(data);
+    values.delivery = delivery;
+    if (!data.get('review_token') || form.dataset.reviewDelivery !== delivery) {
+      const previewValues = { ...values };
+      delete previewValues.password;
+      delete previewValues.key_passphrase;
+      delete previewValues.review_token;
+      setStatus(form, 'Checking username availability and reviewing requested access…');
+      const previewResponse = await resultOrError(await api('/api/users/preview', { method: 'POST', body: previewValues }));
+      const preview = await previewResponse.json();
+      form.elements.review_token.value = preview.review_token || '';
+      form.dataset.reviewDelivery = delivery;
+      $('[data-create-review]', form).textContent = `Reviewed: ${preview.username} · ${preview.email} · ${preview.device} · ${preview.delivery} · ${preview.policy} · ${preview.dns_mode} DNS · ${preview.max_sessions} device limit · ${preview.rate_limit_kbps || 'unlimited'} Kbit/s · ${preview.quota_mb || 'no'} MB quota · ${preview.schedule || 'anytime'} · notifications ${preview.notifications ? 'on' : 'off'} · ${preview.comment || 'no comment'}. Passwords and private-key passphrase are not included in the review.`;
+      $('[data-create-review]', form).hidden = false;
+      $('[data-delivery="qr"]', form).textContent = 'Create QR';
+      $('[data-delivery="zip"]', form).textContent = 'Create and download';
+      setStatus(form, 'Review the details above, then choose the delivery action to create access.');
+      setBusy(form, false);
+      return;
+    }
+    values.review_token = data.get('review_token');
+    setStatus(form, 'Creating RouterOS access and issuing the reviewed profile…');
+    const response = await resultOrError(await api('/api/users', { method: 'POST', body: values }));
     if (delivery === 'qr') {
       const payload = await response.json();
       form.closest('dialog')?.close();
@@ -1506,7 +1539,27 @@ $('#add-form')?.addEventListener('submit', async (event) => {
     setStatus(form, 'Profile ZIP downloaded successfully.');
     toast(`User ${data.get('username')} created and profile downloaded.`);
     setTimeout(() => location.reload(), 700);
-  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) {
+    setStatus(form, error.message, true);
+    if (error.status === 409) {
+      form.elements.review_token.value = '';
+      delete form.dataset.reviewDelivery;
+      $('[data-create-review]', form).hidden = true;
+      $('[data-delivery="qr"]', form).textContent = 'Review QR';
+      $('[data-delivery="zip"]', form).textContent = 'Review ZIP';
+    }
+    setBusy(form, false);
+  }
+});
+
+$('#add-form')?.addEventListener('input', (event) => {
+  if (!event.target.name || event.target.name === 'review_token') return;
+  const form = event.currentTarget;
+  form.elements.review_token.value = '';
+  delete form.dataset.reviewDelivery;
+  $('[data-create-review]', form).hidden = true;
+  $('[data-delivery="qr"]', form).textContent = 'Review QR';
+  $('[data-delivery="zip"]', form).textContent = 'Review ZIP';
 });
 
 $('#profile-form')?.addEventListener('submit', async (event) => {
@@ -1574,16 +1627,52 @@ $('#duplicate-form')?.addEventListener('submit', async (event) => {
   const data = new FormData(form);
   const sourceId = data.get('source_id');
   setBusy(form, true);
-  setStatus(form, 'Creating separate access with the same settings…');
   try {
     const payload = Object.fromEntries(data);
     delete payload.source_id;
+    if (!data.get('review_token')) {
+      const previewValues = { ...payload };
+      delete previewValues.password;
+      delete previewValues.key_passphrase;
+      delete previewValues.review_token;
+      setStatus(form, 'Checking the source account and reviewing copied access settings…');
+      const previewResponse = await resultOrError(await api(`/api/users/${encodeURIComponent(sourceId)}/duplicate/preview`, { method: 'POST', body: previewValues }));
+      const preview = await previewResponse.json();
+      form.elements.review_token.value = preview.review_token || '';
+      form.dataset.reviewReady = 'true';
+      $('[data-create-review]', form).textContent = `Reviewed: ${preview.username} · ${preview.email} · ${preview.device} · ${preview.delivery} · copied ${preview.policy} policy, ${preview.dns_mode} DNS, ${preview.max_sessions} device limit, ${preview.rate_limit_kbps || 'unlimited'} Kbit/s, ${preview.quota_mb || 'no'} MB quota, ${preview.schedule || 'anytime'}, notifications ${preview.notifications ? 'on' : 'off'}, comment: ${preview.comment || 'none'}. Passwords and private-key passphrase are not included in the review.`;
+      $('[data-create-review]', form).hidden = false;
+      $('button[type="submit"]', form).textContent = 'Create reviewed account';
+      setStatus(form, 'Review the details above, then choose Create reviewed account.');
+      setBusy(form, false);
+      return;
+    }
+    payload.review_token = data.get('review_token');
+    setStatus(form, 'Creating separate access with the reviewed settings…');
     const response = await resultOrError(await api(`/api/users/${encodeURIComponent(sourceId)}/duplicate`, { method: 'POST', body: payload }));
     await downloadResponse(response, `${data.get('username')}.ovpn`);
     setStatus(form, 'User duplicated and profile downloaded.');
     toast(`User ${data.get('username')} created from ${$('[data-duplicate-source]', form).textContent}.`);
     setTimeout(() => location.reload(), 700);
-  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) {
+    setStatus(form, error.message, true);
+    if (error.status === 409) {
+      form.elements.review_token.value = '';
+      delete form.dataset.reviewReady;
+      $('[data-create-review]', form).hidden = true;
+      $('button[type="submit"]', form).textContent = 'Review account';
+    }
+    setBusy(form, false);
+  }
+});
+
+$('#duplicate-form')?.addEventListener('input', (event) => {
+  if (!event.target.name || event.target.name === 'review_token' || event.target.name === 'source_id') return;
+  const form = event.currentTarget;
+  form.elements.review_token.value = '';
+  delete form.dataset.reviewReady;
+  $('[data-create-review]', form).hidden = true;
+  $('button[type="submit"]', form).textContent = 'Review account';
 });
 
 $('#edit-form')?.addEventListener('submit', async (event) => {

@@ -333,20 +333,20 @@ class ProfileShareStore:
 
 
 @dataclass(slots=True)
-class ProfileReviewReceipt:
+class ReviewReceipt:
     session_id: str
     intent_digest: str
     expires_at: float
 
 
-class ProfileReviewReceiptStore:
-    """Bounded one-time review receipts; claims are atomic across request threads."""
+class ReviewReceiptStore:
+    """Bounded one-time session-bound review receipts with atomic claims."""
 
     ttl_seconds = 600
     max_items = 4096
 
     def __init__(self) -> None:
-        self._items: dict[str, ProfileReviewReceipt] = {}
+        self._items: dict[str, ReviewReceipt] = {}
         self._lock = threading.Lock()
 
     def issue(self, session_id: str, intent_digest: str) -> str:
@@ -356,7 +356,7 @@ class ProfileReviewReceiptStore:
             self._purge(now)
             if len(self._items) >= self.max_items:
                 self._items.pop(next(iter(self._items)))
-            self._items[token] = ProfileReviewReceipt(
+            self._items[token] = ReviewReceipt(
                 session_id=session_id,
                 intent_digest=intent_digest,
                 expires_at=now + self.ttl_seconds,
@@ -389,7 +389,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         self.context = context
         self.socketio_engine = os.environ.get("SOCKETIO_ENGINE", "polling").strip().casefold() or "polling"
         self.profile_shares = ProfileShareStore()
-        self.profile_review_receipts = ProfileReviewReceiptStore()
+        self.review_receipts = ReviewReceiptStore()
         self.telemetry_runtime = TelemetryRuntime(
             sessions=context.sessions,
             rest_url=context.config.routeros_rest_url,
@@ -1526,6 +1526,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/logout":
             self._logout()
+            return
+        if path == "/api/users/preview":
+            self._preview_user_provision()
+            return
+        match = re.fullmatch(r"/api/users/([^/]+)/duplicate/preview", path)
+        if match:
+            self._preview_user_provision(urllib.parse.unquote(match.group(1)))
             return
         if path == "/api/users":
             self._create_user()
@@ -2870,6 +2877,145 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
+    def _user_provision_review_context(
+        self, session: Session, data: dict[str, Any], *, source_id: str = "",
+        validate_secrets: bool = True,
+    ) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        credentials = self._credentials(session)
+        enriched = dict(data)
+        source: dict[str, Any] | None = None
+        if source_id:
+            source = self._find_user(credentials, source_id)
+            source_controls = self.server.context.store.user_controls(str(source["name"]))
+            for key in (
+                "policy", "max_sessions", "rate_limit_kbps", "dns_mode", "notifications",
+                "quota_mb", "schedule",
+            ):
+                enriched.setdefault(key, source_controls.get(key))
+            if not str(enriched.get("comment", "")).strip():
+                source_comment = str(source.get("comment", "")).strip()
+                enriched["comment"] = f"Copy of {source['name']} · {source_comment}"[:96]
+        username = self._validate_username(str(enriched.get("username", "")))
+        password = ""
+        key_passphrase = ""
+        if validate_secrets:
+            password = self._validate_secret(str(enriched.get("password", "")), "VPN password")
+            key_passphrase = self._validate_secret(
+                str(enriched.get("key_passphrase") or password), "Private-key passphrase",
+            )
+        email = self._validate_email(str(enriched.get("email", "")))
+        device_name = self._validate_device(str(enriched.get("device_name", "")))
+        delivery = str(enriched.get("delivery", "ovpn"))
+        if delivery not in {"ovpn", "zip", "qr"}:
+            raise ValueError("Choose a valid profile delivery method")
+        comment = str(enriched.get("comment", "")).strip()[:96]
+        enriched.update({
+            "username": username, "password": password, "key_passphrase": key_passphrase,
+            "email": email, "device_name": device_name, "delivery": delivery, "comment": comment,
+        })
+        if validate_secrets:
+            enriched["password"] = password
+            enriched["key_passphrase"] = key_passphrase
+        enriched["_review_source_name"] = str(source.get("name", "")) if source else ""
+        controls = self._parse_controls(enriched)
+        self.server.context.config.topology.require_profile_generation(
+            policy=controls["policy"], dns_mode=controls["dns_mode"],
+        )
+        if any(
+            str(item.get("name", "")).casefold() == username.casefold()
+            for item in self.server.context.router.list_ovpn_users(credentials)
+        ):
+            raise ValueError("A VPN user with this username already exists")
+        receipt = {
+            "source_id": source_id,
+            "source_name": str(source.get("name", "")) if source else "",
+            "username": username,
+            "email": email,
+            "device_name": device_name,
+            "delivery": delivery,
+            "comment": comment,
+            "controls": {**controls, "expires_at": None},
+            "expiry_intent": str(enriched.get("expiry", "")),
+        }
+        digest = hashlib.sha256(
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return enriched, digest, controls
+
+    def _preview_user_provision(self, source_id: str = "") -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
+            return
+        try:
+            data = self._read_json()
+            enriched, digest, controls = self._user_provision_review_context(
+                session, data, source_id=source_id, validate_secrets=False,
+            )
+            token = self.server.review_receipts.issue(session.session_id, digest)
+            self._json({
+                "username": enriched["username"],
+                "email": enriched["email"],
+                "device": enriched["device_name"],
+                "delivery": enriched["delivery"],
+                "comment": enriched["comment"],
+                "policy": controls["policy"],
+                "dns_mode": controls["dns_mode"],
+                "notifications": controls["notifications"],
+                "max_sessions": controls["max_sessions"],
+                "rate_limit_kbps": controls["rate_limit_kbps"],
+                "quota_mb": controls["quota_mb"],
+                "schedule": controls["schedule"],
+                "source_id": source_id,
+                "review_token": token,
+                "secrets_included": False,
+            })
+        except RouterOSError:
+            self._json({
+                "error": "RouterOS could not verify that this username is available. Refresh and review the request again.",
+                "review_available": False,
+            }, status=HTTPStatus.BAD_GATEWAY)
+        except ValueError as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _provision_user_after_review(
+        self, session: Session, data: dict[str, Any], *, source_id: str = "",
+    ) -> None:
+        try:
+            enriched, digest, _ = self._user_provision_review_context(
+                session, data, source_id=source_id, validate_secrets=True,
+            )
+        except RouterOSError:
+            self._json({
+                "error": "RouterOS could not verify the user or username state. Review the request again before applying.",
+                "verification": "unknown",
+            }, status=HTTPStatus.BAD_GATEWAY)
+            return
+        except ValueError as error:
+            if str(error) == "A VPN user with this username already exists":
+                self.server.review_receipts.consume(
+                    str(data.get("review_token", "")), session.session_id, "stale",
+                )
+                self._json({
+                    "code": "routeros.review_stale",
+                    "error": "That username is no longer available. Review the request with a different username.",
+                }, status=HTTPStatus.CONFLICT)
+            else:
+                self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        supplied = str(data.get("review_token", ""))
+        if not self.server.review_receipts.consume(supplied, session.session_id, digest):
+            self._json({
+                "code": "routeros.review_stale",
+                "error": "The account request, username availability, or access settings changed since review. Review it again before applying.",
+            }, status=HTTPStatus.CONFLICT)
+            return
+        self._provision_user(
+            session=session,
+            data=enriched,
+            audit_action="user.duplicate" if source_id else "user.create",
+            source_name=enriched.get("_review_source_name"),
+        )
+
     def _create_user(self) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
@@ -2879,34 +3025,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             return
-        self._provision_user(session=session, data=data, audit_action="user.create")
+        self._provision_user_after_review(session, data)
 
     def _duplicate_user(self, source_id: str) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
-        credentials = self._credentials(session)
         try:
-            source = self._find_user(credentials, source_id)
             data = self._read_json()
-            source_controls = self.server.context.store.user_controls(str(source["name"]))
-            for key in (
-                "policy", "max_sessions", "rate_limit_kbps", "dns_mode", "notifications",
-                "quota_mb", "schedule",
-            ):
-                data.setdefault(key, source_controls.get(key))
-            if not str(data.get("comment", "")).strip():
-                source_comment = str(source.get("comment", "")).strip()
-                data["comment"] = f"Copy of {source['name']} · {source_comment}"[:96]
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             return
-        self._provision_user(
-            session=session,
-            data=data,
-            audit_action="user.duplicate",
-            source_name=str(source["name"]),
-        )
+        self._provision_user_after_review(session, data, source_id=source_id)
 
     def _profile_review_context(
         self, session: Session, credentials: RouterOSCredentials,
@@ -2977,7 +3107,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             user, device_name, delivery, legacy_name, controls, _, intent_digest = self._profile_review_context(
                 session, self._credentials(session), user_id, data,
             )
-            token = self.server.profile_review_receipts.issue(session.session_id, intent_digest)
+            token = self.server.review_receipts.issue(session.session_id, intent_digest)
             self._json({
                 "user": str(user["name"]),
                 "device": device_name,
@@ -3010,7 +3140,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._profile_review_context(session, credentials, user_id, data)
             )
             supplied_token = str(data.get("review_token", ""))
-            if not self.server.profile_review_receipts.consume(
+            if not self.server.review_receipts.consume(
                 supplied_token, session.session_id, intent_digest,
             ):
                 self._json({
