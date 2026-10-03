@@ -35,6 +35,55 @@ class ASGIContractTests(unittest.TestCase):
             engineio._cors_allowed_origins({**environ, "HTTP_ORIGIN": "https://vpn.example.test"}),
         )
 
+    @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
+    def test_socketio_asgi_rejects_foreign_origin_at_http_handshake(self) -> None:
+        import socketio
+
+        from asgi import NativeSocketIO
+
+        native = NativeSocketIO(object())
+        application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+        messages: list[dict[str, object]] = []
+        request_sent = False
+
+        async def receive() -> dict[str, object]:
+            nonlocal request_sent
+            if request_sent:
+                return {"type": "http.disconnect"}
+            request_sent = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        asyncio.run(application(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "https",
+                "path": "/socket.io/",
+                "raw_path": b"/socket.io/",
+                "query_string": b"EIO=4&transport=polling",
+                "headers": [
+                    (b"host", b"vpn.example.test"),
+                    (b"origin", b"https://attacker.example"),
+                ],
+                "client": ("192.0.2.10", 54321),
+                "server": ("vpn.example.test", 443),
+            },
+            receive,
+            send,
+        ))
+
+        response = next(message for message in messages if message["type"] == "http.response.start")
+        self.assertEqual(response["status"], 400)
+        self.assertNotIn("access-control-allow-origin", {
+            key.decode("latin1").lower()
+            for key, _ in response.get("headers", [])
+        })
+
     def test_socketio_reconnect_rejects_expired_cookie_even_if_auth_claims_identity(self) -> None:
         from asgi import NativeSocketIO
 
