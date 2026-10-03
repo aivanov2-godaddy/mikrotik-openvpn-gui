@@ -205,12 +205,23 @@ test('operations timeline filters bounded observations and labels its coverage',
       return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
     };
     const dates = rows.map((row) => dayFor(row.dataset.operationCreated));
-    const selectedDay = dates[0];
-    return { selectedDay, expected: dates.filter((date) => date === selectedDay).length };
+    return { selectedDay: dates[0] };
   });
   await page.locator('[data-history-from]').fill(dateWindow.selectedDay);
   await page.locator('[data-history-to]').fill(dateWindow.selectedDay);
-  await expect(panel.locator('[data-operation-row]:visible')).toHaveCount(dateWindow.expected);
+  await expect.poll(() => panel.locator('[data-operation-row]').evaluateAll((rows) => {
+    const dayFor = (timestamp) => {
+      const date = new Date(Number(timestamp) * 1000);
+      return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+    };
+    const from = document.querySelector('[data-history-from]').value;
+    const to = document.querySelector('[data-history-to]').value;
+    const matching = rows.filter((row) => dayFor(row.dataset.operationCreated) >= from && dayFor(row.dataset.operationCreated) <= to);
+    const visible = rows.filter((row) => !row.classList.contains('is-filtered-out'));
+    return matching.length > 0
+      && visible.length === matching.length
+      && visible.every((row) => dayFor(row.dataset.operationCreated) === from);
+  })).toBe(true);
 
   await page.locator('[data-history-from]').fill('2100-01-01');
   await page.locator('[data-history-to]').fill('2100-01-01');
