@@ -332,6 +332,55 @@ class ProfileShareStore:
                 self._items.pop(token, None)
 
 
+@dataclass(slots=True)
+class ProfileReviewReceipt:
+    session_id: str
+    intent_digest: str
+    expires_at: float
+
+
+class ProfileReviewReceiptStore:
+    """Bounded one-time review receipts; claims are atomic across request threads."""
+
+    ttl_seconds = 600
+    max_items = 4096
+
+    def __init__(self) -> None:
+        self._items: dict[str, ProfileReviewReceipt] = {}
+        self._lock = threading.Lock()
+
+    def issue(self, session_id: str, intent_digest: str) -> str:
+        now = time.time()
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self._purge(now)
+            if len(self._items) >= self.max_items:
+                self._items.pop(next(iter(self._items)))
+            self._items[token] = ProfileReviewReceipt(
+                session_id=session_id,
+                intent_digest=intent_digest,
+                expires_at=now + self.ttl_seconds,
+            )
+        return token
+
+    def consume(self, token: str, session_id: str, intent_digest: str) -> bool:
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            receipt = self._items.pop(token, None)
+            return bool(
+                receipt
+                and receipt.expires_at > now
+                and hmac.compare_digest(receipt.session_id, session_id)
+                and hmac.compare_digest(receipt.intent_digest, intent_digest)
+            )
+
+    def _purge(self, now: float) -> None:
+        for token, receipt in list(self._items.items()):
+            if receipt.expires_at <= now:
+                self._items.pop(token, None)
+
+
 class DashboardServer(AutomationMixin, ThreadingHTTPServer):
     daemon_threads = True
 
@@ -340,6 +389,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         self.context = context
         self.socketio_engine = os.environ.get("SOCKETIO_ENGINE", "polling").strip().casefold() or "polling"
         self.profile_shares = ProfileShareStore()
+        self.profile_review_receipts = ProfileReviewReceiptStore()
         self.telemetry_runtime = TelemetryRuntime(
             sessions=context.sessions,
             rest_url=context.config.routeros_rest_url,
@@ -1543,6 +1593,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 urllib.parse.unquote(match.group(1)),
                 suspended=match.group(2) == "suspend",
             )
+            return
+        match = re.fullmatch(r"/api/users/([^/]+)/profiles/preview", path)
+        if match:
+            self._preview_profile(urllib.parse.unquote(match.group(1)))
             return
         match = re.fullmatch(r"/api/users/([^/]+)/profiles", path)
         if match:
@@ -2854,6 +2908,94 @@ class DashboardHandler(BaseHTTPRequestHandler):
             source_name=str(source["name"]),
         )
 
+    def _profile_review_context(
+        self, session: Session, credentials: RouterOSCredentials,
+        user_id: str, data: dict[str, Any],
+    ) -> tuple[dict[str, Any], str, str, str, dict[str, Any], list[dict[str, Any]], str]:
+        device_name = self._validate_device(str(data.get("device_name", "")))
+        delivery = str(data.get("delivery", "ovpn"))
+        if delivery not in {"ovpn", "zip", "qr"}:
+            raise ValueError("Choose a valid profile delivery method")
+        user = self._find_user(credentials, user_id)
+        legacy_certificate_name = str(data.get("legacy_certificate", "")).strip()
+        certificates = self.server.context.router.list_ovpn_client_certificates(
+            credentials, include_legacy=True,
+        )
+        if legacy_certificate_name:
+            legacy = next(
+                (item for item in certificates if str(item.get("name", "")) == legacy_certificate_name),
+                None,
+            )
+            username = str(user["name"])
+            common_name = str((legacy or {}).get("common_name", "")).casefold()
+            is_current_ca = str((legacy or {}).get("certificate_authority", "")) == str(
+                self.server.context.router.ovpn_ca or ""
+            )
+            if not legacy or is_current_ca or bool(legacy.get("revoked")):
+                raise ValueError("Choose an active profile issued by a previous CA")
+            managed = self.server.context.store.device_by_certificate(legacy_certificate_name)
+            owned_by_user = common_name.startswith(f"{username.casefold()}-") or (
+                bool(managed) and str(managed.get("vpn_user", "")) == username
+            )
+            if not owned_by_user:
+                raise ValueError("The legacy profile does not belong to this VPN user")
+        controls = self.server.context.store.user_controls(str(user["name"]))
+        policy = str(controls.get("policy", "full-tunnel"))
+        dns_mode = str(controls.get("dns_mode", "router"))
+        self.server.context.config.topology.require_profile_generation(policy=policy, dns_mode=dns_mode)
+        inventory = sorted(
+            ({
+                "id": str(item.get("id", "")),
+                "name": str(item.get("name", "")),
+                "revoked": bool(item.get("revoked")),
+                "authority": str(item.get("certificate_authority", "")),
+            } for item in certificates),
+            key=lambda item: (item["id"], item["name"]),
+        )
+        receipt = {
+            "user_id": str(user.get("id", "")),
+            "username": str(user.get("name", "")),
+            "disabled": bool(user.get("disabled")),
+            "device_name": device_name,
+            "delivery": delivery,
+            "legacy_certificate": legacy_certificate_name,
+            "policy": policy,
+            "dns_mode": dns_mode,
+            "certificate_inventory": inventory,
+        }
+        intent_digest = hashlib.sha256(
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return user, device_name, delivery, legacy_certificate_name, controls, certificates, intent_digest
+
+    def _preview_profile(self, user_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
+            return
+        try:
+            data = self._read_json()
+            user, device_name, delivery, legacy_name, controls, _, intent_digest = self._profile_review_context(
+                session, self._credentials(session), user_id, data,
+            )
+            token = self.server.profile_review_receipts.issue(session.session_id, intent_digest)
+            self._json({
+                "user": str(user["name"]),
+                "device": device_name,
+                "policy": str(controls.get("policy", "full-tunnel")),
+                "dns_mode": str(controls.get("dns_mode", "router")),
+                "delivery": delivery,
+                "legacy_migration": bool(legacy_name),
+                "old_profile_remains_active": bool(legacy_name),
+                "review_token": token,
+            })
+        except RouterOSError:
+            self._json({
+                "error": "RouterOS could not verify the user or certificate state. Refresh and review profile issuance again.",
+                "review_available": False,
+            }, status=HTTPStatus.BAD_GATEWAY)
+        except ValueError as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
     def _create_profile(self, user_id: str) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
@@ -2861,43 +3003,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = self._credentials(session)
         try:
             data = self._read_json()
-            device_name = self._validate_device(str(data.get("device_name", "")))
             passphrase = self._validate_secret(
                 str(data.get("key_passphrase", "")), "Private-key passphrase"
             )
-            delivery = str(data.get("delivery", "ovpn"))
-            if delivery not in {"ovpn", "zip", "qr"}:
-                raise ValueError("Choose a valid profile delivery method")
-            user = self._find_user(credentials, user_id)
-            legacy_certificate_name = str(data.get("legacy_certificate", "")).strip()
-            if legacy_certificate_name:
-                legacy = next(
-                    (
-                        item for item in self.server.context.router.list_ovpn_client_certificates(
-                            credentials, include_legacy=True
-                        )
-                        if str(item.get("name", "")) == legacy_certificate_name
-                    ),
-                    None,
-                )
-                username = str(user["name"])
-                common_name = str((legacy or {}).get("common_name", "")).casefold()
-                is_current_ca = str((legacy or {}).get("certificate_authority", "")) == str(
-                    self.server.context.router.ovpn_ca or ""
-                )
-                if not legacy or is_current_ca or bool(legacy.get("revoked")):
-                    raise ValueError("Choose an active profile issued by a previous CA")
-                managed = self.server.context.store.device_by_certificate(legacy_certificate_name)
-                owned_by_user = common_name.startswith(f"{username.casefold()}-") or (
-                    bool(managed) and str(managed.get("vpn_user", "")) == username
-                )
-                if not owned_by_user:
-                    raise ValueError("The legacy profile does not belong to this VPN user")
-            controls = self.server.context.store.user_controls(str(user["name"]))
-            self.server.context.config.topology.require_profile_generation(
-                policy=str(controls.get("policy", "full-tunnel")),
-                dns_mode=str(controls.get("dns_mode", "router")),
+            user, device_name, delivery, legacy_certificate_name, controls, _, intent_digest = (
+                self._profile_review_context(session, credentials, user_id, data)
             )
+            supplied_token = str(data.get("review_token", ""))
+            if not self.server.profile_review_receipts.consume(
+                supplied_token, session.session_id, intent_digest,
+            ):
+                self._json({
+                    "code": "routeros.review_stale",
+                    "error": "The user, device request, policy, or certificate inventory changed since review. Review profile issuance again.",
+                }, status=HTTPStatus.CONFLICT)
+                return
             if not self._checkpoint(session, "profile.create"):
                 return
             profile = self.server.context.router.provision_profile(
