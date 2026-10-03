@@ -332,6 +332,55 @@ class ProfileShareStore:
                 self._items.pop(token, None)
 
 
+@dataclass(slots=True)
+class ProfileReviewReceipt:
+    session_id: str
+    intent_digest: str
+    expires_at: float
+
+
+class ProfileReviewReceiptStore:
+    """Bounded one-time review receipts; claims are atomic across request threads."""
+
+    ttl_seconds = 600
+    max_items = 4096
+
+    def __init__(self) -> None:
+        self._items: dict[str, ProfileReviewReceipt] = {}
+        self._lock = threading.Lock()
+
+    def issue(self, session_id: str, intent_digest: str) -> str:
+        now = time.time()
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self._purge(now)
+            if len(self._items) >= self.max_items:
+                self._items.pop(next(iter(self._items)))
+            self._items[token] = ProfileReviewReceipt(
+                session_id=session_id,
+                intent_digest=intent_digest,
+                expires_at=now + self.ttl_seconds,
+            )
+        return token
+
+    def consume(self, token: str, session_id: str, intent_digest: str) -> bool:
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            receipt = self._items.pop(token, None)
+            return bool(
+                receipt
+                and receipt.expires_at > now
+                and hmac.compare_digest(receipt.session_id, session_id)
+                and hmac.compare_digest(receipt.intent_digest, intent_digest)
+            )
+
+    def _purge(self, now: float) -> None:
+        for token, receipt in list(self._items.items()):
+            if receipt.expires_at <= now:
+                self._items.pop(token, None)
+
+
 class DashboardServer(AutomationMixin, ThreadingHTTPServer):
     daemon_threads = True
 
@@ -340,6 +389,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         self.context = context
         self.socketio_engine = os.environ.get("SOCKETIO_ENGINE", "polling").strip().casefold() or "polling"
         self.profile_shares = ProfileShareStore()
+        self.profile_review_receipts = ProfileReviewReceiptStore()
         self.telemetry_runtime = TelemetryRuntime(
             sessions=context.sessions,
             rest_url=context.config.routeros_rest_url,
@@ -2913,12 +2963,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "dns_mode": dns_mode,
             "certificate_inventory": inventory,
         }
-        token = hmac.new(
-            session.csrf_token.encode("utf-8"),
-            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
-            hashlib.sha256,
+        intent_digest = hashlib.sha256(
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        return user, device_name, delivery, legacy_certificate_name, controls, certificates, token
+        return user, device_name, delivery, legacy_certificate_name, controls, certificates, intent_digest
 
     def _preview_profile(self, user_id: str) -> None:
         session = self._require_session(api=True)
@@ -2926,9 +2974,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         try:
             data = self._read_json()
-            user, device_name, delivery, legacy_name, controls, _, token = self._profile_review_context(
+            user, device_name, delivery, legacy_name, controls, _, intent_digest = self._profile_review_context(
                 session, self._credentials(session), user_id, data,
             )
+            token = self.server.profile_review_receipts.issue(session.session_id, intent_digest)
             self._json({
                 "user": str(user["name"]),
                 "device": device_name,
@@ -2957,11 +3006,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             passphrase = self._validate_secret(
                 str(data.get("key_passphrase", "")), "Private-key passphrase"
             )
-            user, device_name, delivery, legacy_certificate_name, controls, _, expected_token = (
+            user, device_name, delivery, legacy_certificate_name, controls, _, intent_digest = (
                 self._profile_review_context(session, credentials, user_id, data)
             )
             supplied_token = str(data.get("review_token", ""))
-            if not supplied_token or not hmac.compare_digest(supplied_token, expected_token):
+            if not self.server.profile_review_receipts.consume(
+                supplied_token, session.session_id, intent_digest,
+            ):
                 self._json({
                     "code": "routeros.review_stale",
                     "error": "The user, device request, policy, or certificate inventory changed since review. Review profile issuance again.",

@@ -1225,6 +1225,50 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2"})
 
+    def test_profile_review_receipt_is_atomically_single_use_for_concurrent_apply(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        preview = self.preview_profile(user["id"], "Single issue tablet")
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        request_data = {
+            "device_name": "Single issue tablet", "key_passphrase": "private-file-passphrase",
+            "delivery": "zip", "review_token": preview["review_token"],
+        }
+        review_barrier = threading.Barrier(2)
+        original_context = DashboardHandler._profile_review_context
+
+        def synchronized_context(handler: DashboardHandler, *args: Any, **kwargs: Any) -> Any:
+            result = original_context(handler, *args, **kwargs)
+            review_barrier.wait(timeout=10)
+            return result
+
+        results: list[tuple[int, dict[str, str], bytes]] = []
+        result_lock = threading.Lock()
+
+        def apply_profile() -> None:
+            response = self.json_request("POST", path, request_data)
+            with result_lock:
+                results.append(response)
+
+        before_certificates = len(self.mock.state.certificates)
+        before_devices = len(self.server.context.store.devices_for_user("user-two"))
+        with mock.patch.object(
+            DashboardHandler, "_profile_review_context", autospec=True, side_effect=synchronized_context,
+        ):
+            workers = [threading.Thread(target=apply_profile) for _ in range(2)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=15)
+
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        self.assertEqual(sorted(status for status, _, _ in results), [200, 409])
+        self.assertEqual(len(self.mock.state.certificates), before_certificates + 1)
+        self.assertEqual(len(self.server.context.store.devices_for_user("user-two")), before_devices + 1)
+
     def _review_user_edit(self, path: str, values: dict[str, Any]) -> dict[str, Any]:
         reviewed = {**values, "reason": "Unit-test reviewed account change"}
         status, _, payload = self.json_request("POST", path + "/preview", reviewed)

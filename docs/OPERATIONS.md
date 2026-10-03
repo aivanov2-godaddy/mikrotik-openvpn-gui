@@ -225,7 +225,8 @@ review, not a guarantee that a new tunnel cannot appear between the check and
 the RouterOS account update; the account is disabled first and the handler then
 terminates and verifies remaining sessions.
 
-Device-profile issuance also requires a two-step review. The receipt binds the
+Device-profile issuance also requires a two-step review. Its short-lived,
+session-bound receipt can be atomically consumed once. The receipt binds the
 VPN user, device label, effective policy and DNS mode, delivery type, optional
 legacy-certificate migration target, and the current certificate inventory.
 Changing any of those facts or replaying a completed receipt requires a fresh
