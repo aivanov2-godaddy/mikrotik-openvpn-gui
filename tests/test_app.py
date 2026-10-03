@@ -902,7 +902,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "POST", "/api/admin/api-tokens",
-            {"label": "metrics export", "scopes": ["health.read", "audit.read", "sessions.read"], "expires_in": "1h"},
+            {"label": "metrics export", "scopes": ["health.read", "audit.read", "sessions.read", "policies.read"], "expires_in": "1h"},
         )
         self.assertEqual(status, 201)
         token_payload = json.loads(payload)
@@ -924,6 +924,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"sessions", payload)
 
+        for path in ("/api/policy-templates", "/api/bulk/views"):
+            status, _, payload = self.request(
+                "GET", path,
+                headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
+            )
+            self.assertEqual(status, 200, path)
+
         for path in ("/api/connections.csv", "/api/usage.csv"):
             status, headers, payload = self.request(
                 "GET", path,
@@ -938,6 +945,17 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         health_token = json.loads(payload)["token"]
+        for path, capability in (
+            ("/api/policy-templates", "policies.read"),
+            ("/api/bulk/views", "sessions.read"),
+        ):
+            status, _, payload = self.request(
+                "GET", path,
+                headers={"Authorization": f"Bearer {health_token}", "Cookie": ""},
+            )
+            self.assertEqual(status, 403, path)
+            self.assertIn(f'"required_capability":"{capability}"'.encode(), payload)
+            self.assertNotIn(b"full-tunnel", payload)
         for path in ("/api/connections.csv", "/api/usage.csv"):
             status, _, payload = self.request(
                 "GET", path,
@@ -981,6 +999,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "RouterOS credentials or tokens", "VPN profiles, certificates, private keys",
             "Raw RouterOS configuration or records, logs, event payloads",
             "without making a RouterOS request", "Download redacted diagnostic ZIP",
+            'value="policies.read"',
         ):
             self.assertIn(disclosure.encode(), dashboard)
 

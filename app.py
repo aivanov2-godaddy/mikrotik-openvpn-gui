@@ -67,7 +67,7 @@ BULK_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,31}$")
 IMMUTABLE_IMAGE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._/-]*:sha-[a-f0-9]{40,64}(?:-(?:arm64|amd64))?$", re.I)
 ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
-API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read"})
+API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "policies.read"})
 API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 
 
@@ -1178,7 +1178,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/policy-templates":
             session = self._require_session(api=True)
-            if not session:
+            if not session or not self._require_capability(session, "policies.read"):
                 return
             self._json({
                 "templates": self.server.context.store.list_policy_templates(),
@@ -1197,7 +1197,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/bulk/views":
             session = self._require_session(api=True)
-            if not session:
+            if not session or not self._require_capability(session, "sessions.read"):
                 return
             self._json({"views": self.server.context.store.saved_views()})
             return

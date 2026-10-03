@@ -34,6 +34,8 @@ class SecurityTests(unittest.TestCase):
         self.assertTrue(has_capability("administrator", "users.manage"))
         self.assertFalse(has_capability("administrator", "device.manage"))
         self.assertTrue(has_capability("auditor", "audit.read"))
+        self.assertTrue(has_capability("read_only", "policies.read"))
+        self.assertFalse(has_capability("read_only", "policies.manage"))
         self.assertFalse(has_capability("auditor", "users.manage"))
         self.assertFalse(has_capability("read_only", "audit.read"))
 
