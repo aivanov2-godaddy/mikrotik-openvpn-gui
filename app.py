@@ -2929,14 +2929,107 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 username=str(user["name"]),
                 rate_limit_kbps=int(controls["rate_limit_kbps"]),
             )
-            self.server.context.router.update_user(
-                credentials,
-                user_id=user_id,
-                password=password,
-                comment=comment,
-                disabled=disabled,
-                profile=router_profile,
-            )
+            mutation_error: RouterOSError | None = None
+            try:
+                self.server.context.router.update_user(
+                    credentials,
+                    user_id=user_id,
+                    password=password,
+                    comment=comment,
+                    disabled=disabled,
+                    profile=router_profile,
+                )
+            except RouterOSError as error:
+                # RouterOS may commit the PATCH before its response is lost.
+                # Re-read the account before deciding whether local metadata
+                # can be updated or the operator should retry.
+                mutation_error = error
+
+            try:
+                verified_user = self._find_user(credentials, user_id)
+            except (ValueError, RouterOSError) as error:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.update",
+                    target=str(user["name"]),
+                    status="unknown",
+                    details={
+                        "phase": "routeros_readback",
+                        "reason": type(error).__name__,
+                        "mutation_response_lost": mutation_error is not None,
+                        "password_requested": bool(password),
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_unavailable",
+                        "error": "The account update may have reached RouterOS, but its state could not be verified. Local settings were not changed; check VPN Users before retrying.",
+                        "verified": False,
+                        "verification": "unknown",
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+
+            expected_state = {
+                "comment": comment,
+                "disabled": disabled,
+                "profile": router_profile,
+            }
+            actual_state = {
+                "comment": str(verified_user.get("comment", "")),
+                "disabled": bool(verified_user.get("disabled")),
+                "profile": str(verified_user.get("profile", "")),
+            }
+            if actual_state != expected_state:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.update",
+                    target=str(user["name"]),
+                    status="failed",
+                    details={
+                        "phase": "routeros_readback",
+                        "reason": "state_mismatch",
+                        "mutation_response_lost": mutation_error is not None,
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.mutation_verification_failed",
+                        "error": "RouterOS did not confirm the requested account settings. Dashboard settings were not changed; inspect VPN Users before retrying.",
+                        "verified": False,
+                        "verification": "mismatch",
+                    },
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+            if mutation_error is not None and password:
+                # RouterOS does not expose the stored password for read-back.
+                # Matching the other fields cannot establish whether this
+                # secret change committed after a lost response.
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.update",
+                    target=str(user["name"]),
+                    status="unknown",
+                    details={
+                        "phase": "password_update",
+                        "verification": "unavailable",
+                        "mutation_response_lost": True,
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.secret_update_verification_unavailable",
+                        "error": "RouterOS accepted the other account settings, but the password change could not be verified after a lost response. Check the account before retrying; local settings were not changed.",
+                        "verified": False,
+                        "verification": "unknown",
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+
             self.server.context.store.set_enforcement_state(str(user["name"]), "")
             if email is not None:
                 self.server.context.store.set_user_email(str(user["name"]), email)
@@ -2955,20 +3048,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self.server.context.store.assign_policy_template(
                         str(user["name"]), str(template["id"]), overrides=override_keys,
                     )
+            verification = "partial" if password else "verified"
             self.server.context.store.audit(
                 actor=session.username,
                 action="user.update",
                 target=str(user["name"]),
-                status="success",
+                status="partial" if password else "success",
                 details={
                     "password_changed": bool(password), "email_changed": email is not None,
                     "disabled": disabled, "policy": controls["policy"],
                     "expires_at": controls["expires_at"],
                     "max_sessions": controls["max_sessions"],
                     "quota_mb": controls["quota_mb"], "schedule": controls["schedule"],
+                    "verification": verification,
+                    "password_verification": "not_readable" if password else "not_requested",
+                    "mutation_response_lost": mutation_error is not None,
                 },
             )
-            self._json({"ok": True})
+            self._json({
+                "ok": True,
+                "verified": not bool(password),
+                "verification": verification,
+                "password_verified": False if password else None,
+                "reconciled": mutation_error is not None,
+            })
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 

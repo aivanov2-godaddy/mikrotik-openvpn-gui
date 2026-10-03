@@ -867,7 +867,16 @@ class DashboardIntegrationTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload), {"ok": True})
+        self.assertEqual(
+            json.loads(payload),
+            {
+                "ok": True,
+                "verified": False,
+                "verification": "partial",
+                "password_verified": False,
+                "reconciled": False,
+            },
+        )
         self.assertEqual(self.server.context.store.user_emails()["maria"], "maria.new@example.com")
         controls = self.server.context.store.user_controls("maria")
         self.assertEqual(controls["policy"], "lan-only")
@@ -912,6 +921,112 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.certificates["*CA"].get("revoked") in (None, "no"))
         self.assertTrue(all(self.mock.state.certificates[item]["revoked"] for item in ("*C1", "*C2")))
         self.assertTrue(all(item["revoked_at"] for item in self.server.context.store.devices_for_user("maria", include_revoked=True)))
+
+    def test_user_update_reconciles_lost_routeros_response_from_readback(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        update_user = router.update_user
+
+        def update_then_lose_response(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+            raise RouterOSError("private RouterOS response", 503)
+
+        with mock.patch.object(router, "update_user", side_effect=update_then_lose_response):
+            status, _, payload = self.json_request(
+                "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
+                {"comment": "updated safely", "disabled": False, "policy": "full-tunnel"},
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["reconciled"])
+        self.assertEqual(self.mock.state.users[user["id"]]["comment"], "updated safely")
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "success")
+        self.assertTrue(json.loads(audit["details"])["mutation_response_lost"])
+        self.assertNotIn("private RouterOS response", payload.decode())
+
+    def test_user_update_retains_local_state_when_routeros_readback_is_unavailable(self) -> None:
+        self.login()
+        router = self.server.context.router
+        self.server.context.store.set_user_controls(
+            "user-two", policy="full-tunnel", expires_at=None, max_sessions=1,
+            rate_limit_kbps=0, dns_mode="router", notifications=True,
+        )
+        self.server.context.store.set_enforcement_state("user-two", "quota")
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        initial_users = router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+        with mock.patch.object(
+            router, "list_ovpn_users", side_effect=[initial_users, RouterOSError("read-back unavailable")],
+        ):
+            status, _, payload = self.json_request(
+                "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
+                {"comment": "update not yet confirmed", "disabled": True, "policy": "lan-only"},
+            )
+
+        self.assertEqual(status, 502)
+        self.assertEqual(json.loads(payload)["verification"], "unknown")
+        controls = self.server.context.store.user_controls("user-two")
+        self.assertEqual(controls["policy"], "full-tunnel")
+        self.assertEqual(controls["enforcement_state"], "quota")
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
+
+    def test_user_update_reports_mismatch_without_committing_local_metadata(self) -> None:
+        self.login()
+        router = self.server.context.router
+        self.server.context.store.set_user_controls(
+            "user-two", policy="full-tunnel", expires_at=None, max_sessions=1,
+            rate_limit_kbps=0, dns_mode="router", notifications=True,
+        )
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        with mock.patch.object(router, "update_user"):
+            status, _, payload = self.json_request(
+                "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
+                {"comment": "not applied", "disabled": True, "policy": "lan-only"},
+            )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["verification"], "mismatch")
+        self.assertEqual(self.server.context.store.user_controls("user-two")["policy"], "full-tunnel")
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "failed")
+
+    def test_user_update_does_not_claim_lost_password_change_was_verified(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        update_user = router.update_user
+
+        def update_then_lose_response(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+            raise RouterOSError("private RouterOS response", 503)
+
+        with mock.patch.object(router, "update_user", side_effect=update_then_lose_response):
+            status, _, payload = self.json_request(
+                "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
+                {
+                    "comment": "observable settings applied", "disabled": False,
+                    "password": "sensitive-password-value", "policy": "full-tunnel",
+                },
+            )
+
+        self.assertEqual(status, 502)
+        result = json.loads(payload)
+        self.assertEqual(result["verification"], "unknown")
+        self.assertNotIn("sensitive-password-value", payload.decode())
+        self.assertNotIn("private RouterOS response", payload.decode())
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
 
     def test_qr_profile_share_is_a_bounded_zip_download(self) -> None:
         self.login()

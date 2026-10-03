@@ -1510,9 +1510,15 @@ $('#edit-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Saving the access changes…');
   try {
-    await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}`, { method: 'PATCH', body: { email: data.get('email'), password: data.get('password'), comment: data.get('comment'), disabled: data.get('disabled') === 'on', policy: data.get('policy'), expiry: data.get('expiry'), max_sessions: data.get('max_sessions'), rate_limit_kbps: data.get('rate_limit_kbps'), quota_mb: data.get('quota_mb'), schedule: data.get('schedule'), dns_mode: data.get('dns_mode'), notifications: data.get('notifications') === 'on' } }));
-    setStatus(form, 'Changes applied successfully.');
-    toast('VPN user updated on RouterOS.');
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}`, { method: 'PATCH', body: { email: data.get('email'), password: data.get('password'), comment: data.get('comment'), disabled: data.get('disabled') === 'on', policy: data.get('policy'), expiry: data.get('expiry'), max_sessions: data.get('max_sessions'), rate_limit_kbps: data.get('rate_limit_kbps'), quota_mb: data.get('quota_mb'), schedule: data.get('schedule'), dns_mode: data.get('dns_mode'), notifications: data.get('notifications') === 'on' } }));
+    const outcome = await response.json();
+    if (outcome.verification === 'partial') {
+      setStatus(form, 'Other account settings were verified. RouterOS does not expose the password for read-back.');
+      toast('VPN user updated; password cannot be independently verified.');
+    } else {
+      setStatus(form, 'Changes applied and verified on RouterOS.');
+      toast('VPN user updated and verified on RouterOS.');
+    }
     setTimeout(() => location.reload(), 500);
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
 });
