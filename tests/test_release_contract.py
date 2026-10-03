@@ -10,6 +10,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_container_digest_summary_is_strict_and_does_not_interpret_markdown(self) -> None:
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        step = publish.split("      - name: Record immutable digest\n", maxsplit=1)[1].split(
+            "      - name:", maxsplit=1
+        )[0]
+
+        self.assertIn("set -euo pipefail", step)
+        self.assertIn("printf '%s\\n' '- Platform: ${{ matrix.platform }}'", step)
+        self.assertIn("printf '%s\\n' '- Architecture tag suffix: ${{ matrix.suffix }}'", step)
+        self.assertNotIn('echo "- Platform: `', step)
+        self.assertNotIn('echo "- Architecture tag suffix: `', step)
+
     def test_runtime_diagnostic_module_is_bundled_in_the_container(self) -> None:
         containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
         self.assertIn("exposure_doctor.py", containerfile)
