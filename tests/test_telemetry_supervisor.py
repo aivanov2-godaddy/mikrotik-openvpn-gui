@@ -140,6 +140,49 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertEqual(supervisor.broker.snapshot()[0]["rx_bytes"], 12)
         self.assertEqual(supervisor.health().last_snapshot_at, 200)
 
+    def test_transient_stream_failure_reconnects_snapshots_then_resumes_events(self):
+        first = FakeConnection()
+
+        def interrupted_listen(_path, *, query=()):
+            yield RouterOSReply("re", {".id": "*1", "name": "alice", "address": "10.8.0.2"})
+            raise OSError("stream interrupted")
+
+        first.listen = interrupted_listen
+        second = FakeConnection([
+            RouterOSReply("re", {".id": "*3", "name": "carol", "address": "10.8.0.4"}),
+        ])
+        connections = iter([first, second])
+        received = []
+        supervisor = TelemetrySupervisor(
+            lambda: next(connections),
+            lambda: ("user", "secret"),
+            snapshot_reader=lambda connection: [] if connection is first else [
+                {".id": "*2", "name": "bob", "address": "10.8.0.3"},
+            ],
+            config=TelemetrySupervisorConfig(enabled=True, initial_backoff=0.001, max_backoff=0.001),
+            on_events=received.extend,
+        )
+
+        supervisor.run_forever(max_attempts=2)
+
+        names = [event.name for event in received]
+        self.assertEqual(names, [
+            "telemetry.snapshot",
+            "vpn.session.connected",
+            "vpn.session.disconnected",
+            "vpn.session.connected",
+            "telemetry.snapshot",
+            "vpn.session.connected",
+        ])
+        snapshot = received[4].payload["sessions"]
+        self.assertEqual([session["name"] for session in snapshot], ["bob"])
+        self.assertEqual([session["name"] for session in supervisor.broker.snapshot()], ["bob", "carol"])
+        sequences = [event.sequence for event in received]
+        self.assertEqual(sequences, sorted(sequences))
+        self.assertEqual(supervisor.health().reconnects, 1)
+        self.assertTrue(first.closed)
+        self.assertTrue(second.closed)
+
     def test_reconnect_backoff_is_bounded_and_error_is_redacted(self):
         created = []
         stop_event = threading.Event()
