@@ -19,7 +19,7 @@ RouterOS mutation.
 
 | Capability | Route families | Notes |
 | --- | --- | --- |
-| `health.read` | `GET /api/status`, `/api/service-health`, `/api/observability`, `/api/setup-preflight`, `/api/release/verify`; `POST /api/connection-doctor`, `/api/security/exposure-doctor` | Read-only health and exposure probes. |
+| `health.read` | `GET /metrics`, `/api/service-health`, `/api/observability`, `/api/setup-preflight`, `/api/release/verify`, `/api/reports/diagnostics.zip`; `POST /api/connection-doctor`, `/api/security/exposure-doctor` | Read-only health, redacted diagnostics, and exposure probes. `/api/status` is session-gated and returns the operator's normal dashboard data; it is not a token endpoint. |
 | `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv`, `/api/bulk/views`; with `audit.read`, `GET /api/operations-timeline.json` | Operations timeline export combines audit and session history and therefore requires both capabilities. SSE additionally requires a RouterOS-authenticated dashboard session and revalidates its effective capability set while streaming. Saved-view definitions and user filters are not available to health-only tokens. |
 | `policies.read` | `GET /api/policy-templates` | Reveals saved policy-template definitions and assignments; separate from `policies.manage`. |
 | `session.manage` | `DELETE /api/admin/sessions/{id}`, `DELETE /api/sessions/{id}` | Revokes a dashboard session or terminates a RouterOS VPN session, respectively. |
@@ -32,9 +32,9 @@ RouterOS mutation.
 | `backup.manage` | `GET /api/backups/metadata.zip`, `POST /api/backups/{preflight,validate,restore-plan}` | Validation and restore-plan routes do not restore data. |
 | `alert.manage` | `POST /api/alerts/{id}/ack` | Acknowledges a dashboard alert. |
 
-Authenticated, non-mutating routes such as the diagnostics bundle,
-`GET /api/users`, and review-only setup plans are session-gated; they do not
-imply RouterOS write permission. Saved-view reads require `sessions.read`;
+Authenticated, non-mutating routes such as `GET /api/users` and review-only
+setup plans are session-gated; they do not imply RouterOS write permission.
+The diagnostics bundle is explicitly `health.read`-gated. Saved-view reads require `sessions.read`;
 policy-template reads require `policies.read`. Browser-cookie mutations
 additionally require CSRF. API-token access is restricted by the token's
 stored scopes. Unknown roles fail closed through the central capability
