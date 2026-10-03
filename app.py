@@ -4416,7 +4416,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json({"error": "Saved view was not found"}, status=HTTPStatus.NOT_FOUND)
 
     def _user_suspend_intent_digest(
-        self, user: dict[str, Any], active_sessions: list[dict[str, Any]],
+        self, user: dict[str, Any], active_sessions: list[dict[str, Any]], reason: str = "",
     ) -> str:
         receipt = {
             "user_id": str(user.get("id", "")),
@@ -4426,6 +4426,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 str(item.get("id", "")) for item in active_sessions
                 if str(item.get("name", "")) == str(user.get("name", ""))
             ),
+            "reason": reason,
         }
         return hashlib.sha256(
             json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
@@ -4437,6 +4438,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         credentials = self._credentials(session)
         try:
+            data = self._read_json()
+            reason = str(data.get("reason", "")).strip()
+            if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
+        except ValueError as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
             user = self._find_user(credentials, user_id)
             active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
         except (RouterOSError, ValueError):
@@ -4447,11 +4456,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         username = str(user["name"])
         active_count = sum(1 for item in active_sessions if str(item.get("name", "")) == username)
-        intent_digest = self._user_suspend_intent_digest(user, active_sessions)
+        intent_digest = self._user_suspend_intent_digest(user, active_sessions, reason)
         self._json({
             "user": username,
             "active_sessions": active_count,
             "effect": "Block new logins and disconnect the active sessions currently shown; device profiles remain issued.",
+            "reason": reason,
             "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
         })
 
@@ -4487,6 +4497,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             data = self._read_json()
             user = self._find_user(credentials, user_id)
             username = str(user["name"])
+            reason = str(data.get("reason", "")).strip() if suspended else ""
+            if suspended and (
+                not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason)
+            ):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
             if suspended and not self._require_target_confirmation(data, username):
                 return
             if suspended:
@@ -4498,11 +4513,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "verification": "unknown",
                     }, status=HTTPStatus.BAD_GATEWAY)
                     return
-                expected_digest = self._user_suspend_intent_digest(user, active_sessions)
+                expected_digest = self._user_suspend_intent_digest(user, active_sessions, reason)
                 supplied_receipt = str(data.get("review_token", ""))
                 if not self.server.review_receipts.consume(
                     supplied_receipt, session.session_id, expected_digest,
                 ):
+                    self.server.context.store.audit(
+                        actor=session.username, action="user.suspend", target=username,
+                        status="failed", details={"reason": "stale_or_missing_review", "rationale": reason},
+                    )
                     self._json({
                         "error": "The account or active-session state changed since review. Review the suspension again before applying.",
                         "code": "routeros.review_stale",
@@ -4545,6 +4564,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     target=username,
                     status="unknown",
                     details={
+                        **({"rationale": reason} if suspended else {}),
                         "phase": "routeros_readback",
                         "reason": "verification_unavailable",
                         "mutation_response_lost": mutation_error is not None,
@@ -4567,6 +4587,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     target=username,
                     status="failed",
                     details={
+                        **({"rationale": reason} if suspended else {}),
                         "phase": "routeros_readback",
                         "reason": "state_mismatch",
                         "mutation_response_lost": mutation_error is not None,
@@ -4619,6 +4640,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 target=username,
                 status=audit_status,
                 details={
+                    **({"rationale": reason} if suspended else {}),
                     "disconnected_sessions": disconnected,
                     "remaining_sessions": remaining if remaining is not None else "verification unavailable",
                     "verification": "verified",

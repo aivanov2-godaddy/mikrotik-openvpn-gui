@@ -285,11 +285,21 @@ class DashboardIntegrationTests(unittest.TestCase):
         return self.request(method, path, body=json.dumps(value or {}).encode(), headers=headers)
 
     def preview_user_suspend(self, user_id: str) -> dict[str, Any]:
+        reason = "Quarterly VPN access review"
         status, _, payload = self.json_request(
             "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/suspend/preview",
+            {"reason": reason},
         )
-        self.assertEqual(status, 200)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
         return json.loads(payload)
+
+    @staticmethod
+    def user_suspend_apply(review: dict[str, Any], confirmation: str) -> dict[str, str]:
+        return {
+            "confirmation": confirmation,
+            "reason": review["reason"],
+            "review_token": review["review_token"],
+        }
 
     def preview_user_restore(self, user_id: str) -> dict[str, Any]:
         status, _, payload = self.json_request(
@@ -2809,13 +2819,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(preview["active_sessions"], 1)
         status, _, payload = self.json_request(
             "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/suspend",
-            {"confirmation": "user-two", "review_token": preview["review_token"]},
+            self.user_suspend_apply(preview, "user-two"),
         )
         self.assertEqual(status, 200)
         result = json.loads(payload)
         self.assertTrue(result["disabled"])
         self.assertEqual(result["disconnected"], 1)
         self.assertEqual(result["remaining"], 0)
+        self.assertEqual(
+            json.loads(self.server.context.store.recent_audit(1)[0]["details"])["rationale"], preview["reason"],
+        )
         self.assertFalse(self.mock.state.active_sessions)
         disabled = next(item for item in self.mock.state.users.values() if item["name"] == "user-two")
         self.assertEqual(disabled["disabled"], "yes")
@@ -2869,13 +2882,40 @@ class DashboardIntegrationTests(unittest.TestCase):
         }
         status, _, payload = self.json_request(
             "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
-            {"confirmation": "user-two", "review_token": preview["review_token"]},
+            self.user_suspend_apply(preview, "user-two"),
         )
 
         self.assertEqual(status, 409)
         self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(self.mock.state.users[user["id"]]["disabled"], "no")
+
+    def test_user_suspend_requires_reason_and_binds_it_to_review(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend/preview", {},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Provide a reason", json.loads(payload)["error"])
+
+        review = self.preview_user_suspend(user["id"])
+        changed_intent = self.user_suspend_apply(review, "user-two")
+        changed_intent["reason"] = "Different administrator rationale"
+        status, _, payload = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend", changed_intent,
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("state changed", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "failed")
+        self.assertEqual(json.loads(audit["details"])["rationale"], "Different administrator rationale")
 
     def test_user_suspend_reconciles_lost_patch_response_from_routeros_readback(self) -> None:
         self.login()
@@ -2894,7 +2934,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         with mock.patch.object(router, "update_user", side_effect=update_then_lose_response):
             status, _, payload = self.json_request(
                 "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
-                {"confirmation": "user-two", "review_token": preview["review_token"]},
+                self.user_suspend_apply(preview, "user-two"),
             )
 
         self.assertEqual(status, 200)
@@ -2921,7 +2961,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         with mock.patch.object(router, "update_user"):
             status, _, payload = self.json_request(
                 "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
-                {"confirmation": "user-two", "review_token": preview["review_token"]},
+                self.user_suspend_apply(preview, "user-two"),
             )
 
         self.assertEqual(status, 409)
@@ -2966,7 +3006,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         ):
             status, _, payload = self.json_request(
                 "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
-                {"confirmation": "user-two", "review_token": preview["review_token"]},
+                self.user_suspend_apply(preview, "user-two"),
             )
 
         self.assertEqual(status, 502)
