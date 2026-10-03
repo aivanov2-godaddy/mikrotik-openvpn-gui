@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import hashlib
 import io
+import inspect
 import json
 import re
 import tempfile
@@ -553,6 +554,18 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
             "/api/users/test-user/duplicate", "/api/alerts/1/ack",
         )
+        patch_routes = (
+            "/api/policy-templates/test-template", "/api/users/test-user",
+        )
+        delete_routes = (
+            "/api/admin/api-tokens/token-12345678", "/api/admin/sessions/session-1",
+            "/api/bulk/views/view-1", "/api/sessions/session-1", "/api/users/test-user",
+        )
+        mutation_routes = {
+            "POST": write_routes,
+            "PATCH": patch_routes,
+            "DELETE": delete_routes,
+        }
         self.cookie = ""
         self.csrf = ""
         before_mutations = list(self.mock.state.mutation_requests)
@@ -565,27 +578,85 @@ class DashboardIntegrationTests(unittest.TestCase):
                 self.assertNotIn(b"user-one", payload)
 
         body = json.dumps({}).encode("utf-8")
-        for path in write_routes:
-            with self.subTest(method="POST", path=path):
-                status, _, payload = self.request(
-                    "POST", path, body=body, headers={"Content-Type": "application/json"},
-                )
-                self.assertEqual(status, 401)
-                self.assertNotIn(b"routerpass", payload)
-                self.assertNotIn(b"user-one", payload)
+        for method, paths in mutation_routes.items():
+            for path in paths:
+                with self.subTest(method=method, path=path):
+                    status, _, payload = self.request(
+                        method, path, body=body, headers={"Content-Type": "application/json"},
+                    )
+                    self.assertEqual(status, 401)
+                    self.assertNotIn(b"routerpass", payload)
+                    self.assertNotIn(b"user-one", payload)
 
         self.login()
-        for path in write_routes:
-            with self.subTest(method="POST without CSRF", path=path):
-                status, _, payload = self.request(
-                    "POST", path, body=body,
-                    headers={"Content-Type": "application/json", "Cookie": self.cookie},
-                )
-                self.assertEqual(status, 403)
-                self.assertNotIn(b"routerpass", payload)
-                self.assertNotIn(b"user-one", payload)
+        for method, paths in mutation_routes.items():
+            for path in paths:
+                with self.subTest(method=f"{method} without CSRF", path=path):
+                    status, _, payload = self.request(
+                        method, path, body=body,
+                        headers={"Content-Type": "application/json", "Cookie": self.cookie},
+                    )
+                    self.assertEqual(status, 403)
+                    self.assertNotIn(b"routerpass", payload)
+                    self.assertNotIn(b"user-one", payload)
 
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
+    def test_sensitive_route_matrix_covers_every_dispatched_api_route(self) -> None:
+        """New API dispatches must be added to the anonymous/CSRF matrix."""
+        get_routes = {
+            "/api/telemetry", "/api/admin/sessions", "/api/admin/api-tokens",
+            "/api/reports/compliance.zip", "/api/reports/diagnostics.zip",
+            "/api/release/verify", "/api/policy-templates", "/api/users",
+            "/api/bulk/views", "/api/status", "/api/service-health",
+            "/api/observability", "/api/setup-preflight", "/api/audit.csv",
+            "/api/audit.json", "/api/backups/metadata.zip", "/api/connections.csv",
+            "/api/usage.csv", "/api/events",
+        }
+        post_literal_routes = {
+            "/api/users", "/api/bulk/preview", "/api/bulk/apply", "/api/bulk/views",
+            "/api/setup-plan", "/api/openvpn-foundation-plan", "/api/admin/api-tokens",
+            "/api/admin/break-glass/plan", "/api/network/segment-plan",
+            "/api/profile/diagnose", "/api/connection-doctor",
+            "/api/security/exposure-doctor", "/api/backups/preflight",
+            "/api/backups/validate", "/api/backups/restore-plan", "/api/policy-templates",
+        }
+        expected_literal_routes = {
+            "GET": get_routes,
+            "POST": post_literal_routes,
+            "PATCH": set(),
+            "DELETE": set(),
+        }
+        for method, expected in expected_literal_routes.items():
+            source = inspect.getsource(getattr(DashboardHandler, f"do_{method}"))
+            dispatched = set(re.findall(r'path == "(/api/[^\"]+)"', source))
+            with self.subTest(method=method, route_kind="literal"):
+                self.assertEqual(dispatched, expected)
+
+        route_examples = {
+            "POST": (
+                "/api/users/test-user/preview", "/api/policy-templates/test/preview",
+                "/api/policy-templates/test/apply", "/api/users/test-user/suspend",
+                "/api/users/test-user/restore", "/api/users/test-user/profiles",
+                "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
+                "/api/users/test-user/duplicate", "/api/alerts/1/ack",
+            ),
+            "PATCH": ("/api/policy-templates/test-template", "/api/users/test-user"),
+            "DELETE": (
+                "/api/admin/api-tokens/token-12345678", "/api/admin/sessions/session-1",
+                "/api/bulk/views/view-1", "/api/sessions/session-1", "/api/users/test-user",
+            ),
+        }
+        for method, examples in route_examples.items():
+            source = inspect.getsource(getattr(DashboardHandler, f"do_{method}"))
+            patterns = re.findall(r're\.fullmatch\(r"(/api/[^\"]+)"\s*,\s*path\)', source)
+            self.assertTrue(patterns, f"expected API route patterns in do_{method}")
+            for pattern in patterns:
+                with self.subTest(method=method, pattern=pattern):
+                    self.assertTrue(
+                        any(re.fullmatch(pattern, path) for path in examples),
+                        f"route pattern {pattern!r} has no anonymous/CSRF test case",
+                    )
 
     def test_read_only_role_cannot_cross_audit_or_mutation_capability_boundaries(self) -> None:
         session = self.server.context.sessions.create(
