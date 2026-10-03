@@ -1102,10 +1102,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(exposure_checks["service-www"]["status"], "verified")
         self.assertEqual(exposure_checks["service-www-ssl"]["status"], "verified")
         self.assertEqual(exposure_checks["service-ssh"]["status"], "warning")
+        self.assertEqual(exposure_checks["account-source-match"]["status"], "warning")
+        self.assertEqual(exposure_checks["management-service-source-match"]["status"], "warning")
         self.assertEqual(exposure_checks["firewall-boundary"]["status"], "unknown")
         self.assertNotIn(b"admin", payload)
         self.assertNotIn(b"routerpass", payload)
         self.assertNotIn(b"172.31.250.0/24", payload)
+        self.assertNotIn(b"172.31.250.10", payload)
         self.assertNotIn(b"web-cert", payload)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 

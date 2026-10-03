@@ -47,6 +47,16 @@ firewall/network boundary. The diagnostic deliberately leaves that check
 `unknown` until the input-chain and upstream policy are independently
 verified.
 
+For the active REST request, it also reads the signed-in account's `/user/active`
+row with only `name`, `via`, and `address` requested. If exactly one row is
+returned with `via=rest-api` and an IP address, that address is compared in
+memory against the account source restriction and the actual REST service
+selected by the configured URL scheme (`www` for HTTP, `www-ssl` for HTTPS).
+Only the derived comparison state is returned. Missing, unsupported, ambiguous,
+or non-IP active-session state is `unknown`; no source address or raw session
+record is exposed. MikroTik documents `/user/active` as read-only and defines
+its `address` as the host address from which the user accesses the router.
+
 RouterOS user-group `policy` flags are a coarse RouterOS permission boundary,
 not a per-dashboard-feature authorization map. The diagnostic shows only a
 small explanation of recognized effective flags; it does not recommend

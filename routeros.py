@@ -366,7 +366,35 @@ class RouterOSClient:
         # .proplist, so retry with the legacy spelling without widening reads.
         if services is None and states.get("services") == "unknown":
             services = read("/ip/service", "services", "name,disabled,address,certificate")
-        return {"account": account, "group": group, "services": services, "source_status": states}
+        active_records = read("/user/active", "active-source", "name,via,address", name=credentials.username)
+        matching_sessions = [
+            record for record in active_records or []
+            if str(record.get("name", "")) == credentials.username
+            and str(record.get("via", "")).casefold() == "rest-api"
+            and str(record.get("address", "")).strip()
+        ]
+        active_source = matching_sessions[0].get("address") if len(matching_sessions) == 1 else None
+        if active_source is not None:
+            try:
+                ipaddress.ip_address(str(active_source).strip().strip("[]").split("%", 1)[0])
+            except ValueError:
+                active_source = None
+        active_source_status = states.get("active-source", "unknown")
+        if active_source is not None:
+            active_source_status = "verified"
+        elif active_source_status == "verified":
+            active_source_status = "unknown"
+        states["active-source"] = active_source_status
+        rest_service = "www-ssl" if self.base_url.startswith("https://") else "www"
+        return {
+            "account": account,
+            "group": group,
+            "services": services,
+            "active_source": active_source,
+            "active_source_status": active_source_status,
+            "rest_service": rest_service,
+            "source_status": states,
+        }
 
     def create_configuration_export(
         self, credentials: RouterOSCredentials, *, name: str

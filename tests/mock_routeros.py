@@ -142,6 +142,8 @@ class State:
         self.next_cert = 1
         self.next_file = 1
         self.admin_group = "full"
+        self.active_router_users = [{"name": "admin", "via": "rest-api", "address": "172.31.250.10"}]
+        self.unsupported_active_router_users = False
         self.user_groups = [{
             "name": "full",
             "policy": "local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,rest-api,romon",
@@ -228,6 +230,14 @@ class MockHandler(BaseHTTPRequestHandler):
                 self._json(records)
             elif path == "/user/group":
                 records = state.user_groups
+                if query.get("name"):
+                    records = [item for item in records if item.get("name") == query["name"][0]]
+                self._json(records)
+            elif path == "/user/active":
+                if state.unsupported_active_router_users:
+                    self._json({"error": "not found"}, 404)
+                    return
+                records = state.active_router_users
                 if query.get("name"):
                     records = [item for item in records if item.get("name") == query["name"][0]]
                 self._json(records)
