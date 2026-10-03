@@ -148,6 +148,25 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertIn("api_interruption_test", result["failed_gates"])
         self.assertIn("rest_fallback", result["failed_gates"])
 
+    def test_sequence_gap_is_reported_as_event_loss(self) -> None:
+        code, result = evaluate(
+            records(
+                {"type": "sample", "event_sequence": 101},
+                {"type": "sample", "event_sequence": 103},
+                {"type": "reconnect", "recovery_seconds": 1, "snapshot_recovered": True, "api_interruption_tested": True, "rest_fallback_available": True},
+                {"type": "comparison", "binary_matches_rest": True},
+                {"type": "security", "unauthenticated_denied": True, "secret_bearing_payload": False, "secret_free_logs": True},
+            ),
+            limits=LIMITS,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("event_loss", result["failed_gates"])
+
+    def test_event_sequence_must_be_an_integer(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-negative integer"):
+            evaluate(records({"type": "sample", "event_sequence": 101.5}), limits=LIMITS)
+
 
 if __name__ == "__main__":
     unittest.main()
