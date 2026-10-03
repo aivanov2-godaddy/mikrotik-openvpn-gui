@@ -87,7 +87,12 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         if record_type == "sample":
             samples.append(json.dumps(record, separators=(",", ":")))
             if "event_sequence" in record:
-                sequence = int(_number(record["event_sequence"], "event_sequence"))
+                raw_sequence = record["event_sequence"]
+                if isinstance(raw_sequence, bool) or not isinstance(raw_sequence, int) or raw_sequence < 0:
+                    raise ValueError("event_sequence must be a non-negative integer")
+                sequence = raw_sequence
+                if sequences and sequence > sequences[-1] + 1:
+                    failures.append("event_loss")
                 sequences.append(sequence)
                 sequence_evidence += 1
             for name in ("event_lost", "event_duplicated", "out_of_order"):
