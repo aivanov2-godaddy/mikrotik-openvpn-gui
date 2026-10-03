@@ -2181,6 +2181,70 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
         self.assertNotIn("private read-back detail", payload.decode())
 
+    def test_bulk_revoke_reports_verified_partial_progress_before_later_readback_loss(self) -> None:
+        self._managed_device_revoke_request()
+        second_device_id = "managed-device-revoke-second-test"
+        self.server.context.store.add_device(
+            device_id=second_device_id,
+            vpn_user="user-one",
+            device_name="Managed test laptop",
+            certificate_name="ovpn-user-one-device-b",
+            certificate_id="*CL3",
+            fingerprint="B2:EX:37",
+        )
+        self.mock.state.certificates["*CL3"] = {
+            **self.mock.state.certificates["*CL1"],
+            ".id": "*CL3",
+            "name": "ovpn-user-one-device-b",
+            "fingerprint": "B2:EX:37",
+            "common-name": "user-one-managed-test-laptop",
+            "revoked": "no",
+        }
+        device_order = self.server.context.store.devices_for_user("user-one")
+        first_device_id = str(device_order[0]["id"])
+        second_device_id = str(device_order[1]["id"])
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-one"
+        )
+        list_certificates = self.server.context.router.list_ovpn_client_certificates
+        readbacks = 0
+
+        def lose_second_readback(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            nonlocal readbacks
+            readbacks += 1
+            if readbacks == 2:
+                raise RouterOSError("private read-back detail", 503)
+            return list_certificates(*args, **kwargs)
+
+        with mock.patch.object(
+            self.server.context.router,
+            "list_ovpn_client_certificates",
+            side_effect=lose_second_readback,
+        ):
+            status, _, payload = self.json_request(
+                "POST", "/api/bulk/apply",
+                {
+                    "action": "revoke", "user_ids": [user["id"]],
+                    "confirmation": "APPLY REVOKE TO 1 USERS",
+                },
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["status"], "partial")
+        outcome = result["outcomes"][0]
+        self.assertEqual(outcome["status"], "unknown")
+        self.assertEqual(outcome["revoked"], 1)
+        self.assertEqual(outcome["unknown"], 1)
+        self.assertIsNotNone(self.server.context.store.device_by_id(first_device_id)["revoked_at"])
+        self.assertIsNone(self.server.context.store.device_by_id(second_device_id)["revoked_at"])
+        self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
+        self.assertTrue(self.mock.state.certificates["*CL3"]["revoked"])
+        self.assertNotIn("private read-back detail", payload.decode())
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "partial")
+
 
     def test_policy_template_preview_and_explicit_apply(self) -> None:
         self.login()
