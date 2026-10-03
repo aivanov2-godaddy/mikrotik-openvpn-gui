@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import socket
 import time
 import unittest
@@ -11,6 +12,7 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
     def test_socketio_does_not_disable_engineio_same_origin_validation(self) -> None:
         from asgi import NativeSocketIO
 
