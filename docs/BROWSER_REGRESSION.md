@@ -26,14 +26,15 @@ inspect every PNG diff, and commit only the expected baselines.
 
 ## Accessibility checks and current baseline
 
-axe-core scans the three rendered views against WCAG 2.2 A/AA rules at every
-viewport. The initial scan found serious color-contrast findings and missing
-keyboard focusability on scrollable regions. Since this test-only change must
-not alter the product UI, those existing findings are recorded by exact rule,
-impact, and target in `browser-tests/accessibility-baseline.json`. CI attaches
-the current axe findings to each test and fails on any new serious/critical
-target. Removing or correcting a finding is allowed; do not broaden the
-baseline to silence a new one. The baseline is regression protection, not a
-claim that the views currently conform to WCAG 2.2 AA. Product remediation and
-human task validation remain separate work; no human validation is asserted by
-this suite.
+axe-core scans the rendered Dashboard, VPN Users, and Connections views against
+WCAG 2.2 A/AA rules at every configured viewport. The current committed
+`browser-tests/accessibility-baseline.json` contains no findings for those
+scanned views; older descriptions of contrast and scroll-region findings are
+historical and must not be presented as current results. CI fails on new
+serious/critical findings. Removing or correcting a finding is allowed; do not
+broaden the baseline to silence a new one.
+
+This is automated coverage of three views, not a whole-application conformance
+claim. Other operator views, populated/error states, more dialogs, assistive
+technology, real browser zoom at 200%, and human task validation are not
+established by this suite and remain separate review work.
