@@ -77,7 +77,10 @@ Record completion time, unassisted completion, wrong turns, and task errors.
 Do not claim usability improvement from visual preference alone; compare the
 same tasks before and after a material navigation or interaction redesign.
 
-The browser regression suite also checks keyboard activation between VPN Users
-and Connections and a 720×500 CSS-pixel narrow-desktop reflow. That viewport
-approximates the available width of a 1440px desktop at 200% zoom; it is not
-actual browser zoom and does not replace the manual 200%-zoom review above.
+The browser regression suite also checks keyboard-only activation and current
+view indication while navigating Dashboard, VPN Users, and Connections. At a
+720×500 CSS-pixel viewport, it checks that each primary view remains reachable
+without document-level horizontal overflow and that navigation can still
+scroll to its links. This viewport approximates the available width of a
+1440px desktop at 200% zoom; it does not emulate actual browser zoom and does
+not replace the manual 200%-zoom review above.
