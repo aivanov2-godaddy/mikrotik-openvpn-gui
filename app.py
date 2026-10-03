@@ -5155,8 +5155,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status="success",
                 details={
                     "verification": "session_absent",
-                    "source_address": active.get("source_address", ""),
-                    "vpn_address": active.get("vpn_address", ""),
                     **({"mutation_response": "lost"} if mutation_error else {}),
                 },
             )

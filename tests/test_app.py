@@ -2273,6 +2273,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(latest["status"], "success")
         details = json.loads(latest["details"])
         self.assertEqual(details["verification"], "session_absent")
+        self.assertNotIn("source_address", details)
+        self.assertNotIn("vpn_address", details)
         self.assertEqual(details["mutation_response"], "lost")
         self.assertNotIn("private router detail", payload.decode("utf-8"))
 
