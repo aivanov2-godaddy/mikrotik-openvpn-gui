@@ -33,11 +33,15 @@ network boundary. Verify the input-chain policy separately.
 
 The dashboard's **Connection Doctor → RouterOS access and exposure** check is
 read-only. It reports derived account/group/service facts, redacts source
-ranges and service ports, reads both current and legacy service-property names,
-and deliberately marks firewall enforcement
-**unknown**. A restricted source field proves only that a restriction is
-configured, not that it matches the dashboard's actual source address or that
-the route is otherwise unreachable.
+ranges, peer addresses, and service ports, and reads both current and legacy
+service-property names. When RouterOS reports exactly one active REST
+management session for the signed-in account, the diagnostic compares that
+peer in memory with the account source restriction and the selected REST
+service (`www` or `www-ssl`) restriction. It returns only match/mismatch,
+unrestricted, or unknown; unavailable, ambiguous, or non-IP observations stay
+unknown. It deliberately marks firewall enforcement **unknown**: an address
+allowlist match does not prove input-chain firewall or upstream network
+enforcement.
 
 RouterOS group policy flags are broad platform permissions, not per-dashboard
 feature scopes. The documented `read` flag grants configuration visibility;

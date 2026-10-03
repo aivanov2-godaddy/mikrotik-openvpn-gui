@@ -119,6 +119,42 @@ class ExposureDoctorTests(unittest.TestCase):
                 self.assertEqual(checks["firewall-boundary"]["status"], "unknown")
                 self.assertNotIn(address, str(result))
 
+    def test_observed_management_peer_is_compared_to_account_and_rest_service_filters(self):
+        values = self.inputs()
+        values["account"]["address"] = "10.22.0.0/24,192.0.2.10-192.0.2.20"
+        values["services"][0].update({
+            "name": "www-ssl", "disabled": "no", "available-from": "2001:db8::/48",
+        })
+        result = exposure_doctor_snapshot(
+            **values, active_source="192.0.2.15", active_source_status="verified",
+            rest_service="www-ssl", checked_at=123,
+        )
+        checks = {item["id"]: item for item in result["checks"]}
+        self.assertEqual(checks["account-source-match"]["status"], "verified")
+        self.assertIn("matches", checks["account-source-match"]["message"])
+        self.assertEqual(checks["management-service-source-match"]["status"], "warning")
+        self.assertIn("does not match", checks["management-service-source-match"]["message"])
+        self.assertEqual(checks["firewall-boundary"]["status"], "unknown")
+        self.assertNotIn("192.0.2.15", str(result))
+
+    def test_ipv6_source_match_and_ambiguous_peer_remain_redacted_or_unknown(self):
+        values = self.inputs()
+        values["account"]["address"] = "2001:db8:100::/48"
+        matched = exposure_doctor_snapshot(
+            **values, active_source="2001:db8:100::42", active_source_status="verified",
+            checked_at=123,
+        )
+        checks = {item["id"]: item for item in matched["checks"]}
+        self.assertEqual(checks["account-source-match"]["status"], "verified")
+        self.assertNotIn("2001:db8:100::42", str(matched))
+
+        unknown = exposure_doctor_snapshot(
+            **values, active_source=None, active_source_status="unknown", checked_at=123,
+        )
+        unknown_checks = {item["id"]: item for item in unknown["checks"]}
+        self.assertEqual(unknown_checks["account-source-match"]["status"], "unknown")
+        self.assertEqual(unknown_checks["management-service-source-match"]["status"], "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

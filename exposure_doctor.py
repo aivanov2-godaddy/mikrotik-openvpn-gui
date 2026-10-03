@@ -52,19 +52,59 @@ def _policy_set(value: Any) -> set[str] | None:
     return {str(item).strip().casefold() for item in items if str(item).strip()}
 
 
-def _address_scope(value: Any) -> str:
+def _address_ranges(value: Any) -> list[tuple[int, int, int]] | None:
     if value is None:
-        return "unknown"
+        return None
     entries = [part.strip() for part in str(value).split(",") if part.strip()]
     if not entries:
-        return "unrestricted"
+        return []
+    ranges: list[tuple[int, int, int]] = []
     try:
-        networks = [ipaddress.ip_network(part, strict=False) for part in entries]
+        for part in entries:
+            if "-" in part:
+                first_text, last_text = (side.strip() for side in part.split("-", 1))
+                first = ipaddress.ip_address(first_text)
+                last = ipaddress.ip_address(last_text)
+                if first.version != last.version or int(first) > int(last):
+                    return None
+                ranges.append((first.version, int(first), int(last)))
+                continue
+            network = ipaddress.ip_network(part, strict=False)
+            ranges.append((network.version, int(network.network_address), int(network.broadcast_address)))
     except ValueError:
+        return None
+    return ranges
+
+
+def _address_scope(value: Any) -> str:
+    ranges = _address_ranges(value)
+    if ranges is None:
         return "unknown"
-    if any(network.prefixlen == 0 for network in networks):
+    if not ranges:
+        return "unrestricted"
+    if any(
+        start == 0 and end == (1 << (32 if version == 4 else 128)) - 1
+        for version, start, end in ranges
+    ):
         return "unrestricted"
     return "restricted"
+
+
+def _peer_filter_result(peer: Any, value: Any) -> str:
+    if peer is None or str(peer).strip() == "":
+        return "unknown"
+    try:
+        address = ipaddress.ip_address(str(peer).strip().strip("[]").split("%", 1)[0])
+    except ValueError:
+        return "unknown"
+    ranges = _address_ranges(value)
+    if ranges is None:
+        return "unknown"
+    if not ranges:
+        return "unrestricted"
+    if any(version == address.version and start <= int(address) <= end for version, start, end in ranges):
+        return "matches"
+    return "does_not_match"
 
 
 def exposure_doctor_snapshot(
@@ -72,6 +112,9 @@ def exposure_doctor_snapshot(
     account: dict[str, Any] | None,
     group: dict[str, Any] | None,
     services: list[dict[str, Any]] | None,
+    active_source: str | None = None,
+    active_source_status: str = "unknown",
+    rest_service: str | None = None,
     source_status: dict[str, str] | None = None,
     checked_at: int | None = None,
 ) -> dict[str, Any]:
@@ -87,7 +130,7 @@ def exposure_doctor_snapshot(
         add("account", statuses.get("account", "unknown"),
             "The signed-in RouterOS account settings could not be verified.",
             "Review this account in WinBox; this check does not change it.")
-        policies = None
+        account_source_match = "unknown"
     else:
         disabled = _truth(account.get("disabled"))
         add("account", "verified" if disabled is False else "warning" if disabled is True else "unknown",
@@ -101,7 +144,20 @@ def exposure_doctor_snapshot(
             "No RouterOS account source-address restriction is configured; this does not prove network reachability." if source_scope == "unrestricted" else
             "RouterOS did not return the account source-address field.",
             "Check that the configured source range matches the dashboard's actual RouterOS-side address; firewall controls remain separate.")
-        policies = _policy_set(group.get("policy")) if group else None
+        account_source_match = _peer_filter_result(active_source, account.get("address"))
+    match_messages = {
+        "matches": ("The observed dashboard source matches the RouterOS account source-address restriction.", "No action needed; firewall and upstream network enforcement remain separate."),
+        "does_not_match": ("The observed dashboard source does not match the RouterOS account source-address restriction.", "Review the account source range and dashboard route in WinBox; do not broaden access automatically."),
+        "unrestricted": ("The RouterOS account has no source-address restriction to match against the observed dashboard source.", "Consider a narrowly scoped restriction only after confirming the dashboard's RouterOS-side route."),
+        "unknown": ("The observed RouterOS-side source or account source filter could not be compared reliably.", "Review the account source and active RouterOS management session in WinBox; raw addresses are not shown."),
+    }
+    account_match_message, account_match_next = match_messages[account_source_match]
+    add("account-source-match",
+        "verified" if account_source_match == "matches" else
+        "warning" if account_source_match in {"does_not_match", "unrestricted"} else
+        statuses.get("active-source", "unknown"),
+        account_match_message, account_match_next)
+    policies = _policy_set(group.get("policy")) if group else None
 
     if group is None or policies is None:
         add("group-policies", statuses.get("group", "unknown"),
@@ -141,11 +197,28 @@ def exposure_doctor_snapshot(
             "Confirm each enabled category is needed for this account. This report does not automatically prescribe a replacement policy set.")
 
     if services is None:
+        add("management-service-source-match", statuses.get("services", "unknown"),
+            "The selected RouterOS REST service or its source filter could not be verified.",
+            "Review the REST service source range and dashboard route in WinBox; firewall enforcement remains separate.")
         add("management-services", statuses.get("services", "unknown"),
             "RouterOS management-service settings could not be verified.",
             "Review IP → Services in WinBox. The check does not enable, disable, or edit services.")
     else:
         by_name = {str(item.get("name", "")).casefold(): item for item in services if item.get("name")}
+        selected_service = by_name.get(str(rest_service or "").casefold())
+        service_source_match = _peer_filter_result(
+            active_source,
+            (selected_service.get("available-from") if selected_service else None)
+            if selected_service and selected_service.get("available-from") is not None
+            else selected_service.get("address") if selected_service else None,
+        )
+        service_match_message, service_match_next = match_messages[service_source_match]
+        add("management-service-source-match",
+            "verified" if service_source_match == "matches" else
+            "warning" if service_source_match in {"does_not_match", "unrestricted"} else
+            statuses.get("active-source", "unknown"),
+            service_match_message.replace("RouterOS account source-address restriction", "RouterOS REST-service source-address restriction"),
+            service_match_next)
         for name, label in (("www", "REST over HTTP"), ("www-ssl", "REST over HTTPS"),
                             ("api", "RouterOS API"), ("api-ssl", "RouterOS API over TLS"),
                             ("telnet", "Telnet"), ("ftp", "FTP"), ("ssh", "SSH"), ("winbox", "WinBox")):
