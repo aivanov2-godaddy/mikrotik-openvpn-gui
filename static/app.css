@@ -393,10 +393,12 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .bulk-operations-panel { margin-bottom: 8px; }
 .bulk-controls, .bulk-action-row, .saved-view-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
 .bulk-controls label, .bulk-action-row label, .saved-view-row label { display: grid; min-width: 150px; gap: 3px; color: #aebbc2; font-size: 10px; font-weight: 600; }
+.bulk-action-row [data-bulk-reason-input][hidden] { display: none !important; }
 .bulk-controls label span, .bulk-action-row label span, .saved-view-row label span { color: #84949e; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
 .bulk-controls button, .bulk-action-row button, .saved-view-row button { min-height: 30px; }
 .bulk-action-row input, .saved-view-row input, .bulk-action-row select, .bulk-controls select, .saved-view-row select { min-height: 30px; }
 .bulk-review { display: grid; gap: 5px; margin: 0 10px 8px; padding: 8px; border: 1px solid #406176; background: #20323d; }
+.bulk-review[hidden] { display: none !important; }
 .bulk-review > strong, .bulk-review > small { display: block; }
 .bulk-review > strong { color: #d6e3e9; font-size: 12px; }
 .bulk-review > small { color: #9caeb8; font-size: 10px; }

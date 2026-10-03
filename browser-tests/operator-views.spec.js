@@ -77,6 +77,23 @@ for (const view of views) {
   });
 }
 
+test('bulk destructive rationale stays hidden until needed and invalidates a stale review', async ({ page }) => {
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  await page.locator('[data-user-select]').first().check();
+  const reasonContainer = page.locator('[data-bulk-reason-input]');
+  const reason = page.locator('[data-bulk-reason]');
+  const preview = page.locator('[data-bulk-preview]');
+  await expect(reasonContainer).toBeHidden();
+  await page.locator('[data-bulk-action]').selectOption('suspend');
+  await expect(reasonContainer).toBeVisible();
+  await expect(preview).toBeDisabled();
+  await reason.fill('Quarterly VPN access review');
+  await expect(preview).toBeEnabled();
+  await reason.fill('');
+  await expect(preview).toBeDisabled();
+  await expect(page.locator('[data-bulk-review]')).toBeHidden();
+});
+
 async function tabTo(page, locator) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;
