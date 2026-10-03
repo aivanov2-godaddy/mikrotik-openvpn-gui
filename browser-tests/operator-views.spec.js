@@ -132,6 +132,28 @@ test('individual suspension requires and binds a reason before enabling apply', 
   await expect(apply).toBeDisabled();
 });
 
+test('new device profile requires a reason and invalidates review when it changes', async ({ page }) => {
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  const firstUser = page.locator('.user-card').first();
+  await firstUser.locator('.action-menu summary').click();
+  await firstUser.locator('[data-profile]').click();
+  const dialog = page.locator('#profile-dialog');
+  const reason = dialog.getByLabel('Reason for issuing access');
+  const device = dialog.getByLabel('Phone or device');
+  const passphrase = dialog.getByLabel('Protect file with');
+  const apply = dialog.getByRole('button', { name: 'Review profile request' });
+  await device.fill('Work tablet');
+  await passphrase.fill('temporary-passphrase');
+  await expect(apply).toBeDisabled();
+  await reason.fill('Owner requested a second device');
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(dialog.locator('[data-profile-review]')).toContainText('Reason: Owner requested a second device');
+  await reason.fill('Different issuance reason');
+  await expect(dialog.locator('[data-profile-review]')).toBeHidden();
+  await expect(dialog.locator('[data-profile-submit]')).toHaveText('Review profile request');
+});
+
 async function tabTo(page, locator) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;

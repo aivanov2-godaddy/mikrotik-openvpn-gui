@@ -3077,6 +3077,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         vpn_user: str,
         device_name: str,
         profile: ProvisionedProfile,
+        rationale: str = "",
     ) -> None:
         self.server.context.store.add_device(
             device_id=secrets.token_urlsafe(12),
@@ -3091,7 +3092,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             action="profile.create",
             target=vpn_user,
             status="success",
-            details={"device": device_name, "certificate": profile.certificate_name},
+            details={
+                "device": device_name,
+                "certificate": profile.certificate_name,
+                **({"rationale": rationale} if rationale else {}),
+            },
         )
 
     def _provision_user(
@@ -3464,6 +3469,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self, session: Session, credentials: RouterOSCredentials,
         user_id: str, data: dict[str, Any],
     ) -> tuple[dict[str, Any], str, str, str, dict[str, Any], list[dict[str, Any]], str]:
+        reason = str(data.get("reason", "")).strip()
+        if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
+            raise ValueError("Provide a reason between 12 and 240 printable characters")
         device_name = self._validate_device(str(data.get("device_name", "")))
         delivery = str(data.get("delivery", "ovpn"))
         if delivery not in {"ovpn", "zip", "qr"}:
@@ -3509,6 +3517,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "username": str(user.get("name", "")),
             "disabled": bool(user.get("disabled")),
             "device_name": device_name,
+            "reason": reason,
             "delivery": delivery,
             "legacy_certificate": legacy_certificate_name,
             "policy": policy,
@@ -3533,6 +3542,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({
                 "user": str(user["name"]),
                 "device": device_name,
+                "reason": str(data.get("reason", "")).strip(),
                 "policy": str(controls.get("policy", "full-tunnel")),
                 "dns_mode": str(controls.get("dns_mode", "router")),
                 "delivery": delivery,
@@ -3555,6 +3565,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = self._credentials(session)
         try:
             data = self._read_json()
+            reason = str(data.get("reason", "")).strip()
             passphrase = self._validate_secret(
                 str(data.get("key_passphrase", "")), "Private-key passphrase"
             )
@@ -3565,6 +3576,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not self.server.review_receipts.consume(
                 supplied_token, session.session_id, intent_digest,
             ):
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="profile.create",
+                    target=str(user["name"]),
+                    status="failed",
+                    details={"reason": "stale_or_missing_review", "rationale": reason},
+                )
                 self._json({
                     "code": "routeros.review_stale",
                     "error": "The user, device request, policy, or certificate inventory changed since review. Review profile issuance again.",
@@ -3586,6 +3604,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     vpn_user=str(user["name"]),
                     device_name=device_name,
                     profile=profile,
+                    rationale=reason,
                 )
             except Exception as storage_error:  # noqa: BLE001 - reconcile router state after local commit failure
                 router_verified = False
@@ -3631,6 +3650,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         target=str(user["name"]),
                         status=reconciliation,
                         details={
+                            "rationale": reason,
                             "router_certificate_revoked": router_verified,
                             "local_metadata_reconciled": local_reconciled,
                             "storage_error": type(storage_error).__name__,
@@ -3661,7 +3681,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     action="profile.migrate",
                     target=legacy_certificate_name,
                     status="success",
-                    details={"replacement_certificate": profile.certificate_name},
+                    details={"replacement_certificate": profile.certificate_name, "rationale": reason},
                 )
             self._deliver_profile(profile, f"{user['name']}-{device_name}.ovpn", delivery)
         except (ValueError, RouterOSError) as error:

@@ -1085,6 +1085,7 @@ function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertif
     ? 'Generate a protected profile link that the phone can open after scanning.'
     : 'A ZIP archive with the protected OpenVPN profile will download automatically.';
   $('[data-profile-submit]', form).textContent = 'Review profile request';
+  $('[data-profile-submit]', form).disabled = true;
   $('[data-profile-review]', form).hidden = true;
   const migrationNote = $('[data-migration-note]', form);
   if (legacyCertificate) {
@@ -1680,6 +1681,7 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
     const delivery = data.get('delivery') || 'zip';
     const intent = {
       device_name: data.get('device_name'), delivery,
+      reason: data.get('reason'),
       legacy_certificate: data.get('legacy_certificate') || '',
     };
     if (!data.get('review_token')) {
@@ -1690,9 +1692,10 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
       const migration = preview.legacy_migration
         ? ' The previous profile remains active; this does not revoke or disconnect it.'
         : '';
-      $('[data-profile-review]', form).textContent = `Reviewed: ${preview.user} · ${preview.device} · ${preview.policy} · ${preview.dns_mode} DNS · ${preview.delivery}.${migration} Private-key passphrase is not part of the review.`;
+      $('[data-profile-review]', form).textContent = `Reviewed: ${preview.user} · ${preview.device} · ${preview.policy} · ${preview.dns_mode} DNS · ${preview.delivery}. Reason: ${preview.reason}.${migration} Private-key passphrase is not part of the review.`;
       $('[data-profile-review]', form).hidden = false;
       $('[data-profile-submit]', form).textContent = delivery === 'qr' ? 'Create and show QR' : 'Create and download .zip';
+      $('[data-profile-submit]', form).disabled = !preview.review_token;
       setStatus(form, 'Review the details above, then select the button again to issue the profile.');
       setBusy(form, false);
       return;
@@ -1717,17 +1720,20 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
       form.elements.review_token.value = '';
       $('[data-profile-review]', form).hidden = true;
       $('[data-profile-submit]', form).textContent = 'Review profile request';
+      $('[data-profile-submit]', form).disabled = form.elements.reason.value.trim().length < 12;
     }
     setBusy(form, false);
   }
 });
 
 $('#profile-form')?.addEventListener('input', (event) => {
-  if (!['device_name'].includes(event.target.name)) return;
+  if (!['device_name', 'reason'].includes(event.target.name)) return;
   const form = event.currentTarget;
   form.elements.review_token.value = '';
   $('[data-profile-review]', form).hidden = true;
   $('[data-profile-submit]', form).textContent = 'Review profile request';
+  $('[data-profile-submit]', form).disabled = form.elements.reason.value.trim().length < 12
+    || form.elements.reason.value.trim().length > 240;
 });
 
 $('#duplicate-form')?.addEventListener('submit', async (event) => {
