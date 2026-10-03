@@ -1370,7 +1370,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/observability":
             session = self._require_session(api=True)
-            if not session:
+            if not session or not self._require_capability(session, "health.read"):
                 return
             self._json(self._observability(
                 include_audit=self._capability_allowed(session, "audit.read"),
