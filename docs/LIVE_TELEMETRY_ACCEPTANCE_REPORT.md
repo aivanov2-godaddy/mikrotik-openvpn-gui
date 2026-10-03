@@ -20,12 +20,12 @@ have not been recorded as complete.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest authenticated production RouterOS read-back | a2d0ce2 (`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`), healthy at that observation; not a current-state claim |
+| Latest authenticated production observation | Authenticated production dashboard on 2026-10-04 reported running revision `6ae554ed226107e8639f345ff02bd0ae4269c5fc`, RouterOS 7.24.5, and healthy router connectivity; see the observation below |
 | Latest verified canary readiness observation | `1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e`, ready at that observation; not a current-state claim |
-| Latest published candidate | `6ae554ed226107e8639f345ff02bd0ae4269c5fc` (publication run [37159106219](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37159106219)); router rollout not verified |
+| Latest published candidate | `6ae554ed226107e8639f345ff02bd0ae4269c5fc` (publication run [37159106219](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37159106219)); subsequently reported running by the authenticated production dashboard |
 | Latest published ARM64 / AMD64 digests | `sha256:1f01b92a7da0d11d0013e2fa208ad8e843ae699580b2f4ca1a319ec22238e8cd` / `sha256:6c03325292a51acb08265feb15ca4a5e3d253522e8b6237aa7e1443717b11a5a` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
-| RouterOS version | 7.24.4 stable during acceptance; 7.24.5 stable at the latest authenticated read-back on 2026-10-03; current version is unverified |
+| RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
 The accepted Binary API baseline was promoted to production on 2026-10-01.
 Later authenticated RouterOS read-back, recorded on 2026-10-03, showed canary
@@ -129,12 +129,30 @@ runtime smoke tests passed.
 | --- | --- |
 | ARM64 tag / digest | `sha-6ae554ed226107e8639f345ff02bd0ae4269c5fc-arm64` / `sha256:1f01b92a7da0d11d0013e2fa208ad8e843ae699580b2f4ca1a319ec22238e8cd` |
 | AMD64 tag / digest | `sha-6ae554ed226107e8639f345ff02bd0ae4269c5fc-amd64` / `sha256:6c03325292a51acb08265feb15ca4a5e3d253522e8b6237aa7e1443717b11a5a` |
-| Canary revision / health after publication | Not read back; latest recorded canary readiness observation is the earlier `1a6bf3e` candidate. |
-| Production revision / health after publication | Not read back; latest authenticated production read-back is the earlier `a2d0ce2` revision. |
+| Canary revision / health after publication | Not verified in this observation; latest separate canary readiness observation remains `1a6bf3e`. |
+| Production revision / health after publication | An authenticated production dashboard subsequently reported this full revision running and the RouterOS connection healthy; see the next section. |
 | 30-minute telemetry/Redis soak and rollback drill | Not performed for this candidate. |
 
-This is publication evidence only. Neither current router revision nor current
-health is confirmed; production deployment and acceptance are not claimed.
+At publication time, this was registry evidence only. A later authenticated
+production dashboard observation is recorded below. Canary soak and formal
+acceptance remain pending.
+
+### Authenticated production dashboard observation — 2026-10-04
+
+The signed-in dashboard at `vpn.wanted.sx` loaded successfully through
+Cloudflare Access. Its Service Health panel reported the router connection
+healthy on RouterOS 7.24.5, six checks healthy and one needing review
+(certificate-revocation behavior), and its deployment history marked release
+`edge-arm64` / revision
+`6ae554ed226107e8639f345ff02bd0ae4269c5fc` as running. The page also exposed
+the live Connections view and identified its delivery transport as Socket.IO.
+
+This is a point-in-time authenticated application observation, not a RouterOS
+container CLI read-back: the dashboard did not expose a registry manifest
+digest, so the exact running digest is not established by this observation.
+It does not establish canary status, sustained telemetry freshness/latency,
+Redis delivery/recovery, API-restart recovery, event integrity, or a rollback
+drill. No RouterOS settings, VPN data, certificates, or secrets were changed.
 
 ## Latest deployed correction
 
@@ -190,9 +208,10 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current runtime result: **PENDING — the latest published `6ae554e` candidate
-has not been observed running on the canary or production router and still
-requires its 30-minute Redis/telemetry acceptance window and rollback drill.**
+Current runtime result: **PARTIALLY VERIFIED — the authenticated production
+dashboard reported `6ae554e` running and the router connection healthy on
+2026-10-04; the canary revision, exact runtime digest, 30-minute Redis/
+telemetry acceptance window, and rollback drill remain unverified/pending.**
 
 The acceptance evaluator remains available for future regression windows. New
 evidence must remain outside the repository and should be redacted before any
