@@ -1480,6 +1480,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/users":
             self._create_user()
             return
+        match = re.fullmatch(r"/api/users/([^/]+)/preview", path)
+        if match:
+            self._update_user(urllib.parse.unquote(match.group(1)), preview=True)
+            return
         if path == "/api/bulk/preview":
             self._bulk_user_action(preview=True)
             return
@@ -2919,7 +2923,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _update_user(self, user_id: str) -> None:
+    def _update_user(self, user_id: str, *, preview: bool = False) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
@@ -2939,6 +2943,48 @@ class DashboardHandler(BaseHTTPRequestHandler):
             controls = self._parse_controls(
                 data, self.server.context.store.user_controls(str(user["name"]))
             )
+            reason = str(data.get("reason", "")).strip()
+            if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
+            intent = {
+                "user_id": str(user_id), "username": str(user["name"]),
+                "password": password_raw, "email": email,
+                "comment": comment, "disabled": disabled, "controls": controls,
+                "reason": reason,
+            }
+            control_keys = tuple(controls)
+            state = {
+                "router_comment": str(user.get("comment", "")),
+                "router_disabled": str(user.get("disabled", "false")).lower() == "true",
+                "router_profile": str(user.get("profile", "")),
+                "email": self.server.context.store.user_emails().get(str(user["name"]), ""),
+                "controls": {key: self.server.context.store.user_controls(str(user["name"])).get(key) for key in control_keys},
+            }
+            receipt_payload = json.dumps(
+                {"intent": intent, "state": state}, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")
+            review_token = hmac.new(
+                session.csrf_token.encode("utf-8"), receipt_payload, hashlib.sha256,
+            ).hexdigest()
+            if preview:
+                self._json({
+                    "username": str(user["name"]), "reason": reason,
+                    "changes": {
+                        "password_changed": bool(password_raw), "email_changed": email is not None,
+                        "email": email, "comment": comment, "disabled": disabled,
+                        "controls": controls,
+                    },
+                    "review_token": review_token,
+                })
+                return
+            supplied_review_token = str(data.get("review_token", ""))
+            if not supplied_review_token or not hmac.compare_digest(supplied_review_token, review_token):
+                self.server.context.store.audit(
+                    actor=session.username, action="user.update", target=str(user["name"]),
+                    status="failed", details={"reason": "stale_or_missing_review"},
+                )
+                self._json({"error": "The reviewed edit or RouterOS state has changed. Preview the edit again."}, status=HTTPStatus.CONFLICT)
+                return
             if not self._checkpoint(session, "user.update"):
                 return
             router_profile = self.server.context.router.ensure_rate_profile(

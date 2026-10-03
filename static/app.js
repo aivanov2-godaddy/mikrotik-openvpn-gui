@@ -1343,7 +1343,18 @@ document.addEventListener('click', async (event) => {
     openDialog('duplicate-dialog');
   } else if (button.matches('[data-edit]') && row) {
     const form = $('#edit-form');
+    if (!$('#edit-reason', form)) {
+      const reason = node('label', '', 'Reason for this change');
+      const input = node('textarea'); input.id = 'edit-reason'; input.name = 'reason'; input.required = true; input.minLength = 12; input.maxLength = 240;
+      reason.append(input);
+      const footer = $('footer', form);
+      const review = node('p'); review.id = 'edit-review'; review.hidden = true; review.setAttribute('role', 'status');
+      const preview = node('button', 'quiet', 'Preview changes'); preview.type = 'button'; preview.id = 'edit-preview';
+      footer.before(reason, review, preview);
+    }
     form.reset();
+    delete form.dataset.userReviewToken;
+    $('[type="submit"]', form).disabled = true;
     form.user_id.value = row.dataset.userId;
     form.comment.value = row.dataset.userComment === 'No description' ? '' : row.dataset.userComment;
     form.email.value = row.dataset.userEmail === 'Email not assigned' ? '' : row.dataset.userEmail;
@@ -1524,10 +1535,13 @@ $('#edit-form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const data = new FormData(form);
+  const reviewToken = form.dataset.userReviewToken;
+  if (!reviewToken) { setStatus(form, 'Preview this edit before applying it.', true); return; }
   setBusy(form, true);
-  setStatus(form, 'Saving the access changes…');
+  setStatus(form, 'Creating a RouterOS checkpoint and applying the reviewed changes…');
   try {
-    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}`, { method: 'PATCH', body: { email: data.get('email'), password: data.get('password'), comment: data.get('comment'), disabled: data.get('disabled') === 'on', policy: data.get('policy'), expiry: data.get('expiry'), max_sessions: data.get('max_sessions'), rate_limit_kbps: data.get('rate_limit_kbps'), quota_mb: data.get('quota_mb'), schedule: data.get('schedule'), dns_mode: data.get('dns_mode'), notifications: data.get('notifications') === 'on' } }));
+    const values = { email: data.get('email'), password: data.get('password'), comment: data.get('comment'), disabled: data.get('disabled') === 'on', policy: data.get('policy'), expiry: data.get('expiry'), max_sessions: data.get('max_sessions'), rate_limit_kbps: data.get('rate_limit_kbps'), quota_mb: data.get('quota_mb'), schedule: data.get('schedule'), dns_mode: data.get('dns_mode'), notifications: data.get('notifications') === 'on', reason: data.get('reason'), review_token: reviewToken };
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}`, { method: 'PATCH', body: values }));
     const outcome = await response.json();
     if (outcome.verification === 'partial') {
       setStatus(form, 'Other account settings were verified. RouterOS does not expose the password for read-back.');
@@ -1539,6 +1553,33 @@ $('#edit-form')?.addEventListener('submit', async (event) => {
     form.closest('dialog')?.close();
     await pollStatus();
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+});
+
+$('#edit-form')?.addEventListener('click', async (event) => {
+  if (!event.target.closest('#edit-preview')) return;
+  const form = $('#edit-form');
+  const data = new FormData(form);
+  const values = { email: data.get('email'), password: data.get('password'), comment: data.get('comment'), disabled: data.get('disabled') === 'on', policy: data.get('policy'), expiry: data.get('expiry'), max_sessions: data.get('max_sessions'), rate_limit_kbps: data.get('rate_limit_kbps'), quota_mb: data.get('quota_mb'), schedule: data.get('schedule'), dns_mode: data.get('dns_mode'), notifications: data.get('notifications') === 'on', reason: data.get('reason') };
+  setStatus(form, 'Preparing a review-only preview…');
+  try {
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/preview`, { method: 'POST', body: values }));
+    const preview = await response.json();
+    form.dataset.userReviewToken = preview.review_token;
+    const review = $('#edit-review');
+    const reviewedChanges = { email: preview.changes.email, comment: preview.changes.comment, disabled: preview.changes.disabled, ...preview.changes.controls };
+    review.textContent = `Review for ${preview.username}: ${JSON.stringify(reviewedChanges)}; password ${preview.changes.password_changed ? 'will change (value hidden)' : 'unchanged'}; reason: ${preview.reason}`;
+    review.hidden = false;
+    $('[type="submit"]', form).disabled = false;
+    setStatus(form, 'Review the summary, then apply the edit. Any field change clears this preview.');
+  } catch (error) { setStatus(form, error.message, true); }
+});
+
+$('#edit-form')?.addEventListener('input', (event) => {
+  if (!event.target.matches('[name="user_id"]')) {
+    delete event.currentTarget.dataset.userReviewToken;
+    $('#edit-review').hidden = true;
+    $('[type="submit"]', event.currentTarget).disabled = true;
+  }
 });
 
 $('#template-form')?.addEventListener('submit', async (event) => {
