@@ -20,17 +20,19 @@ deployment runners, and production infrastructure.
 
 ## Branch protection
 
-If your GitHub plan supports rulesets, protect `main` with:
+The versioned desired configuration for this repository is
+[`../.github/rulesets/protect-main.json`](../.github/rulesets/protect-main.json).
+It requires a pull request and all nine named CI checks, blocks deletion and
+force pushes, and allows squash merges without requiring a human approval. The
+CI workflow runs on pull requests (and manual dispatch), not branch pushes, so
+each PR has one unambiguous set of required checks. There are no bypass actors.
 
-- pull requests required before merge;
-- at least one independent approval for organization-managed repositories;
-- resolved conversations required;
-- required CI checks after the first successful workflow run;
-- blocked force pushes and branch deletion;
-- automatic deletion of merged branches.
-
-Do not claim a rule is enforced until GitHub reports it as active. Personal
-repositories may have fewer enforcement options than organization repositories.
+This file records the intended configuration; it does not apply itself. Apply
+it to the repository's `Protect main` ruleset with GitHub's ruleset API, then
+read the ruleset back and confirm `enforcement` is `active` and the required
+contexts match. Do not say protection is enabled until that read-back succeeds.
+After changing CI job names, update the required contexts and verify them on a
+real PR before merging.
 
 ## Community health
 
@@ -49,11 +51,12 @@ dependabot pull requests like any other change.
 
 ## CI and packages
 
-The included CI verifies pre-commit hooks, committed secret patterns, Python
-tests, and a RouterOS-relevant ARM64 image build. The image workflow publishes
-only after its verification job succeeds. It receives `packages: write` only in
-the publishing job; no workflow has access to router, Cloudflare, or deployment
-credentials.
+The included CI verifies pre-commit hooks, committed secret patterns, dependency
+vulnerabilities, Python tests, Redis recovery, Socket.IO origin enforcement,
+rendered browser accessibility/regressions, and a RouterOS-relevant ARM64 image
+build. The image workflow publishes only after its verification job succeeds.
+It receives `packages: write` only in the publishing job; no workflow has access
+to router, Cloudflare, or deployment credentials.
 
 Do not configure a self-hosted runner that can reach a router in this public
 repository. If you automate an operator deployment, put the automation and
