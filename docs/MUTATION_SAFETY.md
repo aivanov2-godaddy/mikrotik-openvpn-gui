@@ -21,6 +21,31 @@ and the capability index is in [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md).
 | Apply policy template | `POST /api/policy-templates/{id}/preview` → `/apply` with receipt bound to template, selected IDs, current user profiles, generated PPP rate-profile identity/rate-limit state, and dashboard controls. | Reject stale state; checkpoint where supported; generated rate-profile writes verify the exact RouterOS `rate-limit` by read-back; verify each user profile and retain local assignments only after read-back. | There is no universal RouterOS transaction; partial results are reported per user. A profile write can succeed before a later user assignment fails; that partial router state is not automatically rolled back. |
 | Terminate live VPN session | `POST /api/sessions/{id}/preview` → `DELETE /api/sessions/{id}` with a one-use receipt bound to the exact live session identity. | Re-read the exact session before termination and read back absence even if the DELETE response is lost; report verified success only when absent, failure if still active, and unknown if read-back is unavailable. | Disconnection cannot be rolled back; the account can reconnect if still enabled. |
 
+## Background access-policy enforcement
+
+Expiry, quota, schedule, and per-account session limits are explicit local
+operator policy. The 30-second worker treats RouterOS as authoritative for the
+account and live-session state: it re-reads the account before acting, creates
+a RouterOS export checkpoint before changing `disabled`, rechecks the account
+after the checkpoint, and verifies the exact disabled state after the write.
+It persists a pending enforcement intent before a disable so an ambiguous
+RouterOS response or worker restart can be reconciled on the next poll. Expiry
+is terminal and is never automatically undone; quota and schedule restrictions
+may be restored only when their condition clears and RouterOS confirms the
+account remains disabled by the recorded automation state.
+
+The worker checks exact session identity before disconnecting, resolves lost
+DELETE responses by reading sessions again, and records verified, failed,
+unknown, or partial outcomes. Residual or unreadable sessions are retried on a
+later poll and are not reported as successfully removed. Alerts and audit
+records contain fixed safe guidance and aggregate counts, not RouterOS error
+text, credentials, or session addresses. This is point-in-time verification,
+not a RouterOS transaction: a concurrent administrator or a connection racing
+the check can still change state, so the worker rechecks on later polls and
+cannot guarantee atomicity across account and session resources.
+
+The deterministic regression coverage is in `tests/test_automation.py`.
+
 ## Dashboard-only writes and plan endpoints
 
 These endpoints change dashboard-local state rather than RouterOS:

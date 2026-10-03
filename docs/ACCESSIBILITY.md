@@ -76,3 +76,8 @@ without moderator hints and without a wrong/destructive action.
 Record completion time, unassisted completion, wrong turns, and task errors.
 Do not claim usability improvement from visual preference alone; compare the
 same tasks before and after a material navigation or interaction redesign.
+
+The browser regression suite also checks keyboard activation between VPN Users
+and Connections and a 720×500 CSS-pixel narrow-desktop reflow. That viewport
+approximates the available width of a 1440px desktop at 200% zoom; it is not
+actual browser zoom and does not replace the manual 200%-zoom review above.
