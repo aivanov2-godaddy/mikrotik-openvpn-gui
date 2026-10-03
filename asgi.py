@@ -269,9 +269,16 @@ class NativeSocketIO:
         if not subscription or principal is None or not principal.may_stream:
             return {"protocol_version": 1, "frames": []}
         after = data.get("after_sequence") if isinstance(data, Mapping) else None
-        frames = self.runtime.gateway.poll(subscription, after_sequence=after)
-        for frame in frames:
+        frames = []
+        for frame in self.runtime.gateway.poll(subscription, after_sequence=after):
+            # A single poll can return a backlog. Revalidate immediately before
+            # every send so revocation during a batch cannot leak later frames.
+            principal = self.runtime.principal_for_session(session_id or "")
+            if principal is None or not principal.may_stream:
+                await self.server.disconnect(sid, namespace=self.namespace)
+                break
             await self._emit(frame["event"], frame, to=sid)
+            frames.append(frame)
         return {"protocol_version": 1, "frames": frames}
 
     async def _emit(self, event: str, payload: Mapping[str, Any], *, to: str) -> None:
@@ -287,6 +294,12 @@ class NativeSocketIO:
                     await self.server.disconnect(sid, namespace=self.namespace)
                     return
                 for frame in self.runtime.gateway.poll(subscription):
+                    # Do not let an already-polled backlog outlive its session
+                    # or streaming capability if authorization changes mid-batch.
+                    principal = self.runtime.principal_for_session(session_id)
+                    if principal is None or not principal.may_stream:
+                        await self.server.disconnect(sid, namespace=self.namespace)
+                        return
                     await self._emit(frame["event"], frame, to=sid)
                 await asyncio.sleep(0.25)
         except (asyncio.CancelledError, RuntimeError):

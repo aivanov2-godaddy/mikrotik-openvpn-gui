@@ -332,6 +332,110 @@ class ASGIContractTests(unittest.TestCase):
         self.assertNotIn(session.session_id, repr(principal))
         self.assertNotIn("router-password-marker", repr(principal))
 
+    def test_live_pump_stops_a_polled_batch_when_session_is_revoked_mid_send(self) -> None:
+        from asgi import NativeSocketIO
+
+        state = {"authorized": True}
+
+        class Principal:
+            may_stream = True
+
+        class Runtime:
+            gateway = None
+
+            @staticmethod
+            def principal_for_session(_session_id: str) -> Principal | None:
+                return Principal() if state["authorized"] else None
+
+        class Gateway:
+            @staticmethod
+            def poll(_subscription: str) -> list[dict[str, object]]:
+                return [
+                    {"event": "vpn.session.updated", "sequence": 1},
+                    {"event": "vpn.session.updated", "sequence": 2},
+                ]
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.emitted: list[int] = []
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def emit(self, _event, payload, *, to, namespace) -> None:
+                self.emitted.append(int(payload["sequence"]))
+                state["authorized"] = False
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        runtime = Runtime()
+        runtime.gateway = Gateway()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = FakeServer()
+        native._subscriptions = {"socket-revoked-mid-batch": "subscription"}
+        native._session_ids = {"socket-revoked-mid-batch": "session"}
+        native._events_emitted_total = 0
+
+        asyncio.run(native._pump("socket-revoked-mid-batch", "subscription"))
+
+        self.assertEqual(native.server.emitted, [1])
+        self.assertEqual(
+            native.server.disconnected,
+            [("socket-revoked-mid-batch", "/telemetry")],
+        )
+        self.assertEqual(native._events_emitted_total, 1)
+
+    def test_socketio_subscribe_stops_a_polled_batch_when_capability_is_revoked(self) -> None:
+        from asgi import NativeSocketIO
+
+        state = {"authorized": True}
+
+        class Principal:
+            may_stream = True
+
+        class Runtime:
+            gateway = None
+
+            @staticmethod
+            def principal_for_session(_session_id: str) -> Principal | None:
+                return Principal() if state["authorized"] else None
+
+        class Gateway:
+            @staticmethod
+            def poll(_subscription: str, *, after_sequence=None) -> list[dict[str, object]]:
+                return [
+                    {"event": "vpn.session.updated", "sequence": 1},
+                    {"event": "vpn.session.updated", "sequence": 2},
+                ]
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.emitted: list[int] = []
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def emit(self, _event, payload, *, to, namespace) -> None:
+                self.emitted.append(int(payload["sequence"]))
+                state["authorized"] = False
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        runtime = Runtime()
+        runtime.gateway = Gateway()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = FakeServer()
+        native._subscriptions = {"socket-subscribe": "subscription"}
+        native._session_ids = {"socket-subscribe": "session"}
+        native._events_emitted_total = 0
+
+        response = asyncio.run(native.subscribe("socket-subscribe"))
+
+        self.assertEqual(native.server.emitted, [1])
+        self.assertEqual([item["sequence"] for item in response["frames"]], [1])
+        self.assertEqual(native._events_emitted_total, 1)
+        self.assertEqual(native.server.disconnected, [("socket-subscribe", "/telemetry")])
+
     def test_http_adapter_preserves_cookie_and_body_without_hop_by_hop_headers(self) -> None:
         request = DashboardHTTPASGI._request_bytes(
             {
