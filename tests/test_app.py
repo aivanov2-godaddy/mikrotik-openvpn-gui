@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import hashlib
 import io
+import inspect
 import json
 import re
 import tempfile
@@ -553,9 +554,33 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
             "/api/users/test-user/duplicate", "/api/alerts/1/ack",
         )
+        patch_routes = (
+            "/api/policy-templates/test-template", "/api/users/test-user",
+        )
+        delete_routes = (
+            "/api/admin/api-tokens/token-12345678", "/api/admin/sessions/session-1",
+            "/api/bulk/views/view-1", "/api/sessions/session-1", "/api/users/test-user",
+        )
+        mutation_routes = {
+            "POST": write_routes,
+            "PATCH": patch_routes,
+            "DELETE": delete_routes,
+        }
+        routes_by_method = {"GET": read_routes, **mutation_routes}
+
+        def persistent_local_state() -> dict[str, Any]:
+            store = self.server.context.store
+            return {
+                "audit": store.recent_audit(100),
+                "alerts": store.recent_alerts(100, include_acknowledged=True),
+                "views": store.saved_views(),
+                "tokens": store.list_api_tokens(include_revoked=True),
+            }
+
         self.cookie = ""
         self.csrf = ""
         before_mutations = list(self.mock.state.mutation_requests)
+        before_anonymous_state = persistent_local_state()
 
         for path in read_routes:
             with self.subTest(method="GET", path=path):
@@ -565,27 +590,52 @@ class DashboardIntegrationTests(unittest.TestCase):
                 self.assertNotIn(b"user-one", payload)
 
         body = json.dumps({}).encode("utf-8")
-        for path in write_routes:
-            with self.subTest(method="POST", path=path):
-                status, _, payload = self.request(
-                    "POST", path, body=body, headers={"Content-Type": "application/json"},
-                )
-                self.assertEqual(status, 401)
-                self.assertNotIn(b"routerpass", payload)
-                self.assertNotIn(b"user-one", payload)
+        for method, paths in mutation_routes.items():
+            for path in paths:
+                with self.subTest(method=method, path=path):
+                    status, _, payload = self.request(
+                        method, path, body=body, headers={"Content-Type": "application/json"},
+                    )
+                    self.assertEqual(status, 401)
+                    self.assertNotIn(b"routerpass", payload)
+                    self.assertNotIn(b"user-one", payload)
 
+        self.assertEqual(persistent_local_state(), before_anonymous_state)
         self.login()
-        for path in write_routes:
-            with self.subTest(method="POST without CSRF", path=path):
-                status, _, payload = self.request(
-                    "POST", path, body=body,
-                    headers={"Content-Type": "application/json", "Cookie": self.cookie},
-                )
-                self.assertEqual(status, 403)
-                self.assertNotIn(b"routerpass", payload)
-                self.assertNotIn(b"user-one", payload)
+        before_csrf_denials_state = persistent_local_state()
+        for method, paths in mutation_routes.items():
+            for path in paths:
+                with self.subTest(method=f"{method} without CSRF", path=path):
+                    status, _, payload = self.request(
+                        method, path, body=body,
+                        headers={"Content-Type": "application/json", "Cookie": self.cookie},
+                    )
+                    self.assertEqual(status, 403)
+                    self.assertNotIn(b"routerpass", payload)
+                    self.assertNotIn(b"user-one", payload)
 
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(persistent_local_state(), before_csrf_denials_state)
+
+        # Bind route inventory to the exact tuples exercised above. The current
+        # dispatch forms are either a literal equality or a raw-regex fullmatch;
+        # an alternate /api string form must update this guard explicitly.
+        for method, examples in routes_by_method.items():
+            source = inspect.getsource(getattr(DashboardHandler, f"do_{method}"))
+            all_api_strings = set(re.findall(r'["\'](/api/[^"\']+)["\']', source))
+            literal_routes = set(re.findall(r'path == "(/api/[^\"]+)"', source))
+            patterns = re.findall(r're\.fullmatch\(r"(/api/[^\"]+)"\s*,\s*path\)', source)
+            with self.subTest(method=method, route_inventory="dispatch forms"):
+                self.assertEqual(all_api_strings, literal_routes | set(patterns))
+            for path in literal_routes:
+                with self.subTest(method=method, literal=path):
+                    self.assertIn(path, examples)
+            for pattern in patterns:
+                with self.subTest(method=method, pattern=pattern):
+                    self.assertTrue(
+                        any(re.fullmatch(pattern, path) for path in examples),
+                        f"route pattern {pattern!r} has no executed anonymous/CSRF case",
+                    )
 
     def test_read_only_role_cannot_cross_audit_or_mutation_capability_boundaries(self) -> None:
         session = self.server.context.sessions.create(
