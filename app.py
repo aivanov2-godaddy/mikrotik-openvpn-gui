@@ -4185,6 +4185,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "certificate_name": str(certificate.get("name", "")),
                 "certificate_authority": str(certificate.get("certificate_authority", "")),
             })
+        store = self.server.context.store
+        controls = store.all_user_controls().get(username)
+        assignment = store.user_template_assignments().get(username)
+        local_metadata = {
+            "email": store.user_emails().get(username),
+            "controls": controls,
+            "policy_template": assignment,
+            "tags": sorted(store.user_tags(username), key=str.casefold),
+        }
         intent_digest = hashlib.sha256(json.dumps(
             {
                 "user": {
@@ -4194,6 +4203,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "disabled": bool(user.get("disabled")),
                 },
                 "devices": sorted(reviewed_devices, key=lambda item: item["device_id"]),
+                "local_metadata": local_metadata,
             },
             sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")).hexdigest()
@@ -4370,6 +4380,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             self.server.context.store.delete_user_email(username)
             self.server.context.store.delete_user_controls(username)
+            self.server.context.store.clear_policy_template_assignment(username)
+            self.server.context.store.remove_user_tags(username)
             self.server.context.store.audit(
                 actor=session.username,
                 action="user.delete",
