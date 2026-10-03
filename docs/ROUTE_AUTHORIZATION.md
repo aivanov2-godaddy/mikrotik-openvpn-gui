@@ -34,7 +34,10 @@ RouterOS mutation.
 
 Authenticated, non-mutating routes such as `GET /api/users` and review-only
 setup plans are session-gated; they do not imply RouterOS write permission.
-The diagnostics bundle is explicitly `health.read`-gated. Saved-view reads require `sessions.read`;
+The diagnostics bundle is explicitly `health.read`-gated. `/api/service-health`
+and `/api/setup-preflight` enforce that capability. `/api/status` and
+`/api/users` require a RouterOS-authenticated dashboard session and reject API
+tokens before contacting RouterOS. Saved-view reads require `sessions.read`;
 policy-template reads require `policies.read`. Browser-cookie mutations
 additionally require CSRF. API-token access is restricted by the token's
 stored scopes. Unknown roles fail closed through the central capability
