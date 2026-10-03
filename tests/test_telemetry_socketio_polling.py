@@ -99,6 +99,20 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
         self.assertEqual(frames[0][1]["sequence"], 1)
         self.assertNotIn(sid, self.bridge._clients)
 
+    def test_poll_closes_when_authenticated_session_expires(self) -> None:
+        result = self.bridge.handshake("session-1")
+        self.assertIsNotNone(result)
+        sid, _ = result
+        self.assertTrue(self.bridge.post(sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(self.bridge.gateway.client_count, 1)
+
+        # SessionStore returns None after idle/absolute expiry. The bridge
+        # must close the subscription rather than leave a stale SID alive.
+        self.bridge.principal_resolver = lambda _session_id: None
+        self.assertIsNone(self.bridge.poll(sid, "session-1"))
+        self.assertNotIn(sid, self.bridge._clients)
+        self.assertEqual(self.bridge.gateway.client_count, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
