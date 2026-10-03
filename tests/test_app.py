@@ -485,8 +485,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         users = self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
         target = next(item for item in users if item["name"] == "user-one")
         path = f"/api/policy-templates/{template['id']}/apply"
+        rationale = "Approved field-team network restrictions"
         status, _, payload = self.json_request(
-            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+            "POST", f"/api/policy-templates/{template['id']}/preview",
+            {"user_ids": [target["id"]], "reason": rationale},
         )
         self.assertEqual(status, 200)
         return path, target["id"], json.loads(payload)
@@ -3598,17 +3600,21 @@ class DashboardIntegrationTests(unittest.TestCase):
         template = json.loads(payload)["template"]
         users = self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
         target = next(item for item in users if item["name"] == "user-one")
+        rationale = "Approved field-team network restrictions"
         status, _, payload = self.json_request(
-            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+            "POST", f"/api/policy-templates/{template['id']}/preview",
+            {"user_ids": [target["id"]], "reason": rationale},
         )
         self.assertEqual(status, 200)
         preview = json.loads(payload)
+        self.assertEqual(preview["reason"], rationale)
         self.assertIn("rate_limit_kbps", preview["users"][0]["changes"])
         self.assertTrue(preview["review_token"])
 
         # Direct apply without a server-issued preview receipt is rejected.
         status, _, payload = self.json_request(
-            "POST", f"/api/policy-templates/{template['id']}/apply", {"user_ids": [target["id"]]},
+            "POST", f"/api/policy-templates/{template['id']}/apply",
+            {"user_ids": [target["id"]], "reason": rationale},
         )
         self.assertEqual(status, 409)
         self.assertIn("Preview the selected users again", json.loads(payload)["error"])
@@ -3618,12 +3624,14 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.mock.state.users[target["id"]]["profile"] = "manual-router-change"
         status, _, _ = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply",
-            {"user_ids": [target["id"]], "review_token": preview["review_token"]},
+            {"user_ids": [target["id"]], "reason": rationale,
+             "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 409)
         self.mock.state.users[target["id"]]["profile"] = original_profile
         status, _, payload = self.json_request(
-            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+            "POST", f"/api/policy-templates/{template['id']}/preview",
+            {"user_ids": [target["id"]], "reason": rationale},
         )
         self.assertEqual(status, 200)
         preview = json.loads(payload)
@@ -3632,19 +3640,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         other = next(item for item in users if item["id"] != target["id"])
         status, _, payload = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply",
-            {"user_ids": [target["id"], other["id"]], "review_token": preview["review_token"]},
+            {"user_ids": [target["id"], other["id"]], "reason": rationale,
+             "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 409)
         self.assertNotIn("user-one", self.server.context.store.user_template_assignments())
         status, _, payload = self.json_request(
-            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+            "POST", f"/api/policy-templates/{template['id']}/preview",
+            {"user_ids": [target["id"]], "reason": rationale},
         )
         self.assertEqual(status, 200)
         preview = json.loads(payload)
 
         status, _, payload = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply",
-            {"user_ids": [target["id"]], "review_token": preview["review_token"]},
+            {"user_ids": [target["id"]], "reason": rationale,
+             "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         result = json.loads(payload)
@@ -3654,9 +3665,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 10240)
         self.assertEqual(self.server.context.store.user_template_assignments()["user-one"]["template_id"], template["id"])
         self.assertIn("policy_template.apply", [item["action"] for item in self.server.context.store.recent_audit(10)])
+        apply_audit = next(item for item in self.server.context.store.recent_audit(10)
+                           if item["action"] == "policy_template.apply")
+        self.assertEqual(json.loads(apply_audit["details"])["rationale"], rationale)
         status, _, _ = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply",
-            {"user_ids": [target["id"]], "review_token": preview["review_token"]},
+            {"user_ids": [target["id"]], "reason": rationale,
+             "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 409)
 
@@ -3669,7 +3684,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             quota_mb=current["quota_mb"], schedule=current["schedule"],
         )
         status, _, payload = self.json_request(
-            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+            "POST", f"/api/policy-templates/{template['id']}/preview",
+            {"user_ids": [target["id"]], "reason": rationale},
         )
         self.assertEqual(status, 200)
         stale_review = json.loads(payload)["review_token"]
@@ -3682,10 +3698,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         status, _, payload = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply",
-            {"user_ids": [target["id"]], "review_token": stale_review},
+            {"user_ids": [target["id"]], "reason": rationale,
+             "review_token": stale_review},
         )
         self.assertEqual(status, 409)
         self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 4096)
+
+    def test_policy_template_review_binds_rationale(self) -> None:
+        self.login()
+        path, user_id, preview = self._policy_template_review()
+        status, _, payload = self.json_request(
+            "POST", path,
+            {"user_ids": [user_id], "reason": "Different approved policy purpose",
+             "review_token": preview["review_token"]},
+        )
+        self.assertEqual(status, 409)
+        self.assertNotIn("PATCH /ppp/secret/", self.mock.state.mutation_requests)
 
     def test_policy_template_review_binds_generated_rate_profile_state(self) -> None:
         self.login()
@@ -3695,7 +3723,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         }
 
         status, _, payload = self.json_request(
-            "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+            "POST", path, {"user_ids": [user_id], "reason": preview["reason"],
+                           "review_token": preview["review_token"]},
         )
 
         self.assertEqual(status, 409)
@@ -3708,7 +3737,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         path, user_id, preview = self._policy_template_review()
         with mock.patch.object(self.server.context.router, "update_user", side_effect=RouterOSError("router rejected update")):
             status, _, payload = self.json_request(
-                "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+                "POST", path, {"user_ids": [user_id], "reason": preview["reason"],
+                               "review_token": preview["review_token"]},
             )
         self.assertEqual(status, 200)
         result = json.loads(payload)
@@ -3730,7 +3760,8 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         with mock.patch.object(router, "update_user", side_effect=commit_then_lose_response):
             status, _, payload = self.json_request(
-                "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+                "POST", path, {"user_ids": [user_id], "reason": preview["reason"],
+                               "review_token": preview["review_token"]},
             )
         self.assertEqual(status, 200)
         result = json.loads(payload)
@@ -3750,7 +3781,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             side_effect=[initial_users, RouterOSError("read-back unavailable")],
         ):
             status, _, payload = self.json_request(
-                "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+                "POST", path, {"user_ids": [user_id], "reason": preview["reason"],
+                               "review_token": preview["review_token"]},
             )
         self.assertEqual(status, 200)
         result = json.loads(payload)

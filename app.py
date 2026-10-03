@@ -4009,6 +4009,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             requested = {str(value) for value in requested_ids if str(value)}
             if len(requested) != len(requested_ids):
                 raise ValueError("Each selected VPN user must be unique")
+            rationale = str(data.get("reason", "")).strip()
+            if not 12 <= len(rationale) <= 240 or any(ord(character) < 32 for character in rationale):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
             template = self.server.context.store.policy_template(template_id)
             if not template:
                 raise ValueError("Policy template was not found")
@@ -4046,6 +4049,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "template_id": template_id,
                     "template": template,
                     "users": review_basis,
+                    "rationale": rationale,
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -4057,6 +4061,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "template": template,
                     "users": preview,
                     "changed_users": sum(bool(item["changes"]) for item in preview),
+                    "reason": rationale,
                     "review_token": review_token,
                 })
                 return
@@ -4069,7 +4074,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     action="policy_template.apply",
                     target=template_id,
                     status="failed",
-                    details={"reason": "stale_or_missing_review"},
+                    details={"reason": "stale_or_missing_review", "rationale": rationale},
                 )
                 self._json(
                     {"error": "The reviewed template or user state has changed. Preview the selected users again before applying."},
@@ -4135,6 +4140,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 details={
                     "group": template["group_name"], "verified": len(applied),
                     "failed": failed, "unknown": unknown, "selected": len(preview),
+                    "rationale": rationale,
                 },
             )
             self._json({
@@ -4145,7 +4151,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, RouterOSError) as error:
             self.server.context.store.audit(
                 actor=session.username, action=f"policy_template.{action}", target=template_id,
-                status="failed", details={"reason": type(error).__name__},
+                status="failed", details={
+                    "reason": type(error).__name__,
+                    **({"rationale": str(data.get("reason", "")).strip()} if data.get("reason") else {}),
+                },
             )
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
