@@ -37,7 +37,7 @@ certificates, sessions, and traffic policy.
   filters; view definitions never enter the public image or repository.
 - Review one read-only service-health view for RouterOS REST, OpenVPN, profile issuing, certificate, storage, and capacity readiness with safe next steps.
 - Keep dashboard metadata and sanitized audit events in SQLite; do not store VPN passwords or private keys.
-- Deploy the same image on supported RouterOS container architectures: `arm64` is the validated target and `amd64` is available for CHR/x86 evaluation.
+- Deploy the immutable architecture-specific image: `arm64` is the observed production architecture; `amd64` is built and smoke-tested for CHR/x86 evaluation. The [compatibility matrix](docs/INSTALLATION.md#compatibility-and-support-matrix) distinguishes CI evidence from hardware verification.
 
 ### Enterprise operations foundations
 
