@@ -33,3 +33,32 @@ Certificate inventory treats RouterOS' `revoked` property as a revocation
 timestamp: any populated value means revoked, while an empty value or an
 explicit `no`/`false` means not revoked. This follows the current
 [MikroTik certificate reference](https://manual.mikrotik.com/docs/authentication-authorization-accounting/certificates/).
+
+## Management account and service exposure diagnostics
+
+The read-only Exposure Doctor reports derived facts about the signed-in
+RouterOS account, its group policy flags, and the `www`, `www-ssl`, `api`,
+`api-ssl`, `telnet`, `ftp`, `ssh`, and `winbox` service records. The RouterOS
+`/ip service` `address` property is a service-level source allowlist; MikroTik
+documents that non-matching connections are denied by the service, but also
+recommends firewall rules to block untrusted or external sources. Therefore a
+configured service allowlist is not reported as proof of the effective
+firewall/network boundary. The diagnostic deliberately leaves that check
+`unknown` until the input-chain and upstream policy are independently
+verified.
+
+RouterOS user-group `policy` flags are a coarse RouterOS permission boundary,
+not a per-dashboard-feature authorization map. The diagnostic shows only a
+small explanation of recognized effective flags; it does not recommend
+granting `write`, `policy`, or other broad permissions as a generic fix. If a
+new RouterOS version returns an unrecognized policy token or omits required
+fields, the permission posture is `unknown`, not a complete/verified result.
+Raw account, group, service, address, certificate, and firewall records are
+not included in the report.
+
+This interpretation follows MikroTik's primary references for
+[IP Services](https://help.mikrotik.com/docs/spaces/ROS/pages/103841820/Services)
+and [RouterOS users and groups](https://help.mikrotik.com/docs/spaces/ROS/pages/8978504/User).
+Because RouterOS service properties and permission behavior can vary by
+version, the diagnostic is advisory and read-only; verify effective access at
+the router and network boundary before treating exposure as resolved.
