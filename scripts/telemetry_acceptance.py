@@ -28,6 +28,10 @@ try:
 except ModuleNotFoundError:  # Imported as ``scripts.telemetry_acceptance`` in tests.
     from scripts.telemetry_baseline import summarize
 
+MIN_OBSERVATION_SECONDS = 1800
+MIN_SAMPLES = 30
+MAX_SAMPLE_GAP_SECONDS = 120
+
 
 def _source(path: str) -> TextIO:
     if path == "-":
@@ -66,6 +70,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
     out_of_order_events = 0
     sequence_evidence = 0
     counter_reset_evidence = 0
+    sample_timestamps: list[float] = []
     verification_records: list[dict[str, bool]] = []
     required_verifications = (
         "event_latency_measured",
@@ -86,6 +91,10 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         record_type = record.get("type", "sample")
         if record_type == "sample":
             samples.append(json.dumps(record, separators=(",", ":")))
+            if "observed_at" not in record:
+                failures.append("sample_timestamp_missing")
+            else:
+                sample_timestamps.append(_number(record["observed_at"], "observed_at"))
             if "event_sequence" in record:
                 raw_sequence = record["event_sequence"]
                 if isinstance(raw_sequence, bool) or not isinstance(raw_sequence, int) or raw_sequence < 0:
@@ -186,6 +195,36 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
             if not present:
                 failures.append(f"{name}_missing")
     decoded_samples = [json.loads(sample) for sample in samples]
+    timestamp_deltas = [
+        later - earlier for earlier, later in zip(sample_timestamps, sample_timestamps[1:])
+    ]
+    observation_window = (
+        sample_timestamps[-1] - sample_timestamps[0]
+        if len(sample_timestamps) >= 2 and all(delta >= 0 for delta in timestamp_deltas)
+        else 0.0
+    )
+    if len(samples) < MIN_SAMPLES:
+        failures.append("sample_count")
+    if len(sample_timestamps) != len(samples):
+        failures.append("sample_timestamp_coverage")
+    if any(delta <= 0 for delta in timestamp_deltas):
+        failures.append("sample_timestamps_not_increasing")
+    if observation_window < MIN_OBSERVATION_SECONDS:
+        failures.append("observation_window_too_short")
+    max_sample_gap = max(timestamp_deltas, default=0.0)
+    if max_sample_gap > MAX_SAMPLE_GAP_SECONDS:
+        failures.append("sample_gap_too_large")
+    if sequence_evidence < MIN_SAMPLES:
+        failures.append("event_sequence_coverage")
+    for field, gate in (
+        ("latency_ms", "latency_sample_coverage"),
+        ("event_age_seconds", "event_age_sample_coverage"),
+        ("router_cpu_percent", "router_cpu_sample_coverage"),
+        ("router_memory_percent", "router_memory_sample_coverage"),
+        ("router_storage_percent", "router_storage_sample_coverage"),
+    ):
+        if sum(field in sample for sample in decoded_samples) < MIN_SAMPLES:
+            failures.append(gate)
     for field, gate in (
         ("router_cpu_percent", "router_cpu_measurement_missing"),
         ("router_memory_percent", "router_memory_measurement_missing"),
@@ -221,6 +260,9 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         "counter_resets": counter_resets,
         "duplicate_events": duplicate_events,
         "out_of_order_events": out_of_order_events,
+        "sample_count": len(samples),
+        "observation_window_seconds": observation_window,
+        "max_sample_gap_seconds": max_sample_gap,
         "verification": verification,
     }
     return (0 if result["healthy"] else 1), result

@@ -56,7 +56,7 @@ For the complete acceptance report, combine resource samples with reconnect,
 ordering, counter-reset, and security checks:
 
 ```json
-{"type":"sample","transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
+{"type":"sample","observed_at":1728000000,"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
 {"type":"reconnect","recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
 {"type":"comparison","binary_matches_rest":true}
 {"type":"security","unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
@@ -66,6 +66,14 @@ ordering, counter-reset, and security checks:
 ```text
 python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
 ```
+
+Every sample requires `observed_at`, a non-negative Unix timestamp in seconds.
+The evaluator requires a timestamped 30-minute observation window, at least
+30 samples, no gap between adjacent samples over 120 seconds, and at least 30
+measurements each for event latency, traffic freshness, router CPU, memory,
+and storage. It also requires at least 30 sequenced events so event-integrity
+checks are based on more than a single observation. These minimums match the
+release acceptance collector's 30-minute soak and 30-health-sample floor.
 
 The command emits only aggregate metrics and failed gate names. It also
 requires at least one reconnect test, one security test, and one explicit

@@ -45,10 +45,10 @@ def acceptance_window(sample: dict[str, object]) -> list[str]:
 
 class TelemetryAcceptanceTests(unittest.TestCase):
     def test_complete_acceptance_window_passes(self) -> None:
-        code, result = evaluate(
-            records(
+        samples = [
                 {
                     "type": "sample",
+                    "observed_at": 1_728_000_000 + index * 60,
                     "transport": "binary",
                     "latency_ms": 180,
                     "event_age_seconds": 0.7,
@@ -56,13 +56,18 @@ class TelemetryAcceptanceTests(unittest.TestCase):
                     "router_memory_percent": 34,
                     "router_storage_percent": 12,
                     "container_healthy": True,
-                    "event_sequence": 101,
+                    "event_sequence": 101 + index,
                     "event_lost": False,
                     "event_duplicated": False,
                     "out_of_order": False,
-                    "counter_reset": True,
+                    "counter_reset": index == 0,
                     "counter_reset_recovered": True,
-                },
+                }
+                for index in range(31)
+            ]
+        code, result = evaluate(
+            records(
+                *samples,
                 {
                     "type": "reconnect",
                     "recovery_seconds": 4.2,
@@ -92,6 +97,48 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(result["healthy"])
         self.assertEqual(result["failed_gates"], [])
+        self.assertEqual(result["sample_count"], 31)
+        self.assertEqual(result["observation_window_seconds"], 1800)
+
+    def test_sparse_or_short_window_cannot_pass_sustained_slo(self) -> None:
+        code, result = evaluate(acceptance_window({
+            "type": "sample", "observed_at": 1_728_000_000,
+            "latency_ms": 100, "event_age_seconds": 0.5,
+            "router_cpu_percent": 22, "router_memory_percent": 34,
+            "router_storage_percent": 12, "event_sequence": 1,
+        }), limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertFalse(result["healthy"])
+        self.assertIn("sample_count", result["failed_gates"])
+        self.assertIn("observation_window_too_short", result["failed_gates"])
+        self.assertIn("latency_sample_coverage", result["failed_gates"])
+        self.assertIn("event_age_sample_coverage", result["failed_gates"])
+
+    def test_large_gap_in_otherwise_long_window_fails_coverage(self) -> None:
+        samples = [
+            {"type": "sample", "observed_at": 1_728_000_000 + index * 300,
+             "latency_ms": 100, "event_age_seconds": 0.5,
+             "router_cpu_percent": 22, "router_memory_percent": 34,
+             "router_storage_percent": 12, "event_sequence": index}
+            for index in range(7)
+        ]
+        window = records(
+            *samples,
+            {"type": "reconnect", "recovery_seconds": 1, "snapshot_recovered": True,
+             "api_interruption_tested": True, "rest_fallback_available": True},
+            {"type": "comparison", "binary_matches_rest": True},
+            {"type": "security", "unauthenticated_denied": True,
+             "secret_bearing_payload": False, "secret_free_logs": True},
+            {"type": "verification", "event_latency_measured": True,
+             "traffic_freshness_measured": True, "counter_reset_tested": True,
+             "event_integrity_tested": True, "binary_rest_parity_tested": True,
+             "secret_scan_complete": True},
+        )
+        code, result = evaluate(window, limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertIn("sample_gap_too_large", result["failed_gates"])
 
     def test_router_resource_measurements_are_required_individually(self) -> None:
         sample: dict[str, object] = {
