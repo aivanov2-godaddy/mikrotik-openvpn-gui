@@ -1176,7 +1176,24 @@ function renderBulkReview(payload) {
       const message = result.status === 'partial' ? 'Applied with partial failures; review the per-user results below.' : 'Bulk operation applied successfully.';
       bulkSetStatus(message, result.status === 'partial');
       toast(message, result.status === 'partial' ? 'error' : 'success');
-      setTimeout(() => location.reload(), 800);
+      const outcomes = node('ul', 'bulk-outcomes');
+      (result.outcomes || []).forEach((outcome) => {
+        const details = [];
+        if (outcome.disconnected) details.push(`${outcome.disconnected} disconnected`);
+        if (Number.isInteger(outcome.remaining_sessions)) details.push(`${outcome.remaining_sessions} remaining`);
+        if (Number.isInteger(outcome.revoked)) details.push(`${outcome.revoked} revoked`);
+        if (Number.isInteger(outcome.failed) && outcome.failed) details.push(`${outcome.failed} failed`);
+        if (Number.isInteger(outcome.unknown) && outcome.unknown) details.push(`${outcome.unknown} unverified`);
+        if (outcome.reason) details.push(String(outcome.reason).replaceAll('_', ' '));
+        outcomes.append(node('li', `bulk-outcome ${outcome.status || 'unknown'}`, `${outcome.username}: ${outcome.status || 'unknown'}${details.length ? ` · ${details.join(' · ')}` : ''}`));
+      });
+      const previous = $('[data-bulk-outcomes]', review);
+      previous?.remove();
+      outcomes.dataset.bulkOutcomes = 'true';
+      review.append(node('strong', '', 'RouterOS results'), outcomes);
+      apply.disabled = true;
+      await pollStatus();
+      applyBulkFilters();
     } catch (error) { bulkSetStatus(error.message, true); apply.disabled = false; }
   });
   const controls = node('div', 'bulk-review-controls');
@@ -1519,7 +1536,8 @@ $('#edit-form')?.addEventListener('submit', async (event) => {
       setStatus(form, 'Changes applied and verified on RouterOS.');
       toast('VPN user updated and verified on RouterOS.');
     }
-    setTimeout(() => location.reload(), 500);
+    form.closest('dialog')?.close();
+    await pollStatus();
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
 });
 

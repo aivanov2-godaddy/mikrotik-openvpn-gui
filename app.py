@@ -3360,9 +3360,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         if row["state"] == "already_suspended":
                             outcomes.append({"username": username, "status": "skipped", "reason": "already_suspended"})
                             continue
-                        self.server.context.router.update_user(credentials, user_id=user_id, disabled=True)
+                        mutation_error: RouterOSError | None = None
+                        try:
+                            self.server.context.router.update_user(credentials, user_id=user_id, disabled=True)
+                        except RouterOSError as error:
+                            mutation_error = error
+                        try:
+                            current_users = self.server.context.router.list_ovpn_users(credentials)
+                        except RouterOSError as error:
+                            outcomes.append({
+                                "username": username,
+                                "status": "unknown",
+                                "reason": type(error).__name__,
+                                "verification": "unavailable",
+                            })
+                            continue
+                        current_user = next(
+                            (item for item in current_users if str(item.get("id", "")) == user_id),
+                            None,
+                        )
+                        if current_user is None or not bool(current_user.get("disabled")):
+                            outcomes.append({
+                                "username": username,
+                                "status": "failed",
+                                "reason": "readback_mismatch" if mutation_error is None else type(mutation_error).__name__,
+                                "verification": "mismatch",
+                            })
+                            continue
+
                         disconnected = 0
-                        refreshed = []
+                        remaining: int | None = None
                         try:
                             for active in active_sessions:
                                 if str(active.get("name", "")) != username:
@@ -3374,10 +3401,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                     pass
                             refreshed = self.server.context.router.list_active_ovpn_sessions(credentials)
                             self.server.context.store.observe_sessions(refreshed)
+                            remaining = sum(1 for item in refreshed if str(item.get("name", "")) == username)
                         except RouterOSError:
                             pass
                         self.server.context.store.set_enforcement_state(username, "")
-                        outcomes.append({"username": username, "status": "applied", "disconnected": disconnected})
+                        outcomes.append({
+                            "username": username,
+                            "status": "partial" if remaining is None or remaining else "verified",
+                            "verification": "verified",
+                            "reconciled": mutation_error is not None,
+                            "disconnected": disconnected,
+                            "remaining_sessions": remaining,
+                        })
                     elif action == "revoke":
                         devices = self.server.context.store.devices_for_user(username)
                         revocable = [item for item in devices if not item.get("revoked_at") and item.get("certificate_id")]
@@ -3385,29 +3420,67 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             outcomes.append({"username": username, "status": "skipped", "reason": "no_active_profiles"})
                             continue
                         failed = 0
+                        unknown = 0
                         revoked = 0
+                        reconciled = False
                         for device in revocable:
+                            certificate_id = str(device["certificate_id"])
+                            mutation_error: RouterOSError | None = None
                             try:
-                                self.server.context.router.revoke_certificate(credentials, certificate_id=str(device["certificate_id"]))
+                                self.server.context.router.revoke_certificate(credentials, certificate_id=certificate_id)
+                            except RouterOSError as error:
+                                mutation_error = error
+                            reconciled = reconciled or mutation_error is not None
+                            try:
+                                certificates = self.server.context.router.list_ovpn_client_certificates(
+                                    credentials, include_legacy=True,
+                                )
+                            except RouterOSError as error:
+                                unknown += 1
+                                outcomes.append({
+                                    "username": username,
+                                    "status": "unknown",
+                                    "reason": type(error).__name__,
+                                    "verification": "unavailable",
+                                    "revoked": revoked,
+                                    "failed": failed,
+                                    "unknown": unknown,
+                                })
+                                break
+                            certificate = next(
+                                (item for item in certificates if str(item.get("id", "")) == certificate_id),
+                                None,
+                            )
+                            if certificate is not None and bool(certificate.get("revoked")):
                                 self.server.context.store.mark_revoked(str(device["id"]))
                                 revoked += 1
-                            except RouterOSError:
+                            else:
                                 failed += 1
-                        outcomes.append({"username": username, "status": "partial" if failed else "applied", "revoked": revoked, "failed": failed})
+                        else:
+                            outcomes.append({
+                                "username": username,
+                                "status": "partial" if failed else "verified",
+                                "verification": "verified" if not failed else "mismatch",
+                                "revoked": revoked,
+                                "failed": failed,
+                                "unknown": unknown,
+                                "reconciled": reconciled,
+                            })
                     else:
                         changed = self.server.context.store.add_user_tag(username, tag)
                         outcomes.append({"username": username, "status": "applied" if changed else "skipped", "reason": "already_tagged" if not changed else "tagged", "tag": tag})
                 except (RouterOSError, ValueError) as error:
                     outcomes.append({"username": username, "status": "failed", "reason": type(error).__name__})
-            failed = sum(1 for item in outcomes if item["status"] in {"failed", "partial"})
-            applied = sum(1 for item in outcomes if item["status"] == "applied")
+            failed = sum(1 for item in outcomes if item["status"] in {"failed", "partial", "unknown"})
+            applied = sum(1 for item in outcomes if item["status"] in {"applied", "verified"})
+            unknown = sum(1 for item in outcomes if item["status"] == "unknown")
             status = "partial" if failed else "success"
             self.server.context.store.audit(
                 actor=session.username,
                 action=f"bulk.{action}",
                 target="selected-users",
                 status=status,
-                details={"selected": len(requested), "applied": applied, "failed": failed, "tagged": tag if action == "tag" else ""},
+                details={"selected": len(requested), "applied": applied, "failed": failed, "unknown": unknown, "tagged": tag if action == "tag" else ""},
             )
             self._json({"ok": True, "action": action, "status": status, "selected": len(requested), "outcomes": outcomes})
         except (ValueError, RouterOSError) as error:
