@@ -56,7 +56,7 @@ For the complete acceptance report, combine resource samples with reconnect,
 ordering, counter-reset, and security checks:
 
 ```json
-{"type":"sample","transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
+{"type":"sample","transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
 {"type":"reconnect","recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
 {"type":"comparison","binary_matches_rest":true}
 {"type":"security","unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
@@ -75,6 +75,15 @@ memory, and storage measurement; missing values fail independently with
 `router_cpu_measurement_missing`, `router_memory_measurement_missing`, or
 `router_storage_measurement_missing`. A window without those observations or
 attestations cannot report pass.
+
+`event_sequence` is checked within an `event_epoch` (a non-negative integer
+identifying one telemetry-process sequence lifetime); omitted epochs default
+to `0`. Use a new epoch when the broker process restarts and its process-local
+sequence counter resets. Within an epoch, a repeated sequence is counted as a
+duplicate; a previously unseen value lower than the highest observed sequence
+is counted as out of order; a forward jump is event loss. Epoch changes are
+reported as boundaries, not as resets or gaps. These classifications describe
+the submitted evidence only and do not prove the capture itself is complete.
 
 ## Acceptance window
 
