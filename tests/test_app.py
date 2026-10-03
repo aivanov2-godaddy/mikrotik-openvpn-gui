@@ -311,9 +311,13 @@ class DashboardIntegrationTests(unittest.TestCase):
     def preview_profile(
         self, user_id: str, device_name: str, *, delivery: str = "zip", legacy_certificate: str = "",
     ) -> dict[str, Any]:
+        reason = "Approved additional device access"
         status, _, payload = self.json_request(
             "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles/preview",
-            {"device_name": device_name, "delivery": delivery, "legacy_certificate": legacy_certificate},
+            {
+                "device_name": device_name, "delivery": delivery,
+                "legacy_certificate": legacy_certificate, "reason": reason,
+            },
         )
         self.assertEqual(status, 200, payload.decode("utf-8"))
         return json.loads(payload)
@@ -1449,13 +1453,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, second_profile = self.json_request(
             "POST",
             f"/api/users/{urllib.parse.quote(maria_id, safe='*')}/profiles",
-            {"device_name": "Tablet", "key_passphrase": "tablet-passphrase", "delivery": "ovpn", "review_token": preview["review_token"]},
+            {"device_name": "Tablet", "reason": preview["reason"], "key_passphrase": "tablet-passphrase", "delivery": "ovpn", "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertNotIn(b"tablet-passphrase", second_profile)
         self.assertNotIn(b"redirect-gateway def1", second_profile)
         self.assertIn(b"dhcp-option DNS 1.1.1.1", second_profile)
         self.assertEqual(len(self.server.context.store.devices_for_user("maria")), 2)
+        profile_audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(json.loads(profile_audit["details"])["rationale"], preview["reason"])
         self.server.context.store.save_policy_template(
             template_id="template-reviewed", name="Reviewed", description="test",
             group_name="Test", controls={"policy": "full-tunnel"},
@@ -1693,7 +1699,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         ):
             status, _, payload = self.json_request(
                 "POST", path,
-                {"device_name": "Recovery phone", "key_passphrase": "private-file-passphrase", "delivery": "zip", "review_token": preview["review_token"]},
+                {"device_name": "Recovery phone", "reason": preview["reason"], "key_passphrase": "private-file-passphrase", "delivery": "zip", "review_token": preview["review_token"]},
             )
 
         response = json.loads(payload)
@@ -1730,7 +1736,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         ), mock.patch.object(self.server.context.router, "revoke_certificate"):
             status, _, payload = self.json_request(
                 "POST", path,
-                {"device_name": "Uncertain phone", "key_passphrase": "private-file-passphrase", "delivery": "zip", "review_token": preview["review_token"]},
+                {"device_name": "Uncertain phone", "reason": preview["reason"], "key_passphrase": "private-file-passphrase", "delivery": "zip", "review_token": preview["review_token"]},
             )
 
         response = json.loads(payload)
@@ -1752,6 +1758,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         serialized_preview = json.dumps(preview)
         self.assertEqual(preview["user"], "user-two")
         self.assertEqual(preview["device"], "Reviewed tablet")
+        self.assertEqual(preview["reason"], "Approved additional device access")
         self.assertNotIn("key_passphrase", serialized_preview)
         self.assertNotIn("private-file-passphrase", serialized_preview)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
@@ -1763,7 +1770,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.json_request(
             "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles",
             {
-                "device_name": "Reviewed tablet", "key_passphrase": "private-file-passphrase",
+                "device_name": "Reviewed tablet", "reason": preview["reason"], "key_passphrase": "private-file-passphrase",
                 "delivery": "zip", "review_token": preview["review_token"],
             },
         )
@@ -1772,6 +1779,34 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"private-file-passphrase", payload)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2"})
+
+    def test_profile_issue_requires_reason_and_binds_it_to_review(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        before_mutations = list(self.mock.state.mutation_requests)
+        status, _, payload = self.json_request(
+            "POST", path + "/preview", {"device_name": "Reviewed phone", "delivery": "zip"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Provide a reason", json.loads(payload)["error"])
+
+        preview = self.preview_profile(user["id"], "Reviewed phone")
+        changed_reason = {
+            "device_name": "Reviewed phone", "reason": "Different profile issuance reason",
+            "delivery": "zip", "key_passphrase": "private-file-passphrase",
+            "review_token": preview["review_token"],
+        }
+        status, _, payload = self.json_request("POST", path, changed_reason)
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "failed")
+        self.assertEqual(json.loads(audit["details"])["rationale"], "Different profile issuance reason")
 
     def test_profile_review_receipt_is_atomically_single_use_for_concurrent_apply(self) -> None:
         self.login()
@@ -1782,7 +1817,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         preview = self.preview_profile(user["id"], "Single issue tablet")
         path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
         request_data = {
-            "device_name": "Single issue tablet", "key_passphrase": "private-file-passphrase",
+            "device_name": "Single issue tablet", "reason": preview["reason"], "key_passphrase": "private-file-passphrase",
             "delivery": "zip", "review_token": preview["review_token"],
         }
         review_barrier = threading.Barrier(2)
@@ -2023,7 +2058,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, headers, payload = self.json_request(
             "POST",
             path,
-            {"device_name": "QR phone", "key_passphrase": "qr-passphrase", "delivery": "qr", "review_token": preview["review_token"]},
+            {"device_name": "QR phone", "reason": preview["reason"], "key_passphrase": "qr-passphrase", "delivery": "qr", "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
@@ -2035,7 +2070,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, replay_payload = self.json_request(
             "POST", path,
             {
-                "device_name": "QR phone", "key_passphrase": "qr-passphrase", "delivery": "qr",
+                "device_name": "QR phone", "reason": preview["reason"], "key_passphrase": "qr-passphrase", "delivery": "qr",
                 "review_token": preview["review_token"],
             },
         )
@@ -2084,7 +2119,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.json_request(
             "POST", f"/api/users/{urllib.parse.quote(user_one_id, safe='*')}/profiles",
             {
-                "device_name": "Replacement phone", "key_passphrase": "replacement-passphrase",
+                "device_name": "Replacement phone", "reason": preview["reason"], "key_passphrase": "replacement-passphrase",
                 "legacy_certificate": "legacy-user-one-phone", "delivery": "ovpn",
                 "review_token": preview["review_token"],
             },
@@ -2117,7 +2152,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.json_request(
             "POST",
             f"/api/users/{urllib.parse.quote(user_one_id, safe='*')}/profiles/preview",
-            {"device_name": "Blocked device", "delivery": "ovpn"},
+            {"device_name": "Blocked device", "delivery": "ovpn", "reason": "Approved replacement access"},
         )
         self.assertEqual(status, 400)
         self.assertIn("OpenVPN profile issuing is not configured", json.loads(payload)["error"])
