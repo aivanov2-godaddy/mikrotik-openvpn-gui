@@ -973,9 +973,72 @@ class RouterOSClient:
         finally:
             for file_id in generated_file_ids:
                 self._delete_file(credentials, file_id)
-            if certificate_id and not succeeded:
-                safe_cert_id = urllib.parse.quote(str(certificate_id), safe="*")
-                try:
-                    self._request("DELETE", f"/certificate/{safe_cert_id}", credentials)
-                except RouterOSError:
-                    pass
+            if not succeeded:
+                self._remove_uncommitted_certificate(
+                    credentials,
+                    certificate_name=certificate_name,
+                    certificate_id=certificate_id,
+                )
+
+    def _remove_uncommitted_certificate(
+        self,
+        credentials: RouterOSCredentials,
+        *,
+        certificate_name: str,
+        certificate_id: str | None,
+    ) -> None:
+        """Delete a partial profile certificate and verify it is absent."""
+        delete_error: RouterOSError | None = None
+        if certificate_id:
+            candidates = [{".id": certificate_id, "name": certificate_name}]
+        else:
+            try:
+                candidates = _records(
+                    self._request(
+                        "GET",
+                        "/certificate",
+                        credentials,
+                        query={"name": certificate_name, ".proplist": ".id,name"},
+                    )
+                )
+            except RouterOSError as error:
+                raise RouterOSError(
+                    "Provisioning failed and RouterOS certificate cleanup could not be verified; "
+                    "inspect the uniquely named partial certificate before retrying"
+                ) from error
+        candidates = [item for item in candidates if item.get("name") == certificate_name]
+        if len(candidates) > 1:
+            raise RouterOSError(
+                "Provisioning failed and multiple matching RouterOS certificates need manual review"
+            )
+        if candidates:
+            candidate_id = candidates[0].get(".id")
+            if not candidate_id:
+                raise RouterOSError(
+                    "Provisioning failed and the partial RouterOS certificate has no verifiable ID"
+                )
+            safe_cert_id = urllib.parse.quote(str(candidate_id), safe="*")
+            try:
+                self._request("DELETE", f"/certificate/{safe_cert_id}", credentials)
+            except RouterOSError as error:
+                delete_error = error
+
+        try:
+            remaining = _records(
+                self._request(
+                    "GET",
+                    "/certificate",
+                    credentials,
+                    query={"name": certificate_name, ".proplist": ".id,name"},
+                )
+            )
+        except RouterOSError as error:
+            raise RouterOSError(
+                "Provisioning failed and RouterOS certificate cleanup could not be verified; "
+                "inspect the uniquely named partial certificate before retrying"
+            ) from (delete_error or error)
+        if any(item.get("name") == certificate_name for item in remaining):
+            raise RouterOSError(
+                "Provisioning failed and a partial RouterOS certificate remains; "
+                "verify or remove it before retrying"
+            ) from delete_error
