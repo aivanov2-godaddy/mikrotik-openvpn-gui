@@ -19,6 +19,48 @@ generally establish a publicly trusted TLS connection to a raw IP address. A
 private/local IP can use a locally trusted CA only when that CA is installed on
 every client.
 
+## RouterOS management API and account boundary
+
+Keep the RouterOS management endpoint reachable only from the dashboard's
+private container network and explicitly trusted operator networks. Do not
+publish RouterOS REST, API, or API-SSL ports to the internet. Use the encrypted
+REST endpoint (`www-ssl`) and, when Binary API telemetry is enabled, the
+encrypted API endpoint (`api-ssl`); do not enable plain HTTP/REST or plain API
+for production. A RouterOS service `address` allowlist and a RouterOS user
+`address` restriction are useful layers, but neither proves the effective
+firewall or upstream network boundary. Verify the input-chain policy separately.
+
+The dashboard's **Connection Doctor → RouterOS access and exposure** check is
+read-only. It reports derived account/group/service facts, redacts source
+ranges and service ports, and deliberately marks firewall enforcement
+**unknown**. A restricted source field proves only that a restriction is
+configured, not that it matches the dashboard's actual source address or that
+the route is otherwise unreachable.
+
+RouterOS group policy flags are broad platform permissions, not per-dashboard
+feature scopes. The documented `read` flag grants configuration visibility;
+`write` permits configuration changes (except user management); `api` and
+`rest-api` permit their respective management transports. RouterOS documents
+that default groups include privileges beyond their names—for example, the
+default `read` group includes `reboot`, `test`, `sniff`, and `sensitive`.
+Prefer a reviewed custom group over assuming a built-in group's name describes
+its effective privileges. The dashboard's VPN management workflows need
+configuration read/write access, so its account is highly privileged even when
+the dashboard role is read-only. Dashboard roles limit application actions;
+they do not narrow the RouterOS account's platform permissions.
+
+This repository does **not** publish a copy-paste “minimum RouterOS group”
+recipe: the exact per-operation permission behavior must be exercised against
+each supported RouterOS release, including certificate and file operations,
+before claiming least privilege. Do not grant `full`, `policy`, or other broad
+permissions as a generic troubleshooting step. Treat missing/unsupported policy
+fields as unknown, and validate a proposed custom group on a non-production
+router or controlled canary before using it.
+
+References: [MikroTik User and group policies](https://help.mikrotik.com/docs/spaces/ROS/pages/8978504/User),
+[RouterOS REST API](https://help.mikrotik.com/docs/spaces/ROS/pages/47579162/REST%2BAPI),
+and [RouterOS Services](https://help.mikrotik.com/docs/spaces/ROS/pages/103841820/Services).
+
 ## Direct HTTPS with a domain
 
 Run a maintained TLS reverse proxy on a host or container that can reach the
