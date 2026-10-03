@@ -173,6 +173,18 @@ only targets dashboard-managed, currently active device certificates; it never
 changes the configured CA or server certificate. A retry reports already
 completed work as skipped rather than repeating it.
 
+Single-device certificate revocation first reads the current RouterOS
+certificate, then requires exact device-name confirmation and a reason-bound,
+session-bound review receipt. It revokes only that managed client certificate;
+it does not disconnect a tunnel already using it. If new-profile creation
+cannot save its local device record, the dashboard attempts to revoke the exact
+new certificate and verifies the RouterOS state before reporting recovery as
+verified. If recovery is reported `unknown`, do not retry profile creation yet:
+review **Device Profiles** and the RouterOS certificate inventory in WinBox,
+identify only the newly generated client certificate for that attempt, verify
+whether it is revoked, and reconcile the dashboard record before retrying. Do
+not remove or modify the CA or server certificate as cleanup.
+
 ## Policy template review and apply
 
 Preview selected users before applying a policy template. The server returns a
