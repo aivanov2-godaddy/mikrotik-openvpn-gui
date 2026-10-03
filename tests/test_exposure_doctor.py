@@ -84,6 +84,30 @@ class ExposureDoctorTests(unittest.TestCase):
         check = next(item for item in result["checks"] if item["id"] == "account-source")
         self.assertEqual(check["status"], "warning")
 
+    def test_address_scope_parsing_is_redacted_and_never_proves_firewall_boundary(self):
+        cases = (
+            ("192.0.2.8", "verified", "verified"),
+            ("192.0.2.0/24,198.51.100.4", "verified", "verified"),
+            ("2001:db8::1", "verified", "verified"),
+            ("2001:db8:1::/48,2001:db8:2::5", "verified", "verified"),
+            ("not-an-address", "unknown", "unknown"),
+            ("192.0.2.0/24,not-an-address", "unknown", "unknown"),
+            ("0.0.0.0/0", "warning", "warning"),
+            ("::/0", "warning", "warning"),
+        )
+        for address, account_status, service_status in cases:
+            with self.subTest(address=address):
+                values = self.inputs()
+                values["account"]["address"] = address
+                values["services"][0]["name"] = "ssh"
+                values["services"][0]["address"] = address
+                result = exposure_doctor_snapshot(**values)
+                checks = {item["id"]: item for item in result["checks"]}
+                self.assertEqual(checks["account-source"]["status"], account_status)
+                self.assertEqual(checks["service-ssh"]["status"], service_status)
+                self.assertEqual(checks["firewall-boundary"]["status"], "unknown")
+                self.assertNotIn(address, str(result))
+
 
 if __name__ == "__main__":
     unittest.main()
