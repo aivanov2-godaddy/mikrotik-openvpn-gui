@@ -944,7 +944,71 @@ function renderObservability(payload) {
       }) : [node('li', 'timeline-empty', 'No health observations yet. Refresh checks to start the timeline.')]));
     }
   }
+  const operationBody = $('[data-operations-timeline]');
+  const operations = Array.isArray(model.operations_timeline?.events) ? model.operations_timeline.events : [];
+  if (operationBody) {
+    const renderKey = JSON.stringify(operations.map((event) => [
+      event.id, event.occurred_at, event.source, event.type, event.actor,
+      event.target, event.outcome, event.severity, event.summary, event.age_seconds,
+    ]));
+    if (operationBody.dataset.renderKey !== renderKey) {
+      operationBody.dataset.renderKey = renderKey;
+      operationBody.replaceChildren(...(operations.length ? operations.map((event) => {
+        const row = node('tr');
+        row.dataset.operationRow = '';
+        row.dataset.operationType = String(event.type || 'other');
+        row.dataset.operationOutcome = String(event.outcome || 'unknown');
+        row.dataset.operationSeverity = String(event.severity || 'info');
+        row.dataset.operationCreated = String(Number(event.occurred_at) || 0);
+        row.dataset.operationSearch = [event.source, event.type, event.actor, event.target, event.outcome, event.summary]
+          .map((value) => String(value || '')).join(' ').toLocaleLowerCase();
+        const when = node('td');
+        when.append(node('time', '', formatObservationTime(event.occurred_at)));
+        when.append(node('small', 'table-secondary', `${Math.max(0, Number(event.age_seconds) || 0)}s ago`));
+        const description = node('td');
+        description.append(node('strong', '', event.summary || 'Event'));
+        description.append(node('small', 'table-secondary', event.source || 'unknown'));
+        const status = node('td');
+        status.append(node('span', `history-status ${event.severity || 'info'}`, String(event.outcome || 'unknown').replace(/\b\w/g, (letter) => letter.toUpperCase())));
+        row.append(when, description, node('td', '', event.target || '—'), node('td', '', event.actor || '—'), status);
+        return row;
+      }) : [(() => { const row = node('tr'); const cell = node('td', 'table-empty', 'No operations have been observed yet.'); cell.colSpan = 5; row.append(cell); return row; })()]));
+      const coverage = $('.operations-timeline-panel .history-coverage-note');
+      if (coverage && model.operations_timeline?.coverage?.message) coverage.textContent = model.operations_timeline.coverage.message;
+      applyOperationsFilters();
+    }
+  }
 }
+
+function applyOperationsFilters() {
+  const query = $('[data-operation-search]')?.value.trim().toLocaleLowerCase() || '';
+  const type = $('[data-operation-type-filter]')?.value || 'all';
+  const outcome = $('[data-operation-outcome-filter]')?.value || 'all';
+  const fromValue = $('[data-history-from]')?.value || '';
+  const toValue = $('[data-history-to]')?.value || '';
+  const from = fromValue ? new Date(`${fromValue}T00:00:00`).getTime() / 1000 : null;
+  const to = toValue ? new Date(`${toValue}T00:00:00`).getTime() / 1000 + 86400 : null;
+  const rows = $$('[data-operation-row]');
+  let visible = 0;
+  rows.forEach((row) => {
+    const created = Number(row.dataset.operationCreated || 0);
+    const matches = (!query || row.dataset.operationSearch.includes(query))
+      && (type === 'all' || row.dataset.operationType === type)
+      && (outcome === 'all' || row.dataset.operationOutcome === outcome || row.dataset.operationSeverity === outcome)
+      && (from === null || created >= from)
+      && (to === null || created < to);
+    row.classList.toggle('is-filtered-out', !matches);
+    if (matches) visible += 1;
+  });
+  const count = $('[data-operation-count]');
+  if (count) count.textContent = `${visible} shown · ${rows.length} loaded`;
+}
+
+['[data-operation-search]', '[data-operation-type-filter]', '[data-operation-outcome-filter]', '[data-history-from]', '[data-history-to]']
+  .forEach((selector) => {
+    const control = $(selector);
+    control?.addEventListener(control.matches('input[type="search"]') ? 'input' : 'change', applyOperationsFilters);
+  });
 
 async function refreshServiceHealth() {
   const button = $('[data-service-health-refresh]');

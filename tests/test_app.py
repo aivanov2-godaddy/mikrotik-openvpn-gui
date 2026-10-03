@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, container_image_target, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from security import LoginRateLimiter, SessionStore
@@ -54,6 +54,34 @@ class ContainerImageTargetTests(unittest.TestCase):
         self.assertFalse(result["supported"])
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["image_suffix"])
+
+
+class OperationsTimelineTests(unittest.TestCase):
+    def test_join_is_ordered_redacted_and_explicitly_incomplete(self) -> None:
+        result = operations_timeline(
+            [{
+                "created_at": 90, "actor": "owner", "action": "user.create",
+                "target": "alice", "status": "success", "details": '{"password":"secret"}',
+            }],
+            [{
+                "id": 4, "created_at": 95, "version": "1.2.3", "revision": "abc",
+                "status": "running", "channel": "canary", "details": '{"token":"secret"}',
+            }],
+            [{
+                "id": 8, "created_at": 100, "overall": "warning", "healthy_count": 3,
+                "warning_count": 1, "unavailable_count": 0, "checks": '["private"]',
+            }],
+            now=110,
+        )
+        self.assertEqual([item["source"] for item in result["events"]], [
+            "health checks", "deployment ledger", "dashboard audit",
+        ])
+        self.assertEqual([item["age_seconds"] for item in result["events"]], [10, 15, 20])
+        self.assertEqual(result["events"][-1]["type"], "change")
+        self.assertFalse(result["coverage"]["complete"])
+        serialized = json.dumps(result)
+        self.assertNotIn("secret", serialized)
+        self.assertNotIn("private", serialized)
 
 
 class DevicePostureTests(unittest.TestCase):
@@ -373,7 +401,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'data-view="audit-log"', page)
         self.assertIn(b"Change History", page)
 
-        self.assertIn(b"not a complete RouterOS telemetry timeline", page)
+        self.assertIn(b"not a complete durable history", page)
         self.assertIn(b"up to 100 entries \xc2\xb7 audit only", page)
         self.assertIn(b'data-history-category aria-label="Filter history by event"', page)
         self.assertIn(b'data-history-outcome aria-label="Filter history by outcome"', page)
@@ -536,6 +564,24 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("vpn-change-history.json", headers["content-disposition"])
         self.assertIn("entries", json.loads(payload))
 
+        self.server.context.store.audit(
+            actor="timeline-operator", action="user.create", target="timeline-user",
+            status="success", details={"password": "must-not-export"},
+        )
+        status, headers, payload = self.request(
+            "GET", "/api/operations-timeline.json?from=2000-01-01&to=2100-01-01"
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("vpn-operations-timeline.json", headers["content-disposition"])
+        timeline = json.loads(payload)
+        self.assertFalse(timeline["coverage"]["complete"])
+        self.assertTrue(any(item["source"] == "dashboard audit" for item in timeline["events"]))
+        self.assertNotIn(b"must-not-export", payload)
+
+        status, _, payload = self.request("GET", "/api/operations-timeline.json?from=invalid")
+        self.assertEqual(status, 400)
+        self.assertEqual(json.loads(payload)["error"], "from must be a date in YYYY-MM-DD format")
+
         status, _, payload = self.request("GET", "/api/audit.csv?from=not-a-date")
         self.assertEqual(status, 400)
         self.assertEqual(json.loads(payload)["error"], "from must be a date in YYYY-MM-DD format")
@@ -595,7 +641,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/release/verify", "/api/policy-templates", "/api/users",
             "/api/bulk/views", "/api/status", "/api/service-health",
             "/api/observability", "/api/setup-preflight", "/api/audit.csv",
-            "/api/audit.json", "/api/backups/metadata.zip", "/api/connections.csv",
+            "/api/audit.json", "/api/operations-timeline.json", "/api/backups/metadata.zip", "/api/connections.csv",
             "/api/usage.csv", "/metrics", "/api/events",
         )
         write_routes = (
@@ -704,6 +750,11 @@ class DashboardIntegrationTests(unittest.TestCase):
             "viewer", "routerpass", role="read_only", source_address="127.0.0.1",
         )
         cookie = f"vpn_session={session.session_id}"
+        status, _, payload = self.request("GET", "/api/observability", headers={"Cookie": cookie})
+        self.assertEqual(status, 200)
+        operations = json.loads(payload)["operations_timeline"]["events"]
+        self.assertFalse(any(item["source"] == "dashboard audit" for item in operations))
+        self.assertFalse(any(item.get("actor") for item in operations))
         csrf_headers = {
             "Content-Type": "application/json",
             "Cookie": cookie,
@@ -712,7 +763,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         before_mutations = list(self.mock.state.mutation_requests)
 
         for path in (
-            "/api/admin/api-tokens", "/api/audit.csv", "/api/audit.json",
+            "/api/admin/api-tokens", "/api/audit.csv", "/api/audit.json", "/api/operations-timeline.json",
             "/api/reports/compliance.zip", "/api/backups/metadata.zip",
         ):
             with self.subTest(method="GET", path=path):

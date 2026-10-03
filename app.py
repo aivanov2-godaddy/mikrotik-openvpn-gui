@@ -71,6 +71,86 @@ API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read"})
 API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 
 
+def operations_timeline(
+    audit: list[dict[str, Any]],
+    deployments: list[dict[str, Any]],
+    health: list[dict[str, Any]],
+    *,
+    now: int | None = None,
+) -> dict[str, Any]:
+    """Join bounded, already-redacted dashboard ledgers without implying completeness."""
+    generated_at = int(time.time() if now is None else now)
+    events: list[dict[str, Any]] = []
+    for item in audit:
+        occurred_at = int(item.get("created_at", 0) or 0)
+        if occurred_at <= 0:
+            continue
+        action = str(item.get("action", "change"))[:80]
+        outcome = str(item.get("status", "unknown"))[:24]
+        events.append({
+            "id": f"audit:{occurred_at}:{action}:{len(events)}",
+            "occurred_at": occurred_at,
+            "source": "dashboard audit",
+            "type": "change",
+            "actor": str(item.get("actor", ""))[:64],
+            "target": str(item.get("target", ""))[:96],
+            "outcome": outcome,
+            "severity": "warning" if outcome in {"failed", "denied", "unknown", "partial"} else "info",
+            "summary": action.replace(".", " ").replace("_", " ").capitalize(),
+        })
+    for item in deployments:
+        occurred_at = int(item.get("created_at", 0) or 0)
+        if occurred_at <= 0:
+            continue
+        outcome = str(item.get("status", "unknown"))[:24]
+        events.append({
+            "id": f"deployment:{item.get('id', occurred_at)}",
+            "occurred_at": occurred_at,
+            "source": "deployment ledger",
+            "type": "deployment",
+            "actor": "",
+            "target": str(item.get("channel", "runtime"))[:32],
+            "outcome": outcome,
+            "severity": "warning" if outcome in {"failed", "unknown", "partial"} else "info",
+            "summary": f"Release {str(item.get('version', 'unknown'))[:48]} · {outcome}",
+        })
+    for item in health:
+        occurred_at = int(item.get("created_at", 0) or 0)
+        if occurred_at <= 0:
+            continue
+        outcome = str(item.get("overall", "unavailable"))[:24]
+        events.append({
+            "id": f"health:{item.get('id', occurred_at)}",
+            "occurred_at": occurred_at,
+            "source": "health checks",
+            "type": "health",
+            "actor": "",
+            "target": "dashboard and RouterOS readiness",
+            "outcome": outcome,
+            "severity": "warning" if outcome != "healthy" else "info",
+            "summary": (
+                f"{int(item.get('healthy_count', 0) or 0)} healthy · "
+                f"{int(item.get('warning_count', 0) or 0)} review · "
+                f"{int(item.get('unavailable_count', 0) or 0)} unavailable"
+            ),
+        })
+    events.sort(key=lambda item: (item["occurred_at"], item["id"]), reverse=True)
+    bounded = events[:150]
+    for event in bounded:
+        event["age_seconds"] = max(0, generated_at - event["occurred_at"])
+    return {
+        "events": bounded,
+        "generated_at": generated_at,
+        "coverage": {
+            "complete": False,
+            "message": (
+                "Bounded dashboard audit, health, and deployment observations only. "
+                "RouterOS session/traffic events are live telemetry, not a durable full-history feed; gaps are possible."
+            ),
+        },
+    }
+
+
 def container_image_target(architecture: Any) -> dict[str, Any]:
     """Describe the published image target for a RouterOS architecture.
 
@@ -871,9 +951,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # store is temporarily locked or read-only.
             print(f"health timeline write unavailable reason={type(error).__name__}")
 
-    def _observability(self) -> dict[str, Any]:
+    def _observability(self, *, include_audit: bool = False) -> dict[str, Any]:
         """Return local deployment history, health timeline, and rollback state."""
         events = self.server.context.store.recent_deployment_events(20)
+        health_timeline = self.server.context.store.recent_health_snapshots(30)
+        operations = operations_timeline(
+            self.server.context.store.recent_audit(100) if include_audit else [],
+            events,
+            health_timeline,
+        )
         current = {
             "version": self.server.context.release_version,
             "revision": self.server.context.release_revision,
@@ -890,7 +976,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return {
             "current": current,
             "deployments": events,
-            "health_timeline": self.server.context.store.recent_health_snapshots(30),
+            "health_timeline": health_timeline,
+            "operations_timeline": operations,
             "rollback": {
                 "available": bool(previous),
                 "revision": previous.get("revision") if previous else None,
@@ -1105,7 +1192,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "role_label": role_label(session.role),
                         "capabilities": sorted(role_capabilities(session.role)),
                         "router": router,
-                        "observability": self._observability(),
+                        "observability": self._observability(
+                            include_audit=self._capability_allowed(session, "audit.read")
+                        ),
                         "telemetry": {"protocol_version": 1, **self._telemetry_status()},
                         "generated_at": int(time.time()),
                     }
@@ -1123,7 +1212,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session = self._require_session(api=True)
             if not session:
                 return
-            self._json(self._observability())
+            self._json(self._observability(
+                include_audit=self._capability_allowed(session, "audit.read")
+            ))
             return
         if path == "/api/setup-preflight":
             session = self._require_session(api=True)
@@ -1251,6 +1342,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             rows = self.server.context.store.recent_audit(100, start_at=start_at, end_at=end_at)
             self._json_download("vpn-change-history.json", {"entries": rows, "generated_at": int(time.time())})
+            return
+        if path == "/api/operations-timeline.json":
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "audit.read"):
+                return
+            try:
+                start_at, end_at = self._report_range(query)
+            except ValueError as error:
+                self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+                return
+            store = self.server.context.store
+            report = operations_timeline(
+                store.recent_audit(100, start_at=start_at, end_at=end_at),
+                store.recent_deployment_events(20),
+                store.recent_health_snapshots(30),
+            )
+            report["events"] = [
+                item for item in report["events"]
+                if (start_at is None or item["occurred_at"] >= start_at)
+                and (end_at is None or item["occurred_at"] < end_at)
+            ]
+            self._json_download("vpn-operations-timeline.json", report)
             return
         if path == "/api/backups/metadata.zip":
             session = self._require_session(api=True)
@@ -1517,7 +1630,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 router_dns=self.server.context.config.topology.router_dns,
                 access_layer_label=self.server.context.config.access_layer_label,
                 health=health,
-                observability=self._observability(),
+                observability=self._observability(
+                    include_audit=self._capability_allowed(session, "audit.read")
+                ),
             )
         )
 

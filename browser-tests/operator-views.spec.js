@@ -121,3 +121,39 @@ test('diagnostic ZIP can be previewed and downloaded only on explicit keyboard a
   expect(accessibility.violations.filter(({ impact }) => ['critical', 'serious'].includes(impact)))
     .toEqual([]);
 });
+
+test('operations timeline filters bounded observations and labels its coverage', async ({ page }) => {
+  await page.getByRole('link', { name: 'Change History', exact: true }).click();
+  const panel = page.locator('.operations-timeline-panel');
+  await expect(panel.getByText('Operations timeline', { exact: true })).toBeVisible();
+  await expect(panel.locator('.history-coverage-note')).toContainText('gaps are possible');
+  const type = panel.getByLabel('Filter timeline by event type');
+  await type.selectOption('health');
+  const visibleRows = panel.locator('[data-operation-row]:visible');
+  await expect(visibleRows.first()).toBeVisible();
+  await expect.poll(() => visibleRows.evaluateAll((rows) => rows.every((row) => row.dataset.operationType === 'health')))
+    .toBe(true);
+  await panel.getByLabel('Search operations timeline').fill('no-such-event');
+  await expect(panel.locator('[data-operation-count]')).toContainText('0 shown');
+
+  const report = await page.evaluate(async () => {
+    const response = await fetch('/api/operations-timeline.json?from=2000-01-01&to=2100-01-01');
+    return {
+      ok: response.ok,
+      disposition: response.headers.get('content-disposition'),
+      body: await response.json(),
+    };
+  });
+  expect(report.ok).toBeTruthy();
+  expect(report.disposition).toContain('vpn-operations-timeline.json');
+  const body = report.body;
+  expect(body.coverage.complete).toBe(false);
+  expect(body.events.every((event) => !('details' in event))).toBe(true);
+
+  const accessibility = await new AxeBuilder({ page })
+    .include('.operations-timeline-panel')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(accessibility.violations.filter(({ impact }) => ['critical', 'serious'].includes(impact)))
+    .toEqual([]);
+});
