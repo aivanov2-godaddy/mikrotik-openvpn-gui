@@ -359,6 +359,51 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertEqual(body.count(b"event: status"), 1)
 
+    def test_sse_stops_emitting_when_idle_session_expires(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id)
+        self.assertIsNotNone(session)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+
+        def expire_after_first_event(_seconds: float) -> None:
+            # Make the session's last activity deterministically older than
+            # SessionStore's idle timeout; the next SSE authorization check
+            # must expire and remove it before another frame is written.
+            session.last_seen = 0
+
+        with mock.patch("app.time.sleep", side_effect=expire_after_first_event):
+            connection.request("GET", "/api/events", headers={"Cookie": self.cookie})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertEqual(body.count(b"event: status"), 1)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
+    def test_sse_stops_emitting_when_absolute_session_lifetime_expires(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id)
+        self.assertIsNotNone(session)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+
+        def expire_after_first_event(_seconds: float) -> None:
+            # Simulate an absolute lifetime older than SessionStore's limit,
+            # while leaving last_seen recent so only the absolute check fires.
+            session.created_at = 0
+
+        with mock.patch("app.time.sleep", side_effect=expire_after_first_event):
+            connection.request("GET", "/api/events", headers={"Cookie": self.cookie})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertEqual(body.count(b"event: status"), 1)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
     def test_sse_stops_when_effective_session_capability_is_narrowed(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
