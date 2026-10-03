@@ -12,10 +12,15 @@ inventory. A certificate that has expired creates a critical alert. A
 certificate with 30 days or less remaining creates a warning. Alerts include
 only the certificate name, expiry timestamp, and the safe replacement action.
 
-The dashboard deduplicates the same alert for one hour, so the live five-second
-poll does not fill the database with duplicates. Use **Acknowledge** after the
-replacement profile has been issued and the old certificate has been revoked.
-The check is read-only: it never changes RouterOS certificates automatically.
+The dashboard deduplicates the same alert for one hour and caps each alert
+action at ten new notifications per minute, so repeated live polls and bursts
+across many targets do not overwhelm the alert list. Alert throttling applies
+only to actionable alerts; it does not alter the durable audit or integration
+outbox paths. Alert targets remain in the authenticated dashboard alert record
+and are not emitted as metric labels or log fields. Use **Acknowledge** after
+the replacement profile has been issued and the old certificate has been
+revoked. The check is read-only: it never changes RouterOS certificates
+automatically.
 
 ## Operational guarantees
 

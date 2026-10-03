@@ -16,6 +16,11 @@ from typing import Any, Callable, Iterator
 from event_safety import sanitize_payload
 
 
+ALERT_DEDUP_WINDOW_SECONDS = 3600
+ALERT_RATE_LIMIT_WINDOW_SECONDS = 60
+ALERT_RATE_LIMIT_MAX = 10
+
+
 class MetadataStore:
     """Stores audit/device metadata only. Password columns intentionally do not exist."""
 
@@ -745,9 +750,15 @@ class MetadataStore:
                 WHERE action=? AND target=? AND acknowledged=0 AND created_at>?
                 LIMIT 1
                 """,
-                (action, target, created - 3600),
+                (action, target, created - ALERT_DEDUP_WINDOW_SECONDS),
             ).fetchone()
             if duplicate:
+                return False
+            recent_count = connection.execute(
+                "SELECT COUNT(*) FROM alerts WHERE action=? AND created_at>?",
+                (action, created - ALERT_RATE_LIMIT_WINDOW_SECONDS),
+            ).fetchone()[0]
+            if int(recent_count) >= ALERT_RATE_LIMIT_MAX:
                 return False
             connection.execute(
                 """
