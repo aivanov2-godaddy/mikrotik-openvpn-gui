@@ -104,6 +104,55 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         )
         self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
 
+    def test_missing_sequence_inside_replay_window_recovers_with_snapshot(self) -> None:
+        subscription = self.gateway.open(self.principal)
+        first = self.broker.apply(
+            RouterOSReply("re", {".id": "*1", "name": "first"}), now=101
+        )
+        self.broker.apply(
+            RouterOSReply("re", {".id": "*2", "name": "second"}), now=102
+        )
+        third = self.broker.apply(
+            RouterOSReply("re", {".id": "*3", "name": "third"}), now=103
+        )
+        # Model a lost delivery batch while later batches still reach the
+        # gateway; the retained buffer has an interior gap, not a stale head.
+        self.gateway.publish([*first, *third])
+
+        frames = self.gateway.poll(subscription, after_sequence=0)
+
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0]["event"], "telemetry.snapshot")
+        self.assertEqual(frames[0]["sequence"], self.broker.sequence)
+        self.assertEqual(
+            {session["name"] for session in frames[0]["payload"]["sessions"]},
+            {"first", "second", "third"},
+        )
+        self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
+
+    def test_out_of_order_published_batches_replay_in_sequence_order(self) -> None:
+        gateway = TelemetryGatewayContract(
+            self.broker,
+            clock=lambda: 100,
+            monotonic_clock=lambda: self.monotonic[0],
+            max_replay=8,
+        )
+        subscription = gateway.open(self.principal)
+        first = self.broker.apply(
+            RouterOSReply("re", {".id": "*1", "name": "first"}), now=101
+        )
+        second = self.broker.apply(
+            RouterOSReply("re", {".id": "*2", "name": "second"}), now=102
+        )
+        gateway.publish(second)
+        gateway.publish(first)
+
+        frames = gateway.poll(subscription, after_sequence=0)
+
+        self.assertEqual([frame["sequence"] for frame in frames], [1, 2])
+        self.assertEqual([frame["payload"]["name"] for frame in frames], ["first", "second"])
+        self.assertEqual(gateway.metrics()["snapshot_recoveries"], 0)
+
     def test_counter_reset_frames_are_supported_and_redacted(self) -> None:
         subscription = self.gateway.open(self.principal)
         self.gateway.publish(
