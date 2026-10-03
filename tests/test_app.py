@@ -197,6 +197,23 @@ class DashboardIntegrationTests(unittest.TestCase):
             headers["X-CSRF-Token"] = self.csrf
         return self.request(method, path, body=json.dumps(value or {}).encode(), headers=headers)
 
+    def test_sse_stops_emitting_when_server_session_is_revoked(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+
+        def revoke_after_first_event(_seconds: float) -> None:
+            self.server.context.sessions.destroy(session_id)
+
+        with mock.patch("app.time.sleep", side_effect=revoke_after_first_event):
+            connection.request("GET", "/api/events", headers={"Cookie": self.cookie})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertEqual(body.count(b"event: status"), 1)
+
     def _managed_device_revoke_request(self) -> tuple[str, str]:
         self.login()
         device_id = "managed-device-revoke-test"
