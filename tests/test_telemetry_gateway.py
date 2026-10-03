@@ -83,6 +83,27 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         self.assertEqual(metrics["replayed_events"], 0)
         self.assertNotIn("subscription_id", str(metrics))
 
+    def test_cursor_from_a_previous_process_epoch_recovers_with_current_snapshot(self) -> None:
+        subscription = self.gateway.open(self.principal)
+        events = self.broker.apply(
+            RouterOSReply("re", {".id": "*1", "name": "current-user"}),
+            now=101,
+        )
+        self.gateway.publish(events)
+
+        # The current broker only knows sequence 1; sequence 50 belongs to a
+        # previous process epoch and must not make the client wait forever.
+        frames = self.gateway.poll(subscription, after_sequence=50)
+
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0]["event"], "telemetry.snapshot")
+        self.assertEqual(frames[0]["sequence"], self.broker.sequence)
+        self.assertEqual(
+            [session["name"] for session in frames[0]["payload"]["sessions"]],
+            ["current-user"],
+        )
+        self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
+
     def test_counter_reset_frames_are_supported_and_redacted(self) -> None:
         subscription = self.gateway.open(self.principal)
         self.gateway.publish(
