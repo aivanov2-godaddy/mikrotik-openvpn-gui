@@ -1865,7 +1865,7 @@ function showTemplatePreview(form, payload) {
   const preview = $('[data-template-preview]', form);
   const affected = payload.users.filter((user) => user.changes.length);
   const safe = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-  preview.innerHTML = `<strong>${safe(payload.template.name)} preview</strong><small>${affected.length} of ${payload.users.length} selected user(s) will change.</small><ul>${payload.users.map((user) => `<li><b>${safe(user.username)}</b><span>${user.changes.length ? safe(user.changes.join(', ')) : 'Already matches'}</span></li>`).join('')}</ul>`;
+  preview.innerHTML = `<strong>${safe(payload.template.name)} preview</strong><small>${affected.length} of ${payload.users.length} selected user(s) will change. Reason: ${safe(payload.reason)}.</small><ul>${payload.users.map((user) => `<li><b>${safe(user.username)}</b><span>${user.changes.length ? safe(user.changes.join(', ')) : 'Already matches'}</span></li>`).join('')}</ul>`;
   preview.hidden = false;
   form.dataset.policyReviewToken = payload.review_token || '';
   $('[data-template-apply-button]', form).disabled = false;
@@ -1893,7 +1893,7 @@ $('[data-template-preview-button]')?.addEventListener('click', async () => {
   setBusy(form, true);
   setStatus(form, 'Comparing selected users with the template…');
   try {
-    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/preview`, { method: 'POST', body: { user_ids: userIds } }));
+    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/preview`, { method: 'POST', body: { user_ids: userIds, reason: form.elements.reason.value } }));
     showTemplatePreview(form, await response.json());
     setStatus(form, 'Review the list, then apply if it is correct.');
   } catch (error) { setStatus(form, error.message, true); }
@@ -1909,13 +1909,17 @@ $('[data-template-apply]')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Creating a RouterOS checkpoint and applying the reviewed policy…');
   try {
-    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/apply`, { method: 'POST', body: { user_ids: userIds, review_token: form.dataset.policyReviewToken || '' } }));
+    const response = await resultOrError(await api(`/api/policy-templates/${encodeURIComponent(templateId)}/apply`, { method: 'POST', body: { user_ids: userIds, reason: form.elements.reason.value, review_token: form.dataset.policyReviewToken || '' } }));
     const payload = await response.json();
     clearTemplatePreview(form);
     setStatus(form, `Applied to ${payload.selected} selected user(s).`);
     toast('Policy template applied and recorded in Change History.');
     setTimeout(() => location.reload(), 700);
   } catch (error) { clearTemplatePreview(form); setStatus(form, error.message, true); setBusy(form, false); }
+});
+
+$('[data-template-apply]')?.addEventListener('input', (event) => {
+  if (event.target.matches('[name="reason"]')) clearTemplatePreview(event.currentTarget);
 });
 
 $('#terminate-form')?.addEventListener('submit', async (event) => {
