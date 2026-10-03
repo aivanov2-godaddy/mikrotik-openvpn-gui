@@ -524,6 +524,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(sessions["sessions"][0]["current"])
         self.assertNotIn(b"password", payload.lower())
 
+        sensitive_target = "certificate-private-target-canary"
+        self.server.context.store.add_alert(
+            severity="warning", action="certificate.expiring", target=sensitive_target,
+            title="Certificate expires soon", details="safe actionable detail",
+        )
         status, _, payload = self.request("GET", "/metrics")
         self.assertEqual(status, 200)
         self.assertIn(b"vpn_dashboard_info", payload)
@@ -540,6 +545,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"vpn_dashboard_telemetry_traffic_samples_total", payload)
         self.assertIn(b"vpn_dashboard_telemetry_traffic_sample_age_seconds -1", payload)
         self.assertNotIn(b"routerpass", payload)
+        self.assertNotIn(sensitive_target.encode(), payload)
 
         status, _, payload = self.json_request(
             "POST", "/api/admin/api-tokens",

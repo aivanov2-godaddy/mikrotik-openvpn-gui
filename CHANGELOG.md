@@ -8,6 +8,8 @@ semantic-version style release tags.
 
 ### Added
 
+- Rate-limit actionable alerts to ten per action per minute while preserving
+  independent durable audit writes and keeping alert targets out of metrics.
 - Session-bound policy-template review receipts that reject apply requests when
   the selected users, template controls, current RouterOS profiles, or current
   policy state differ from the preview.

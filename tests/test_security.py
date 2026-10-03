@@ -355,15 +355,31 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(store.user_controls("user-one")["enforcement_state"], "quota")
             self.assertTrue(store.add_alert(
                 severity="warning", action="user.expire", target="user-one",
-                title="Access expired", details="safe details",
+                title="Access expired", details="safe details", now=1000,
             ))
             self.assertFalse(store.add_alert(
                 severity="warning", action="user.expire", target="user-one",
-                title="Access expired", details="duplicate",
+                title="Access expired", details="duplicate", now=1000,
             ))
+            for index in range(1, 10):
+                self.assertTrue(store.add_alert(
+                    severity="warning", action="user.expire", target=f"user-{index}",
+                    title="Access expired", details="safe details", now=1000,
+                ))
+            self.assertFalse(store.add_alert(
+                severity="warning", action="user.expire", target="user-over-limit",
+                title="Access expired", details="safe details", now=1000,
+            ))
+            # Notification throttling must not suppress durable audit writes.
+            store.audit(actor="admin", action="alert.observed", target="local", status="success")
+            store.audit(actor="admin", action="alert.observed", target="local", status="success")
+            self.assertEqual(
+                len([row for row in store.recent_audit(10) if row["action"] == "alert.observed"]), 2,
+            )
             alerts = store.recent_alerts()
-            self.assertEqual(len(alerts), 1)
-            store.acknowledge_alert(int(alerts[0]["id"]))
+            self.assertEqual(len(alerts), 10)
+            for alert in alerts:
+                store.acknowledge_alert(int(alert["id"]))
             self.assertEqual(store.recent_alerts(), [])
 
 
