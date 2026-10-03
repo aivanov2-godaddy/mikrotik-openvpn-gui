@@ -142,6 +142,10 @@ and test it in an isolated canary.
 
 ## Administrator roles and destructive actions
 
+For the route-by-route preview/apply/read-back/recovery inventory and the
+boundary between RouterOS mutations and dashboard-only writes, see
+[MUTATION_SAFETY.md](MUTATION_SAFETY.md).
+
 The dashboard reads the signed-in account's RouterOS group and maps it to one
 of five explicit dashboard roles. It never keeps a second password or role
 database. Unknown groups fail closed to read-only; older RouterOS versions that
