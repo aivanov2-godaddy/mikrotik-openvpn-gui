@@ -263,14 +263,38 @@ class TelemetryGatewayContract:
             # which may be ahead of this broker's current sequence. Treat
             # that as an epoch change and replace client state with a snapshot
             # instead of returning an empty replay forever.
-            if cursor > self._broker.sequence or (
-                queued_frames and cursor < queued_frames[0]["sequence"] - 1
+            if cursor < 0 or cursor > self._broker.sequence or (
+                queued_frames
+                and cursor < min(frame["sequence"] for frame in queued_frames) - 1
             ):
                 result = [(self._snapshot_frame(), self._monotonic_clock())]
                 self._snapshot_recoveries += 1
             else:
                 result = [item for item in frames if item[0]["sequence"] > cursor]
-                self._replayed_events += len(result)
+                # Multiple event types may legitimately share one broker
+                # sequence. Compare distinct sequence numbers so that a
+                # dropped event batch (including a hole inside the retained
+                # replay window) cannot silently advance a client past state
+                # it never received. Sorting also makes an out-of-order
+                # adapter publish recover deterministically.
+                available = sorted(
+                    {frame["sequence"] for frame, _published_at in result}
+                )
+                complete = (
+                    len(available) == self._broker.sequence - cursor
+                    and (not available or available[0] == cursor + 1)
+                    and (not available or available[-1] == self._broker.sequence)
+                    and all(
+                        following == previous + 1
+                        for previous, following in zip(available, available[1:])
+                    )
+                )
+                if not complete:
+                    result = [(self._snapshot_frame(), self._monotonic_clock())]
+                    self._snapshot_recoveries += 1
+                else:
+                    result.sort(key=lambda item: item[0]["sequence"])
+                    self._replayed_events += len(result)
             if result:
                 subscription.last_seen_sequence = max(
                     frame["sequence"] for frame, _published_at in result
