@@ -1038,6 +1038,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"sessions", payload)
 
+        # API tokens are not interactive RouterOS dashboard sessions, even
+        # when they carry sessions.read for the separately scoped REST views.
+        status, _, payload = self.request(
+            "GET", "/api/events",
+            headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
+        )
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"event: status", payload)
+
         for path in ("/api/policy-templates", "/api/bulk/views"):
             status, _, payload = self.request(
                 "GET", path,
@@ -1074,6 +1083,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         for path, capability in (
             ("/api/policy-templates", "policies.read"),
             ("/api/bulk/views", "sessions.read"),
+            ("/api/admin/sessions", "sessions.read"),
         ):
             status, _, payload = self.request(
                 "GET", path,
