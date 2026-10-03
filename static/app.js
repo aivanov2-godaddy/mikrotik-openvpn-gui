@@ -1244,7 +1244,9 @@ function updateBulkSelection() {
   const action = $('[data-bulk-action]')?.value || '';
   const previewButton = $('[data-bulk-preview]');
   const allowed = action !== 'revoke' || bulkRoot?.dataset.canBulkRevoke === 'true';
-  if (previewButton) previewButton.disabled = !selected || !action || !allowed;
+  const reason = $('[data-bulk-reason]')?.value.trim() || '';
+  const reasonRequired = ['suspend', 'revoke'].includes(action);
+  if (previewButton) previewButton.disabled = !selected || !action || !allowed || (reasonRequired && reason.length < 12);
 }
 
 function selectedBulkUsers() { return $$('[data-user-select]:checked').map((input) => input.closest('.user-card')?.dataset.userId).filter(Boolean); }
@@ -1255,7 +1257,7 @@ function renderBulkReview(payload) {
   bulkPreviewPayload = payload;
   review.replaceChildren();
   const title = node('strong', '', `${payload.action} preview · ${payload.selected} selected`);
-  const summary = node('small', '', 'Nothing has changed yet. Review the result and type the exact confirmation phrase to apply it.');
+  const summary = node('small', '', `${payload.reason ? `Reason: ${payload.reason}. ` : ''}Nothing has changed yet. Review the result and type the exact confirmation phrase to apply it.`);
   const list = node('ul');
   (payload.users || []).forEach((user) => {
     const item = node('li');
@@ -1271,7 +1273,7 @@ function renderBulkReview(payload) {
     apply.disabled = true;
     bulkSetStatus('Applying the reviewed operation and recording a redacted audit event…');
     try {
-      const response = await resultOrError(await api('/api/bulk/apply', { method: 'POST', body: { action: payload.action, tag: payload.tag || '', user_ids: selectedBulkUsers(), confirmation: confirmation.value.trim(), review_token: payload.review_token } }));
+      const response = await resultOrError(await api('/api/bulk/apply', { method: 'POST', body: { action: payload.action, tag: payload.tag || '', reason: payload.reason || '', user_ids: selectedBulkUsers(), confirmation: confirmation.value.trim(), review_token: payload.review_token } }));
       const result = await response.json();
       const message = result.status === 'partial' ? 'Applied with partial failures; review the per-user results below.' : 'Bulk operation applied successfully.';
       bulkSetStatus(message, result.status === 'partial');
@@ -1327,6 +1329,17 @@ if (bulkRoot) {
   $('[data-bulk-tag]')?.addEventListener('change', applyBulkFilters);
   $('[data-bulk-action]')?.addEventListener('change', (event) => {
     $('[data-bulk-tag-input]')?.toggleAttribute('hidden', event.currentTarget.value !== 'tag');
+    $('[data-bulk-reason-input]')?.toggleAttribute('hidden', !['suspend', 'revoke'].includes(event.currentTarget.value));
+    $('[data-bulk-reason]').value = '';
+    $('[data-bulk-review]')?.replaceChildren();
+    $('[data-bulk-review]')?.setAttribute('hidden', '');
+    bulkPreviewPayload = null;
+    updateBulkSelection();
+  });
+  $('[data-bulk-reason]')?.addEventListener('input', () => {
+    $('[data-bulk-review]')?.replaceChildren();
+    $('[data-bulk-review]')?.setAttribute('hidden', '');
+    bulkPreviewPayload = null;
     updateBulkSelection();
   });
   $('[data-bulk-select-visible]')?.addEventListener('click', () => { $$('[data-user-select]').filter((input) => !input.closest('.user-card')?.classList.contains('is-filtered-out')).forEach((input) => { input.checked = true; }); updateBulkSelection(); });
@@ -1334,7 +1347,7 @@ if (bulkRoot) {
   $$('[data-user-select]').forEach((input) => input.addEventListener('change', updateBulkSelection));
   $('[data-bulk-preview]')?.addEventListener('click', async () => {
     const action = $('[data-bulk-action]')?.value || '';
-    const body = { action, user_ids: selectedBulkUsers(), tag: $('[data-bulk-tag-value]')?.value.trim() || '' };
+    const body = { action, user_ids: selectedBulkUsers(), tag: $('[data-bulk-tag-value]')?.value.trim() || '', reason: $('[data-bulk-reason]')?.value.trim() || '' };
     bulkSetStatus('Generating a review-only preview…');
     try { renderBulkReview(await (await resultOrError(await api('/api/bulk/preview', { method: 'POST', body }))).json()); bulkSetStatus('Review the selected users and confirm the exact phrase before applying.'); }
     catch (error) { bulkSetStatus(error.message, true); }
