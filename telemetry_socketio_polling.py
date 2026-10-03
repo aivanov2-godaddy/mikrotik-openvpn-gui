@@ -21,6 +21,7 @@ from telemetry_gateway import TelemetryGatewayContract, TelemetrySubscriptionErr
 @dataclass(slots=True)
 class PollingClient:
     sid: str
+    session_id: str
     subscription: str | None = None
     namespace_connected: bool = False
     pending: list[str] = field(default_factory=list)
@@ -48,7 +49,7 @@ class SocketIOPollingBridge:
             return None
         sid = secrets.token_urlsafe(18)
         with self._lock:
-            self._clients[sid] = PollingClient(sid)
+            self._clients[sid] = PollingClient(sid, session_id)
         packet = "0" + json.dumps(
             {
                 "sid": sid,
@@ -68,6 +69,9 @@ class SocketIOPollingBridge:
         with self._state_changed:
             client = self._clients.get(sid)
             if client is None:
+                return False
+            if not secrets.compare_digest(client.session_id, session_id):
+                self._close_locked(sid)
                 return False
             packets = body.decode("utf-8", "replace").split("\x1e")
             for packet in packets:
@@ -97,6 +101,9 @@ class SocketIOPollingBridge:
         with self._state_changed:
             client = self._clients.get(sid)
             if client is None:
+                return None
+            if not secrets.compare_digest(client.session_id, session_id):
+                self._close_locked(sid)
                 return None
             # The Socket.IO client starts its first poll as soon as the
             # Engine.IO handshake completes, in parallel with the namespace

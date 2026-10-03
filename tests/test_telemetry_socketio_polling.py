@@ -44,6 +44,18 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
         )
         self.assertIsNone(bridge.handshake("session-1"))
 
+    def test_polling_sid_is_bound_to_the_session_that_opened_it(self) -> None:
+        result = self.bridge.handshake("session-1")
+        self.assertIsNotNone(result)
+        sid, _ = result
+
+        # A second, independently authenticated session must not be able to
+        # reuse a leaked SID to open or read the first session's stream.
+        self.assertFalse(self.bridge.post(sid, "session-2", b"40/telemetry,"))
+        self.assertIsNone(self.bridge.poll(sid, "session-2"))
+        self.assertNotIn(sid, self.bridge._clients)
+        self.assertEqual(self.bridge.gateway.client_count, 0)
+
     def test_poll_waits_for_namespace_connect_race(self) -> None:
         result = self.bridge.handshake("session-1")
         self.assertIsNotNone(result)
