@@ -230,6 +230,10 @@ class NativeSocketIO:
         self.server.on("telemetry.subscribe", self.subscribe, namespace=self.namespace)
 
     async def connect(self, sid: str, environ: Mapping[str, Any], auth: Any = None) -> bool:
+        # Engine.IO/Socket.IO may retry a namespace connect while the transport
+        # is recovering. Keep one gateway subscription and pump per client SID.
+        if sid in self._subscriptions:
+            return True
         scope = environ.get("asgi.scope", {})
         principal = self.runtime.principal_for_session(_session_id(scope))
         if principal is None or not principal.may_stream:
