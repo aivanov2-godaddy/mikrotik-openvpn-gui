@@ -348,6 +348,11 @@ class ReviewReceiptStore:
     def __init__(self) -> None:
         self._items: dict[str, ReviewReceipt] = {}
         self._lock = threading.Lock()
+        self._secret_key = secrets.token_bytes(32)
+
+    def secret_commitment(self, value: str) -> str:
+        """Bind secret input to a review without retaining or exposing it."""
+        return hmac.new(self._secret_key, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
     def issue(self, session_id: str, intent_digest: str) -> str:
         now = time.time()
@@ -3270,7 +3275,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Provide a reason between 12 and 240 printable characters")
             intent = {
                 "user_id": str(user_id), "username": str(user["name"]),
-                "password": password_raw, "email": email,
+                "password_changed": bool(password_raw), "email": email,
+                "password_commitment": self.server.review_receipts.secret_commitment(password_raw),
                 "comment": comment, "disabled": disabled, "controls": controls,
                 "reason": reason,
             }
@@ -3285,10 +3291,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             receipt_payload = json.dumps(
                 {"intent": intent, "state": state}, sort_keys=True, separators=(",", ":"),
             ).encode("utf-8")
-            review_token = hmac.new(
-                session.csrf_token.encode("utf-8"), receipt_payload, hashlib.sha256,
-            ).hexdigest()
+            intent_digest = hashlib.sha256(receipt_payload).hexdigest()
             if preview:
+                review_token = self.server.review_receipts.issue(session.session_id, intent_digest)
                 self._json({
                     "username": str(user["name"]), "reason": reason,
                     "changes": {
@@ -3300,7 +3305,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 })
                 return
             supplied_review_token = str(data.get("review_token", ""))
-            if not supplied_review_token or not hmac.compare_digest(supplied_review_token, review_token):
+            if not self.server.review_receipts.consume(
+                supplied_review_token, session.session_id, intent_digest,
+            ):
                 self.server.context.store.audit(
                     actor=session.username, action="user.update", target=str(user["name"]),
                     status="failed", details={"reason": "stale_or_missing_review"},
@@ -3562,10 +3569,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
-            review_token = hmac.new(
-                session.csrf_token.encode("utf-8"), receipt_payload, hashlib.sha256,
-            ).hexdigest()
+            intent_digest = hashlib.sha256(receipt_payload).hexdigest()
             if action == "preview":
+                review_token = self.server.review_receipts.issue(session.session_id, intent_digest)
                 self._json({
                     "template": template,
                     "users": preview,
@@ -3574,7 +3580,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 })
                 return
             supplied_review_token = str(data.get("review_token", ""))
-            if not supplied_review_token or not hmac.compare_digest(supplied_review_token, review_token):
+            if not self.server.review_receipts.consume(
+                supplied_review_token, session.session_id, intent_digest,
+            ):
                 self.server.context.store.audit(
                     actor=session.username,
                     action="policy_template.apply",
@@ -3921,8 +3929,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         self._json({"error": "Saved view was not found"}, status=HTTPStatus.NOT_FOUND)
 
-    def _user_suspend_receipt(
-        self, session: Session, user: dict[str, Any], active_sessions: list[dict[str, Any]],
+    def _user_suspend_intent_digest(
+        self, user: dict[str, Any], active_sessions: list[dict[str, Any]],
     ) -> str:
         receipt = {
             "user_id": str(user.get("id", "")),
@@ -3933,10 +3941,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if str(item.get("name", "")) == str(user.get("name", ""))
             ),
         }
-        return hmac.new(
-            session.csrf_token.encode("utf-8"),
+        return hashlib.sha256(
             json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
-            hashlib.sha256,
         ).hexdigest()
 
     def _preview_user_suspend(self, user_id: str) -> None:
@@ -3955,11 +3961,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         username = str(user["name"])
         active_count = sum(1 for item in active_sessions if str(item.get("name", "")) == username)
+        intent_digest = self._user_suspend_intent_digest(user, active_sessions)
         self._json({
             "user": username,
             "active_sessions": active_count,
             "effect": "Block new logins and disconnect the active sessions currently shown; device profiles remain issued.",
-            "review_token": self._user_suspend_receipt(session, user, active_sessions),
+            "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
         })
 
     def _set_user_access(self, user_id: str, *, suspended: bool) -> None:
@@ -3982,9 +3989,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "verification": "unknown",
                     }, status=HTTPStatus.BAD_GATEWAY)
                     return
-                expected_receipt = self._user_suspend_receipt(session, user, active_sessions)
+                expected_digest = self._user_suspend_intent_digest(user, active_sessions)
                 supplied_receipt = str(data.get("review_token", ""))
-                if not supplied_receipt or not hmac.compare_digest(supplied_receipt, expected_receipt):
+                if not self.server.review_receipts.consume(
+                    supplied_receipt, session.session_id, expected_digest,
+                ):
                     self._json({
                         "error": "The account or active-session state changed since review. Review the suspension again before applying.",
                         "code": "routeros.review_stale",
@@ -4331,12 +4340,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "revoked": bool(certificate.get("revoked")),
                 },
             }
-            review_token = hmac.new(
-                session.csrf_token.encode("utf-8"),
+            intent_digest = hashlib.sha256(
                 json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
-                hashlib.sha256,
             ).hexdigest()
             if preview:
+                review_token = self.server.review_receipts.issue(session.session_id, intent_digest)
                 try:
                     active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
                     active_for_user: int | None = sum(
@@ -4357,7 +4365,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 })
                 return
             supplied_review_token = str(data.get("review_token", ""))
-            if not supplied_review_token or not hmac.compare_digest(supplied_review_token, review_token):
+            if not self.server.review_receipts.consume(
+                supplied_review_token, session.session_id, intent_digest,
+            ):
                 self.server.context.store.audit(
                     actor=session.username, action="device.revoke", target=device_name,
                     status="failed", details={"reason": "stale_or_missing_review"},
