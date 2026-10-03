@@ -1507,11 +1507,23 @@ document.addEventListener('click', async (event) => {
     const sessionCard = button.closest('.session-card');
     form.reset();
     form.session_id.value = button.dataset.sessionId;
+    const apply = $('button[type="submit"]', form);
+    apply.disabled = true;
     $('[data-terminate-user]', form).textContent = sessionCard.dataset.sessionUser || 'VPN device';
     $('[data-confirm-target]', form).textContent = sessionCard.dataset.sessionUser || 'VPN device';
     const facts = $$('dd', sessionCard).map((item) => item.textContent.trim());
     $('[data-terminate-detail]', form).textContent = `${facts[0] || 'VPN session'} · ${facts[1] || 'unknown source'}`;
     openDialog('terminate-dialog');
+    setStatus(form, 'Reviewing the current live session…');
+    try {
+      const response = await resultOrError(await api(`/api/sessions/${encodeURIComponent(form.session_id.value)}/preview`, { method: 'POST', body: {} }));
+      const review = await response.json();
+      form.review_token.value = review.review_token || '';
+      setStatus(form, `${review.username}: this active VPN connection will be disconnected. It may reconnect while the account remains enabled.`);
+      apply.disabled = !review.review_token;
+    } catch (error) {
+      setStatus(form, `${error.message} Termination is unavailable until the current session can be reviewed.`, true);
+    }
   }
   button.closest('details')?.removeAttribute('open');
 });
@@ -1829,11 +1841,11 @@ $('#terminate-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Disconnecting the device…');
   try {
-    await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation') } }));
+    await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), review_token: data.get('review_token') } }));
     setStatus(form, 'Session terminated.');
     toast('OpenVPN session terminated.');
     setTimeout(() => { getDialog('terminate-dialog').close(); pollStatus(); }, 450);
-  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) { form.review_token.value = ''; $('button[type="submit"]', form).disabled = true; setStatus(form, error.message, true); setBusy(form, false); }
 });
 
 $('#revoke-device-form')?.addEventListener('input', (event) => {
