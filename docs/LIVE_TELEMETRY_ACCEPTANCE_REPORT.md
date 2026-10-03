@@ -20,13 +20,12 @@ have not been recorded as complete.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest recorded deployed runtime commit | a2d0ce2 (`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`) |
-| Latest recorded deployed ARM64 tag | `sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64` |
-| Published ARM64 manifest digest | `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38` |
-| Latest stable registry publication | `34a880970ecc6ce622c257e3307c9b7cc2885b96` (run [37149717625](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37149717625)) |
-| Latest published ARM64 / AMD64 digests | `sha256:8c2346ea7971b5e26a47af34cb07bc27a39516e15c9860dd2f9bee76f1e0f184` / `sha256:aad9d850feba0b72c7db4660858cef6e747b8855f200d1d75957e3db3f9394fd` |
+| Latest authenticated production RouterOS read-back | a2d0ce2 (`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`), healthy at that observation; not a current-state claim |
+| Latest verified canary readiness observation | `1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e`, ready at that observation; not a current-state claim |
+| Latest published candidate | `6ae554ed226107e8639f345ff02bd0ae4269c5fc` (publication run [37159106219](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37159106219)); router rollout not verified |
+| Latest published ARM64 / AMD64 digests | `sha256:1f01b92a7da0d11d0013e2fa208ad8e843ae699580b2f4ca1a319ec22238e8cd` / `sha256:6c03325292a51acb08265feb15ca4a5e3d253522e8b6237aa7e1443717b11a5a` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
-| RouterOS at acceptance / current | RouterOS 7.24.4 stable during acceptance; 7.24.5 stable currently / arm64 |
+| RouterOS version | 7.24.4 stable during acceptance; 7.24.5 stable at the latest authenticated read-back on 2026-10-03; current version is unverified |
 
 The accepted Binary API baseline was promoted to production on 2026-10-01.
 Later authenticated RouterOS read-back, recorded on 2026-10-03, showed canary
@@ -37,9 +36,9 @@ the image content digest. These are point-in-time records, not the later
 runtime's sustained acceptance. The public endpoint remains behind Cloudflare
 Access.
 
-## Latest stable registry publication — 2026-10-03
+## Previously published candidate and canary observation — 2026-10-04
 
-The public `routeros-stable` manifest now points to commit
+At that point, the public `routeros-stable` manifest pointed to commit
 `34a880970ecc6ce622c257e3307c9b7cc2885b96`. Publication run
 [37149717625](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37149717625)
 passed source and rendered-browser verification, ARM64 and AMD64 builds,
@@ -85,7 +84,7 @@ not independently rechecked from that workstation. Router-side registry-digest
 attestation, long-window latency/freshness percentiles, Redis delivery evidence,
 and recovery/failure-injection gates remain outstanding for the current runtime.
 
-## Latest published candidate and canary read-back — 2026-10-04
+## Published candidate and canary read-back — 2026-10-04
 
 The latest stable manifest now points to merge commit
 `1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e`. Publication run
@@ -118,6 +117,25 @@ and anonymous denial only. It does not verify authenticated telemetry freshness,
 the Redis delivery path, RouterOS reconnect/snapshot recovery, a 30-minute soak,
 or production deployment. No RouterOS policy or secrets were changed.
 
+## Latest published candidate — 2026-10-04
+
+The main-branch publication for merge commit
+`6ae554ed226107e8639f345ff02bd0ae4269c5fc` completed in run
+[37159106219](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37159106219).
+ARM64 and AMD64 builds, detached SBOM/provenance verification, and published
+runtime smoke tests passed.
+
+| Check | Result |
+| --- | --- |
+| ARM64 tag / digest | `sha-6ae554ed226107e8639f345ff02bd0ae4269c5fc-arm64` / `sha256:1f01b92a7da0d11d0013e2fa208ad8e843ae699580b2f4ca1a319ec22238e8cd` |
+| AMD64 tag / digest | `sha-6ae554ed226107e8639f345ff02bd0ae4269c5fc-amd64` / `sha256:6c03325292a51acb08265feb15ca4a5e3d253522e8b6237aa7e1443717b11a5a` |
+| Canary revision / health after publication | Not read back; latest recorded canary readiness observation is the earlier `1a6bf3e` candidate. |
+| Production revision / health after publication | Not read back; latest authenticated production read-back is the earlier `a2d0ce2` revision. |
+| 30-minute telemetry/Redis soak and rollback drill | Not performed for this candidate. |
+
+This is publication evidence only. Neither current router revision nor current
+health is confirmed; production deployment and acceptance are not claimed.
+
 ## Latest deployed correction
 
 PR [#179](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/179)
@@ -129,8 +147,8 @@ required checks before the immutable image was published and promoted.
 ## Acceptance gates
 
 The following results apply to the accepted Binary API telemetry baseline and
-the private operator window dated 2026-10-01/02; they are not evidence that the
-newer `a2d0ce2` runtime completed its own release soak.
+the private operator window dated 2026-10-01/02; they are not evidence that
+later `a2d0ce2` or `6ae554e` images completed their own release soaks.
 
 | Gate | Target | Result | Evidence reference |
 | --- | --- | --- | --- |
@@ -172,8 +190,9 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current runtime result: **PENDING — the newer `a2d0ce2` deployment still needs
-its 30-minute Redis/telemetry acceptance window and rollback drill.**
+Current runtime result: **PENDING — the latest published `6ae554e` candidate
+has not been observed running on the canary or production router and still
+requires its 30-minute Redis/telemetry acceptance window and rollback drill.**
 
 The acceptance evaluator remains available for future regression windows. New
 evidence must remain outside the repository and should be redacted before any
