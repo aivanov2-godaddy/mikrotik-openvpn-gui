@@ -170,6 +170,13 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
             if not present:
                 failures.append(f"{name}_missing")
     decoded_samples = [json.loads(sample) for sample in samples]
+    for field, gate in (
+        ("router_cpu_percent", "router_cpu_measurement_missing"),
+        ("router_memory_percent", "router_memory_measurement_missing"),
+        ("router_storage_percent", "router_storage_measurement_missing"),
+    ):
+        if not any(field in sample for sample in decoded_samples):
+            failures.append(gate)
     if verification["event_latency_measured"] and not any("latency_ms" in sample for sample in decoded_samples):
         failures.append("latency_evidence_missing")
     if verification["traffic_freshness_measured"] and not any("event_age_seconds" in sample for sample in decoded_samples):
