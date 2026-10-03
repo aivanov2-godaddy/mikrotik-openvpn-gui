@@ -1044,6 +1044,14 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertIn(b'"required_capability":"sessions.read"', payload)
             self.assertNotIn(b"user-two", payload)
 
+        for path in ("/metrics", "/api/reports/diagnostics.zip"):
+            status, _, payload = self.request(
+                "GET", path,
+                headers={"Authorization": f"Bearer {health_token}", "Cookie": ""},
+            )
+            self.assertEqual(status, 200, path)
+            self.assertNotIn(b"routerpass", payload)
+
         status, _, payload = self.request(
             "GET", "/api/reports/compliance.zip",
             headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
@@ -1059,12 +1067,17 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         audit_token = json.loads(payload)["token"]
-        status, _, payload = self.request(
-            "GET", "/api/reports/compliance.zip",
-            headers={"Authorization": f"Bearer {audit_token}", "Cookie": ""},
-        )
-        self.assertEqual(status, 403)
-        self.assertIn(b'"required_capability":"sessions.read"', payload)
+        for path, capability in (
+            ("/api/reports/compliance.zip", "sessions.read"),
+            ("/metrics", "health.read"),
+            ("/api/reports/diagnostics.zip", "health.read"),
+        ):
+            status, _, payload = self.request(
+                "GET", path,
+                headers={"Authorization": f"Bearer {audit_token}", "Cookie": ""},
+            )
+            self.assertEqual(status, 403, path)
+            self.assertIn(f'"required_capability":"{capability}"'.encode(), payload)
         status, _, payload = self.request(
             "GET", "/api/operations-timeline.json",
             headers={"Authorization": f"Bearer {audit_token}", "Cookie": ""},
