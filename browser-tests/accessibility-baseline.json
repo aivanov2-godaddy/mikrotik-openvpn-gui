@@ -1,50 +1,5 @@
 {
-  "overview": [
-    { "id": "color-contrast", "impact": "serious", "target": "#overview > .view-heading > .heading-actions > .primary[data-open-add=\"\"][type=\"button\"] > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".metric[data-view-target=\"vpn-users\"][type=\"button\"] > div:nth-child(2) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": "span[data-active-users=\"\"]" },
-    { "id": "color-contrast", "impact": "serious", "target": ".metric[data-view-target=\"profile-security\"][type=\"button\"] > div:nth-child(2) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": "section[aria-label=\"VPN overview\"] > .metric:nth-child(4) > div:nth-child(2) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".operations-panel > .panel-heading > div:nth-child(1) > span > small" },
-    { "id": "color-contrast", "impact": "serious", "target": ".health-item:nth-child(1) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".health-item:nth-child(2) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".health-item:nth-child(3) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".health-item:nth-child(4) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".health-item:nth-child(5) > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".health-item:nth-child(5) > small" },
-    { "id": "color-contrast", "impact": "serious", "target": ".security-posture-panel > .panel-heading > div > span > small" },
-    { "id": "color-contrast", "impact": "serious", "target": ".app-footer > span:nth-child(1)" },
-    { "id": "color-contrast", "impact": "serious", "target": ".app-footer > span:nth-child(2)" },
-    { "id": "scrollable-region-focusable", "impact": "serious", "target": "#system-status" }
-  ],
-  "vpn-users": [
-    { "id": "color-contrast", "impact": "serious", "target": "#vpn-users > .view-heading > .heading-actions > .primary[data-open-add=\"\"][type=\"button\"] > span" },
-    { "id": "color-contrast", "impact": "serious", "target": ".bulk-operations-panel > .panel-heading > div > span > small" },
-    { "id": "color-contrast", "impact": "serious", "target": ".user-panel > .panel-heading > div:nth-child(1) > span > small" },
-    { "id": "color-contrast", "impact": "serious", "target": ".app-footer > span:nth-child(1)" },
-    { "id": "color-contrast", "impact": "serious", "target": ".app-footer > span:nth-child(2)" },
-    { "id": "scrollable-region-focusable", "impact": "serious", "target": "#system-status" }
-  ],
-  "live-sessions": [
-    { "id": "color-contrast", "impact": "serious", "target": ".session-facts > div:nth-child(1) > dt" },
-    { "id": "color-contrast", "impact": "serious", "target": ".session-facts > div:nth-child(2) > dt" },
-    { "id": "color-contrast", "impact": "serious", "target": ".session-facts > div:nth-child(3) > dt" },
-    { "id": "color-contrast", "impact": "serious", "target": "div:nth-child(4) > dt" },
-    { "id": "color-contrast", "impact": "serious", "target": ".traffic-totals" },
-    { "id": "color-contrast", "impact": "serious", "target": "section[data-graph-type=\"bytes\"] > header > span" },
-    { "id": "color-contrast", "impact": "serious", "target": "section[data-graph-type=\"bytes\"] > .graph-legend > .graph-tx > small" },
-    { "id": "color-contrast", "impact": "serious", "target": "section[data-graph-type=\"bytes\"] > .graph-legend > .graph-rx > small" },
-    { "id": "color-contrast", "impact": "serious", "target": "section[data-graph-type=\"packets\"] > header > span" },
-    { "id": "color-contrast", "impact": "serious", "target": "section[data-graph-type=\"packets\"] > .graph-legend > .graph-tx > small" },
-    { "id": "color-contrast", "impact": "serious", "target": "section[data-graph-type=\"packets\"] > .graph-legend > .graph-rx > small" },
-    { "id": "color-contrast", "impact": "serious", "target": ".history-panel > .panel-heading > div > span > small" },
-    { "id": "color-contrast", "impact": "serious", "target": "tr[data-connection-row=\"\"] > td:nth-child(2) > .table-secondary" },
-    { "id": "color-contrast", "impact": "serious", "target": ".address-pair > small" },
-    { "id": "color-contrast", "impact": "serious", "target": "td:nth-child(5) > .table-secondary" },
-    { "id": "color-contrast", "impact": "serious", "target": ".app-footer > span:nth-child(1)" },
-    { "id": "color-contrast", "impact": "serious", "target": ".app-footer > span:nth-child(2)" },
-    { "id": "color-contrast", "impact": "serious", "target": ".session-main > div:nth-child(2) > small" },
-    { "id": "scrollable-region-focusable", "impact": "serious", "target": ".history-panel > .responsive-table" },
-    { "id": "scrollable-region-focusable", "impact": "serious", "target": "#system-status" }
-  ]
+  "overview": [],
+  "vpn-users": [],
+  "live-sessions": []
 }

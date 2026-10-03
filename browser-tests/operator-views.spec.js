@@ -64,6 +64,10 @@ for (const view of views) {
     const current = serious.flatMap(({ id, impact, nodes }) =>
       nodes.map((node) => ({ id, impact, target: node.target.join(' ') })),
     );
+    expect(
+      current.filter(({ id }) => id === 'color-contrast'),
+      `${view.name}: serious contrast findings must not be re-baselined`,
+    ).toEqual([]);
     const unexpected = current.filter(({ id, impact, target }) => !allowed.has(`${id}|${impact}|${target}`));
     await testInfo.attach('axe-serious-findings.json', {
       body: Buffer.from(JSON.stringify({ view: view.target, findings: current }, null, 2)),
