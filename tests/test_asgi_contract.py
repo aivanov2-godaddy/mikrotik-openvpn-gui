@@ -11,6 +11,46 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    def test_socketio_reconnect_rejects_expired_cookie_even_if_auth_claims_identity(self) -> None:
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore(idle_seconds=1, absolute_seconds=60)
+        expired = sessions.create("operator", "router-password-marker")
+        expired.last_seen = time.time() - 2
+        runtime = object.__new__(TelemetryRuntime)
+        runtime.sessions = sessions
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native._subscriptions = {}
+        native._session_ids = {}
+        native._tasks = {}
+        native._connections_total = 0
+        native._rejected_connections_total = 0
+
+        accepted = asyncio.run(
+            native.connect(
+                "reconnected-socket",
+                {
+                    "asgi.scope": {
+                        "headers": [
+                            (b"cookie", f"vpn_session={expired.session_id}".encode("ascii")),
+                        ],
+                    },
+                },
+                # Client-provided handshake claims must never replace the
+                # server-side session cookie as the authorization source.
+                auth={"username": "operator", "role": "owner", "session_id": "forged"},
+            )
+        )
+
+        self.assertFalse(accepted)
+        self.assertEqual(native._subscriptions, {})
+        self.assertEqual(native._tasks, {})
+        self.assertEqual(native._connections_total, 0)
+        self.assertEqual(native._rejected_connections_total, 1)
+        self.assertIsNone(sessions.get(expired.session_id))
+
     def test_slow_socket_client_does_not_block_gateway_event_ingestion(self) -> None:
         from asgi import NativeSocketIO
         from telemetry_broker import TelemetryBroker, TelemetryEvent
