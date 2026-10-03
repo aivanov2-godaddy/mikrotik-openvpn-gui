@@ -75,6 +75,68 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(native._rejected_connections_total, 1)
         self.assertIsNone(sessions.get(expired.session_id))
 
+    @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
+    def test_repeated_socketio_connect_is_idempotent_and_disconnect_closes_once(self) -> None:
+        from asgi import NativeSocketIO
+
+        class Principal:
+            may_stream = True
+
+        class Runtime:
+            gateway = None
+
+            @staticmethod
+            def principal_for_session(session_id: str) -> Principal | None:
+                return Principal() if session_id == "valid-session" else None
+
+        class Gateway:
+            def __init__(self) -> None:
+                self.opened = 0
+                self.closed: list[str] = []
+
+            def open(self, _principal: Principal) -> str:
+                self.opened += 1
+                return "subscription-1"
+
+            def close(self, subscription: str) -> None:
+                self.closed.append(subscription)
+
+            def poll(self, _subscription: str) -> list[dict[str, object]]:
+                return []
+
+        gateway = Gateway()
+        runtime = Runtime()
+        runtime.gateway = gateway
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native._subscriptions = {}
+        native._session_ids = {}
+        native._tasks = {}
+        native._connections_total = 0
+        native._disconnects_total = 0
+        native._rejected_connections_total = 0
+
+        environ = {
+            "asgi.scope": {
+                "headers": [(b"cookie", b"vpn_session=valid-session")],
+            },
+        }
+
+        async def exercise() -> None:
+            self.assertTrue(await native.connect("socket-1", environ))
+            task = native._tasks["socket-1"]
+            self.assertTrue(await native.connect("socket-1", environ))
+            self.assertIs(native._tasks["socket-1"], task)
+            await native.disconnect("socket-1")
+
+        asyncio.run(exercise())
+
+        self.assertEqual(gateway.opened, 1)
+        self.assertEqual(gateway.closed, ["subscription-1"])
+        self.assertEqual(native._connections_total, 1)
+        self.assertEqual(native._disconnects_total, 1)
+        self.assertEqual(native._subscriptions, {})
+
     def test_slow_socket_client_does_not_block_gateway_event_ingestion(self) -> None:
         from asgi import NativeSocketIO
         from telemetry_broker import TelemetryBroker, TelemetryEvent
