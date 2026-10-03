@@ -78,6 +78,14 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
         sid, _ = result
         self.assertTrue(self.bridge.post(sid, "session-1", b"40/telemetry,"))
         self.assertEqual(self.bridge.poll(sid, "session-1"), "40/telemetry,")
+        # Keep the synthetic event sequence aligned with the broker epoch;
+        # the real runtime derives these event numbers from this broker.
+        self.broker.apply(
+            RouterOSReply("re", {".id": "*1", "name": "first"}), now=100
+        )
+        self.broker.apply(
+            RouterOSReply("re", {".id": "*2", "name": "second"}), now=101
+        )
         self.bridge.gateway.publish([
             TelemetryEvent("telemetry.reconciled", 1, 100, {"status": "online"}),
             TelemetryEvent("telemetry.reconciled", 2, 101, {"status": "online"}),
