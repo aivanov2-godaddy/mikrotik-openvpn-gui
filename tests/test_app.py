@@ -226,6 +226,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, payload.decode("utf-8"))
         return json.loads(payload)
 
+    def preview_bulk_action(
+        self, action: str, user_ids: list[str], *, tag: str = "",
+    ) -> dict[str, Any]:
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/preview", {"action": action, "user_ids": user_ids, "tag": tag},
+        )
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        return json.loads(payload)
+
     def test_sse_stops_emitting_when_server_session_is_revoked(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
@@ -2314,23 +2323,24 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "POST", "/api/bulk/apply",
-            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "wrong"},
+            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "wrong", "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 400)
         self.assertIn("exact target name", json.loads(payload)["error"])
 
         status, _, payload = self.json_request(
             "POST", "/api/bulk/apply",
-            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "APPLY TAG TO 2 USERS"},
+            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "APPLY TAG TO 2 USERS", "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         result = json.loads(payload)
         self.assertEqual(result["status"], "success")
         self.assertEqual({self.server.context.store.user_tags(name)[0] for name in users}, {"Field Team"})
 
+        preview = self.preview_bulk_action("tag", selected, tag="Field Team")
         status, _, payload = self.json_request(
             "POST", "/api/bulk/apply",
-            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "APPLY TAG TO 2 USERS"},
+            {"action": "tag", "user_ids": selected, "tag": "Field Team", "confirmation": "APPLY TAG TO 2 USERS", "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertEqual({item["status"] for item in json.loads(payload)["outcomes"]}, {"skipped"})
@@ -2373,7 +2383,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "POST", "/api/bulk/apply",
-            {"action": "suspend", "user_ids": selected, "confirmation": "APPLY SUSPEND TO 2 USERS"},
+            {"action": "suspend", "user_ids": selected, "confirmation": "APPLY SUSPEND TO 2 USERS", "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         result = json.loads(payload)
@@ -2383,6 +2393,55 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertFalse(self.mock.state.active_sessions)
         self.assertTrue(all(item["disabled"] == "yes" for item in self.mock.state.users.values()))
 
+    def test_bulk_review_binds_exact_live_state_and_is_single_use(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-two"
+        )
+        review = self.preview_bulk_action("suspend", [user["id"]])
+        old_session_id = next(iter(self.mock.state.active_sessions))
+        active = self.mock.state.active_sessions.pop(old_session_id)
+        changed_session_id = f"{old_session_id}-changed"
+        self.mock.state.active_sessions[changed_session_id] = {
+            **active, ".id": changed_session_id, "session-id": "0x81E0000C",
+        }
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {
+                "action": "suspend", "user_ids": [user["id"]],
+                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": review["review_token"],
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(self.mock.state.users[user["id"]]["disabled"], "no")
+
+        refreshed = self.preview_bulk_action("suspend", [user["id"]])
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {
+                "action": "suspend", "user_ids": [user["id"]],
+                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": refreshed["review_token"],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["ok"])
+        before_replay = list(self.mock.state.mutation_requests)
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {
+                "action": "suspend", "user_ids": [user["id"]],
+                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": refreshed["review_token"],
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(self.mock.state.mutation_requests, before_replay)
+
     def test_bulk_suspend_reconciles_lost_mutation_response_by_user_readback(self) -> None:
         self.login()
         router = self.server.context.router
@@ -2390,6 +2449,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
             if item["name"] == "user-two"
         )
+        review = self.preview_bulk_action("suspend", [user["id"]])
         update_user = router.update_user
 
         def update_then_lose_response(*args: Any, **kwargs: Any) -> None:
@@ -2402,6 +2462,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "suspend", "user_ids": [user["id"]],
                     "confirmation": "APPLY SUSPEND TO 1 USERS",
+                    "review_token": review["review_token"],
                 },
             )
 
@@ -2426,6 +2487,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.server.context.store.set_enforcement_state(user["name"], "quota")
         current_users = router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+        review = self.preview_bulk_action("suspend", [user["id"]])
         with mock.patch.object(
             router,
             "list_ovpn_users",
@@ -2436,6 +2498,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "suspend", "user_ids": [user["id"]],
                     "confirmation": "APPLY SUSPEND TO 1 USERS",
+                    "review_token": review["review_token"],
                 },
             )
 
@@ -2452,6 +2515,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             ) if item["name"] == "user-one"
         )
+        review = self.preview_bulk_action("revoke", [user["id"]])
         revoke = self.server.context.router.revoke_certificate
 
         def revoke_then_lose_response(*args: Any, **kwargs: Any) -> None:
@@ -2464,6 +2528,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "revoke", "user_ids": [user["id"]],
                     "confirmation": "APPLY REVOKE TO 1 USERS",
+                    "review_token": review["review_token"],
                 },
             )
 
@@ -2482,6 +2547,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             ) if item["name"] == "user-one"
         )
+        review = self.preview_bulk_action("revoke", [user["id"]])
         with mock.patch.object(
             self.server.context.router,
             "list_ovpn_client_certificates",
@@ -2492,6 +2558,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "revoke", "user_ids": [user["id"]],
                     "confirmation": "APPLY REVOKE TO 1 USERS",
+                    "review_token": review["review_token"],
                 },
             )
 
@@ -2530,6 +2597,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 RouterOSCredentials("admin", "routerpass")
             ) if item["name"] == "user-one"
         )
+        review = self.preview_bulk_action("revoke", [user["id"]])
         list_certificates = self.server.context.router.list_ovpn_client_certificates
         readbacks = 0
 
@@ -2550,6 +2618,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "revoke", "user_ids": [user["id"]],
                     "confirmation": "APPLY REVOKE TO 1 USERS",
+                    "review_token": review["review_token"],
                 },
             )
 

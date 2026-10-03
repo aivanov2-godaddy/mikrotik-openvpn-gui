@@ -3707,17 +3707,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if action == "suspend":
                 active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
             preview_rows: list[dict[str, Any]] = []
+            review_basis: list[dict[str, Any]] = []
             for user_id in requested:
                 user = users[user_id]
                 username = str(user.get("name", ""))
+                router_state = {
+                    "id": user_id, "username": username,
+                    "disabled": bool(user.get("disabled")),
+                    "profile": str(user.get("profile", "")),
+                }
                 if action == "suspend":
                     already = str(user.get("disabled", "no")).strip().lower() in {"yes", "true", "1"}
-                    active_count = sum(1 for item in active_sessions if str(item.get("name", "")) == username)
+                    session_ids = sorted(
+                        str(item.get("id", "")) for item in active_sessions
+                        if str(item.get("name", "")) == username
+                    )
+                    active_count = len(session_ids)
                     preview_rows.append({
                         "id": user_id, "username": username,
                         "state": "already_suspended" if already else "will_suspend",
                         "active_sessions": active_count,
                     })
+                    review_basis.append({**router_state, "active_session_ids": session_ids})
                 elif action == "revoke":
                     devices = self.server.context.store.devices_for_user(username)
                     revocable = [item for item in devices if not item.get("revoked_at") and item.get("certificate_id")]
@@ -3726,6 +3737,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "state": "will_revoke" if revocable else "no_active_profiles",
                         "profiles": len(revocable),
                     })
+                    review_basis.append({
+                        **router_state,
+                        "certificates": sorted(str(item.get("certificate_id", "")) for item in revocable),
+                    })
                 else:
                     tags = self.server.context.store.user_tags(username)
                     preview_rows.append({
@@ -3733,14 +3748,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "state": "already_tagged" if tag in tags else "will_tag",
                         "tags": tags,
                     })
+                    review_basis.append({**router_state, "tags": tags})
             confirmation = f"APPLY {action.upper()} TO {len(requested)} USERS"
+            intent_digest = hashlib.sha256(json.dumps(
+                {
+                    "action": action, "tag": tag, "requested_ids": requested,
+                    "confirmation": confirmation, "users": review_basis,
+                },
+                sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
             if preview:
                 self._json({
                     "action": action, "tag": tag, "users": preview_rows,
                     "selected": len(requested), "confirmation": confirmation,
+                    "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
                 })
                 return
             if not self._require_target_confirmation(data, confirmation):
+                return
+            if not self.server.review_receipts.consume(
+                str(data.get("review_token", "")), session.session_id, intent_digest,
+            ):
+                self.server.context.store.audit(
+                    actor=session.username, action="bulk.apply", target="selected-users",
+                    status="failed", details={"reason": "stale_or_missing_review"},
+                )
+                self._json({
+                    "code": "routeros.review_stale",
+                    "error": "The selected users or their live state changed since review. Preview the operation again before applying.",
+                }, status=HTTPStatus.CONFLICT)
                 return
             if action in {"suspend", "revoke"} and not self._checkpoint(session, f"bulk-{action}"):
                 return
