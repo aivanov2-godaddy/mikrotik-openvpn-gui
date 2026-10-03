@@ -981,14 +981,36 @@ function renderObservability(payload) {
   }
 }
 
+function localDayStartSeconds(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const start = new Date(0);
+  start.setFullYear(year, month - 1, day);
+  start.setHours(0, 0, 0, 0);
+  if (start.getFullYear() !== year || start.getMonth() !== month - 1 || start.getDate() !== day) return null;
+  return start.getTime() / 1000;
+}
+
+function localDayEndExclusiveSeconds(value) {
+  const start = localDayStartSeconds(value);
+  if (start === null) return null;
+  const end = new Date(start * 1000);
+  end.setDate(end.getDate() + 1);
+  return end.getTime() / 1000;
+}
+
 function applyOperationsFilters() {
   const query = $('[data-operation-search]')?.value.trim().toLocaleLowerCase() || '';
   const type = $('[data-operation-type-filter]')?.value || 'all';
   const outcome = $('[data-operation-outcome-filter]')?.value || 'all';
   const fromValue = $('[data-history-from]')?.value || '';
   const toValue = $('[data-history-to]')?.value || '';
-  const from = fromValue ? new Date(`${fromValue}T00:00:00`).getTime() / 1000 : null;
-  const to = toValue ? new Date(`${toValue}T00:00:00`).getTime() / 1000 + 86400 : null;
+  const from = fromValue ? localDayStartSeconds(fromValue) : null;
+  const to = toValue ? localDayEndExclusiveSeconds(toValue) : null;
   const rows = $$('[data-operation-row]');
   let visible = 0;
   rows.forEach((row) => {
