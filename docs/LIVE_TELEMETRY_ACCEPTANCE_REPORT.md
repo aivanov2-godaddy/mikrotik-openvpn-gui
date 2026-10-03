@@ -1,13 +1,14 @@
 # Live telemetry acceptance report
 
-Status: **FORMAL ACCEPTANCE COMPLETE — OPERATOR ACCEPTED**
+Status: **TELEMETRY BASELINE ACCEPTED — CURRENT RUNTIME SOAK PENDING**
 
-This report is the public, redacted acceptance record for the deployed Binary
-API telemetry image. The operator's detailed acceptance evidence remains
-private; raw RouterOS data, addresses, account names, credentials,
-certificates, tokens, and private identifiers are not copied into this
-repository. The operator accepted the controlled window and the immutable
-production rollout on 2026-10-02.
+This report records the operator's 2026-10-02 acceptance of the Binary API
+telemetry baseline, plus later deployment observations. The operator's detailed
+acceptance evidence remains private; raw RouterOS data, addresses, account
+names, credentials, certificates, tokens, and private identifiers are not
+copied into this repository. The later runtime image listed below is a newer
+build; its full 30-minute Redis/telemetry acceptance window and rollback drill
+have not been recorded as complete.
 
 ## Deployment identity
 
@@ -19,45 +20,47 @@ production rollout on 2026-10-02.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Current production commit | a9deb20 (`a9deb20a50363712fa8c65f933163f2ffd5678ce`) |
-| Current production image tag | `sha-a9deb20a50363712fa8c65f933163f2ffd5678ce-arm64` |
-| Current production image digest | `sha256:99f85730776a95c486bd3b212bb4a590a854961a64a5cf8448cccf2254f392bc` |
+| Latest recorded deployed runtime commit | a2d0ce2 (`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`) |
+| Latest recorded deployed ARM64 tag | `sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64` |
+| Published ARM64 manifest digest | `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS at acceptance / current | RouterOS 7.24.4 stable during acceptance; 7.24.5 stable currently / arm64 |
 
-The immutable watchdog promoted the accepted telemetry image to production at
-2026-10-01 23:58:47 Europe/Sofia. Both RouterOS containers were subsequently
-verified healthy with that accepted image, `LIVE_TRANSPORT=binary`, and
-`SOCKETIO_ENGINE=asgi`. Production now reports the newer immutable 89adec8
-image, published with the Redis client for the optional sanitized audit/outbox
-sink; this build does not change the accepted telemetry behavior. The public
-endpoint remains behind Cloudflare Access; an unauthenticated `/readyz`
-request correctly receives the Access redirect.
+The accepted Binary API baseline was promoted to production on 2026-10-01.
+Later authenticated RouterOS read-back, recorded on 2026-10-03, showed canary
+and production configured with the immutable `a2d0ce2` ARM64 tag and both
+containers healthy on RouterOS 7.24.5 stable. The registry digest above comes
+from the signed publication workflow; RouterOS reports its configured tag, not
+the image content digest. These are point-in-time records, not the later
+runtime's sustained acceptance. The public endpoint remains behind Cloudflare
+Access.
 
-## Latest production rollout verification — 2026-10-03
+## Latest recorded deployment read-back — 2026-10-03
 
-PR [#242](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/242)
-adds RouterOS read-back verification for session termination. Its immutable
-ARM64 image was published after required CI, Redis integration, security, and
-ARM64 smoke checks passed. The GHCR manifest digest below is from the signed
-publication workflow; RouterOS WinBox exposed the exact image revision and
-healthy status, but not the registry manifest digest itself.
+Runtime revision `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3` includes the
+session-binding, process-epoch snapshot recovery, telemetry authorization, and
+accessibility changes recorded in [RELEASES.md](RELEASES.md). Publication run
+[37135796169](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37135796169)
+passed both architecture builds, runtime smoke, stable-manifest publication,
+and exact-digest provenance/SBOM verification. Authenticated RouterOS read-back
+reported both containers on the immutable ARM64 tag and healthy; the router
+does not report the registry manifest digest.
 
 | Check | Result |
 | --- | --- |
-| Candidate image | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a9deb20a50363712fa8c65f933163f2ffd5678ce-arm64` |
-| Published ARM64 manifest digest | `sha256:99f85730776a95c486bd3b212bb4a590a854961a64a5cf8448cccf2254f392bc` |
-| Canary revision / health | `a9deb20a50363712fa8c65f933163f2ffd5678ce`; RouterOS healthy and `/readyz` healthcheck good after a 60-second soak |
-| Production revision / health | `a9deb20a50363712fa8c65f933163f2ffd5678ce`; RouterOS healthy and `/readyz` healthcheck good after repull |
-| Container resource sample | Production: 0.6% CPU, 32.3 MiB memory, 61.9 MiB app image; one instantaneous sample, not a baseline or peak |
-| Active PPP/OpenVPN sessions before production repull | 0 |
-| RouterOS changes | Image repull only; existing environment list, mounts, `/data`, and `/config` were preserved |
-| User, CA, certificate, VPN policy/data changes | None |
+| Candidate image | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64` |
+| Published ARM64 manifest digest | `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38` |
+| Canary revision / health | `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`; authenticated RouterOS read-back healthy; later private `/healthz` and `/readyz` probe returned `ok` and `ready` at this revision |
+| Production revision / health | `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`; authenticated RouterOS read-back healthy; the production private endpoint was not reachable from the later workstation probe |
+| Container resource observations | Production approximately 33.2 MiB / 0.6% CPU; canary approximately 33.3 MiB / 0.6% CPU. Point-in-time only, not baseline or peak. |
+| Digest identity on RouterOS | Not verified; RouterOS read-back exposed the configured tag, while digest is from registry publication evidence. |
 
 This is a deployment/readiness check, not a replacement for the formal
-30-minute Redis/telemetry acceptance window. Router-side registry-digest
+30-minute Redis/telemetry acceptance window. A later unauthenticated public
+health probe redirected to Cloudflare Access, so current production health was
+not independently rechecked from that workstation. Router-side registry-digest
 attestation, long-window latency/freshness percentiles, Redis delivery evidence,
-and recovery/failure-injection gates remain outstanding.
+and recovery/failure-injection gates remain outstanding for the current runtime.
 
 ## Latest deployed correction
 
@@ -68,6 +71,10 @@ Socket.IO stream and does not add a manual refresh path. CI passed all 12
 required checks before the immutable image was published and promoted.
 
 ## Acceptance gates
+
+The following results apply to the accepted Binary API telemetry baseline and
+the private operator window dated 2026-10-01/02; they are not evidence that the
+newer `a2d0ce2` runtime completed its own release soak.
 
 | Gate | Target | Result | Evidence reference |
 | --- | --- | --- | --- |
@@ -104,10 +111,13 @@ required checks before the immutable image was published and promoted.
 
 ## Final decision
 
-Overall result: **PASS — the operator accepted the controlled production
-window, immutable image rollout, reconnect/snapshot behavior, live traffic
+Baseline result: **PASS — the operator accepted the controlled production
+window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
+
+Current runtime result: **PENDING — the newer `a2d0ce2` deployment still needs
+its 30-minute Redis/telemetry acceptance window and rollback drill.**
 
 The acceptance evaluator remains available for future regression windows. New
 evidence must remain outside the repository and should be redacted before any
