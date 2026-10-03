@@ -107,8 +107,19 @@ test('narrow desktop reflow keeps navigation and primary action reachable', asyn
   await page.setViewportSize({ width: 720, height: 500 });
   await expect(page.getByRole('link', { name: 'VPN Users', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add VPN user' })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
-    .toBe(true);
+  const pageScrollX = await page.evaluate(() => {
+    window.scrollTo({ left: 1000, top: 0, behavior: 'instant' });
+    return window.scrollX;
+  });
+  expect(pageScrollX, 'page content must not scroll horizontally').toBe(0);
+  const navigationCanScroll = await page.locator('.winbox-sidebar').evaluate((element) => {
+    const before = element.scrollLeft;
+    element.scrollLeft = element.scrollWidth;
+    const moved = element.scrollLeft > before;
+    element.scrollLeft = before;
+    return moved;
+  });
+  expect(navigationCanScroll, 'primary navigation remains horizontally scrollable').toBe(true);
 });
 
 test('forced-colors mode keeps Dashboard navigation and keyboard focus visible', async ({ page }) => {

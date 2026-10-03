@@ -305,4 +305,25 @@ image. This verifies the deployed revision tag, not the local image's content
 digest. The full 30-minute acceptance window and rollback rehearsal remain
 pending, and public readiness remains gated behind Cloudflare Access.
 
+Additional repository work merged on 2026-10-03: PR #328 added exact account
+and session read-back, persisted pending intent, secret-safe partial/unknown
+automation outcomes, recovery tests, and keyboard/reflow browser checks for
+#192 and #202. Its main-branch browser run exposed a 30px page-level horizontal
+scroll leak at narrow widths from the intentionally scrollable mobile
+navigation. PR #329 is the follow-up fix: it clips only root-level horizontal
+overflow, preserving the navigation's own scrolling, and adds a browser
+assertion for both behaviors. Local rendered checks pass on desktop, tablet,
+and mobile. PR #329 CI and release validation are still pending; no router
+deployment was performed.
+
+The #328 commit image was auto-published by run
+[37123588437](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37123588437),
+despite that run's browser job failing (the fix is in #329). The publish jobs
+passed image smoke and exact-digest provenance/SBOM verification: ARM64
+`sha256:6100629c3409941643c950e8d4fe2216cc4174440fa7ba9061a88b326020c472`,
+AMD64 `sha256:ee10346ae3464a2deaca355ecb76a022f002a69c3c1a8f424f758c4b02ef0235`.
+This image has not been verified on RouterOS and must not be described as
+deployed. The release workflow's ability to publish while the main CI browser
+job is red is a remaining #203 process-hardening item.
+
 Each issue is delivered as a focused PR with CI and acceptance evidence. Dependency order may pull security or reliability work forward when required to make a feature safe. Core live telemetry, REST/SSE fallback, RouterOS as source of truth, redaction, and review-first destructive actions remain product invariants.

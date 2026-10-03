@@ -696,6 +696,7 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 }
 
 @media (max-width: 760px) {
+  html { overflow-x: clip; }
   body { overflow: auto; }
   .winbox-shell { display: block; height: auto; min-height: 100vh; overflow: visible; }
   .winbox-menubar { position: sticky; z-index: 40; top: 0; height: 40px; }
