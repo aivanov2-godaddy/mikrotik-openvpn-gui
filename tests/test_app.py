@@ -1787,8 +1787,129 @@ class DashboardIntegrationTests(unittest.TestCase):
         result = json.loads(payload)
         self.assertEqual(result["status"], "success")
         self.assertEqual(next(item for item in result["outcomes"] if item["username"] == "user-two")["disconnected"], 1)
+        self.assertEqual({item["status"] for item in result["outcomes"]}, {"verified"})
         self.assertFalse(self.mock.state.active_sessions)
         self.assertTrue(all(item["disabled"] == "yes" for item in self.mock.state.users.values()))
+
+    def test_bulk_suspend_reconciles_lost_mutation_response_by_user_readback(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        update_user = router.update_user
+
+        def update_then_lose_response(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+            raise RouterOSError("private RouterOS response", 503)
+
+        with mock.patch.object(router, "update_user", side_effect=update_then_lose_response):
+            status, _, payload = self.json_request(
+                "POST", "/api/bulk/apply",
+                {
+                    "action": "suspend", "user_ids": [user["id"]],
+                    "confirmation": "APPLY SUSPEND TO 1 USERS",
+                },
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["outcomes"][0]["status"], "verified")
+        self.assertTrue(result["outcomes"][0]["reconciled"])
+        self.assertTrue(next(item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass")) if item["id"] == user["id"])["disabled"])
+        self.assertNotIn("private RouterOS response", payload.decode())
+
+    def test_bulk_suspend_readback_unavailable_does_not_clear_local_enforcement(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        self.server.context.store.set_user_controls(
+            user["name"], policy="full-tunnel", expires_at="", max_sessions=1,
+            rate_limit_kbps=0, dns_mode="router", notifications=False,
+        )
+        self.server.context.store.set_enforcement_state(user["name"], "quota")
+        current_users = router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+        with mock.patch.object(
+            router,
+            "list_ovpn_users",
+            side_effect=[current_users, RouterOSError("private read-back detail", 503)],
+        ):
+            status, _, payload = self.json_request(
+                "POST", "/api/bulk/apply",
+                {
+                    "action": "suspend", "user_ids": [user["id"]],
+                    "confirmation": "APPLY SUSPEND TO 1 USERS",
+                },
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["outcomes"][0]["status"], "unknown")
+        self.assertEqual(self.server.context.store.user_controls(user["name"])["enforcement_state"], "quota")
+
+    def test_bulk_revoke_marks_local_devices_only_after_certificate_readback(self) -> None:
+        _, device_id = self._managed_device_revoke_request()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-one"
+        )
+        revoke = self.server.context.router.revoke_certificate
+
+        def revoke_then_lose_response(*args: Any, **kwargs: Any) -> None:
+            revoke(*args, **kwargs)
+            raise RouterOSError("private RouterOS response", 503)
+
+        with mock.patch.object(self.server.context.router, "revoke_certificate", side_effect=revoke_then_lose_response):
+            status, _, payload = self.json_request(
+                "POST", "/api/bulk/apply",
+                {
+                    "action": "revoke", "user_ids": [user["id"]],
+                    "confirmation": "APPLY REVOKE TO 1 USERS",
+                },
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["outcomes"][0]["status"], "verified")
+        self.assertIsNotNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
+        self.assertNotIn("private RouterOS response", payload.decode())
+
+    def test_bulk_revoke_readback_failure_leaves_local_device_state_unknown(self) -> None:
+        _, device_id = self._managed_device_revoke_request()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-one"
+        )
+        with mock.patch.object(
+            self.server.context.router,
+            "list_ovpn_client_certificates",
+            side_effect=RouterOSError("private read-back detail", 503),
+        ):
+            status, _, payload = self.json_request(
+                "POST", "/api/bulk/apply",
+                {
+                    "action": "revoke", "user_ids": [user["id"]],
+                    "confirmation": "APPLY REVOKE TO 1 USERS",
+                },
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["outcomes"][0]["status"], "unknown")
+        self.assertIsNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
+        self.assertNotIn("private read-back detail", payload.decode())
 
 
     def test_policy_template_preview_and_explicit_apply(self) -> None:
