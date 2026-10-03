@@ -258,7 +258,14 @@ class TelemetryGatewayContract:
             cursor = subscription.last_seen_sequence if after_sequence is None else int(after_sequence)
             frames = list(self._events)
             queued_frames = [frame for frame, _published_at in frames]
-            if queued_frames and cursor < queued_frames[0]["sequence"] - 1:
+            # Broker sequence numbers are process-local. After a restart the
+            # client can reconnect with a cursor from the previous process,
+            # which may be ahead of this broker's current sequence. Treat
+            # that as an epoch change and replace client state with a snapshot
+            # instead of returning an empty replay forever.
+            if cursor > self._broker.sequence or (
+                queued_frames and cursor < queued_frames[0]["sequence"] - 1
+            ):
                 result = [(self._snapshot_frame(), self._monotonic_clock())]
                 self._snapshot_recoveries += 1
             else:
