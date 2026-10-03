@@ -114,6 +114,15 @@ long-duration resource and reconnect report is still required for formal
 acceptance; the report template is intentionally pending until that evidence
 is collected from the deployed router.
 
+The gateway also exposes a bounded rolling sample of enqueue-to-authorized-poll
+delay as `delivery_queue_age_seconds` and
+`delivery_queue_age_p95_seconds` in `/api/telemetry` and as Prometheus gauges.
+This is one server-side stage of delivery, not a browser-render measurement or
+proof of the full session-change SLO. It retains at most 512 numeric samples
+and adds no event, user, session, or client identifiers. End-to-end latency and
+traffic freshness targets still require the redacted canary harness and a
+real-browser observation window.
+
 The image defaults to ``SOCKETIO_ENGINE=asgi``. This runs the same-origin
 Socket.IO gateway under Uvicorn with native WebSocket support. Setting
 ``SOCKETIO_ENGINE=polling`` selects the dependency-free threaded bridge as an

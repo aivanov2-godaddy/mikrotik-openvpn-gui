@@ -1,10 +1,8 @@
-"""Dependency-free gateway contract for the live telemetry migration.
+"""Dependency-free, redacted gateway contract used by live telemetry.
 
-This module is deliberately not a Socket.IO server.  It defines the boundary
-that a future same-origin Socket.IO adapter must implement: authenticate the
-existing dashboard session, keep a bounded replay window, and publish only
-versioned, redacted broker events.  The REST/SSE runtime does not import or
-enable this contract yet.
+The Socket.IO adapter authenticates the existing dashboard session and uses
+this transport-neutral boundary for bounded replay and snapshot recovery. Only
+versioned, redacted broker events are retained here.
 """
 
 from __future__ import annotations
@@ -128,14 +126,19 @@ class TelemetryGatewayContract:
         broker: TelemetryBroker,
         *,
         clock: Callable[[], float] = time.time,
+        monotonic_clock: Callable[[], float] = time.monotonic,
         max_replay: int = 256,
         max_clients: int = 128,
     ) -> None:
         self._broker = broker
         self._clock = clock
-        self._events: deque[dict[str, Any]] = deque(maxlen=max(1, int(max_replay)))
+        self._monotonic_clock = monotonic_clock
+        self._events: deque[tuple[dict[str, Any], float]] = deque(
+            maxlen=max(1, int(max_replay))
+        )
         self._clients: dict[str, TelemetrySubscription] = {}
         self._max_clients = max(1, int(max_clients))
+        self._delivery_queue_ages: deque[float] = deque(maxlen=512)
         self._lock = threading.RLock()
         self._published_events = 0
         self._replayed_events = 0
@@ -229,7 +232,7 @@ class TelemetryGatewayContract:
         with self._lock:
             count = 0
             for event in events:
-                self._events.append(self._frame(event))
+                self._events.append((self._frame(event), self._monotonic_clock()))
                 count += 1
             self._published_events += count
             return count
@@ -254,20 +257,30 @@ class TelemetryGatewayContract:
                 raise TelemetrySubscriptionError("telemetry subscription is not active")
             cursor = subscription.last_seen_sequence if after_sequence is None else int(after_sequence)
             frames = list(self._events)
-            if frames and cursor < frames[0]["sequence"] - 1:
-                result = [self._snapshot_frame()]
+            queued_frames = [frame for frame, _published_at in frames]
+            if queued_frames and cursor < queued_frames[0]["sequence"] - 1:
+                result = [(self._snapshot_frame(), self._monotonic_clock())]
                 self._snapshot_recoveries += 1
             else:
-                result = [frame for frame in frames if frame["sequence"] > cursor]
+                result = [item for item in frames if item[0]["sequence"] > cursor]
                 self._replayed_events += len(result)
             if result:
-                subscription.last_seen_sequence = max(frame["sequence"] for frame in result)
-            return copy.deepcopy(result)
+                subscription.last_seen_sequence = max(
+                    frame["sequence"] for frame, _published_at in result
+                )
+                observed_at = self._monotonic_clock()
+                self._delivery_queue_ages.extend(
+                    max(0.0, observed_at - published_at)
+                    for _frame, published_at in result
+                )
+            return copy.deepcopy([frame for frame, _published_at in result])
 
-    def metrics(self) -> dict[str, int]:
-        """Return aggregate delivery counters with no client/event identifiers."""
+    def metrics(self) -> dict[str, int | float]:
+        """Return bounded, aggregate delivery metrics without client/event IDs."""
 
         with self._lock:
+            ages = sorted(self._delivery_queue_ages)
+            p95_index = max(0, (len(ages) * 95 + 99) // 100 - 1)
             return {
                 "active_clients": len(self._clients),
                 "buffered_events": len(self._events),
@@ -275,6 +288,11 @@ class TelemetryGatewayContract:
                 "replayed_events": self._replayed_events,
                 "snapshot_recoveries": self._snapshot_recoveries,
                 "rejected_clients": self._rejected_clients,
+                "delivery_observations": len(self._delivery_queue_ages),
+                "delivery_queue_age_seconds": self._delivery_queue_ages[-1]
+                if self._delivery_queue_ages
+                else -1.0,
+                "delivery_queue_age_p95_seconds": ages[p95_index] if ages else -1.0,
             }
 
     @property
