@@ -1060,6 +1060,18 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertEqual(status, 403, path)
             self.assertIn(f'"required_capability":"{capability}"'.encode(), payload)
             self.assertNotIn(b"full-tunnel", payload)
+
+        with mock.patch.object(
+            self.server.context.router, "_request", wraps=self.server.context.router._request,
+        ) as router_request:
+            for path in ("/api/status", "/api/users"):
+                status, _, payload = self.request(
+                    "GET", path,
+                    headers={"Authorization": f"Bearer {health_token}", "Cookie": ""},
+                )
+                self.assertEqual(status, 403, path)
+                self.assertIn(b"authenticated RouterOS dashboard session", payload)
+            router_request.assert_not_called()
         for path in ("/api/connections.csv", "/api/usage.csv"):
             status, _, payload = self.request(
                 "GET", path,
@@ -1096,6 +1108,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("/api/reports/compliance.zip", "sessions.read"),
             ("/metrics", "health.read"),
             ("/api/reports/diagnostics.zip", "health.read"),
+            ("/api/service-health", "health.read"),
+            ("/api/setup-preflight", "health.read"),
         ):
             status, _, payload = self.request(
                 "GET", path,

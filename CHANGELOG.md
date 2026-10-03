@@ -21,6 +21,8 @@ semantic-version style release tags.
   diagnostics with derived-only output and explicit unknown firewall status.
 - Add-user and duplicate-account previews now require a reason, bind it to the
   single-use review receipt, and include it in successful and recovery audits.
+- Enforce `health.read` on service-health and setup-preflight routes; keep
+  RouterOS user/status data endpoints unavailable to API-token principals.
 
 ## 2.5.0 - 2026-10-01
 

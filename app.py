@@ -829,6 +829,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._redirect("/login")
         return None
 
+    def _require_routeros_session(self, session: Session) -> bool:
+        """Prevent scoped API tokens from entering RouterOS-authenticated routes."""
+        if session.auth_method == "routeros":
+            return True
+        self._json(
+            {"error": "This endpoint requires an authenticated RouterOS dashboard session"},
+            status=HTTPStatus.FORBIDDEN,
+        )
+        return False
+
     def _require_csrf(self, session: Session, body_token: str = "") -> bool:
         supplied = self.headers.get("X-CSRF-Token", "") or body_token
         if csrf_matches(session.csrf_token, supplied):
@@ -1303,7 +1313,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/users":
             session = self._require_session(api=True)
-            if not session:
+            if not session or not self._require_routeros_session(session):
                 return
             try:
                 users = self._users_with_metadata(self._credentials(session))
@@ -1319,7 +1329,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             session = self._require_session(api=True)
-            if not session:
+            if not session or not self._require_routeros_session(session):
                 return
             try:
                 credentials = self._credentials(session)
@@ -1354,7 +1364,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/service-health":
             session = self._require_session(api=True)
-            if not session:
+            if not session or not self._require_capability(session, "health.read"):
                 return
             self._json(self._service_health(self._credentials(session)))
             return
@@ -1369,7 +1379,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/setup-preflight":
             session = self._require_session(api=True)
-            if not session:
+            if not session or not self._require_capability(session, "health.read"):
                 return
             try:
                 credentials = self._credentials(session)
