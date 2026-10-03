@@ -85,33 +85,47 @@ async function tabTo(page, locator) {
   throw new Error('Could not reach the requested navigation link using Tab');
 }
 
-test('keyboard activation reaches Connections and VPN Users navigation views', async ({ page }) => {
-  const connectionsLink = page.getByRole('link', { name: 'Connections', exact: true });
-  await tabTo(page, connectionsLink);
-  await page.keyboard.press('Enter');
-  await expect(page.locator('[data-view="live-sessions"]')).toBeVisible();
-  await expect(connectionsLink).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('heading', { name: 'Connected Devices', exact: true })).toBeVisible();
+test('keyboard-only navigation activates Dashboard, VPN Users, and Connections', async ({ page }) => {
+  // Use a consistent narrow-desktop layout so every navigation link remains
+  // in the same keyboard tab sequence across the configured browser projects.
+  await page.setViewportSize({ width: 720, height: 500 });
+  const navigation = [
+    { name: 'Dashboard', target: 'overview', heading: 'VPN at a glance' },
+    { name: 'Connections', target: 'live-sessions', heading: 'Connected Devices' },
+    { name: 'VPN Users', target: 'vpn-users', heading: 'VPN Users' },
+  ];
 
-  const usersLink = page.getByRole('link', { name: 'VPN Users', exact: true });
-  await tabTo(page, usersLink);
-  await page.keyboard.press('Enter');
-  await expect(page.locator('[data-view="vpn-users"]')).toBeVisible();
-  await expect(usersLink).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('heading', { name: 'VPN Users', exact: true })).toBeVisible();
+  for (const view of navigation) {
+    const link = page.getByRole('link', { name: view.name, exact: true });
+    await tabTo(page, link);
+    await expect(link).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`[data-view="${view.target}"]`)).toBeVisible();
+    await expect(link).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
+    if (view.target === 'vpn-users') {
+      await expect(page.getByRole('button', { name: 'Add VPN user' })).toBeVisible();
+    }
+  }
 });
 
-test('narrow desktop reflow keeps navigation and primary action reachable', async ({ page }) => {
+test('720 CSS-pixel reflow keeps primary views and actions reachable', async ({ page }) => {
   // 720 CSS px is a 200%-zoom-equivalent reflow approximation for a 1440px
   // desktop layout. It does not emulate actual browser zoom.
   await page.setViewportSize({ width: 720, height: 500 });
   await expect(page.getByRole('link', { name: 'VPN Users', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add VPN user' })).toBeVisible();
-  const pageScrollX = await page.evaluate(() => {
-    window.scrollTo({ left: 1000, top: 0, behavior: 'instant' });
-    return window.scrollX;
-  });
-  expect(pageScrollX, 'page content must not scroll horizontally').toBe(0);
+  for (const view of views) {
+    if (view.target !== 'overview') {
+      await page.getByRole('link', { name: view.name, exact: true }).click();
+    }
+    await expect(page.locator(`[data-view="${view.target}"]`)).toBeVisible();
+    await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
+    if (view.target === 'vpn-users') {
+      await expect(page.getByRole('button', { name: 'Add VPN user' })).toBeVisible();
+    }
+    const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(pageWidth, `${view.name}: document must not overflow the 720px viewport`).toBeLessThanOrEqual(720);
+  }
   const navigationCanScroll = await page.locator('.winbox-sidebar').evaluate((element) => {
     const before = element.scrollLeft;
     element.scrollLeft = element.scrollWidth;

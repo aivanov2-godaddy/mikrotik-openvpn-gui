@@ -171,6 +171,73 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(native._rejected_connections_total, 1)
         self.assertIsNone(sessions.get(expired.session_id))
 
+    def test_socketio_reconnect_uses_current_server_session_capabilities(self) -> None:
+        from asgi import NativeSocketIO
+
+        class Gateway:
+            def __init__(self) -> None:
+                self.opened = 0
+                self.closed: list[str] = []
+
+            def open(self, _principal: object) -> str:
+                self.opened += 1
+                return f"subscription-{self.opened}"
+
+            def close(self, subscription: str) -> None:
+                self.closed.append(subscription)
+
+            def poll(self, _subscription: str) -> list[dict[str, object]]:
+                return []
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "router-password-marker", role="owner")
+        gateway = Gateway()
+        runtime = object.__new__(TelemetryRuntime)
+        runtime.sessions = sessions
+        runtime.gateway = gateway
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native._subscriptions = {}
+        native._session_ids = {}
+        native._tasks = {}
+        native._connections_total = 0
+        native._disconnects_total = 0
+        native._rejected_connections_total = 0
+
+        environ = {
+            "asgi.scope": {
+                "headers": [(b"cookie", f"vpn_session={session.session_id}".encode("ascii"))],
+            },
+        }
+
+        async def exercise() -> bool:
+            self.assertTrue(await native.connect("socket-before-change", environ))
+            await native.disconnect("socket-before-change")
+
+            # Keep the opaque session valid, but remove its live-read grant.
+            # A new transport SID must re-derive authorization from the
+            # current server-side session, not handshake-supplied claims.
+            session.capabilities = frozenset()
+            return await native.connect(
+                "socket-after-change",
+                environ,
+                auth={"username": "operator", "role": "owner", "capabilities": ["*"]},
+            )
+
+        accepted = asyncio.run(exercise())
+
+        self.assertFalse(accepted)
+        self.assertIsNotNone(sessions.get(session.session_id))
+        self.assertEqual(gateway.opened, 1)
+        self.assertEqual(gateway.closed, ["subscription-1"])
+        self.assertEqual(native._connections_total, 1)
+        self.assertEqual(native._disconnects_total, 1)
+        self.assertEqual(native._rejected_connections_total, 1)
+        self.assertEqual(native._subscriptions, {})
+        self.assertEqual(native._session_ids, {})
+        self.assertEqual(native._tasks, {})
+
     @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
     def test_repeated_socketio_connect_is_idempotent_and_disconnect_closes_once(self) -> None:
         from asgi import NativeSocketIO
