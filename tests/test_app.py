@@ -2268,6 +2268,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertEqual(response["code"], "routeros.mutation_verification_unavailable")
         self.assertFalse(response["verified"])
+        self.assertIn("outcome could not be verified", response["error"])
+        self.assertNotIn("received the termination request", response["error"])
         self.assertNotIn("private mutation detail", payload.decode("utf-8"))
         self.assertNotIn("private readback detail", payload.decode("utf-8"))
         self.assertNotIn(session_id, self.mock.state.active_sessions)

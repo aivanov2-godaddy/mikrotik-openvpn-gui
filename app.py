@@ -4971,8 +4971,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     {
                         "code": "routeros.mutation_verification_unavailable",
                         "error": (
-                            "RouterOS received the termination request, but the session state "
-                            "could not be verified. Check Connections before retrying."
+                            "The session termination outcome could not be verified. Check "
+                            "Connections before retrying."
                         ),
                         "verified": False,
                     },
