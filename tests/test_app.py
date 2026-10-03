@@ -1261,6 +1261,34 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(set(self.mock.state.certificates), before_certificates)
 
+    def test_user_provision_reports_incomplete_cleanup_when_router_still_has_account(self) -> None:
+        self.login()
+        intent = {
+            "username": "provision-recovery", "email": "provision-recovery@example.test",
+            "device_name": "Test laptop", "delivery": "ovpn", "policy": "full-tunnel",
+        }
+        review = self.preview_user_provision(intent)
+        router = self.server.context.router
+        with mock.patch.object(
+            router, "provision_profile", side_effect=RouterOSError("injected provisioning failure", 503),
+        ), mock.patch.object(router, "delete_user"):
+            status, _, payload = self.json_request(
+                "POST", "/api/users",
+                {
+                    **intent, "password": "provision-recovery-password",
+                    "key_passphrase": "provision-recovery-key", "review_token": review["review_token"],
+                },
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["code"], "routeros.provision_recovery_incomplete")
+        self.assertEqual(response["recovery"], "partial")
+        self.assertIn("provision-recovery", [item["name"] for item in self.mock.state.users.values()])
+        self.assertEqual(self.server.context.store.user_emails()["provision-recovery"], intent["email"])
+        self.assertNotIn(b"provision-recovery-password", payload)
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "partial")
+
     def test_profile_creation_revokes_new_certificate_when_local_recording_fails(self) -> None:
         self.login()
         user = next(
