@@ -1544,6 +1544,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._create_profile(urllib.parse.unquote(match.group(1)))
             return
+        match = re.fullmatch(r"/api/devices/([^/]+)/revoke/preview", path)
+        if match:
+            self._revoke_device(urllib.parse.unquote(match.group(1)), preview=True)
+            return
         match = re.fullmatch(r"/api/devices/([^/]+)/revoke", path)
         if match:
             self._revoke_device(urllib.parse.unquote(match.group(1)))
@@ -3902,8 +3906,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _revoke_device(self, device_id: str) -> None:
-        """Retire one dashboard-managed certificate after exact confirmation."""
+    def _revoke_device(self, device_id: str, *, preview: bool = False) -> None:
+        """Review and retire one managed certificate against current RouterOS state."""
+        audit_action = "device.revoke.preview" if preview else "device.revoke"
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "device.manage"):
             return
@@ -3916,11 +3921,75 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if device.get("revoked_at"):
                 raise ValueError("This device profile is already revoked")
             device_name = str(device.get("device_name") or "Unnamed device")
-            if not self._require_target_confirmation(data, device_name):
-                return
             certificate_id = str(device.get("certificate_id") or "")
             if not certificate_id:
                 raise ValueError("This device has no revocable certificate identity")
+            confirmation = str(data.get("confirmation", "")).strip()
+            reason = str(data.get("reason", "")).strip()
+            if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
+            if not hmac.compare_digest(confirmation, device_name):
+                raise ValueError(f"Type the exact target name '{device_name}' to confirm this action.")
+
+            certificates = self.server.context.router.list_ovpn_client_certificates(
+                credentials, include_legacy=True
+            )
+            certificate = next(
+                (item for item in certificates if str(item.get("id", "")) == certificate_id),
+                None,
+            )
+            if not certificate or bool(certificate.get("revoked")):
+                raise ValueError("RouterOS does not currently show this certificate as active; refresh Device Profiles before continuing")
+            receipt = {
+                "intent": {
+                    "device_id": device_id,
+                    "device_name": device_name,
+                    "vpn_user": str(device.get("vpn_user", "")),
+                    "certificate_id": certificate_id,
+                    "confirmation": confirmation,
+                    "reason": reason,
+                },
+                "router_state": {
+                    "certificate_name": str(certificate.get("name", "")),
+                    "certificate_authority": str(certificate.get("certificate_authority", "")),
+                    "revoked": bool(certificate.get("revoked")),
+                },
+            }
+            review_token = hmac.new(
+                session.csrf_token.encode("utf-8"),
+                json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            if preview:
+                try:
+                    active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+                    active_for_user: int | None = sum(
+                        1 for item in active_sessions if str(item.get("name", "")) == str(device.get("vpn_user", ""))
+                    )
+                except RouterOSError:
+                    active_for_user = None
+                self._json({
+                    "device": device_name,
+                    "vpn_user": str(device.get("vpn_user", "")),
+                    "certificate": str(certificate.get("name", "")),
+                    "certificate_state": "active_on_routeros",
+                    "active_sessions_for_user": active_for_user,
+                "active_sessions_scope": "user-wide; not attributable to this individual certificate",
+                "effect": "RouterOS certificate revocation; active sessions are not terminated by this action",
+                    "reason": reason,
+                    "review_token": review_token,
+                })
+                return
+            supplied_review_token = str(data.get("review_token", ""))
+            if not supplied_review_token or not hmac.compare_digest(supplied_review_token, review_token):
+                self.server.context.store.audit(
+                    actor=session.username, action="device.revoke", target=device_name,
+                    status="failed", details={"reason": "stale_or_missing_review"},
+                )
+                self._json({
+                    "error": "The device, certificate state, or reviewed intent has changed. Review this revocation again."
+                }, status=HTTPStatus.CONFLICT)
+                return
             if not self._checkpoint(session, "device.revoke"):
                 return
             mutation_error: RouterOSError | None = None
@@ -3991,6 +4060,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 target=device_name,
                 status="success",
                 details={
+                    "reason_provided": True,
                     "vpn_user": str(device.get("vpn_user", "")),
                     "certificate": str(device.get("certificate_name", "")),
                     "verification": "routeros_revoked",
@@ -4009,7 +4079,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "client_rejection_verified": False,
                 }
             )
-        except (ValueError, RouterOSError) as error:
+        except RouterOSError as error:
+            self.server.context.store.audit(
+                actor=session.username, action=audit_action, target=device_id,
+                status="unknown", details={"reason": type(error).__name__},
+            )
+            self._json({
+                "error": "RouterOS certificate state could not be verified. No revocation was sent; try the review again."
+            }, status=HTTPStatus.BAD_GATEWAY)
+        except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
     def _terminate_session(self, session_id: str) -> None:

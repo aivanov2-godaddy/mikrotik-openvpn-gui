@@ -227,6 +227,18 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         return f"/api/devices/{device_id}/revoke", device_id
 
+    def _review_device_revoke(self, path: str) -> dict[str, str]:
+        request = {
+            "confirmation": "Managed test phone",
+            "reason": "Device was reported lost by its owner.",
+        }
+        status, _, payload = self.json_request("POST", f"{path}/preview", request)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        preview = json.loads(payload)
+        self.assertEqual(preview["certificate_state"], "active_on_routeros")
+        self.assertIn("not terminated", preview["effect"])
+        return {**request, "review_token": preview["review_token"]}
+
     def _policy_template_review(self) -> tuple[str, str, dict[str, Any]]:
         status, _, payload = self.json_request(
             "POST", "/api/policy-templates",
@@ -1429,10 +1441,8 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_device_revoke_marks_local_state_only_after_routeros_readback(self) -> None:
         path, device_id = self._managed_device_revoke_request()
-
-        status, _, payload = self.json_request(
-            "POST", path, {"confirmation": "Managed test phone"}
-        )
+        reviewed = self._review_device_revoke(path)
+        status, _, payload = self.json_request("POST", path, reviewed)
 
         response = json.loads(payload)
         self.assertEqual(status, 200)
@@ -1444,8 +1454,23 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
         self.assertIn("POST /certificate/issued-revoke", self.mock.state.mutation_requests)
 
+    def test_device_revoke_preview_is_read_only_and_stale_review_is_rejected(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        reviewed = self._review_device_revoke(path)
+        self.assertEqual(self.mock.state.mutation_requests, [])
+        reviewed["reason"] = "A different reason was substituted after review."
+
+        status, _, payload = self.json_request("POST", path, reviewed)
+
+        self.assertEqual(status, 409)
+        self.assertIn("Review this revocation again", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, [])
+        self.assertIsNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "failed")
+
     def test_device_revoke_accepts_lost_mutation_response_when_readback_confirms_commit(self) -> None:
         path, device_id = self._managed_device_revoke_request()
+        reviewed = self._review_device_revoke(path)
         revoke = self.server.context.router.revoke_certificate
 
         def commit_then_lose_response(*args: Any, **kwargs: Any) -> None:
@@ -1457,9 +1482,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "revoke_certificate",
             side_effect=commit_then_lose_response,
         ):
-            status, _, payload = self.json_request(
-                "POST", path, {"confirmation": "Managed test phone"}
-            )
+            status, _, payload = self.json_request("POST", path, reviewed)
 
         response = json.loads(payload)
         self.assertEqual(status, 200)
@@ -1469,10 +1492,9 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_device_revoke_does_not_mark_local_state_when_routeros_readback_mismatches(self) -> None:
         path, device_id = self._managed_device_revoke_request()
+        reviewed = self._review_device_revoke(path)
         with mock.patch.object(self.server.context.router, "revoke_certificate"):
-            status, _, payload = self.json_request(
-                "POST", path, {"confirmation": "Managed test phone"}
-            )
+            status, _, payload = self.json_request("POST", path, reviewed)
 
         response = json.loads(payload)
         self.assertEqual(status, 502)
@@ -1483,14 +1505,16 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_device_revoke_reports_unknown_when_routeros_readback_is_unavailable(self) -> None:
         path, device_id = self._managed_device_revoke_request()
+        reviewed = self._review_device_revoke(path)
+        current_certificates = self.server.context.router.list_ovpn_client_certificates(
+            RouterOSCredentials("admin", "routerpass"), include_legacy=True,
+        )
         with mock.patch.object(
             self.server.context.router,
             "list_ovpn_client_certificates",
-            side_effect=RouterOSError("private router detail", 503),
+            side_effect=[current_certificates, RouterOSError("private router detail", 503)],
         ):
-            status, _, payload = self.json_request(
-                "POST", path, {"confirmation": "Managed test phone"}
-            )
+            status, _, payload = self.json_request("POST", path, reviewed)
 
         response = json.loads(payload)
         self.assertEqual(status, 502)
