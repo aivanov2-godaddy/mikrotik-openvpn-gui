@@ -2576,6 +2576,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 409)
         self.mock.state.users[target["id"]]["profile"] = original_profile
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+        )
+        self.assertEqual(status, 200)
+        preview = json.loads(payload)
 
         # Reusing the receipt with a different selection cannot apply an unreviewed user.
         other = next(item for item in users if item["id"] != target["id"])
@@ -2585,6 +2590,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 409)
         self.assertNotIn("user-one", self.server.context.store.user_template_assignments())
+        status, _, payload = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/preview", {"user_ids": [target["id"]]},
+        )
+        self.assertEqual(status, 200)
+        preview = json.loads(payload)
 
         status, _, payload = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply",
@@ -2598,6 +2608,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 10240)
         self.assertEqual(self.server.context.store.user_template_assignments()["user-one"]["template_id"], template["id"])
         self.assertIn("policy_template.apply", [item["action"] for item in self.server.context.store.recent_audit(10)])
+        status, _, _ = self.json_request(
+            "POST", f"/api/policy-templates/{template['id']}/apply",
+            {"user_ids": [target["id"]], "review_token": preview["review_token"]},
+        )
+        self.assertEqual(status, 409)
 
         # A state change after preview invalidates that review before checkpoint/apply.
         current = self.server.context.store.user_controls("user-one")
