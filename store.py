@@ -1182,6 +1182,23 @@ class MetadataStore:
             "last_delivered": int(row["last_delivered"] or 0) if row else 0,
         }
 
+    def recent_integration_delivery_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return bounded outbox delivery state without event IDs or payloads."""
+
+        safe_limit = max(1, min(int(limit), 100))
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT rowid AS source_id, event_type, created_at, delivered_at,
+                       dead_lettered_at, attempts
+                FROM integration_outbox
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def recent_audit(
         self, limit: int = 25, *, start_at: int | None = None, end_at: int | None = None
     ) -> list[dict[str, Any]]:

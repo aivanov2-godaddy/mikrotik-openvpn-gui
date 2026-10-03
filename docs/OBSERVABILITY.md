@@ -17,9 +17,12 @@ audit webhook.
   not store credentials, certificate material, packet payloads, or RouterOS
   configuration.
 - **Operations timeline** uses stable source-row identifiers for local audit
-  events. Those identifiers make a row addressable across refreshes; they are
-  not cross-system incident IDs and do not correlate RouterOS telemetry or
-  Redis deliveries. The timeline remains bounded and explicitly incomplete.
+  events and shows bounded, payload-free Redis outbox delivery outcomes when
+  the viewer has `audit.read`. The delivery rows omit event IDs, payloads, and
+  errors; they show only audit-event delivery state and attempt count. These
+  identifiers are not cross-system incident IDs and do not correlate RouterOS
+  telemetry with the audit or Redis records. The timeline remains bounded and
+  explicitly incomplete.
 - **Rollback visibility** identifies the running revision and the most recent
   different known-good runtime revision. It is a visibility aid, not an
   automatic rollback action. The router-local watchdog remains the authority

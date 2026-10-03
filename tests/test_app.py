@@ -97,6 +97,24 @@ class OperationsTimelineTests(unittest.TestCase):
         self.assertEqual(before, "audit:42")
         self.assertEqual(after, before)
 
+    def test_integration_delivery_events_are_bounded_redacted_and_status_only(self) -> None:
+        result = operations_timeline(
+            [], [], [],
+            integrations=[
+                {"source_id": 8, "event_type": "audit", "created_at": 90, "attempts": 2},
+                {"source_id": 9, "event_type": "audit", "created_at": 91, "delivered_at": 95, "attempts": 1,
+                 "event_id": "private-event-id", "payload": "private payload"},
+                {"source_id": 10, "event_type": "other", "created_at": 96, "attempts": 1},
+            ],
+            now=100,
+        )
+        self.assertEqual([event["id"] for event in result["events"]], ["integration:9", "integration:8"])
+        self.assertEqual([event["outcome"] for event in result["events"]], ["delivered", "pending"])
+        self.assertIn("integration-delivery", result["coverage"]["message"])
+        serialized = json.dumps(result)
+        self.assertNotIn("private-event-id", serialized)
+        self.assertNotIn("private payload", serialized)
+
 
 class DevicePostureTests(unittest.TestCase):
     def test_posture_requires_present_non_revoked_certificate_from_current_ca(self) -> None:
