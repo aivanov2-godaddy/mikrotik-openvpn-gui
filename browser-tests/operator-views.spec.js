@@ -151,6 +151,68 @@ test('forced-colors mode keeps Dashboard navigation and keyboard focus visible',
   await expect(page.getByRole('button', { name: 'Add VPN user' })).toBeVisible();
 });
 
+test('light theme has no serious WCAG 2.2 A/AA violations', async ({ page }, testInfo) => {
+  await page.locator('.theme-menu > summary').click();
+  await page.getByRole('button', { name: /Light Bright workspace/ }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', 'light');
+  await expect(page.locator('[data-theme-choice="light"]')).toHaveAttribute('aria-pressed', 'true');
+
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  const serious = results.violations
+    .filter(({ impact }) => ['critical', 'serious'].includes(impact))
+    .flatMap(({ id, impact, nodes }) => nodes.map((node) => ({ id, impact, target: node.target.join(' ') })));
+  await testInfo.attach('axe-light-theme-serious-findings.json', {
+    body: Buffer.from(JSON.stringify({ theme: 'light', findings: serious }, null, 2)),
+    contentType: 'application/json',
+  });
+  expect(
+    serious.filter(({ id }) => id === 'color-contrast'),
+    'light-theme contrast findings are not suppressed by the existing baseline',
+  ).toEqual([]);
+  expect(serious, 'light theme must not add serious/critical WCAG findings').toEqual([]);
+});
+
+test('add-user dialog has accessible controls, stays keyboard-modal, validates, and cancels safely', async ({ page }) => {
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  const openButton = page.getByRole('button', { name: 'Add VPN user' });
+  await openButton.click();
+
+  const dialog = page.getByRole('dialog', { name: 'Add a person and phone' });
+  await expect(dialog).toBeVisible();
+  const username = dialog.getByRole('textbox', { name: 'VPN username', exact: true });
+  const email = dialog.getByRole('textbox', { name: /^Owner email/ });
+  const submit = dialog.getByRole('button', { name: 'Review ZIP' });
+  await expect(username).toBeVisible();
+  await expect(email).toBeVisible();
+  await expect(submit).toBeVisible();
+  await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement)))
+    .toBe(true);
+
+  await page.keyboard.press('Tab');
+  await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement)))
+    .toBe(true);
+
+  await username.fill('accessibility-test');
+  await email.fill('not-an-email');
+  await submit.click();
+  await expect.poll(() => email.evaluate((element) => element.validity.typeMismatch)).toBe(true);
+  await expect.poll(() => email.evaluate((element) => element.matches(':invalid'))).toBe(true);
+  await expect(dialog).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(openButton).toBeFocused();
+
+  await openButton.click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).not.toBeVisible();
+  await expect(openButton).toBeFocused();
+});
+
 test('diagnostic ZIP can be previewed and downloaded only on explicit keyboard activation', async ({ page }) => {
   await page.getByRole('link', { name: 'Change History', exact: true }).click();
   const preview = page.getByText('Preview what the ZIP contains', { exact: true });
