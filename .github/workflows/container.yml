@@ -167,11 +167,14 @@ jobs:
           cache-to: type=gha,mode=max,scope=release-${{ matrix.suffix }}
       - name: Record immutable digest
         run: |
-          echo "### Published ${{ matrix.name }} container" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Platform: `${{ matrix.platform }}`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Architecture tag suffix: `${{ matrix.suffix }}`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          {
+            printf '%s\n' '### Published ${{ matrix.name }} container'
+            printf '%s\n' '- Platform: ${{ matrix.platform }}'
+            printf '%s\n' '- Architecture tag suffix: ${{ matrix.suffix }}'
+            printf '%s\n' '- Commit: ${{ github.sha }}'
+            printf '%s\n' '- Digest: ${{ steps.build.outputs.digest }}'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Generate detached SPDX SBOM for the published digest
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
