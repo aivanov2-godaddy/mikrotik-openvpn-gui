@@ -1184,7 +1184,7 @@ function renderBulkReview(payload) {
     apply.disabled = true;
     bulkSetStatus('Applying the reviewed operation and recording a redacted audit event…');
     try {
-      const response = await resultOrError(await api('/api/bulk/apply', { method: 'POST', body: { action: payload.action, tag: payload.tag || '', user_ids: selectedBulkUsers(), confirmation: confirmation.value.trim() } }));
+      const response = await resultOrError(await api('/api/bulk/apply', { method: 'POST', body: { action: payload.action, tag: payload.tag || '', user_ids: selectedBulkUsers(), confirmation: confirmation.value.trim(), review_token: payload.review_token } }));
       const result = await response.json();
       const message = result.status === 'partial' ? 'Applied with partial failures; review the per-user results below.' : 'Bulk operation applied successfully.';
       bulkSetStatus(message, result.status === 'partial');
@@ -1207,7 +1207,12 @@ function renderBulkReview(payload) {
       apply.disabled = true;
       await pollStatus();
       applyBulkFilters();
-    } catch (error) { bulkSetStatus(error.message, true); apply.disabled = false; }
+    } catch (error) {
+      bulkPreviewPayload = null;
+      review.replaceChildren();
+      review.hidden = true;
+      bulkSetStatus(`${error.message} The review is no longer reusable; generate a fresh preview and verify current RouterOS state before retrying.`, true);
+    }
   });
   const controls = node('div', 'bulk-review-controls');
   controls.append(node('label', '', 'Type confirmation'), confirmation, apply);
