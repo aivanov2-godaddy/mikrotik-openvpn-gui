@@ -566,9 +566,21 @@ class DashboardIntegrationTests(unittest.TestCase):
             "PATCH": patch_routes,
             "DELETE": delete_routes,
         }
+        routes_by_method = {"GET": read_routes, **mutation_routes}
+
+        def persistent_local_state() -> dict[str, Any]:
+            store = self.server.context.store
+            return {
+                "audit": store.recent_audit(100),
+                "alerts": store.recent_alerts(100, include_acknowledged=True),
+                "views": store.saved_views(),
+                "tokens": store.list_api_tokens(include_revoked=True),
+            }
+
         self.cookie = ""
         self.csrf = ""
         before_mutations = list(self.mock.state.mutation_requests)
+        before_anonymous_state = persistent_local_state()
 
         for path in read_routes:
             with self.subTest(method="GET", path=path):
@@ -588,7 +600,9 @@ class DashboardIntegrationTests(unittest.TestCase):
                     self.assertNotIn(b"routerpass", payload)
                     self.assertNotIn(b"user-one", payload)
 
+        self.assertEqual(persistent_local_state(), before_anonymous_state)
         self.login()
+        before_csrf_denials_state = persistent_local_state()
         for method, paths in mutation_routes.items():
             for path in paths:
                 with self.subTest(method=f"{method} without CSRF", path=path):
@@ -601,61 +615,26 @@ class DashboardIntegrationTests(unittest.TestCase):
                     self.assertNotIn(b"user-one", payload)
 
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(persistent_local_state(), before_csrf_denials_state)
 
-    def test_sensitive_route_matrix_covers_every_dispatched_api_route(self) -> None:
-        """New API dispatches must be added to the anonymous/CSRF matrix."""
-        get_routes = {
-            "/api/telemetry", "/api/admin/sessions", "/api/admin/api-tokens",
-            "/api/reports/compliance.zip", "/api/reports/diagnostics.zip",
-            "/api/release/verify", "/api/policy-templates", "/api/users",
-            "/api/bulk/views", "/api/status", "/api/service-health",
-            "/api/observability", "/api/setup-preflight", "/api/audit.csv",
-            "/api/audit.json", "/api/backups/metadata.zip", "/api/connections.csv",
-            "/api/usage.csv", "/api/events",
-        }
-        post_literal_routes = {
-            "/api/users", "/api/bulk/preview", "/api/bulk/apply", "/api/bulk/views",
-            "/api/setup-plan", "/api/openvpn-foundation-plan", "/api/admin/api-tokens",
-            "/api/admin/break-glass/plan", "/api/network/segment-plan",
-            "/api/profile/diagnose", "/api/connection-doctor",
-            "/api/security/exposure-doctor", "/api/backups/preflight",
-            "/api/backups/validate", "/api/backups/restore-plan", "/api/policy-templates",
-        }
-        expected_literal_routes = {
-            "GET": get_routes,
-            "POST": post_literal_routes,
-            "PATCH": set(),
-            "DELETE": set(),
-        }
-        for method, expected in expected_literal_routes.items():
+        # Bind route inventory to the exact tuples exercised above. The current
+        # dispatch forms are either a literal equality or a raw-regex fullmatch;
+        # an alternate /api string form must update this guard explicitly.
+        for method, examples in routes_by_method.items():
             source = inspect.getsource(getattr(DashboardHandler, f"do_{method}"))
-            dispatched = set(re.findall(r'path == "(/api/[^\"]+)"', source))
-            with self.subTest(method=method, route_kind="literal"):
-                self.assertEqual(dispatched, expected)
-
-        route_examples = {
-            "POST": (
-                "/api/users/test-user/preview", "/api/policy-templates/test/preview",
-                "/api/policy-templates/test/apply", "/api/users/test-user/suspend",
-                "/api/users/test-user/restore", "/api/users/test-user/profiles",
-                "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
-                "/api/users/test-user/duplicate", "/api/alerts/1/ack",
-            ),
-            "PATCH": ("/api/policy-templates/test-template", "/api/users/test-user"),
-            "DELETE": (
-                "/api/admin/api-tokens/token-12345678", "/api/admin/sessions/session-1",
-                "/api/bulk/views/view-1", "/api/sessions/session-1", "/api/users/test-user",
-            ),
-        }
-        for method, examples in route_examples.items():
-            source = inspect.getsource(getattr(DashboardHandler, f"do_{method}"))
+            all_api_strings = set(re.findall(r'["\'](/api/[^"\']+)["\']', source))
+            literal_routes = set(re.findall(r'path == "(/api/[^\"]+)"', source))
             patterns = re.findall(r're\.fullmatch\(r"(/api/[^\"]+)"\s*,\s*path\)', source)
-            self.assertTrue(patterns, f"expected API route patterns in do_{method}")
+            with self.subTest(method=method, route_inventory="dispatch forms"):
+                self.assertEqual(all_api_strings, literal_routes | set(patterns))
+            for path in literal_routes:
+                with self.subTest(method=method, literal=path):
+                    self.assertIn(path, examples)
             for pattern in patterns:
                 with self.subTest(method=method, pattern=pattern):
                     self.assertTrue(
                         any(re.fullmatch(pattern, path) for path in examples),
-                        f"route pattern {pattern!r} has no anonymous/CSRF test case",
+                        f"route pattern {pattern!r} has no executed anonymous/CSRF case",
                     )
 
     def test_read_only_role_cannot_cross_audit_or_mutation_capability_boundaries(self) -> None:
