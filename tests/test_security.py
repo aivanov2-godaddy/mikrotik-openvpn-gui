@@ -352,6 +352,10 @@ class SecurityTests(unittest.TestCase):
             row = store.recent_connections(1)[0]
             self.assertEqual(row["disconnected_at"], 1020)
             self.assertEqual(store.connection_summaries()["user-two"]["active_connections"], 0)
+            timeline = store.recent_connection_timeline(500, start_at=1015, end_at=1025)
+            self.assertEqual(len(timeline), 1)
+            self.assertEqual(set(timeline[0]), {"id", "vpn_user", "connected_at", "disconnected_at"})
+            self.assertEqual(store.recent_connection_timeline(10, start_at=1021, end_at=1030), [])
 
     def test_controls_and_alerts_are_persistent_and_secret_free(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

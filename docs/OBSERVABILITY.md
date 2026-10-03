@@ -16,13 +16,17 @@ audit webhook.
   service-health checks. It retains the overall state and counts only; it does
   not store credentials, certificate material, packet payloads, or RouterOS
   configuration.
-- **Operations timeline** uses stable source-row identifiers for local audit
-  events and shows bounded, payload-free Redis outbox delivery outcomes when
-  the viewer has `audit.read`. The delivery rows omit event IDs, payloads, and
-  errors; they show only audit-event delivery state and attempt count. These
-  identifiers are not cross-system incident IDs and do not correlate RouterOS
-  telemetry with the audit or Redis records. The timeline remains bounded and
-  explicitly incomplete.
+- **Operations timeline** joins bounded local audit, health, deployment,
+  payload-free Redis outbox status, and (for viewers with `sessions.read`)
+  connection-history observations. Session entries include the account name
+  but omit RouterOS session IDs and network addresses. Start times are
+  estimated from RouterOS uptime; an end time means a later snapshot no longer
+  contained that session, not that an exact disconnect event was received.
+  Same-account events within five minutes and health/deployment observations
+  within two minutes are presented as temporal context only, never proof of
+  causation. Redis delivery rows omit event IDs, payloads, and errors. The
+  timeline is bounded and explicitly incomplete; the JSON export requires
+  both `audit.read` and `sessions.read`.
 - **Rollback visibility** identifies the running revision and the most recent
   different known-good runtime revision. It is a visibility aid, not an
   automatic rollback action. The router-local watchdog remains the authority

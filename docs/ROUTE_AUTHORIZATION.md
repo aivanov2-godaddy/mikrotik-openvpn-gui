@@ -20,7 +20,7 @@ RouterOS mutation.
 | Capability | Route families | Notes |
 | --- | --- | --- |
 | `health.read` | `GET /api/status`, `/api/service-health`, `/api/observability`, `/api/setup-preflight`, `/api/release/verify`; `POST /api/connection-doctor`, `/api/security/exposure-doctor` | Read-only health and exposure probes. |
-| `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv`, `/api/bulk/views` | SSE additionally requires a RouterOS-authenticated dashboard session and revalidates its effective capability set while streaming. Saved-view definitions and user filters are not available to health-only tokens. |
+| `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv`, `/api/bulk/views`; with `audit.read`, `GET /api/operations-timeline.json` | Operations timeline export combines audit and session history and therefore requires both capabilities. SSE additionally requires a RouterOS-authenticated dashboard session and revalidates its effective capability set while streaming. Saved-view definitions and user filters are not available to health-only tokens. |
 | `policies.read` | `GET /api/policy-templates` | Reveals saved policy-template definitions and assignments; separate from `policies.manage`. |
 | `session.manage` | `DELETE /api/admin/sessions/{id}`, `DELETE /api/sessions/{id}` | Revokes a dashboard session or terminates a RouterOS VPN session, respectively. |
 | `users.manage` | `POST /api/users*`, `PATCH /api/users/{id}`, `DELETE /api/users/{id}`, `POST /api/users/{id}/suspend`, `/restore`, `POST /api/bulk/{preview,apply}` for `suspend`/`tag` | User/profile-issuing account changes. Bulk action selects its capability from the validated action. |
@@ -28,7 +28,7 @@ RouterOS mutation.
 | `device.manage` | `POST /api/devices/{id}/revoke*`, `POST /api/bulk/{preview,apply}` for `revoke` | Certificate revocation is distinct from terminating active sessions. |
 | `policies.manage` | `POST`/`PATCH /api/policy-templates*`, `POST /api/network/segment-plan` | Template apply and segment planning are review-first; the plan endpoint itself does not change RouterOS. |
 | `security.manage` | `GET /api/admin/api-tokens`, `POST`/`DELETE /api/admin/api-tokens*`, `POST /api/admin/break-glass/plan`, `POST /api/openvpn-foundation-plan` | Break-glass/foundation endpoints return plans and do not apply commands. |
-| `audit.read` | `GET /api/audit.csv`, `/api/audit.json`, `/api/reports/compliance.zip` | Compliance export also requires `sessions.read` because it includes connection history; it is redacted and time-bounded. |
+| `audit.read` | `GET /api/audit.csv`, `/api/audit.json`, `/api/reports/compliance.zip`; with `sessions.read`, `GET /api/operations-timeline.json` | Compliance and operations-timeline exports also require `sessions.read`; timeline correlation omits session IDs and addresses. |
 | `backup.manage` | `GET /api/backups/metadata.zip`, `POST /api/backups/{preflight,validate,restore-plan}` | Validation and restore-plan routes do not restore data. |
 | `alert.manage` | `POST /api/alerts/{id}/ack` | Acknowledges a dashboard alert. |
 

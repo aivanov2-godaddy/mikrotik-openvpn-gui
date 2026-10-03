@@ -1395,6 +1395,44 @@ class MetadataStore:
             )
             return [dict(row) for row in rows]
 
+    def recent_connection_timeline(
+        self, limit: int = 50, *, start_at: int | None = None, end_at: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return only the account and observed lifecycle times for correlation."""
+        safe_limit = max(1, min(int(limit), 100))
+        bounds = " AND ".join(
+            clause for clause in (
+                "connected_at >= ?" if start_at is not None else "",
+                "connected_at < ?" if end_at is not None else "",
+            ) if clause
+        )
+        alternate_bounds = " AND ".join(
+            clause for clause in (
+                "disconnected_at >= ?" if start_at is not None else "",
+                "disconnected_at < ?" if end_at is not None else "",
+            ) if clause
+        )
+        if bounds and alternate_bounds:
+            where = f" WHERE (({bounds}) OR ({alternate_bounds}))"
+            values = ([int(start_at)] if start_at is not None else []) + ([int(end_at)] if end_at is not None else [])
+            values += ([int(start_at)] if start_at is not None else []) + ([int(end_at)] if end_at is not None else [])
+        elif bounds:
+            where = f" WHERE {bounds}"
+            values = ([int(start_at)] if start_at is not None else []) + ([int(end_at)] if end_at is not None else [])
+        elif alternate_bounds:
+            where = f" WHERE {alternate_bounds}"
+            values = ([int(start_at)] if start_at is not None else []) + ([int(end_at)] if end_at is not None else [])
+        else:
+            where, values = "", []
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT id, vpn_user, connected_at, disconnected_at "
+                f"FROM connection_history{where} "
+                "ORDER BY MAX(connected_at, COALESCE(disconnected_at, 0)) DESC, id DESC LIMIT ?",
+                [*values, safe_limit],
+            )
+            return [dict(row) for row in rows]
+
     def prune_history(self, *, before: int) -> dict[str, int]:
         """Prune dashboard metadata only; RouterOS users and certificates are untouched."""
         with self._lock, self._connection() as connection:
