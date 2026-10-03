@@ -233,6 +233,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, payload.decode("utf-8"))
         return json.loads(payload)
 
+    def preview_session_termination(self, session_id: str) -> dict[str, Any]:
+        status, _, payload = self.json_request(
+            "POST", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}/preview", {},
+        )
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        return json.loads(payload)
+
     def preview_bulk_action(
         self, action: str, user_ids: list[str], *, tag: str = "",
     ) -> dict[str, Any]:
@@ -595,6 +602,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/policy-templates", "/api/policy-templates/test/preview",
             "/api/policy-templates/test/apply", "/api/users/test-user/suspend",
             "/api/users/test-user/delete/preview",
+            "/api/sessions/test-session/preview",
             "/api/users/test-user/restore", "/api/users/test-user/suspend/preview",
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
@@ -1854,6 +1862,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
 
         session_id = next(iter(self.mock.state.active_sessions))
+        termination_review = self.preview_session_termination(session_id)
         status, _, _ = self.json_request(
             "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}", csrf=False
         )
@@ -1862,7 +1871,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-            {"confirmation": "user-two"},
+            {"confirmation": "user-two", "review_token": termination_review["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload), {"ok": True, "verified": True})
@@ -1901,11 +1910,12 @@ class DashboardIntegrationTests(unittest.TestCase):
     def test_session_termination_is_not_reported_successful_while_router_still_shows_it(self) -> None:
         self.login()
         session_id = next(iter(self.mock.state.active_sessions))
+        review = self.preview_session_termination(session_id)
         with mock.patch.object(self.server.context.router, "terminate_session"):
             status, _, payload = self.json_request(
                 "DELETE",
                 f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-                {"confirmation": "user-two"},
+                {"confirmation": "user-two", "review_token": review["review_token"]},
             )
 
         self.assertEqual(status, 409)
@@ -2179,6 +2189,7 @@ class DashboardIntegrationTests(unittest.TestCase):
     def test_session_termination_reports_unknown_when_router_readback_fails(self) -> None:
         self.login()
         session_id = next(iter(self.mock.state.active_sessions))
+        review = self.preview_session_termination(session_id)
         credentials = RouterOSCredentials("admin", "routerpass")
         router = self.server.context.router
         active_sessions = router.list_active_ovpn_sessions(credentials)
@@ -2190,7 +2201,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             status, _, payload = self.json_request(
                 "DELETE",
                 f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-                {"confirmation": "user-two"},
+                {"confirmation": "user-two", "review_token": review["review_token"]},
             )
 
         self.assertEqual(status, 502)
@@ -2202,6 +2213,23 @@ class DashboardIntegrationTests(unittest.TestCase):
         latest = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(latest["action"], "session.terminate")
         self.assertEqual(latest["status"], "unknown")
+
+    def test_session_termination_rejects_changed_live_session_after_review(self) -> None:
+        self.login()
+        session_id = next(iter(self.mock.state.active_sessions))
+        review = self.preview_session_termination(session_id)
+        self.mock.state.active_sessions[session_id]["session-id"] = "changed-session-id"
+        mutations_before = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "DELETE", f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+            {"confirmation": "user-two", "review_token": review["review_token"]},
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertIn(session_id, self.mock.state.active_sessions)
+        self.assertEqual(self.mock.state.mutation_requests, mutations_before)
 
     def test_suspend_disconnects_all_sessions_and_restore_reenables_access(self) -> None:
         self.login()

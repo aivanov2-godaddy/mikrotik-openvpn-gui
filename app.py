@@ -1535,6 +1535,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/users/preview":
             self._preview_user_provision()
             return
+        match = re.fullmatch(r"/api/sessions/([^/]+)/preview", path)
+        if match:
+            self._terminate_session(urllib.parse.unquote(match.group(1)), preview=True)
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/duplicate/preview", path)
         if match:
             self._preview_user_provision(urllib.parse.unquote(match.group(1)))
@@ -4593,7 +4597,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _terminate_session(self, session_id: str) -> None:
+    def _terminate_session(self, session_id: str, *, preview: bool = False) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "session.manage"):
             return
@@ -4601,7 +4605,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             data = self._read_json()
             active = self._find_session(credentials, session_id)
+            reviewed_state = {
+                key: str(active.get(key, ""))
+                for key in ("id", "name", "session_id", "source_address", "vpn_address", "interface", "comment")
+            }
+            intent_digest = hashlib.sha256(json.dumps(
+                reviewed_state, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            if preview:
+                self._json({
+                    "username": str(active["name"]),
+                    "source_address": str(active.get("source_address", "")),
+                    "vpn_address": str(active.get("vpn_address", "")),
+                    "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
+                })
+                return
             if not self._require_target_confirmation(data, str(active["name"])):
+                return
+            if not self.server.review_receipts.consume(
+                str(data.get("review_token", "")), session.session_id, intent_digest,
+            ):
+                self.server.context.store.audit(
+                    actor=session.username, action="session.terminate", target=str(active["name"]),
+                    status="failed", details={"reason": "stale_or_missing_review"},
+                )
+                self._json({
+                    "code": "routeros.review_stale",
+                    "error": "The active session changed since review. Review the current connection before terminating it.",
+                }, status=HTTPStatus.CONFLICT)
                 return
             if not self._checkpoint(session, "session.terminate"):
                 return
@@ -4673,7 +4704,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 },
             )
             self._json({"ok": True, "verified": True})
-        except (ValueError, RouterOSError) as error:
+        except RouterOSError as error:
+            if preview:
+                self.server.context.store.audit(
+                    actor=session.username, action="session.terminate.preview", target=session_id,
+                    status="unknown", details={"reason": type(error).__name__},
+                )
+                self._json({
+                    "code": "routeros.review_unavailable",
+                    "error": "The live session could not be verified. Refresh Connections and review its current state.",
+                }, status=HTTPStatus.BAD_GATEWAY)
+                return
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+        except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
     def _ack_alert(self, alert_id: int) -> None:
