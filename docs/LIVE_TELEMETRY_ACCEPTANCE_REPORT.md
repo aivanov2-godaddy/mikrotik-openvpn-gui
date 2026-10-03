@@ -23,6 +23,8 @@ have not been recorded as complete.
 | Latest recorded deployed runtime commit | a2d0ce2 (`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`) |
 | Latest recorded deployed ARM64 tag | `sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64` |
 | Published ARM64 manifest digest | `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38` |
+| Latest stable registry publication | `10930dfc34f0f7c059ac6398a0494475f464149f` (run [37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210)) |
+| Latest published ARM64 / AMD64 digests | `sha256:72006cded1bac627c0890f4ce9ac696c1a7505e146fba5958396b5c8efa72247` / `sha256:fde9f46830a3695fb0ed8f5774156ea6f8b9e016d5059f351599eb3064fdae4c` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS at acceptance / current | RouterOS 7.24.4 stable during acceptance; 7.24.5 stable currently / arm64 |
 
@@ -34,6 +36,27 @@ from the signed publication workflow; RouterOS reports its configured tag, not
 the image content digest. These are point-in-time records, not the later
 runtime's sustained acceptance. The public endpoint remains behind Cloudflare
 Access.
+
+## Latest stable registry publication — 2026-10-03
+
+The public `routeros-stable` manifest now points to commit
+`10930dfc34f0f7c059ac6398a0494475f464149f`. Publication run
+[37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210)
+passed source and rendered-browser verification, ARM64 and AMD64 builds,
+runtime smoke tests, and exact-digest provenance/SBOM verification. The
+published tags are `sha-10930dfc34f0f7c059ac6398a0494475f464149f-arm64` and
+`sha-10930dfc34f0f7c059ac6398a0494475f464149f-amd64`; the registry digests
+are recorded above. The workflow summary now reports platform and architecture
+without shell command substitution.
+
+This is registry evidence, not router deployment evidence. The most recent
+read-only canary readiness response observed during this session reported
+revision `68fbaaae5ec50b42992f3678c8042e48f987bc8c`, before the `10930df`
+publication. Subsequent private readiness probes timed out; current canary and
+production revisions/health therefore remain unverified. No claim is made that
+the latest stable image is running on either router container. The fresh
+runtime soak, live telemetry measurements, and rollback rehearsal remain
+pending.
 
 ## Latest recorded deployment read-back — 2026-10-03
 

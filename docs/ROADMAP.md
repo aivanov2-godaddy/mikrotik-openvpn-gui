@@ -291,21 +291,20 @@ are verified partial milestones, not issue completions:
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
-Latest verified image and deployment snapshot (2026-10-03): the public
-`routeros-stable` manifest points to runtime commit
-`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`, published by
-[run 37135796169](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37135796169).
-ARM64 digest: `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38`;
-AMD64 digest: `sha256:800de775757f38b4a7a7c13501d664a1f9afa20a3276f766797d1de5343ce5c3`.
-The authenticated RouterOS read-back recorded both canary and production on
-`sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64`, both healthy on RouterOS
-7.24.5 stable. The router reports its configured tag, not the registry content
-digest, so exact on-device digest identity is not independently verified.
-Point-in-time resource observations were approximately 33.2 MiB/0.6% CPU for
-production and 33.3 MiB/0.6% CPU for canary; these are not sustained baselines
-or capacity claims. No 30-minute latency/freshness, recovery, event-integrity,
-or rollback window was captured. Earlier revision and publication records in
-this ledger are historical and superseded by this snapshot.
+Latest stable registry publication (2026-10-03): the public `routeros-stable`
+manifest points to commit `10930dfc34f0f7c059ac6398a0494475f464149f`, published
+by [run 37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210).
+ARM64 digest: `sha256:72006cded1bac627c0890f4ce9ac696c1a7505e146fba5958396b5c8efa72247`;
+AMD64 digest: `sha256:fde9f46830a3695fb0ed8f5774156ea6f8b9e016d5059f351599eb3064fdae4c`.
+Both builds, runtime smoke tests, and exact-digest provenance/SBOM verification
+passed. This is registry evidence only. The most recent canary readiness
+response seen before publication reported revision
+`68fbaaae5ec50b42992f3678c8042e48f987bc8c`; follow-up private readiness probes
+timed out. The current canary/production revision and health are therefore not
+confirmed, and deployment of `10930df` is not claimed. The earlier authenticated
+RouterOS read-back of `a2d0ce2` on both containers, including point-in-time
+resource observations, remains historical evidence. It did not establish
+sustained SLOs, current health, or exact on-router content digests.
 
 An earlier `routeros-stable` manifest was refreshed by publication run
 [37085223385](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37085223385)

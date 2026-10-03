@@ -32,7 +32,28 @@ deployment model.
 
 ## Published images
 
-### Latest published runtime image and RouterOS tag read-back
+### Latest stable registry publication
+
+Runtime commit `10930dfc34f0f7c059ac6398a0494475f464149f` is the current
+`routeros-stable` manifest target. Publication run
+[#37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210)
+passed both architecture builds, published-runtime smoke tests, stable-manifest
+publication, and exact-digest provenance/SBOM verification. The immutable tags
+and registry digests are:
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-10930dfc34f0f7c059ac6398a0494475f464149f-arm64` | `sha256:72006cded1bac627c0890f4ce9ac696c1a7505e146fba5958396b5c8efa72247` |
+| CHR/x86 AMD64 (evaluation) | `sha-10930dfc34f0f7c059ac6398a0494475f464149f-amd64` | `sha256:fde9f46830a3695fb0ed8f5774156ea6f8b9e016d5059f351599eb3064fdae4c` |
+
+This is a registry publication, not a RouterOS deployment claim. The most
+recent canary readiness response observed before this publication reported
+revision `68fbaaae5ec50b42992f3678c8042e48f987bc8c`; subsequent private
+readiness probes timed out. Current canary/production revision and health have
+not been confirmed. The latest authenticated RouterOS tag read-back below is
+historical and must not be mistaken for this publication being deployed.
+
+### Latest recorded RouterOS tag read-back (historical)
 
 Runtime revision `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3` includes the
 previous published runtime plus Engine.IO polling SID-to-session binding (PR
