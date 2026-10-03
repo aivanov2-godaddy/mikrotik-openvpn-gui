@@ -16,6 +16,10 @@ audit webhook.
   service-health checks. It retains the overall state and counts only; it does
   not store credentials, certificate material, packet payloads, or RouterOS
   configuration.
+- **Operations timeline** uses stable source-row identifiers for local audit
+  events. Those identifiers make a row addressable across refreshes; they are
+  not cross-system incident IDs and do not correlate RouterOS telemetry or
+  Redis deliveries. The timeline remains bounded and explicitly incomplete.
 - **Rollback visibility** identifies the running revision and the most recent
   different known-good runtime revision. It is a visibility aid, not an
   automatic rollback action. The router-local watchdog remains the authority
