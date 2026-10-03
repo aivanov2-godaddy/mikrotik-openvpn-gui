@@ -34,26 +34,24 @@ deployment model.
 
 ### Latest published runtime image (not yet verified on RouterOS)
 
-Runtime revision `b71a1709cae1d2b677e7e209e34681d6d315a108` includes merged
-token read-scope enforcement and exact-session reconciliation after an
-ambiguous RouterOS termination response (PRs [#316](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/316)
-and [#317](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/317)).
-Publish workflow [37117748260](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37117748260)
+Runtime revision `5260970ea3e7d4d637cff3d54c31d108c3d33af9` includes merged
+bounded session-history correlation, non-causal temporal context links, and
+dual-scope timeline export (PR [#321](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/321)).
+Publish workflow [37119886872](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37119886872)
 completed both architecture builds, published-runtime smoke tests, and
 exact-digest provenance/SBOM attestation verification on 2026-10-03.
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-b71a1709cae1d2b677e7e209e34681d6d315a108-arm64` | `sha256:10531b9f5a776c206edb969ca9fe6f201d7d69d9b6b2db363c163e282614da6b` |
-| CHR/x86 AMD64 (evaluation) | `sha-b71a1709cae1d2b677e7e209e34681d6d315a108-amd64` | `sha256:d1b457a3915452768fe0e3c0bfc3829230fefb5f97b0857119963ec410fdc1d1` |
+| RouterOS ARM64 | `sha-5260970ea3e7d4d637cff3d54c31d108c3d33af9-arm64` | `sha256:f043f3c8140071ea6089f88decb6be24e818ca47c2ae5260672f95a3201edb09` |
+| CHR/x86 AMD64 (evaluation) | `sha-5260970ea3e7d4d637cff3d54c31d108c3d33af9-amd64` | `sha256:9e86c086444bbecd0eafd49ca51343396ddfbfc411844e08c4d67941507db65f` |
 
 These are published artifacts, not a deployment claim. The ARM64 image has
 not been verified on the RouterOS canary or production containers, and no
 RouterOS compatibility, resource, or live-event acceptance is inferred from
-the CI smoke test. Main revision `2c96c0f8cfc11a619c1c35ab1af4bc0293c895a8`
-also contains documentation-only changes after this runtime image; it does not
-produce a different container. The v2.5.0 feature release remains the latest
-versioned release until a separate release decision is made.
+the CI smoke test. Documentation-only merge #322 follows this runtime image
+and does not produce a different container. The v2.5.0 feature release remains
+the latest versioned release until a separate release decision is made.
 
 The public `Publish container` workflow verifies a `main` change, then publishes
 single-platform images to GHCR using the repository's current owner and name.
