@@ -678,22 +678,55 @@ class DashboardIntegrationTests(unittest.TestCase):
         }
         before_mutations = list(self.mock.state.mutation_requests)
 
-        for path in ("/api/admin/api-tokens", "/api/audit.csv", "/api/audit.json"):
+        for path in (
+            "/api/admin/api-tokens", "/api/audit.csv", "/api/audit.json",
+            "/api/reports/compliance.zip", "/api/backups/metadata.zip",
+        ):
             with self.subTest(method="GET", path=path):
                 status, _, payload = self.request("GET", path, headers={"Cookie": cookie})
                 self.assertEqual(status, 403)
                 self.assertNotIn(b"routerpass", payload)
 
         for path in (
-            "/api/users", "/api/users/preview", "/api/policy-templates", "/api/users/test-user/profiles",
-            "/api/users/test-user/profiles/preview",
-            "/api/users/test-user/duplicate/preview",
-            "/api/devices/test-device/revoke/preview", "/api/admin/api-tokens",
+            "/api/users", "/api/users/preview", "/api/policy-templates",
+            "/api/policy-templates/test-template/preview", "/api/policy-templates/test-template/apply",
+            "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
+            "/api/users/test-user/duplicate", "/api/users/test-user/duplicate/preview",
+            "/api/users/test-user/suspend", "/api/users/test-user/restore",
+            "/api/users/test-user/suspend/preview", "/api/devices/test-device/revoke/preview",
+            "/api/devices/test-device/revoke", "/api/admin/api-tokens", "/api/alerts/1/ack",
+            "/api/openvpn-foundation-plan", "/api/admin/break-glass/plan",
+            "/api/network/segment-plan", "/api/backups/preflight",
+            "/api/backups/validate", "/api/backups/restore-plan",
         ):
             with self.subTest(method="POST", path=path):
                 status, _, payload = self.request(
                     "POST", path, body=b"{}", headers=csrf_headers,
                 )
+                self.assertEqual(status, 403)
+                self.assertNotIn(b"routerpass", payload)
+
+        for action in ("suspend", "revoke", "tag"):
+            for endpoint in ("preview", "apply"):
+                path = f"/api/bulk/{endpoint}"
+                body = json.dumps({"action": action, "user_ids": ["*1"], "tag": "reviewed"}).encode()
+                with self.subTest(method="POST", path=path, action=action):
+                    status, _, payload = self.request("POST", path, body=body, headers=csrf_headers)
+                    self.assertEqual(status, 403)
+                    self.assertNotIn(b"routerpass", payload)
+
+        for path in ("/api/policy-templates/test-template", "/api/users/test-user"):
+            with self.subTest(method="PATCH", path=path):
+                status, _, payload = self.request("PATCH", path, body=b"{}", headers=csrf_headers)
+                self.assertEqual(status, 403)
+                self.assertNotIn(b"routerpass", payload)
+
+        for path in (
+            "/api/admin/api-tokens/token-12345678", "/api/admin/sessions/session-1",
+            "/api/sessions/session-1", "/api/users/test-user",
+        ):
+            with self.subTest(method="DELETE", path=path):
+                status, _, payload = self.request("DELETE", path, body=b"{}", headers=csrf_headers)
                 self.assertEqual(status, 403)
                 self.assertNotIn(b"routerpass", payload)
 
