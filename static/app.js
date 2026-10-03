@@ -1450,6 +1450,9 @@ document.addEventListener('click', async (event) => {
     form.device_id.value = button.dataset.deviceId;
     $('[data-revoke-device-name]', form).textContent = button.dataset.deviceName || 'This device';
     $('[data-confirm-target]', form).textContent = button.dataset.deviceName || 'This device';
+    $('[data-revoke-summary]', form).hidden = true;
+    $('[data-revoke-review]', form).hidden = false;
+    $('[data-revoke-apply]', form).disabled = true;
     openDialog('revoke-device-dialog');
   } else if (button.matches('[data-terminate]')) {
     const form = $('#terminate-form');
@@ -1674,16 +1677,66 @@ $('#terminate-form')?.addEventListener('submit', async (event) => {
   } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
 });
 
+$('#revoke-device-form')?.addEventListener('input', (event) => {
+  const form = event.currentTarget;
+  if (event.target.matches('[name="reason"], [name="confirmation"]')) {
+    form.elements.review_token.value = '';
+    $('[data-revoke-apply]', form).disabled = true;
+    $('[data-revoke-summary]', form).hidden = true;
+    $('[data-revoke-review]', form).hidden = false;
+  }
+});
+
+$('[data-revoke-review]')?.addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const form = button.closest('#revoke-device-form');
+  if (!form.reportValidity()) return;
+  const data = new FormData(form);
+  setBusy(form, true);
+  setStatus(form, 'Checking the certificate and preparing a review…');
+  try {
+    const response = await resultOrError(await api(`/api/devices/${encodeURIComponent(data.get('device_id'))}/revoke/preview`, {
+      method: 'POST', body: { reason: data.get('reason'), confirmation: data.get('confirmation') },
+    }));
+    const preview = await response.json();
+    form.elements.review_token.value = preview.review_token || '';
+    const activeSessionSummary = Number.isInteger(preview.active_sessions_for_user)
+      ? `${preview.active_sessions_for_user} active session(s) exist for this user`
+      : 'Active sessions could not be checked';
+    $('[data-revoke-preview-text]', form).textContent = `${preview.device} for ${preview.vpn_user}; certificate ${preview.certificate} is active on RouterOS. Reason: ${data.get('reason')}. ${activeSessionSummary} (${preview.active_sessions_scope}). ${preview.effect}.`;
+    $('[data-revoke-summary]', form).hidden = false;
+    $('[data-revoke-review]', form).hidden = true;
+    $('[data-revoke-apply]', form).disabled = !preview.review_token;
+    setStatus(form, 'Review the verified target and impact, then confirm revocation.');
+  } catch (error) {
+    form.elements.review_token.value = '';
+    $('[data-revoke-apply]', form).disabled = true;
+    setStatus(form, error.message, true);
+  } finally {
+    setBusy(form, false);
+    $('[data-revoke-apply]', form).disabled = !form.elements.review_token.value;
+    $('[data-revoke-review]', form).disabled = false;
+  }
+});
+
 $('#revoke-device-form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const data = new FormData(form);
   const deviceId = data.get('device_id');
+  if (!data.get('review_token')) {
+    event.preventDefault();
+    setStatus(form, 'Review the current RouterOS certificate state before applying revocation.', true);
+    return;
+  }
   setBusy(form, true);
   setStatus(form, 'Revoking the device certificate…');
   try {
     const result = await resultOrError(await api(`/api/devices/${encodeURIComponent(deviceId)}/revoke`, {
-      method: 'POST', body: { confirmation: data.get('confirmation') },
+      method: 'POST', body: {
+        confirmation: data.get('confirmation'), reason: data.get('reason'),
+        review_token: data.get('review_token'),
+      },
     }));
     const payload = await result.json();
     setStatus(form, 'Device revoked.');

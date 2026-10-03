@@ -14,6 +14,16 @@ class FrontendLiveUpdateContractTests(unittest.TestCase):
         self.assertIn("review_token: form.dataset.policyReviewToken || ''", source)
         self.assertIn("catch (error) { clearTemplatePreview(form);", source)
 
+    def test_device_revocation_requires_fresh_routeros_preview_receipt(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        template = (ROOT / "templates.py").read_text(encoding="utf-8")
+        self.assertIn("/revoke/preview", source)
+        self.assertIn("review_token: data.get('review_token')", source)
+        self.assertIn("form.elements.review_token.value = ''", source)
+        self.assertIn("data-revoke-review", source)
+        self.assertIn("data-revoke-apply disabled", template)
+        self.assertIn("does not disconnect active VPN sessions", template)
+
     def test_status_updates_only_compare_rendered_user_cards(self) -> None:
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("$('.user-card[data-user-id][data-user-name]')", source)
