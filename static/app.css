@@ -1188,13 +1188,13 @@ html[data-theme-resolved="light"] {
   --text: #253746;
   --text-bright: #102433;
   --muted: #526879;
-  --dim: #7a8e9b;
-  --blue: #087fbd;
+  --dim: #536574;
+  --blue: #006da3;
   --blue-dark: #d4ebf8;
   --blue-select: #d8edf8;
-  --green: #0a9960;
-  --red: #c9414d;
-  --amber: #a66f0c;
+  --green: #087348;
+  --red: #ad2935;
+  --amber: #765000;
 }
 
 html[data-theme-resolved="dark"] body { background: var(--workspace); }
@@ -1354,8 +1354,36 @@ html[data-theme-resolved="light"] .login-tabs,
 html[data-theme-resolved="light"] .login-status { color: var(--text); background: var(--panel-2); border-color: var(--line); }
 html[data-theme-resolved="light"] .login-content h1 { color: var(--text-bright); }
 html[data-theme-resolved="light"] .login-security { color: var(--muted); }
+html[data-theme-resolved="light"] .theme-menu summary { color: var(--text); }
+html[data-theme-resolved="light"] .router-pill > span { color: var(--text); }
+html[data-theme-resolved="light"] .primary { color: #fff; border-color: var(--blue); background: var(--blue); }
+html[data-theme-resolved="light"] .primary:hover { color: #fff; border-color: #005b89; background: #005b89; }
+html[data-theme-resolved="light"] .nav-section-title { color: var(--dim); }
+html[data-theme-resolved="light"] .eyebrow { color: var(--blue); }
+html[data-theme-resolved="light"] .live-refresh { color: var(--muted); }
+html[data-theme-resolved="light"] .live-refresh.stale,
+html[data-theme-resolved="light"] .live-refresh.pending { color: var(--amber); }
+html[data-theme-resolved="light"] .metric small { color: var(--muted); }
+html[data-theme-resolved="light"] .operations-panel .panel-heading strong,
+html[data-theme-resolved="light"] .security-posture-panel .panel-heading strong { color: var(--text-bright); }
+html[data-theme-resolved="light"] .health-state { color: var(--green) !important; }
+html[data-theme-resolved="light"] .health-state.bad { color: var(--red) !important; }
+html[data-theme-resolved="light"] .vpn-protocol,
+html[data-theme-resolved="light"] .vpn-protocol span,
+html[data-theme-resolved="light"] .vpn-protocol code,
+html[data-theme-resolved="light"] .vpn-endpoint span,
+html[data-theme-resolved="light"] .vpn-endpoint code { color: var(--text-bright); }
+html[data-theme-resolved="light"] .vpn-endpoint b { color: var(--red); }
+html[data-theme-resolved="light"] .posture-score,
+html[data-theme-resolved="light"] .posture-list li.pass strong { color: var(--green); }
+html[data-theme-resolved="light"] #system-status > time { color: var(--muted); }
 
 @media (max-width: 760px) {
+  html[data-theme-resolved="light"] .router-pill {
+    color: var(--text);
+    border-color: var(--line);
+    background: var(--chrome-2);
+  }
   .theme-menu summary { min-height: 42px; padding: 0 10px; border-radius: 10px; }
   .theme-menu summary .wb-icon { width: 19px; height: 19px; }
   .theme-menu summary span:not(.wb-icon) { font-size: 12px; }
