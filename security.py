@@ -39,19 +39,19 @@ ROLE_ALIASES = {
 ROLE_CAPABILITIES = {
     "owner": frozenset({"*"}),
     "security_operator": frozenset({
-        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read",
+        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read", "policies.read",
         "security.manage", "device.manage", "profiles.manage", "session.manage",
     }),
     "administrator": frozenset({
-        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read",
+        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read", "policies.read",
         "users.manage", "profiles.manage", "policies.manage", "backup.manage",
         "session.manage", "alert.manage",
     }),
     "auditor": frozenset({
-        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read",
+        "health.read", "users.read", "profiles.read", "sessions.read", "audit.read", "policies.read",
     }),
     "read_only": frozenset({
-        "health.read", "users.read", "profiles.read", "sessions.read",
+        "health.read", "users.read", "profiles.read", "sessions.read", "policies.read",
     }),
 }
 

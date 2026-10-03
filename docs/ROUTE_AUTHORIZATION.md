@@ -20,7 +20,8 @@ RouterOS mutation.
 | Capability | Route families | Notes |
 | --- | --- | --- |
 | `health.read` | `GET /api/status`, `/api/service-health`, `/api/observability`, `/api/setup-preflight`, `/api/release/verify`; `POST /api/connection-doctor`, `/api/security/exposure-doctor` | Read-only health and exposure probes. |
-| `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv` | SSE additionally requires a RouterOS-authenticated dashboard session and revalidates its effective capability set while streaming. The CSVs contain user/session history and are not available to health-only tokens. |
+| `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv`, `/api/bulk/views` | SSE additionally requires a RouterOS-authenticated dashboard session and revalidates its effective capability set while streaming. Saved-view definitions and user filters are not available to health-only tokens. |
+| `policies.read` | `GET /api/policy-templates` | Reveals saved policy-template definitions and assignments; separate from `policies.manage`. |
 | `session.manage` | `DELETE /api/admin/sessions/{id}`, `DELETE /api/sessions/{id}` | Revokes a dashboard session or terminates a RouterOS VPN session, respectively. |
 | `users.manage` | `POST /api/users*`, `PATCH /api/users/{id}`, `DELETE /api/users/{id}`, `POST /api/users/{id}/suspend`, `/restore`, `POST /api/bulk/{preview,apply}` for `suspend`/`tag` | User/profile-issuing account changes. Bulk action selects its capability from the validated action. |
 | `profiles.read` / `profiles.manage` | `POST /api/profile/diagnose`; `POST /api/users/{id}/profiles*` | Profile diagnosis is non-mutating; profile issuance is a RouterOS mutation. |
@@ -32,10 +33,11 @@ RouterOS mutation.
 | `alert.manage` | `POST /api/alerts/{id}/ack` | Acknowledges a dashboard alert. |
 
 Authenticated, non-mutating routes such as the diagnostics bundle,
-`GET /api/users`, saved-view operations, and review-only setup plans are
-session-gated; they do not imply RouterOS write permission. Browser-cookie
-mutations additionally require CSRF. API-token access is restricted by the
-token's stored scopes. Unknown roles fail closed through the central capability
+`GET /api/users`, and review-only setup plans are session-gated; they do not
+imply RouterOS write permission. Saved-view reads require `sessions.read`;
+policy-template reads require `policies.read`. Browser-cookie mutations
+additionally require CSRF. API-token access is restricted by the token's
+stored scopes. Unknown roles fail closed through the central capability
 matrix.
 
 ## Limits of this evidence
