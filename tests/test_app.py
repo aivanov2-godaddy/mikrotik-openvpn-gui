@@ -226,6 +226,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, payload.decode("utf-8"))
         return json.loads(payload)
 
+    def preview_user_delete(self, user_id: str) -> dict[str, Any]:
+        status, _, payload = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/delete/preview", {},
+        )
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        return json.loads(payload)
+
     def preview_bulk_action(
         self, action: str, user_ids: list[str], *, tag: str = "",
     ) -> dict[str, Any]:
@@ -587,6 +594,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/backups/validate", "/api/backups/restore-plan",
             "/api/policy-templates", "/api/policy-templates/test/preview",
             "/api/policy-templates/test/apply", "/api/users/test-user/suspend",
+            "/api/users/test-user/delete/preview",
             "/api/users/test-user/restore", "/api/users/test-user/suspend/preview",
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
@@ -1149,10 +1157,12 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"redirect-gateway def1", second_profile)
         self.assertIn(b"dhcp-option DNS 1.1.1.1", second_profile)
         self.assertEqual(len(self.server.context.store.devices_for_user("maria")), 2)
+        deletion_review = self.preview_user_delete(maria_id)
+        self.assertEqual(deletion_review["managed_devices"], 2)
 
         status, _, payload = self.json_request(
             "DELETE", f"/api/users/{urllib.parse.quote(maria_id, safe='*')}",
-            {"confirmation": "not-maria"},
+            {"confirmation": "not-maria", "review_token": deletion_review["review_token"]},
         )
         self.assertEqual(status, 400)
         self.assertIn("exact target name", json.loads(payload)["error"])
@@ -1160,7 +1170,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", f"/api/users/{urllib.parse.quote(maria_id, safe='*')}",
-            {"confirmation": "maria"},
+            {"confirmation": "maria", "review_token": deletion_review["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload), {"ok": True, "verified": True, "retired_devices": 2})
@@ -1985,12 +1995,13 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_user_delete_does_not_delete_account_when_certificate_revocation_fails(self) -> None:
         self._managed_device_revoke_request()
+        review = self.preview_user_delete("*1")
         router = self.server.context.router
         with mock.patch.object(
             router, "revoke_certificate", side_effect=RouterOSError("private detail", 503)
         ):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
             )
 
         response = json.loads(payload)
@@ -2004,8 +2015,39 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertNotIn("private detail", payload.decode("utf-8"))
 
+    def test_user_delete_rejects_stale_managed_certificate_set(self) -> None:
+        self._managed_device_revoke_request()
+        review = self.preview_user_delete("*1")
+        self.server.context.store.add_device(
+            device_id="managed-device-delete-added-after-review",
+            vpn_user="user-one",
+            device_name="Added test laptop",
+            certificate_name="ovpn-user-one-added-after-review",
+            certificate_id="*CL3",
+            fingerprint="D4:EX:59",
+        )
+        self.mock.state.certificates["*CL3"] = {
+            **self.mock.state.certificates["*CL1"],
+            ".id": "*CL3", "name": "ovpn-user-one-added-after-review",
+            "fingerprint": "D4:EX:59", "revoked": "no",
+        }
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "DELETE", "/api/users/%2A1",
+            {"confirmation": "user-one", "review_token": review["review_token"]},
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertIn("*1", self.mock.state.users)
+        self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
+        self.assertEqual(self.mock.state.certificates["*CL3"]["revoked"], "no")
+
     def test_user_delete_reconciles_lost_certificate_revocation_response(self) -> None:
         self._managed_device_revoke_request()
+        review = self.preview_user_delete("*1")
         router = self.server.context.router
         revoke_certificate = router.revoke_certificate
 
@@ -2015,7 +2057,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         with mock.patch.object(router, "revoke_certificate", side_effect=revoke_then_lose_response):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
             )
 
         self.assertEqual(status, 200)
@@ -2025,10 +2067,11 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_user_delete_retains_local_metadata_when_routeros_user_remains(self) -> None:
         self._managed_device_revoke_request()
+        review = self.preview_user_delete("*1")
         router = self.server.context.router
         with mock.patch.object(router, "delete_user"):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
             )
 
         response = json.loads(payload)
@@ -2042,6 +2085,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_user_delete_response_loss_is_reconciled_by_routeros_readback(self) -> None:
         self._managed_device_revoke_request()
+        review = self.preview_user_delete("*1")
         router = self.server.context.router
         delete_user = router.delete_user
 
@@ -2051,7 +2095,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         with mock.patch.object(router, "delete_user", side_effect=delete_then_lose_response):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
             )
 
         self.assertEqual(status, 200)
@@ -2060,6 +2104,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_user_delete_preserves_account_when_certificate_readback_is_unavailable(self) -> None:
         self._managed_device_revoke_request()
+        review = self.preview_user_delete("*1")
         router = self.server.context.router
 
         def unavailable_readback(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
@@ -2069,7 +2114,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             router, "list_ovpn_client_certificates", side_effect=unavailable_readback
         ):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
             )
 
         response = json.loads(payload)
@@ -2081,6 +2126,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_user_delete_preserves_local_metadata_when_account_readback_is_unavailable(self) -> None:
         self._managed_device_revoke_request()
+        review = self.preview_user_delete("*1")
         self.server.context.store.set_user_email("user-one", "user-one@example.invalid")
         router = self.server.context.router
         list_users = router.list_ovpn_users
@@ -2092,7 +2138,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         with mock.patch.object(router, "list_ovpn_users", side_effect=fail_only_after_delete):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one"}
+                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
             )
 
         response = json.loads(payload)

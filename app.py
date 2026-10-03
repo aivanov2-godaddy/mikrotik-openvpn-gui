@@ -1599,6 +1599,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._preview_user_suspend(urllib.parse.unquote(match.group(1)))
             return
+        match = re.fullmatch(r"/api/users/([^/]+)/delete/preview", path)
+        if match:
+            self._delete_user(urllib.parse.unquote(match.group(1)), preview=True)
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/(suspend|restore)", path)
         if match:
             self._set_user_access(
@@ -3038,7 +3042,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         try:
             data = self._read_json()
-        except (ValueError, RouterOSError) as error:
+        except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             return
         self._provision_user_after_review(session, data, source_id=source_id)
@@ -4152,32 +4156,82 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _delete_user(self, user_id: str) -> None:
+    def _user_delete_review_context(
+        self, credentials: RouterOSCredentials, user_id: str,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
+        user = self._find_user(credentials, user_id)
+        username = str(user["name"])
+        devices = self.server.context.store.devices_for_user(username)
+        if any(not str(device.get("certificate_id") or "") for device in devices):
+            raise ValueError(
+                "A managed device has no certificate identity to verify. The VPN user was not deleted."
+            )
+        certificates = self.server.context.router.list_ovpn_client_certificates(
+            credentials, include_legacy=True,
+        )
+        certificates_by_id = {str(item.get("id", "")): item for item in certificates}
+        reviewed_devices: list[dict[str, str]] = []
+        for device in devices:
+            certificate_id = str(device["certificate_id"])
+            certificate = certificates_by_id.get(certificate_id)
+            if not certificate or certificate.get("revoked"):
+                raise ValueError(
+                    "RouterOS does not show every managed certificate as active. Refresh Device Profiles before continuing."
+                )
+            reviewed_devices.append({
+                "device_id": str(device.get("id", "")),
+                "device_name": str(device.get("device_name", "")),
+                "certificate_id": certificate_id,
+                "certificate_name": str(certificate.get("name", "")),
+                "certificate_authority": str(certificate.get("certificate_authority", "")),
+            })
+        intent_digest = hashlib.sha256(json.dumps(
+            {
+                "user": {
+                    "id": str(user_id), "username": username,
+                    "profile": str(user.get("profile", "")),
+                    "comment": str(user.get("comment", "")),
+                    "disabled": bool(user.get("disabled")),
+                },
+                "devices": sorted(reviewed_devices, key=lambda item: item["device_id"]),
+            },
+            sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        return user, devices, intent_digest
+
+    def _delete_user(self, user_id: str, *, preview: bool = False) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         credentials = self._credentials(session)
         try:
             data = self._read_json()
-            user = self._find_user(credentials, user_id)
+            user, devices, intent_digest = self._user_delete_review_context(credentials, user_id)
             username = str(user["name"])
+            if preview:
+                self._json({
+                    "username": username,
+                    "managed_devices": len(devices),
+                    "confirmation": username,
+                    "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
+                })
+                return
             if not self._require_target_confirmation(data, username):
                 return
-            devices = self.server.context.store.devices_for_user(username)
-            if any(not str(device.get("certificate_id") or "") for device in devices):
+            if not self.server.review_receipts.consume(
+                str(data.get("review_token", "")), session.session_id, intent_digest,
+            ):
                 self.server.context.store.audit(
                     actor=session.username,
                     action="user.delete",
                     target=username,
                     status="failed",
-                    details={"phase": "certificate_revocation", "verification": "missing_identity"},
+                    details={"reason": "stale_or_missing_review"},
                 )
                 self._json(
                     {
-                        "code": "routeros.certificate_identity_missing",
-                        "error": "A managed device has no certificate identity to verify. The VPN user was not deleted.",
-                        "verified": False,
-                        "verification": "failed",
+                        "code": "routeros.review_stale",
+                        "error": "The user or managed certificate set changed since review. Preview the deletion again before applying.",
                     },
                     status=HTTPStatus.CONFLICT,
                 )
@@ -4324,7 +4378,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 details={"retired_devices": len(revoked_device_ids), "verification": "confirmed_absent"},
             )
             self._json({"ok": True, "verified": True, "retired_devices": len(revoked_device_ids)})
-        except (ValueError, RouterOSError) as error:
+        except RouterOSError as error:
+            self.server.context.store.audit(
+                actor=session.username,
+                action="user.delete.preview" if preview else "user.delete",
+                target="selected-user",
+                status="unknown",
+                details={"phase": "review_readback", "reason": type(error).__name__},
+            )
+            self._json({
+                "code": "routeros.mutation_verification_unavailable",
+                "error": "RouterOS state could not be verified. No user deletion was attempted; refresh VPN Users and review the current state.",
+                "verified": False,
+                "verification": "unknown",
+                "user_deleted": False,
+            }, status=HTTPStatus.BAD_GATEWAY)
+        except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
     def _revoke_device(self, device_id: str, *, preview: bool = False) -> None:
