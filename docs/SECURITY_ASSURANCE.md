@@ -14,7 +14,7 @@ The V7 references follow the [OWASP ASVS 5.0 session management requirements](ht
 | --- | --- | --- | --- |
 | V7.2.1, V7.2.2, V7.2.3 | Backend `SessionStore` validates opaque, CSPRNG-generated reference tokens. | `tests/test_security.py::test_session_tokens_are_fresh_csprng_reference_values`; `tests/test_app.py::test_login_health_and_authentication_boundaries` | Covered by unit/in-process tests; no external security assessment. |
 | V7.3.1, V7.3.2 | 30-minute idle and 8-hour absolute lifetime defaults; expiry enforced by `SessionStore.get`. Live-stream revalidation does not refresh the idle timer. | `tests/test_security.py::test_session_idle_and_absolute_expiry`; `tests/test_security.py::test_read_only_session_revalidation_does_not_extend_idle_timeout`; `tests/test_asgi_contract.py::test_expired_live_session_is_disconnected_without_emitting_telemetry`; `tests/test_asgi_contract.py::test_live_pump_rechecks_capabilities_on_the_current_session` | Covered in deterministic/in-process tests; production timeout behavior not observed in this change. |
-| V7.4.1 | Logout destroys the server-side session; live Socket.IO pump re-checks its principal before sending. | `tests/test_app.py::test_login_health_and_authentication_boundaries`; `tests/test_asgi_contract.py::test_live_pump_disconnects_when_session_is_revoked`; `tests/test_asgi_contract.py::test_expired_live_session_is_disconnected_without_emitting_telemetry` | Covered for logout/revocation and expiry in tests; no claim about unrelated downstream systems. |
+| V7.4.1 | Logout destroys the server-side session; Socket.IO pump and SSE endpoint re-check the current session before sending subsequent telemetry. SSE revalidation does not touch/extend idle expiry. | `tests/test_app.py::test_login_health_and_authentication_boundaries`; `tests/test_app.py::DashboardIntegrationTests.test_sse_stops_emitting_when_server_session_is_revoked`; `tests/test_asgi_contract.py::test_live_pump_disconnects_when_session_is_revoked`; `tests/test_asgi_contract.py::test_expired_live_session_is_disconnected_without_emitting_telemetry` | Covered for in-process logout/revocation and expiry paths; no claim about deployed proxy behavior or unrelated downstream systems. |
 | V7.4.5, V7.5.2 | Capability-protected session inventory and revocation endpoints; current session cannot revoke itself. | `tests/test_app.py::test_auth_audit_events_are_detailed_but_secret_free`; `tests/test_security.py::test_session_snapshot_is_safe_and_revoke_is_scoped` | Partial: route-level authorization and user experience have not had an independent review. |
 | V7.5.1 | Sensitive dashboard mutations require the existing authenticated session and CSRF validation. | `tests/test_app.py::test_user_profile_lifecycle_and_csrf`; `tests/test_security.py::test_csrf_comparison` | Partial: representative paths only; this is not a complete route-by-route mutation audit. |
 | V4 authorization (role/capability boundary) | Explicit role capability matrix; unknown roles default to read-only; telemetry principal contains authorization facts, not the session object. | `tests/test_security.py::test_dashboard_role_capability_matrix_fails_closed`; `tests/test_asgi_contract.py::test_live_pump_rechecks_capabilities_on_the_current_session` | Covered for tested capability behavior. Full authorization matrix across every route remains open. |
@@ -49,9 +49,9 @@ blanket pass for ASVS, OWASP, or production security.
   It does not prove an actual browser reconnect, cross-origin behavior at the
   deployed proxy, or revocation timing on a physical router.
 - The SSE endpoint has a bounded response loop and requires an authenticated
-  RouterOS session at entry. Its end-to-end revocation behavior through real
-  browsers and reverse proxies has not been separately exercised by this
-  partial.
+  RouterOS session with `sessions.read` at entry. It checks the same server-side
+  session and capability before each telemetry write without extending idle
+  lifetime. Real-browser and reverse-proxy revocation timing remain untested.
 
 ## Explicitly unverified live-router / deployment evidence
 
@@ -61,8 +61,8 @@ following remain **NOT VERIFIED** and require an authorized controlled test
 window:
 
 - Observe logout, server-side revocation, idle expiry, and absolute expiry on
-  the deployed image while an authenticated live stream is open; verify the
-  stream stops without refresh and reconnect requires authentication.
+  the deployed image behind the actual reverse proxy while a live stream is
+  open; verify reconnect requires authentication.
 - Verify proxy TLS termination, secure-cookie handling, same-origin policy,
   and expected cross-origin denial using the actual public deployment.
 - Review RouterOS user permissions and credential-memory exposure on the

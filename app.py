@@ -2025,10 +2025,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if session.auth_method != "routeros":
             self._json({"error": "Live router events require an authenticated RouterOS session"}, status=HTTPStatus.FORBIDDEN)
             return
+        if not self._require_capability(session, "sessions.read"):
+            return
+        session_id = session.session_id
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Connection", "keep-alive")
+        # This bounded SSE response terminates after its final event; close the
+        # HTTP connection so EventSource can reconnect and be authenticated
+        # again instead of leaving an idle persistent socket behind.
+        self.send_header("Connection", "close")
         for key, value in SECURITY_HEADERS.items():
             self.send_header(key, value)
         self.end_headers()
@@ -2036,6 +2042,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         deadline = time.monotonic() + 30
         try:
             while time.monotonic() < deadline:
+                # SSE is a long-lived response, so the initial HTTP check is
+                # not sufficient: logout, revocation, or expiry must stop the
+                # next telemetry write. Do not touch idle time merely because
+                # the stream is open.
+                current_session = self.server.context.sessions.get(session_id, touch=False)
+                if (
+                    current_session is None
+                    or current_session.auth_method != "routeros"
+                    or not has_capability(current_session.role, "sessions.read")
+                ):
+                    return
                 active = self.server.context.router.list_active_ovpn_sessions(credentials)
                 self.server.context.store.observe_sessions(active)
                 telemetry_state = self.server.context.telemetry_state
