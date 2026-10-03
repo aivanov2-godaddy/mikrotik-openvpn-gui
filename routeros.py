@@ -660,32 +660,71 @@ class RouterOSClient:
         records = _records(result)
         return records[0] if records else {"name": username}
 
+    def rate_profile_snapshot(
+        self,
+        credentials: RouterOSCredentials,
+        *,
+        username: str,
+    ) -> dict[str, Any]:
+        """Return only the generated PPP profile fields relevant to a rate edit."""
+        profile_name = f"vpn-ui-{_slug(username, 24)}"
+        records = _records(
+            self._request(
+                "GET", "/ppp/profile", credentials,
+                query={"name": profile_name, ".proplist": ".id,name,rate-limit"},
+            )
+        )
+        if len(records) > 1:
+            raise RouterOSError("RouterOS returned an ambiguous generated PPP profile")
+        if not records:
+            return {"exists": False}
+        record = records[0]
+        return {
+            "exists": True,
+            "id": str(record.get(".id", "")),
+            "rate_limit": str(record.get("rate-limit", "")),
+        }
+
     def ensure_rate_profile(
         self,
         credentials: RouterOSCredentials,
         *,
         username: str,
         rate_limit_kbps: int,
+        expected_state: dict[str, Any] | None = None,
     ) -> str:
         if not rate_limit_kbps:
             if not self.ovpn_profile:
                 raise RouterOSError("OVPN_PPP_PROFILE must be configured before creating VPN users")
             return self.ovpn_profile
         profile_name = f"vpn-ui-{_slug(username, 24)}"
-        records = _records(
-            self._request(
-                "GET",
-                "/ppp/profile",
-                credentials,
-                query={"name": profile_name, ".proplist": ".id,name,rate-limit"},
-            )
-        )
+        current_state = self.rate_profile_snapshot(credentials, username=username)
+        if expected_state is not None and current_state != expected_state:
+            raise RouterOSError("Generated PPP profile changed since it was reviewed")
         values = {"name": profile_name, "rate-limit": f"{int(rate_limit_kbps)}k/{int(rate_limit_kbps)}k"}
-        if records:
-            safe_id = urllib.parse.quote(str(records[0].get(".id", profile_name)), safe="*")
-            self._request("PATCH", f"/ppp/profile/{safe_id}", credentials, body=values)
+        if current_state["exists"]:
+            if current_state["rate_limit"] == values["rate-limit"]:
+                return profile_name
+            safe_id = urllib.parse.quote(str(current_state.get("id") or profile_name), safe="*")
+            mutation = ("PATCH", f"/ppp/profile/{safe_id}")
         else:
-            self._request("PUT", "/ppp/profile", credentials, body=values)
+            mutation = ("PUT", "/ppp/profile")
+        mutation_error: RouterOSError | None = None
+        try:
+            self._request(mutation[0], mutation[1], credentials, body=values)
+        except RouterOSError as error:
+            # RouterOS can commit a write before the HTTP response is lost.
+            # Reconcile by reading the exact target before deciding its state.
+            mutation_error = error
+        verified_state = self.rate_profile_snapshot(credentials, username=username)
+        if (
+            not verified_state["exists"]
+            or verified_state["rate_limit"] != values["rate-limit"]
+        ):
+            raise RouterOSError(
+                "RouterOS PPP profile rate limit could not be verified",
+                failure_kind="unknown" if mutation_error is not None else "mismatch",
+            ) from mutation_error
         return profile_name
 
     def update_user(

@@ -20,6 +20,76 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_rate_profile_change_requires_reviewed_state_and_exact_readback(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            reviewed = client.rate_profile_snapshot(credentials, username="user-one")
+            self.assertEqual(reviewed, {"exists": False})
+
+            profile = client.ensure_rate_profile(
+                credentials, username="user-one", rate_limit_kbps=10240,
+                expected_state=reviewed,
+            )
+            self.assertEqual(profile, "vpn-ui-user-one")
+            self.assertEqual(
+                client.rate_profile_snapshot(credentials, username="user-one")["rate_limit"],
+                "10240k/10240k",
+            )
+
+    def test_rate_profile_refuses_stale_state_before_mutation(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            expected = {"exists": True, "id": "*P9", "rate_limit": "1k/1k"}
+            with self.assertRaisesRegex(RouterOSError, "changed since it was reviewed"):
+                client.ensure_rate_profile(
+                    credentials, username="user-one", rate_limit_kbps=10240,
+                    expected_state=expected,
+                )
+            self.assertFalse(mock.state.mutation_requests)
+
+    def test_rate_profile_mismatch_after_write_is_not_reported_as_success(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            with patch.object(
+                client, "rate_profile_snapshot",
+                side_effect=[
+                    {"exists": False},
+                    {"exists": True, "id": "*P1", "rate_limit": "1k/1k"},
+                ],
+            ):
+                with self.assertRaisesRegex(RouterOSError, "could not be verified"):
+                    client.ensure_rate_profile(
+                        credentials, username="user-one", rate_limit_kbps=10240,
+                        expected_state={"exists": False},
+                    )
+
+    def test_rate_profile_reconciles_lost_write_response_by_exact_readback(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def commit_then_lose_response(method, path, *args, **kwargs):
+                result = request(method, path, *args, **kwargs)
+                if method == "PUT" and path == "/ppp/profile":
+                    raise RouterOSError("private response-loss detail")
+                return result
+
+            with patch.object(client, "_request", side_effect=commit_then_lose_response):
+                profile = client.ensure_rate_profile(
+                    credentials, username="user-one", rate_limit_kbps=10240,
+                    expected_state={"exists": False},
+                )
+
+            self.assertEqual(profile, "vpn-ui-user-one")
+            self.assertEqual(
+                client.rate_profile_snapshot(credentials, username="user-one")["rate_limit"],
+                "10240k/10240k",
+            )
+
     def test_management_exposure_uses_only_allowlisted_read_probes(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
