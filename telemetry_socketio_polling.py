@@ -113,10 +113,15 @@ class SocketIOPollingBridge:
             if not client.namespace_connected or not client.subscription:
                 return "2"
             frames = self.gateway.poll(client.subscription)
-            packets = [
-                "42/telemetry," + json.dumps([frame["event"], frame], separators=(",", ":"))
-                for frame in frames
-            ]
+            packets = []
+            for frame in frames:
+                current_principal = self.principal_resolver(session_id)
+                if current_principal is None or not current_principal.may_stream:
+                    self._close_locked(sid)
+                    break
+                packets.append(
+                    "42/telemetry," + json.dumps([frame["event"], frame], separators=(",", ":"))
+                )
             return "\x1e".join(packets) if packets else "2"
 
     def close(self, sid: str) -> None:

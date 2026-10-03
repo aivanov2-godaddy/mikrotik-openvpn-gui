@@ -301,6 +301,25 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertEqual(body.count(b"event: status"), 1)
 
+    def test_sse_stops_when_effective_session_capability_is_narrowed(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id)
+        self.assertIsNotNone(session)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+
+        def remove_stream_capability(_seconds: float) -> None:
+            session.capabilities = frozenset()
+
+        with mock.patch("app.time.sleep", side_effect=remove_stream_capability):
+            connection.request("GET", "/api/events", headers={"Cookie": self.cookie})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertEqual(body.count(b"event: status"), 1)
+
     def _managed_device_revoke_request(self) -> tuple[str, str]:
         self.login()
         device_id = "managed-device-revoke-test"
@@ -873,11 +892,50 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"sessions", payload)
 
-        status, _, payload = self.request("GET", "/api/reports/compliance.zip")
+        for path in ("/api/connections.csv", "/api/usage.csv"):
+            status, headers, payload = self.request(
+                "GET", path,
+                headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
+            )
+            self.assertEqual(status, 200, payload.decode("utf-8"))
+            self.assertEqual(headers["content-type"], "text/csv; charset=utf-8")
+
+        status, _, payload = self.json_request(
+            "POST", "/api/admin/api-tokens",
+            {"label": "health-only export attempt", "scopes": ["health.read"], "expires_in": "1h"},
+        )
+        self.assertEqual(status, 201)
+        health_token = json.loads(payload)["token"]
+        for path in ("/api/connections.csv", "/api/usage.csv"):
+            status, _, payload = self.request(
+                "GET", path,
+                headers={"Authorization": f"Bearer {health_token}", "Cookie": ""},
+            )
+            self.assertEqual(status, 403, path)
+            self.assertIn(b'"required_capability":"sessions.read"', payload)
+            self.assertNotIn(b"user-two", payload)
+
+        status, _, payload = self.request(
+            "GET", "/api/reports/compliance.zip",
+            headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
+        )
         self.assertEqual(status, 200)
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             self.assertEqual(set(archive.namelist()), {"summary.json", "audit.csv", "connections.csv"})
             self.assertNotIn(b"routerpass", archive.read("summary.json"))
+
+        status, _, payload = self.json_request(
+            "POST", "/api/admin/api-tokens",
+            {"label": "audit-only export attempt", "scopes": ["audit.read"], "expires_in": "1h"},
+        )
+        self.assertEqual(status, 201)
+        audit_token = json.loads(payload)["token"]
+        status, _, payload = self.request(
+            "GET", "/api/reports/compliance.zip",
+            headers={"Authorization": f"Bearer {audit_token}", "Cookie": ""},
+        )
+        self.assertEqual(status, 403)
+        self.assertIn(b'"required_capability":"sessions.read"', payload)
 
         self.server.context.store.record_health_snapshot({
             "overall": "healthy",
