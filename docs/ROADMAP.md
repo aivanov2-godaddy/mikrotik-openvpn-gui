@@ -292,16 +292,16 @@ are verified partial milestones, not issue completions:
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
 Latest stable registry publication (2026-10-03): the public `routeros-stable`
-manifest points to commit `10930dfc34f0f7c059ac6398a0494475f464149f`, published
-by [run 37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210).
-ARM64 digest: `sha256:72006cded1bac627c0890f4ce9ac696c1a7505e146fba5958396b5c8efa72247`;
-AMD64 digest: `sha256:fde9f46830a3695fb0ed8f5774156ea6f8b9e016d5059f351599eb3064fdae4c`.
+manifest points to commit `34a880970ecc6ce622c257e3307c9b7cc2885b96`, published
+by [run 37149717625](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37149717625).
+ARM64 digest: `sha256:8c2346ea7971b5e26a47af34cb07bc27a39516e15c9860dd2f9bee76f1e0f184`;
+AMD64 digest: `sha256:aad9d850feba0b72c7db4660858cef6e747b8855f200d1d75957e3db3f9394fd`.
 Both builds, runtime smoke tests, and exact-digest provenance/SBOM verification
 passed. This is registry evidence only. The most recent canary readiness
 response seen before publication reported revision
 `68fbaaae5ec50b42992f3678c8042e48f987bc8c`; follow-up private readiness probes
 timed out. The current canary/production revision and health are therefore not
-confirmed, and deployment of `10930df` is not claimed. The earlier authenticated
+confirmed, and deployment of `34a8809` is not claimed. The earlier authenticated
 RouterOS read-back of `a2d0ce2` on both containers, including point-in-time
 resource observations, remains historical evidence. It did not establish
 sustained SLOs, current health, or exact on-router content digests.

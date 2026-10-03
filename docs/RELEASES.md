@@ -34,17 +34,17 @@ deployment model.
 
 ### Latest stable registry publication
 
-Runtime commit `10930dfc34f0f7c059ac6398a0494475f464149f` is the current
+Runtime commit `34a880970ecc6ce622c257e3307c9b7cc2885b96` is the current
 `routeros-stable` manifest target. Publication run
-[#37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210)
+[#37149717625](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37149717625)
 passed both architecture builds, published-runtime smoke tests, stable-manifest
 publication, and exact-digest provenance/SBOM verification. The immutable tags
 and registry digests are:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-10930dfc34f0f7c059ac6398a0494475f464149f-arm64` | `sha256:72006cded1bac627c0890f4ce9ac696c1a7505e146fba5958396b5c8efa72247` |
-| CHR/x86 AMD64 (evaluation) | `sha-10930dfc34f0f7c059ac6398a0494475f464149f-amd64` | `sha256:fde9f46830a3695fb0ed8f5774156ea6f8b9e016d5059f351599eb3064fdae4c` |
+| RouterOS ARM64 | `sha-34a880970ecc6ce622c257e3307c9b7cc2885b96-arm64` | `sha256:8c2346ea7971b5e26a47af34cb07bc27a39516e15c9860dd2f9bee76f1e0f184` |
+| CHR/x86 AMD64 (evaluation) | `sha-34a880970ecc6ce622c257e3307c9b7cc2885b96-amd64` | `sha256:aad9d850feba0b72c7db4660858cef6e747b8855f200d1d75957e3db3f9394fd` |
 
 This is a registry publication, not a RouterOS deployment claim. The most
 recent canary readiness response observed before this publication reported
