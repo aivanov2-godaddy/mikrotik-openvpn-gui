@@ -32,7 +32,7 @@ deployment model.
 
 ## Published images
 
-### Latest published runtime image (not yet verified on RouterOS)
+### Latest published runtime image and RouterOS tag read-back
 
 Runtime revision `a54302145af109efc7003538b342ecb1f91f73c2` includes prior
 management-source diagnostics, telemetry queue-delay metrics, and redacted
@@ -51,14 +51,15 @@ on 2026-10-03.
 | RouterOS ARM64 | `sha-a54302145af109efc7003538b342ecb1f91f73c2-arm64` | `sha256:cf0743d880e47762b9701b3a80fe3a9c1c86bcfd7074e804e5efbfb4e7345ed6` |
 | CHR/x86 AMD64 (evaluation) | `sha-a54302145af109efc7003538b342ecb1f91f73c2-amd64` | `sha256:ee6a928cdc187845cf45b83e63e66a7173627a04caa9a4a528c10b1cc0aef8b9` |
 
-These are published artifacts, not a deployment claim. The ARM64 image has
-not been verified on the RouterOS canary or production containers, and no
-RouterOS compatibility, resource, or live-event acceptance is inferred from
-the CI smoke test. The public `routeros-stable` manifest was read back and
-points to commit `a54302145af109efc7003538b342ecb1f91f73c2` and its
-architecture-specific tags; this does not show that any router has pulled the
-image. The v2.5.0 feature release remains the latest versioned release until a
-separate release decision is made.
+The public `routeros-stable` manifest was fetched and points to commit
+`a54302145af109efc7003538b342ecb1f91f73c2`. On 2026-10-03, authenticated
+RouterOS read-back showed both the canary and production containers using the
+ARM64 immutable tag above; both were marked healthy. RouterOS reports the
+configured image tag, not the local registry content digest, so digest
+identity on the router is not independently verified. This point-in-time
+read-back is not a sustained latency/freshness, resource, event-integrity, or
+rollback acceptance result. The v2.5.0 feature release remains the latest
+versioned release until a separate release decision is made.
 
 The public `Publish container` workflow verifies a `main` change, then publishes
 single-platform images to GHCR using the repository's current owner and name.
