@@ -1384,6 +1384,34 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(set(self.mock.state.certificates), before_certificates)
 
+    def test_user_creation_review_binds_generated_rate_profile_state(self) -> None:
+        self.login()
+        intent = {
+            "username": "review-rate-race", "email": "rate-race@example.test",
+            "device_name": "New phone", "delivery": "zip", "policy": "full-tunnel",
+            "rate_limit_kbps": "10240",
+        }
+        before_mutations = list(self.mock.state.mutation_requests)
+        before_certificates = set(self.mock.state.certificates)
+        preview = self.preview_user_provision(intent)
+        self.mock.state.profiles["*P9"] = {
+            ".id": "*P9", "name": "vpn-ui-review-rate-race", "rate-limit": "512k/512k",
+        }
+
+        status, _, payload = self.json_request(
+            "POST", "/api/users",
+            {
+                **intent, "password": "review-rate-password",
+                "key_passphrase": "review-rate-key-passphrase", "review_token": preview["review_token"],
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(set(self.mock.state.certificates), before_certificates)
+        self.assertEqual(self.mock.state.profiles["*P9"]["rate-limit"], "512k/512k")
+
     def test_user_edit_relative_expiry_review_survives_second_boundary(self) -> None:
         self.login()
         user = next(
@@ -1630,6 +1658,33 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(audit["status"], "success")
         self.assertTrue(json.loads(audit["details"])["mutation_response_lost"])
         self.assertNotIn("private RouterOS response", payload.decode())
+
+    def test_user_update_review_is_bound_to_generated_rate_profile_state(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-one"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        edit = {
+            "email": "user.one@example.test", "comment": "Reviewed bandwidth update",
+            "disabled": False, "policy": "full-tunnel", "expiry": "",
+            "max_sessions": "2", "rate_limit_kbps": "10240", "quota_mb": "0",
+            "schedule": "always", "dns_mode": "router", "notifications": True,
+            "reason": "Review the generated PPP bandwidth profile",
+        }
+        reviewed = self._review_user_edit(path, edit)
+        self.mock.state.profiles["*P9"] = {
+            ".id": "*P9", "name": "vpn-ui-user-one", "rate-limit": "512k/512k",
+        }
+
+        status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        self.assertEqual(status, 409)
+        self.assertIn("state has changed", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.profiles["*P9"]["rate-limit"], "512k/512k")
+        self.assertNotIn("PATCH /ppp/profile/*P9", self.mock.state.mutation_requests)
 
     def test_user_update_retains_local_state_when_routeros_readback_is_unavailable(self) -> None:
         self.login()
@@ -3134,6 +3189,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 409)
         self.assertEqual(self.server.context.store.user_controls("user-one")["rate_limit_kbps"], 4096)
+
+    def test_policy_template_review_binds_generated_rate_profile_state(self) -> None:
+        self.login()
+        path, user_id, preview = self._policy_template_review()
+        self.mock.state.profiles["*P9"] = {
+            ".id": "*P9", "name": "vpn-ui-user-one", "rate-limit": "512k/512k",
+        }
+
+        status, _, payload = self.json_request(
+            "POST", path, {"user_ids": [user_id], "review_token": preview["review_token"]},
+        )
+
+        self.assertEqual(status, 409)
+        self.assertIn("state has changed", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.profiles["*P9"]["rate-limit"], "512k/512k")
+        self.assertNotIn("PATCH /ppp/profile/*P9", self.mock.state.mutation_requests)
 
     def test_policy_template_apply_reports_router_failure_and_readback_unknown(self) -> None:
         self.login()

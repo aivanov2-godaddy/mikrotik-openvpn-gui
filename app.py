@@ -2963,6 +2963,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 credentials,
                 username=username,
                 rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                expected_state=data.get("_review_rate_profile_state"),
             )
             created = self.server.context.router.create_user(
                 credentials,
@@ -3139,6 +3140,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.server.context.config.topology.require_profile_generation(
             policy=controls["policy"], dns_mode=controls["dns_mode"],
         )
+        rate_profile_state = (
+            self.server.context.router.rate_profile_snapshot(credentials, username=username)
+            if int(controls["rate_limit_kbps"]) > 0
+            else None
+        )
+        enriched["_review_rate_profile_state"] = rate_profile_state
         if any(
             str(item.get("name", "")).casefold() == username.casefold()
             for item in self.server.context.router.list_ovpn_users(credentials)
@@ -3153,6 +3160,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "delivery": delivery,
             "comment": comment,
             "controls": {**controls, "expires_at": None},
+            "router_rate_profile": rate_profile_state,
             "expiry_intent": str(enriched.get("expiry", "")),
         }
         digest = hashlib.sha256(
@@ -3501,12 +3509,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "reason": reason,
             }
             control_keys = tuple(controls)
+            router_rate_profile = (
+                self.server.context.router.rate_profile_snapshot(
+                    credentials, username=str(user["name"]),
+                )
+                if int(controls["rate_limit_kbps"]) > 0
+                else None
+            )
             state = {
                 "router_comment": str(user.get("comment", "")),
                 "router_disabled": str(user.get("disabled", "false")).lower() == "true",
                 "router_profile": str(user.get("profile", "")),
                 "email": self.server.context.store.user_emails().get(str(user["name"]), ""),
                 "controls": {key: self.server.context.store.user_controls(str(user["name"])).get(key) for key in control_keys},
+                "router_rate_profile": router_rate_profile,
             }
             receipt_payload = json.dumps(
                 {"intent": intent, "state": state}, sort_keys=True, separators=(",", ":"),
@@ -3540,6 +3556,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 credentials,
                 username=str(user["name"]),
                 rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                expected_state=state["router_rate_profile"],
             )
             mutation_error: RouterOSError | None = None
             try:
@@ -3778,6 +3795,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "id": user_id,
                     "username": str(user["name"]),
                     "router_profile": str(user.get("profile", "")),
+                    "router_rate_profile": (
+                        self.server.context.router.rate_profile_snapshot(
+                            credentials, username=str(user["name"]),
+                        )
+                        if int(controls["rate_limit_kbps"]) > 0
+                        else None
+                    ),
                     "current": {key: current.get(key) for key in control_keys},
                 })
             receipt_payload = json.dumps(
@@ -3819,6 +3843,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             applied: list[str] = []
             outcomes: list[dict[str, str]] = []
+            reviewed_profiles = {str(item["id"]): item["router_rate_profile"] for item in review_basis}
             for item in preview:
                 if not item["changes"]:
                     self.server.context.store.assign_policy_template(item["username"], template_id)
@@ -3826,7 +3851,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     continue
                 try:
                     router_profile = self.server.context.router.ensure_rate_profile(
-                        credentials, username=item["username"], rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                        credentials,
+                        username=item["username"],
+                        rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                        expected_state=reviewed_profiles.get(str(item["id"])),
                     )
                 except (RouterOSError, ValueError) as error:
                     outcomes.append({"username": item["username"], "status": "failed", "reason": type(error).__name__})
