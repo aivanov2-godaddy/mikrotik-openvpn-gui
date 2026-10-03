@@ -1627,7 +1627,7 @@ $('#add-form')?.addEventListener('submit', async (event) => {
       const preview = await previewResponse.json();
       form.elements.review_token.value = preview.review_token || '';
       form.dataset.reviewDelivery = delivery;
-      $('[data-create-review]', form).textContent = `Reviewed: ${preview.username} · ${preview.email} · ${preview.device} · ${preview.delivery} · ${preview.policy} · ${preview.dns_mode} DNS · ${preview.max_sessions} device limit · ${preview.rate_limit_kbps || 'unlimited'} Kbit/s · ${preview.quota_mb || 'no'} MB quota · ${preview.schedule || 'anytime'} · notifications ${preview.notifications ? 'on' : 'off'} · ${preview.comment || 'no comment'}. Passwords and private-key passphrase are not included in the review.`;
+      $('[data-create-review]', form).textContent = `Reviewed: ${preview.username} · ${preview.email} · ${preview.device} · ${preview.delivery} · ${preview.policy} · ${preview.dns_mode} DNS · ${preview.max_sessions} device limit · ${preview.rate_limit_kbps || 'unlimited'} Kbit/s · ${preview.quota_mb || 'no'} MB quota · ${preview.schedule || 'anytime'} · notifications ${preview.notifications ? 'on' : 'off'} · reason: ${preview.reason} · ${preview.comment || 'no comment'}. Passwords and private-key passphrase are not included in the review.`;
       $('[data-create-review]', form).hidden = false;
       $('[data-delivery="qr"]', form).textContent = 'Create QR';
       $('[data-delivery="zip"]', form).textContent = 'Create and download';
@@ -1755,7 +1755,7 @@ $('#duplicate-form')?.addEventListener('submit', async (event) => {
       const preview = await previewResponse.json();
       form.elements.review_token.value = preview.review_token || '';
       form.dataset.reviewReady = 'true';
-      $('[data-create-review]', form).textContent = `Reviewed: ${preview.username} · ${preview.email} · ${preview.device} · ${preview.delivery} · copied ${preview.policy} policy, ${preview.dns_mode} DNS, ${preview.max_sessions} device limit, ${preview.rate_limit_kbps || 'unlimited'} Kbit/s, ${preview.quota_mb || 'no'} MB quota, ${preview.schedule || 'anytime'}, notifications ${preview.notifications ? 'on' : 'off'}, comment: ${preview.comment || 'none'}. Passwords and private-key passphrase are not included in the review.`;
+      $('[data-create-review]', form).textContent = `Reviewed: ${preview.username} · ${preview.email} · ${preview.device} · ${preview.delivery} · copied ${preview.policy} policy, ${preview.dns_mode} DNS, ${preview.max_sessions} device limit, ${preview.rate_limit_kbps || 'unlimited'} Kbit/s, ${preview.quota_mb || 'no'} MB quota, ${preview.schedule || 'anytime'}, notifications ${preview.notifications ? 'on' : 'off'}, reason: ${preview.reason}, comment: ${preview.comment || 'none'}. Passwords and private-key passphrase are not included in the review.`;
       $('[data-create-review]', form).hidden = false;
       $('button[type="submit"]', form).textContent = 'Create reviewed account';
       setStatus(form, 'Review the details above, then choose Create reviewed account.');

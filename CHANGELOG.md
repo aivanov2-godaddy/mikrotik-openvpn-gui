@@ -19,6 +19,8 @@ semantic-version style release tags.
   redacted canary-to-production release acceptance evidence validator.
 - Read-only RouterOS account, policy-category, and management-service exposure
   diagnostics with derived-only output and explicit unknown firewall status.
+- Add-user and duplicate-account previews now require a reason, bind it to the
+  single-use review receipt, and include it in successful and recovery audits.
 
 ## 2.5.0 - 2026-10-01
 

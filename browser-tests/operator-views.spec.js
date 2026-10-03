@@ -260,9 +260,12 @@ test('add-user dialog has accessible controls, stays keyboard-modal, validates, 
   await expect(dialog).toBeVisible();
   const username = dialog.getByRole('textbox', { name: 'VPN username', exact: true });
   const email = dialog.getByRole('textbox', { name: /^Owner email/ });
+  const reason = dialog.getByRole('textbox', { name: 'Reason for creating access' });
   const submit = dialog.getByRole('button', { name: 'Review ZIP' });
   await expect(username).toBeVisible();
   await expect(email).toBeVisible();
+  await expect(reason).toHaveAttribute('minlength', '12');
+  await expect(reason).toHaveAttribute('maxlength', '240');
   await expect(submit).toBeVisible();
   await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement)))
     .toBe(true);
