@@ -11,6 +11,15 @@ domain names into an issue, pull request, or test result.
 
 ## Scope and prerequisites
 
+Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
+prove RouterOS compatibility. The recorded 2026-10-03 production/canary
+read-back covers immutable revision `sha-01055d4efdc041c2443f41e08235896bf6f4f754-arm64`
+on a physical RouterOS ARM64 installation running RouterOS 7.24.4 only.
+RouterOS reported the immutable tag and healthy state, not the registry image
+digest. No resource minimum or cross-model/version certification is inferred
+from that observation. See the [installation compatibility
+matrix](INSTALLATION.md#compatibility-and-support-matrix).
+
 - Use one immutable candidate such as
   `ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64`.
   Record the exact tag and digest. The `/readyz` revision must identify that

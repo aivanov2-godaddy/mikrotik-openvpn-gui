@@ -5,24 +5,26 @@ with the offline [Installation Wizard](INSTALL_WIZARD.md): it asks for
 non-secret settings and prints a review-only `.rsc` plan. This guide remains the
 source of truth for the manual RouterOS gates and verification steps.
 
-## Support matrix
+## Compatibility and support matrix
 
-| Requirement | Supported target |
-| --- | --- |
-| RouterOS | RouterOS 7; validate the exact installed release before promotion |
-| CPU | `arm64` (the supported RouterOS production target) |
-| Device | A container-capable ARM64 MikroTik with adequate RAM and storage |
-| Container package | Installed and enabled |
-| Device mode | `container=yes` |
-| Storage | External disk strongly recommended; reserve space for two image roots, temporary extraction, and SQLite data |
-| Network | An unused container subnet, DNS, and outbound HTTPS to GHCR |
+“Built” means the image was built and smoke-tested in CI. “Observed” means a
+specific deployed instance was read back as running; neither status certifies
+every RouterOS release or MikroTik model. See the [redacted acceptance
+procedure](ROUTEROS_ACCEPTANCE.md) before promoting any new digest.
 
-The project also publishes an `amd64` image for x86/CHR evaluation, but it is
-not production-validated. RouterOS labels its 32-bit devices as `arm`;
-MikroTik's container documentation calls out ARM32/ARMv5 compatibility, so
-this project intentionally does not publish an `arm` (ARMv7) image. Other
-architectures remain outside this installation guide until a matching RouterOS
-container pull and runtime validation has been completed.
+| Platform | Evidence status | Scope and limits |
+| --- | --- | --- |
+| Linux `arm64` image | Built in CI; deployed instance observed | The 2026-10-03 RouterOS read-back recorded canary and production on immutable revision `sha-01055d4efdc041c2443f41e08235896bf6f4f754-arm64`, both healthy. This is evidence for that image and installation only; the router did not expose its registry digest for independent comparison. |
+| Physical RouterOS ARM64 / RouterOS 7.24.4 stable | Observed deployment environment | This is one observed deployment context, not a compatibility matrix across RouterOS releases, hardware variants, or resource loads. Device model and identity are intentionally omitted. |
+| Linux `amd64` / RouterOS CHR or x86 | Built and runtime-smoke-tested in CI; RouterOS evaluation only | Not certified on physical x86 RouterOS hardware and not the production target. |
+| RouterOS `arm` (32-bit/ARMv7) | Unsupported; no image published | Do not substitute an ARMv7 image. |
+| Other RouterOS releases/models | Unverified unless separately recorded | Run the canary acceptance procedure with the exact image tag/digest before promotion. |
+
+RouterOS must be version 7 with the Container package installed and enabled and
+`container=yes`. There is no universal RAM/storage minimum claimed here:
+container extraction, SQLite, WAL, backups, logs, and other router workloads
+share finite resources. Record measured headroom on the target device during
+acceptance rather than extrapolating a single deployment.
 
 ## Before you start
 
@@ -32,7 +34,7 @@ Before onboarding users, record the existing OpenVPN PPP profile name, OpenVPN s
 
 ## 1. Confirm version and architecture
 
-In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for the validated ARM64 target and `amd64` for x86/CHR evaluation. Do not use an ARMv7 image for a RouterOS `arm` device: MikroTik documents ARM32/ARMv5 constraints for that target, and this project does not publish an ARM image until it has been verified there. In **System → Packages**, record the exact RouterOS version. From New Terminal:
+In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for the observed production architecture and `amd64` for x86/CHR evaluation. Do not use an ARMv7 image for a RouterOS `arm` device: MikroTik documents ARM32/ARMv5 constraints for that target, and this project does not publish an ARM image until it has been verified there. In **System → Packages**, record the exact RouterOS version. From New Terminal:
 
 The dashboard's **Installation planner → Read-only preflight** repeats this gate
 from the connected router and reports the exact image suffix to use. `arm64`
@@ -207,7 +209,7 @@ through a separate canary.
 | --- | --- |
 | `container` package missing | Architecture/version match; install the extra package and reboot |
 | Device-mode refuses enablement | Run `/system/device-mode/update container=yes` again and complete the physical confirmation window |
-| Architecture error during pull | Confirm the router's `architecture-name`; use `arm64` only on the validated ARM64 target or `amd64` only for a tested x86/CHR evaluation. Do not substitute an ARMv7 image for RouterOS `arm`. |
+| Architecture error during pull | Confirm the router's `architecture-name`; use `arm64` for the observed production architecture or `amd64` for x86/CHR evaluation. Do not substitute an ARMv7 image for RouterOS `arm`. |
 | GHCR `auth error` | A public package needs no token. For a private fork, use an expiring `read:packages` token and check `/container/config` without exposing it |
 | Manifest not found | Use registry-relative `owner/repo:sha-<fullsha>` and keep `registry-url=https://ghcr.io` |
 | Extraction fails | Move roots and `tmpdir` to external storage and check free space |
