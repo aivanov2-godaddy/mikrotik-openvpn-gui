@@ -14,8 +14,8 @@ procedure](ROUTEROS_ACCEPTANCE.md) before promoting any new digest.
 
 | Platform | Evidence status | Scope and limits |
 | --- | --- | --- |
-| Linux `arm64` image | Built in CI; deployed instance observed | The 2026-10-03 RouterOS read-back recorded canary and production on immutable revision `sha-01055d4efdc041c2443f41e08235896bf6f4f754-arm64`, both healthy. This is evidence for that image and installation only; the router did not expose its registry digest for independent comparison. |
-| Physical RouterOS ARM64 / RouterOS 7.24.4 stable | Observed deployment environment | This is one observed deployment context, not a compatibility matrix across RouterOS releases, hardware variants, or resource loads. Device model and identity are intentionally omitted. |
+| Linux `arm64` image | Built in CI; deployed instance observed | The 2026-10-03 RouterOS read-back recorded canary and production on immutable revision `sha-a54302145af109efc7003538b342ecb1f91f73c2-arm64`, both healthy. This is evidence for that image and installation only; the router did not expose its registry digest for independent comparison. |
+| Physical RouterOS ARM64 / RouterOS 7.24.5 stable | Observed deployment environment | This is one observed deployment context, not a compatibility matrix across RouterOS releases, hardware variants, or resource loads. Device model and identity are intentionally omitted. |
 | Linux `amd64` / RouterOS CHR or x86 | Built and runtime-smoke-tested in CI; RouterOS evaluation only | Not certified on physical x86 RouterOS hardware and not the production target. |
 | RouterOS `arm` (32-bit/ARMv7) | Unsupported; no image published | Do not substitute an ARMv7 image. |
 | Other RouterOS releases/models | Unverified unless separately recorded | Run the canary acceptance procedure with the exact image tag/digest before promotion. |
