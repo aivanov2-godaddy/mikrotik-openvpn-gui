@@ -1547,6 +1547,40 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"provision-recovery-password", payload)
         self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "partial")
 
+    def test_user_provision_reports_retained_generated_rate_profile(self) -> None:
+        self.login()
+        intent = {
+            "username": "provision-rate-residue", "email": "rate-residue@example.test",
+            "device_name": "Test laptop", "delivery": "ovpn", "policy": "full-tunnel",
+            "rate_limit_kbps": "10240",
+        }
+        review = self.preview_user_provision(intent)
+        router = self.server.context.router
+        with mock.patch.object(
+            router, "provision_profile", side_effect=RouterOSError("injected provisioning failure", 503),
+        ):
+            status, _, payload = self.json_request(
+                "POST", "/api/users",
+                {
+                    **intent, "password": "rate-residue-password",
+                    "key_passphrase": "rate-residue-key", "review_token": review["review_token"],
+                },
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["recovery"], "partial")
+        self.assertEqual(response["rate_profile_recovery"], "retained_or_changed")
+        self.assertNotIn("provision-rate-residue", [item["name"] for item in self.mock.state.users.values()])
+        self.assertTrue(any(
+            item["name"] == "vpn-ui-provision-rate-residue"
+            for item in self.mock.state.profiles.values()
+        ))
+        self.assertEqual(
+            json.loads(self.server.context.store.recent_audit(1)[0]["details"])["rate_profile_recovery"],
+            "retained_or_changed",
+        )
+
     def test_profile_creation_revokes_new_certificate_when_local_recording_fails(self) -> None:
         self.login()
         user = next(

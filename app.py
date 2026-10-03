@@ -3107,6 +3107,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         username = ""
         profile: ProvisionedProfile | None = None
         user_creation_confirmed = False
+        rate_profile_recovery = "not_applicable"
         try:
             username = self._validate_username(str(data.get("username", "")))
             password = self._validate_secret(str(data.get("password", "")), "VPN password")
@@ -3236,10 +3237,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 account_absent = None
 
             recovery = (
-                "verified" if account_absent is True and certificate_cleanup == "verified"
+                "verified" if (
+                    account_absent is True
+                    and certificate_cleanup == "verified"
+                    and rate_profile_recovery in {"not_applicable", "verified_unchanged"}
+                )
                 else "unknown" if account_absent is None or certificate_cleanup == "unknown"
                 else "partial"
             )
+            reviewed_rate_profile = data.get("_review_rate_profile_state")
+            if isinstance(reviewed_rate_profile, dict):
+                try:
+                    current_rate_profile = self.server.context.router.rate_profile_snapshot(
+                        credentials, username=username,
+                    )
+                    rate_profile_recovery = (
+                        "verified_unchanged"
+                        if current_rate_profile == reviewed_rate_profile
+                        else "retained_or_changed"
+                    )
+                except RouterOSError:
+                    rate_profile_recovery = "unknown"
+                # A generated PPP profile can be shared by other PPP accounts.
+                # Never remove it as compensation without proving exclusive ownership.
+                if rate_profile_recovery not in {"verified_unchanged"}:
+                    recovery = (
+                        "unknown" if rate_profile_recovery == "unknown" or recovery == "unknown"
+                        else "partial"
+                    )
             if username and recovery == "verified":
                 self.server.context.store.delete_user_email(username)
                 self.server.context.store.delete_user_controls(username)
@@ -3253,14 +3278,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "recovery": recovery,
                     "account_absent": account_absent,
                     "certificate_cleanup": certificate_cleanup,
+                    "rate_profile_recovery": rate_profile_recovery,
                 },
             )
             if recovery != "verified":
                 self._json({
                     "code": "routeros.provision_recovery_incomplete",
-                    "error": "VPN account setup failed and cleanup could not be fully verified. No profile was delivered; inspect VPN Users and Device Profiles before retrying.",
+                    "error": "VPN account setup failed and cleanup could not be fully verified. No profile was delivered; inspect VPN Users, Device Profiles, and any generated PPP rate profile before retrying.",
                     "verified": False,
                     "recovery": recovery,
+                    "rate_profile_recovery": rate_profile_recovery,
                 }, status=HTTPStatus.BAD_GATEWAY)
                 return
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
