@@ -2812,6 +2812,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = self._credentials(session)
         user_id: str | None = None
         username = ""
+        profile: ProvisionedProfile | None = None
+        user_creation_confirmed = False
         try:
             username = self._validate_username(str(data.get("username", "")))
             password = self._validate_secret(str(data.get("password", "")), "VPN password")
@@ -2845,12 +2847,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 comment=comment or f"Managed by VPN Dashboard · {device_name}",
                 profile=router_profile,
             )
+            user_creation_confirmed = True
             user_id = created.get(".id") or created.get("id")
             if not user_id:
-                user_id = next(
-                    (user["id"] for user in self.server.context.router.list_ovpn_users(credentials) if user["name"] == username),
-                    None,
-                )
+                user_id = next((
+                    str(item["id"]) for item in self.server.context.router.list_ovpn_users(credentials)
+                    if str(item.get("name", "")) == username and item.get("id")
+                ), None)
+            if not user_id:
+                raise RouterOSError("RouterOS did not confirm the created VPN user")
             self.server.context.store.set_user_email(username, email)
             self.server.context.store.set_user_controls(username, **controls)
             profile = self.server.context.router.provision_profile(
@@ -2875,22 +2880,95 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 details={"device": device_name, "email": email, **({"source": source_name} if source_name else {})},
             )
             self._deliver_profile(profile, f"{username}-{device_name}.ovpn", delivery)
-        except (ValueError, RouterOSError) as error:
+        except Exception as error:  # noqa: BLE001 - reconcile failures after RouterOS provisioning begins
+            certificate_cleanup = "verified"
+            if profile is not None:
+                try:
+                    try:
+                        self.server.context.router.revoke_certificate(
+                            credentials, certificate_id=profile.certificate_id,
+                        )
+                    except RouterOSError:
+                        # Resolve an ambiguous mutation response only by exact certificate read-back.
+                        pass
+                    certificates = self.server.context.router.list_ovpn_client_certificates(
+                        credentials, include_legacy=True,
+                    )
+                    certificate = next(
+                        (item for item in certificates if str(item.get("id", "")) == profile.certificate_id),
+                        None,
+                    )
+                    certificate_cleanup = "verified" if certificate and certificate.get("revoked") else "mismatch"
+                except RouterOSError:
+                    certificate_cleanup = "unknown"
+
+            account_absent: bool | None = None
             if user_id:
                 try:
                     self.server.context.router.delete_user(credentials, user_id=user_id)
                 except RouterOSError:
+                    # The response can be lost after RouterOS commits DELETE.
                     pass
-            if username:
+            try:
+                remaining_users = self.server.context.router.list_ovpn_users(credentials)
+                remaining = [
+                    item for item in remaining_users
+                    if str(item.get("name", "")) == username
+                    and (user_id is None or str(item.get("id", "")) == user_id)
+                ]
+                if user_id:
+                    account_absent = not remaining
+                elif not user_creation_confirmed:
+                    # Creation may have committed despite a lost PUT response. Do not delete
+                    # an account whose ownership cannot be proven by a returned RouterOS id.
+                    account_absent = not any(
+                        str(item.get("name", "")) == username for item in remaining_users
+                    )
+                else:
+                    account_absent = not remaining
+                    if remaining and remaining[0].get("id"):
+                        user_id = str(remaining[0]["id"])
+                        try:
+                            self.server.context.router.delete_user(credentials, user_id=user_id)
+                        except RouterOSError:
+                            pass
+                        remaining_users = self.server.context.router.list_ovpn_users(credentials)
+                        account_absent = not any(
+                            str(item.get("id", "")) == user_id
+                            or str(item.get("name", "")) == username
+                            for item in remaining_users
+                        )
+            except RouterOSError:
+                account_absent = None
+
+            recovery = (
+                "verified" if account_absent is True and certificate_cleanup == "verified"
+                else "unknown" if account_absent is None or certificate_cleanup == "unknown"
+                else "partial"
+            )
+            if username and recovery == "verified":
                 self.server.context.store.delete_user_email(username)
                 self.server.context.store.delete_user_controls(username)
             self.server.context.store.audit(
                 actor=session.username,
                 action=audit_action,
-                target=username or "invalid",
-                status="failed",
-                details={"reason": type(error).__name__},
+                target=username or "unresolved-user",
+                status="failed" if recovery == "verified" else recovery,
+                details={
+                    "reason": type(error).__name__,
+                    "recovery": recovery,
+                    "account_absent": account_absent,
+                    "certificate_cleanup": certificate_cleanup,
+                },
             )
+            if recovery != "verified":
+                self._json({
+                    "code": "routeros.provision_recovery_incomplete",
+                    "error": "VPN account setup failed and cleanup could not be fully verified. No profile was delivered; inspect VPN Users and Device Profiles before retrying.",
+                    "verified": False,
+                    "recovery": recovery,
+                }, status=HTTPStatus.BAD_GATEWAY)
+                return
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
     def _user_provision_review_context(
@@ -3281,6 +3359,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             controls = self._parse_controls(
                 data, self.server.context.store.user_controls(str(user["name"]))
             )
+            expiry_intent = str(data.get("expiry", ""))
+            reviewed_controls = dict(controls)
+            if expiry_intent in EXPIRY_SECONDS:
+                # Relative expiries resolve to a fresh absolute timestamp each
+                # request. Bind the reviewed choice, not the preview/apply second.
+                reviewed_controls["expires_at"] = f"relative:{expiry_intent}"
             reason = str(data.get("reason", "")).strip()
             if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
                 raise ValueError("Provide a reason between 12 and 240 printable characters")
@@ -3288,7 +3372,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "user_id": str(user_id), "username": str(user["name"]),
                 "password_changed": bool(password_raw), "email": email,
                 "password_commitment": self.server.review_receipts.secret_commitment(password_raw),
-                "comment": comment, "disabled": disabled, "controls": controls,
+                "comment": comment, "disabled": disabled, "controls": reviewed_controls,
+                "expiry_intent": expiry_intent,
                 "reason": reason,
             }
             control_keys = tuple(controls)
