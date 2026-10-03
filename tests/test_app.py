@@ -337,11 +337,12 @@ class DashboardIntegrationTests(unittest.TestCase):
     def preview_bulk_action(
         self, action: str, user_ids: list[str], *, tag: str = "",
     ) -> dict[str, Any]:
+        reason = "Quarterly VPN access review" if action in {"suspend", "revoke"} else ""
         status, _, payload = self.json_request(
-            "POST", "/api/bulk/preview", {"action": action, "user_ids": user_ids, "tag": tag},
+            "POST", "/api/bulk/preview", {"action": action, "user_ids": user_ids, "tag": tag, "reason": reason},
         )
         self.assertEqual(status, 200, payload.decode("utf-8"))
-        return json.loads(payload)
+        return {**json.loads(payload), "reason": reason}
 
     def test_sse_stops_emitting_when_server_session_is_revoked(self) -> None:
         self.login()
@@ -3012,7 +3013,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         }
         selected = [users["user-one"]["id"], users["user-two"]["id"]]
         status, _, payload = self.json_request(
-            "POST", "/api/bulk/preview", {"action": "suspend", "user_ids": selected},
+            "POST", "/api/bulk/preview", {"action": "suspend", "user_ids": selected, "reason": "Quarterly VPN access review"},
         )
         self.assertEqual(status, 200)
         preview = json.loads(payload)
@@ -3021,7 +3022,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "POST", "/api/bulk/apply",
-            {"action": "suspend", "user_ids": selected, "confirmation": "APPLY SUSPEND TO 2 USERS", "review_token": preview["review_token"]},
+            {"action": "suspend", "user_ids": selected, "reason": preview["reason"], "confirmation": "APPLY SUSPEND TO 2 USERS", "review_token": preview["review_token"]},
         )
         self.assertEqual(status, 200)
         result = json.loads(payload)
@@ -3030,6 +3031,48 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual({item["status"] for item in result["outcomes"]}, {"verified"})
         self.assertFalse(self.mock.state.active_sessions)
         self.assertTrue(all(item["disabled"] == "yes" for item in self.mock.state.users.values()))
+        bulk_audit = next(item for item in self.server.context.store.recent_audit(10) if item["action"] == "bulk.suspend")
+        self.assertEqual(json.loads(bulk_audit["details"])["rationale"], preview["reason"])
+
+    def test_bulk_destructive_action_binds_rationale_before_routeros_mutation(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-two"
+        )
+        preview = self.preview_bulk_action("suspend", [user["id"]])
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {
+                "action": "suspend", "user_ids": [user["id"]],
+                "reason": "Different operator rationale", "confirmation": preview["confirmation"],
+                "review_token": preview["review_token"],
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(self.mock.state.users[user["id"]]["disabled"], "no")
+
+    def test_bulk_destructive_preview_rejects_missing_reason(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-two"
+        )
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/preview", {"action": "suspend", "user_ids": [user["id"]]},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(self.mock.state.mutation_requests, [])
+        self.assertIn("reason", json.loads(payload)["error"])
 
     def test_bulk_review_binds_exact_live_state_and_is_single_use(self) -> None:
         self.login()
@@ -3051,7 +3094,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST", "/api/bulk/apply",
             {
                 "action": "suspend", "user_ids": [user["id"]],
-                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": review["review_token"],
+                "reason": review["reason"], "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": review["review_token"],
             },
         )
         self.assertEqual(status, 409)
@@ -3064,7 +3107,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST", "/api/bulk/apply",
             {
                 "action": "suspend", "user_ids": [user["id"]],
-                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": refreshed["review_token"],
+                "reason": refreshed["reason"], "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": refreshed["review_token"],
             },
         )
         self.assertEqual(status, 200)
@@ -3074,7 +3117,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST", "/api/bulk/apply",
             {
                 "action": "suspend", "user_ids": [user["id"]],
-                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": refreshed["review_token"],
+                "reason": refreshed["reason"], "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": refreshed["review_token"],
             },
         )
         self.assertEqual(status, 409)
@@ -3095,7 +3138,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST", "/api/bulk/apply",
             {
                 "action": "suspend", "user_ids": [user["id"]],
-                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": review["review_token"],
+                "reason": review["reason"], "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": review["review_token"],
             },
         )
 
@@ -3152,7 +3195,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST", "/api/bulk/apply",
             {
                 "action": "revoke", "user_ids": [user["id"]],
-                "confirmation": "APPLY REVOKE TO 1 USERS", "review_token": review["review_token"],
+                "reason": review["reason"], "confirmation": "APPLY REVOKE TO 1 USERS", "review_token": review["review_token"],
             },
         )
 
@@ -3182,6 +3225,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "suspend", "user_ids": [user["id"]],
                     "confirmation": "APPLY SUSPEND TO 1 USERS",
+                    "reason": review["reason"],
                     "review_token": review["review_token"],
                 },
             )
@@ -3218,6 +3262,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "suspend", "user_ids": [user["id"]],
                     "confirmation": "APPLY SUSPEND TO 1 USERS",
+                    "reason": review["reason"],
                     "review_token": review["review_token"],
                 },
             )
@@ -3248,6 +3293,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "revoke", "user_ids": [user["id"]],
                     "confirmation": "APPLY REVOKE TO 1 USERS",
+                    "reason": review["reason"],
                     "review_token": review["review_token"],
                 },
             )
@@ -3278,6 +3324,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "revoke", "user_ids": [user["id"]],
                     "confirmation": "APPLY REVOKE TO 1 USERS",
+                    "reason": review["reason"],
                     "review_token": review["review_token"],
                 },
             )
@@ -3338,6 +3385,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 {
                     "action": "revoke", "user_ids": [user["id"]],
                     "confirmation": "APPLY REVOKE TO 1 USERS",
+                    "reason": review["reason"],
                     "review_token": review["review_token"],
                 },
             )

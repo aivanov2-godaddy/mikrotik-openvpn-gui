@@ -4135,6 +4135,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if any(not value for value in requested) or len(set(requested)) != len(requested):
                 raise ValueError("Each selected VPN user must be unique")
             tag = str(data.get("tag", "")).strip()
+            reason = str(data.get("reason", "")).strip()
+            if action in {"suspend", "revoke"} and (
+                not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason)
+            ):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
             if action == "tag":
                 if not BULK_TAG_PATTERN.fullmatch(tag):
                     raise ValueError("Tags must be 1–32 characters and use letters, numbers, spaces, dots, dashes, or underscores")
@@ -4197,7 +4202,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             intent_digest = hashlib.sha256(json.dumps(
                 {
                     "action": action, "tag": tag, "requested_ids": requested,
-                    "confirmation": confirmation, "users": review_basis,
+                    "confirmation": confirmation, "reason": reason, "users": review_basis,
                 },
                 sort_keys=True, separators=(",", ":"),
             ).encode("utf-8")).hexdigest()
@@ -4205,6 +4210,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({
                     "action": action, "tag": tag, "users": preview_rows,
                     "selected": len(requested), "confirmation": confirmation,
+                    "reason": reason,
                     "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
                 })
                 return
@@ -4215,7 +4221,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ):
                 self.server.context.store.audit(
                     actor=session.username, action="bulk.apply", target="selected-users",
-                    status="failed", details={"reason": "stale_or_missing_review"},
+                    status="failed", details={"reason": "stale_or_missing_review", "rationale": reason},
                 )
                 self._json({
                     "code": "routeros.review_stale",
@@ -4353,7 +4359,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action=f"bulk.{action}",
                 target="selected-users",
                 status=status,
-                details={"selected": len(requested), "applied": applied, "failed": failed, "unknown": unknown, "tagged": tag if action == "tag" else ""},
+                details={"selected": len(requested), "applied": applied, "failed": failed, "unknown": unknown, "tagged": tag if action == "tag" else "", **({"rationale": reason} if reason else {})},
             )
             self._json({"ok": True, "action": action, "status": status, "selected": len(requested), "outcomes": outcomes})
         except (ValueError, RouterOSError) as error:
