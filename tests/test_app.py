@@ -83,6 +83,20 @@ class OperationsTimelineTests(unittest.TestCase):
         self.assertNotIn("secret", serialized)
         self.assertNotIn("private", serialized)
 
+    def test_audit_event_identity_is_stable_when_newer_rows_arrive(self) -> None:
+        original = {
+            "id": 42, "created_at": 90, "actor": "owner", "action": "user.create",
+            "target": "alice", "status": "success",
+        }
+        before = operations_timeline([original], [], [], now=100)["events"][0]["id"]
+        after = operations_timeline([
+            {"id": 43, "created_at": 95, "actor": "owner", "action": "user.update", "target": "bob", "status": "success"},
+            original,
+        ], [], [], now=100)["events"][1]["id"]
+
+        self.assertEqual(before, "audit:42")
+        self.assertEqual(after, before)
+
 
 class DevicePostureTests(unittest.TestCase):
     def test_posture_requires_present_non_revoked_certificate_from_current_ca(self) -> None:

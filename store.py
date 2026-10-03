@@ -1197,7 +1197,7 @@ class MetadataStore:
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._connection() as connection:
             rows = connection.execute(
-                f"SELECT actor, action, target, status, details, created_at FROM audit{where} ORDER BY id DESC LIMIT ?",
+                f"SELECT id, actor, action, target, status, details, created_at FROM audit{where} ORDER BY id DESC LIMIT ?",
                 [*values, safe_limit],
             )
             return [dict(row) for row in rows]

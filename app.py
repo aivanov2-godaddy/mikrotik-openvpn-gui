@@ -88,7 +88,14 @@ def operations_timeline(
         action = str(item.get("action", "change"))[:80]
         outcome = str(item.get("status", "unknown"))[:24]
         events.append({
-            "id": f"audit:{occurred_at}:{action}:{len(events)}",
+            # The SQLite audit row ID is stable across timeline refreshes and
+            # additions. The fallback keeps pure callers with legacy fixtures
+            # deterministic without pretending their synthetic ID is durable.
+            "id": (
+                f"audit:{int(item['id'])}"
+                if item.get("id") is not None
+                else f"audit:legacy:{occurred_at}:{action}:{len(events)}"
+            ),
             "occurred_at": occurred_at,
             "source": "dashboard audit",
             "type": "change",
