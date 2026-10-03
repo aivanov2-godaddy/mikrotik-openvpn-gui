@@ -85,6 +85,28 @@ not independently rechecked from that workstation. Router-side registry-digest
 attestation, long-window latency/freshness percentiles, Redis delivery evidence,
 and recovery/failure-injection gates remain outstanding for the current runtime.
 
+## Latest published candidate and canary read-back — 2026-10-04
+
+The latest stable manifest now points to merge commit
+`1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e`. Publication run
+[37156506629](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37156506629)
+passed source/unit and rendered-browser verification, ARM64/AMD64 builds,
+runtime smoke, and exact-digest SBOM/provenance verification.
+
+| Check | Result |
+| --- | --- |
+| Candidate ARM64 tag / digest | `sha-1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e-arm64` / `sha256:31a9fbb5403da9871556ca55044d265f23d726b24d073455673f12c005ce0b66` |
+| Candidate AMD64 tag / digest | `sha-1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e-amd64` / `sha256:53605fa053e968ed6643197dd87b9c19529b1feda2239df63005b0d0ba00f435` |
+| Canary `/readyz` | HTTP 200, ready, but still reports previous revision `ce01f712d1b90e41e55ddd0fb1470302ec15563d`; candidate not yet observed running. |
+| Unauthenticated canary `/api/telemetry` | HTTP 401 on the previously observed canary revision; this does not validate the new candidate's runtime authorization. |
+| Production direct readiness probes | Timed out from this workstation; no production revision or health claim. |
+| RouterOS updater observation | Existing updater log reported a run skipped because another run held its lock; no manual update command or RouterOS configuration change was issued. |
+
+This is publication plus partial read-only canary evidence, not acceptance. The
+new candidate has not been confirmed on the canary, the updater lock state has
+not been independently resolved, and no current production read-back is
+available. Do not promote or claim acceptance based solely on this table.
+
 ## Latest deployed correction
 
 PR [#179](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/179)

@@ -31,6 +31,8 @@ semantic-version style release tags.
   and session-history details only for tokens or roles with those capabilities.
 - Require timestamped, sufficiently sampled 30-minute telemetry evidence before
   the acceptance evaluator can report sustained latency/freshness SLOs as pass.
+- Recover live clients from missing in-window event sequences with a redacted
+  snapshot, and replay out-of-order batches in monotonic order.
 
 ## 2.5.0 - 2026-10-01
 
