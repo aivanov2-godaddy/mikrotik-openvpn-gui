@@ -1582,19 +1582,12 @@ document.addEventListener('click', async (event) => {
     form.review_token.value = '';
     $('[data-delete-user]', form).textContent = row.dataset.userName;
     $('[data-confirm-target]', form).textContent = row.dataset.userName;
+    form.dataset.deleteUsername = row.dataset.userName;
     const apply = $('button[type="submit"]', form);
     apply.disabled = true;
     openDialog('delete-dialog');
-    setStatus(form, 'Checking the current account and managed certificates…');
-    try {
-      const response = await resultOrError(await api(`/api/users/${encodeURIComponent(row.dataset.userId)}/delete/preview`, { method: 'POST', body: {} }));
-      const review = await response.json();
-      form.review_token.value = review.review_token || '';
-      setStatus(form, `${review.username}: deleting this account will revoke ${review.managed_devices} managed device certificate${review.managed_devices === 1 ? '' : 's'} before removing VPN access. Type the account name below to confirm.`);
-      apply.disabled = !review.review_token;
-    } catch (error) {
-      setStatus(form, `${error.message} Deletion is unavailable until the current impact can be reviewed.`, true);
-    }
+    $('[data-delete-review]', form).disabled = true;
+    setStatus(form, 'Enter a reason, then review the account and managed certificates before removal.');
   } else if (button.matches('[data-device-revoke]')) {
     const form = $('#revoke-device-form');
     form.reset();
@@ -2080,7 +2073,7 @@ $('#delete-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Removing access and its managed device records…');
   try {
-    await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), review_token: data.get('review_token') } }));
+    await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), reason: data.get('reason'), review_token: data.get('review_token') } }));
     setStatus(form, 'Access removed.');
     toast('VPN user and managed access removed.');
     setTimeout(() => location.reload(), 500);
@@ -2090,6 +2083,46 @@ $('#delete-form')?.addEventListener('submit', async (event) => {
     setStatus(form, `${error.message} The review has expired or been consumed; close and reopen the dialog to inspect current state.`, true);
     setBusy(form, false);
     $('button[type="submit"]', form).disabled = true;
+  }
+});
+
+$('#delete-form')?.addEventListener('input', (event) => {
+  const form = event.currentTarget;
+  if (event.target.matches('[name="reason"]')) form.elements.review_token.value = '';
+  const reasonValid = form.elements.reason.value.trim().length >= 12;
+  const confirmationValid = form.elements.confirmation.value.trim() === form.dataset.deleteUsername;
+  $('[data-delete-review]', form).disabled = !reasonValid;
+  $('button[type="submit"]', form).disabled = !form.elements.review_token.value || !confirmationValid;
+});
+
+$('[data-delete-review]')?.addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const form = button.closest('#delete-form');
+  const reason = form.elements.reason.value.trim();
+  if (reason.length < 12 || reason.length > 240) {
+    form.elements.reason.reportValidity();
+    return;
+  }
+  button.disabled = true;
+  form.elements.review_token.value = '';
+  $('button[type="submit"]', form).disabled = true;
+  setStatus(form, 'Checking the account and binding the reason to this deletion review…');
+  try {
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(form.elements.user_id.value)}/delete/preview`, {
+      method: 'POST', body: { reason },
+    }));
+    const review = await response.json();
+    if (form.elements.reason.value.trim() !== reason) {
+      setStatus(form, 'The reason changed while the review was loading. Review the current reason again.', true);
+      return;
+    }
+    form.elements.review_token.value = review.review_token || '';
+    setStatus(form, `${review.username}: removal will revoke ${review.managed_devices} managed device certificate${review.managed_devices === 1 ? '' : 's'} before removing VPN access. Reason: ${review.reason}.`);
+    $('button[type="submit"]', form).disabled = !review.review_token || form.elements.confirmation.value.trim() !== review.username;
+  } catch (error) {
+    setStatus(form, `${error.message} Deletion is unavailable until the current impact can be reviewed.`, true);
+  } finally {
+    button.disabled = form.elements.reason.value.trim().length < 12;
   }
 });
 

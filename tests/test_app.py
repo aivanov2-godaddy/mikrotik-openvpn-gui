@@ -320,11 +320,20 @@ class DashboardIntegrationTests(unittest.TestCase):
         return json.loads(payload)
 
     def preview_user_delete(self, user_id: str) -> dict[str, Any]:
+        reason = "Remove access after owner request"
         status, _, payload = self.json_request(
-            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/delete/preview", {},
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/delete/preview", {"reason": reason},
         )
         self.assertEqual(status, 200, payload.decode("utf-8"))
         return json.loads(payload)
+
+    @staticmethod
+    def user_delete_apply(review: dict[str, Any], confirmation: str) -> dict[str, str]:
+        return {
+            "confirmation": confirmation,
+            "reason": review["reason"],
+            "review_token": review["review_token"],
+        }
 
     def preview_session_termination(self, session_id: str) -> dict[str, Any]:
         reason = "Operator requested session disconnect"
@@ -1448,7 +1457,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", f"/api/users/{urllib.parse.quote(maria_id, safe='*')}",
-            {"confirmation": "not-maria", "review_token": deletion_review["review_token"]},
+            self.user_delete_apply(deletion_review, "not-maria"),
         )
         self.assertEqual(status, 400)
         self.assertIn("exact target name", json.loads(payload)["error"])
@@ -1456,7 +1465,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", f"/api/users/{urllib.parse.quote(maria_id, safe='*')}",
-            {"confirmation": "maria", "review_token": deletion_review["review_token"]},
+            self.user_delete_apply(deletion_review, "maria"),
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload), {"ok": True, "verified": True, "retired_devices": 2})
@@ -1469,6 +1478,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.certificates["*CA"].get("revoked") in (None, "no"))
         self.assertTrue(all(self.mock.state.certificates[item]["revoked"] for item in ("*C1", "*C2")))
         self.assertTrue(all(item["revoked_at"] for item in self.server.context.store.devices_for_user("maria", include_revoked=True)))
+        self.assertEqual(
+            json.loads(self.server.context.store.recent_audit(1)[0]["details"])["rationale"],
+            deletion_review["reason"],
+        )
 
     def test_user_creation_review_excludes_secrets_and_rejects_taken_username(self) -> None:
         self.login()
@@ -2542,7 +2555,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             router, "revoke_certificate", side_effect=RouterOSError("private detail", 503)
         ):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
+                "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
             )
 
         response = json.loads(payload)
@@ -2555,6 +2568,29 @@ class DashboardIntegrationTests(unittest.TestCase):
             any(item.startswith("DELETE /ppp/secret") for item in self.mock.state.mutation_requests)
         )
         self.assertNotIn("private detail", payload.decode("utf-8"))
+
+    def test_user_delete_requires_reason_and_binds_it_to_review(self) -> None:
+        self.login()
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request("POST", "/api/users/%2A1/delete/preview", {})
+        self.assertEqual(status, 400)
+        self.assertIn("Provide a reason", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
+        review = self.preview_user_delete("*1")
+        self.assertEqual(review["reason"], "Remove access after owner request")
+        changed_intent = self.user_delete_apply(review, "user-one")
+        changed_intent["reason"] = "Different administrator rationale"
+        status, _, payload = self.json_request("DELETE", "/api/users/%2A1", changed_intent)
+
+        self.assertEqual(status, 409)
+        self.assertIn("Preview the deletion again", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertIn("*1", self.mock.state.users)
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "failed")
+        self.assertEqual(json.loads(audit["details"])["rationale"], "Different administrator rationale")
 
     def test_user_delete_rejects_stale_managed_certificate_set(self) -> None:
         self._managed_device_revoke_request()
@@ -2576,7 +2612,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", "/api/users/%2A1",
-            {"confirmation": "user-one", "review_token": review["review_token"]},
+            self.user_delete_apply(review, "user-one"),
         )
 
         self.assertEqual(status, 409)
@@ -2594,7 +2630,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, payload = self.json_request(
             "DELETE", "/api/users/%2A1",
-            {"confirmation": "user-one", "review_token": review["review_token"]},
+            self.user_delete_apply(review, "user-one"),
         )
 
         self.assertEqual(status, 409)
@@ -2614,7 +2650,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         with mock.patch.object(router, "revoke_certificate", side_effect=revoke_then_lose_response):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
+                "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
             )
 
         self.assertEqual(status, 200)
@@ -2628,7 +2664,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         router = self.server.context.router
         with mock.patch.object(router, "delete_user"):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
+                "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
             )
 
         response = json.loads(payload)
@@ -2652,7 +2688,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         with mock.patch.object(router, "delete_user", side_effect=delete_then_lose_response):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
+                "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
             )
 
         self.assertEqual(status, 200)
@@ -2671,7 +2707,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             router, "list_ovpn_client_certificates", side_effect=unavailable_readback
         ):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
+                "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
             )
 
         response = json.loads(payload)
@@ -2695,7 +2731,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         with mock.patch.object(router, "list_ovpn_users", side_effect=fail_only_after_delete):
             status, _, payload = self.json_request(
-                "DELETE", "/api/users/%2A1", {"confirmation": "user-one", "review_token": review["review_token"]}
+                "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
             )
 
         response = json.loads(payload)

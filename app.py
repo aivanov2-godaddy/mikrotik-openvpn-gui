@@ -4640,7 +4640,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
     def _user_delete_review_context(
-        self, credentials: RouterOSCredentials, user_id: str,
+        self, credentials: RouterOSCredentials, user_id: str, reason: str,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
         user = self._find_user(credentials, user_id)
         username = str(user["name"])
@@ -4687,6 +4687,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 },
                 "devices": sorted(reviewed_devices, key=lambda item: item["device_id"]),
                 "local_metadata": local_metadata,
+                "reason": reason,
             },
             sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")).hexdigest()
@@ -4699,13 +4700,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = self._credentials(session)
         try:
             data = self._read_json()
-            user, devices, intent_digest = self._user_delete_review_context(credentials, user_id)
+            reason = str(data.get("reason", "")).strip()
+            if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
+                raise ValueError("Provide a reason between 12 and 240 printable characters")
+            user, devices, intent_digest = self._user_delete_review_context(credentials, user_id, reason)
             username = str(user["name"])
             if preview:
                 self._json({
                     "username": username,
                     "managed_devices": len(devices),
                     "confirmation": username,
+                    "reason": reason,
                     "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
                 })
                 return
@@ -4719,7 +4724,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     action="user.delete",
                     target=username,
                     status="failed",
-                    details={"reason": "stale_or_missing_review"},
+                    details={"reason": "stale_or_missing_review", "rationale": reason},
                 )
                 self._json(
                     {
@@ -4755,6 +4760,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         target=username,
                         status="unknown",
                         details={
+                            "rationale": reason,
                             "phase": "certificate_revocation",
                             "verification": "unavailable",
                             "retired_devices": len(revoked_device_ids),
@@ -4783,6 +4789,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         target=username,
                         status="partial" if revoked_device_ids else "failed",
                         details={
+                            "rationale": reason,
                             "phase": "certificate_revocation",
                             "verification": "mismatch",
                             "mutation_response": "error" if mutation_error else "ok",
@@ -4820,6 +4827,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     target=username,
                     status="unknown",
                     details={
+                        "rationale": reason,
                         "phase": "user_delete",
                         "verification": "unavailable",
                         "reason": type(error).__name__,
@@ -4845,6 +4853,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     target=username,
                     status="failed",
                     details={
+                        "rationale": reason,
                         "phase": "user_delete",
                         "verification": "still_present",
                         "mutation_response": "error" if delete_error else "ok",
@@ -4870,7 +4879,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action="user.delete",
                 target=username,
                 status="success",
-                details={"retired_devices": len(revoked_device_ids), "verification": "confirmed_absent"},
+                details={
+                    "retired_devices": len(revoked_device_ids),
+                    "verification": "confirmed_absent",
+                    "rationale": reason,
+                },
             )
             self._json({"ok": True, "verified": True, "retired_devices": len(revoked_device_ids)})
         except RouterOSError as error:
@@ -4879,7 +4892,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action="user.delete.preview" if preview else "user.delete",
                 target="selected-user",
                 status="unknown",
-                details={"phase": "review_readback", "reason": type(error).__name__},
+                details={"phase": "review_readback", "reason": type(error).__name__, "rationale": reason},
             )
             self._json({
                 "code": "routeros.mutation_verification_unavailable",
