@@ -1051,6 +1051,18 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         health_token = json.loads(payload)["token"]
+        status, _, payload = self.json_request(
+            "POST", "/api/admin/api-tokens",
+            {"label": "policies-only export attempt", "scopes": ["policies.read"], "expires_in": "1h"},
+        )
+        self.assertEqual(status, 201)
+        policies_token = json.loads(payload)["token"]
+        status, _, payload = self.request(
+            "GET", "/api/observability",
+            headers={"Authorization": f"Bearer {policies_token}", "Cookie": ""},
+        )
+        self.assertEqual(status, 403)
+        self.assertIn(b'"required_capability":"health.read"', payload)
         for path, capability in (
             ("/api/policy-templates", "policies.read"),
             ("/api/bulk/views", "sessions.read"),

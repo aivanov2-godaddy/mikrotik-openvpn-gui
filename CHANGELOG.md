@@ -27,6 +27,8 @@ semantic-version style release tags.
   retain severity escalation without suppressing durable audit/outbox events.
 - Enforce `health.read` on service-health and setup-preflight routes; keep
   RouterOS user/status data endpoints unavailable to API-token principals.
+- Enforce `health.read` on deployment/health observability while adding audit
+  and session-history details only for tokens or roles with those capabilities.
 - Require timestamped, sufficiently sampled 30-minute telemetry evidence before
   the acceptance evaluator can report sustained latency/freshness SLOs as pass.
 

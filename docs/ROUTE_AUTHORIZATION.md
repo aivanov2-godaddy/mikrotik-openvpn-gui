@@ -1,13 +1,15 @@
 # Dashboard route authorization inventory
 
 This is a repository-maintained index, not an independent security review.
-All `/api/*` dispatch entries are inventoried by
-`DashboardIntegrationTests.test_sensitive_route_matrix_fails_closed_for_anonymous_requests`.
-That test compares the literal/regex dispatch forms in `DashboardHandler` with
-the exercised route tuples and sends anonymous requests to every listed GET,
-POST, PATCH, and DELETE route. Every listed write is also sent with a valid
-cookie but without CSRF and must be denied before RouterOS or persistent state
-changes.
+`DashboardIntegrationTests.test_sensitive_route_matrix_fails_closed_for_anonymous_requests`
+compares the literal/regex API dispatch forms in `DashboardHandler` with its
+exercised route tuples and sends anonymous requests to every listed GET, POST,
+PATCH, and DELETE route. Every listed write is also sent with a valid cookie but
+without CSRF and must be denied before RouterOS or persistent state changes.
+This dispatch/anonymous-CSRF coverage does **not** mean every route has a
+complete route-to-capability matrix or exhaustive role-by-role tests; the table
+below is a maintained summary, and targeted capability tests cover selected
+high-risk boundaries.
 
 The additional role-boundary tests send valid-CSRF requests to sensitive route
 families as a `read_only` role. A `403` is expected where the capability is not
@@ -19,7 +21,7 @@ RouterOS mutation.
 
 | Capability | Route families | Notes |
 | --- | --- | --- |
-| `health.read` | `GET /metrics`, `/api/service-health`, `/api/observability`, `/api/setup-preflight`, `/api/release/verify`, `/api/reports/diagnostics.zip`; `POST /api/connection-doctor`, `/api/security/exposure-doctor` | Read-only health, redacted diagnostics, and exposure probes. `/api/status` is session-gated and returns the operator's normal dashboard data; it is not a token endpoint. |
+| `health.read` | `GET /metrics`, `/api/service-health`, `/api/observability`, `/api/setup-preflight`, `/api/release/verify`, `/api/reports/diagnostics.zip`; `POST /api/connection-doctor`, `/api/security/exposure-doctor` | Read-only health, redacted diagnostics, and exposure probes. `/api/observability` requires `health.read`; audit and session-history fields are independently included only with `audit.read` and `sessions.read`. `/api/status` is session-gated and returns the operator's normal dashboard data; it is not a token endpoint. |
 | `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv`, `/api/bulk/views`; with `audit.read`, `GET /api/operations-timeline.json` | Operations timeline export combines audit and session history and therefore requires both capabilities. SSE additionally requires a RouterOS-authenticated dashboard session and revalidates its effective capability set while streaming. Saved-view definitions and user filters are not available to health-only tokens. |
 | `policies.read` | `GET /api/policy-templates` | Reveals saved policy-template definitions and assignments; separate from `policies.manage`. |
 | `session.manage` | `DELETE /api/admin/sessions/{id}`, `DELETE /api/sessions/{id}` | Revokes a dashboard session or terminates a RouterOS VPN session, respectively. |
