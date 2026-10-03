@@ -1547,21 +1547,13 @@ document.addEventListener('click', async (event) => {
     form.user_id.value = row.dataset.userId;
     $('[data-suspend-user]', form).textContent = row.dataset.userName;
     $('[data-confirm-target]', form).textContent = row.dataset.userName;
-    const apply = $('button[type="submit"]', form);
+    form.dataset.suspendUsername = row.dataset.userName;
+    form.elements.review_token.value = '';
+    $('[data-suspend-review]', form).disabled = true;
+    $('button[type="submit"]', form).disabled = true;
     const impact = $('[data-suspend-impact]', form);
-    apply.disabled = true;
-    impact.textContent = 'Checking the current account and active sessions…';
     openDialog('suspend-dialog');
-    try {
-      const response = await resultOrError(await api(`/api/users/${encodeURIComponent(row.dataset.userId)}/suspend/preview`, { method: 'POST', body: {} }));
-      const preview = await response.json();
-      form.elements.review_token.value = preview.review_token || '';
-      const count = preview.active_sessions;
-      impact.textContent = `${preview.user}: ${count} active VPN session${count === 1 ? '' : 's'} will be disconnected. ${preview.effect}`;
-      apply.disabled = !preview.review_token;
-    } catch (error) {
-      impact.textContent = `${error.message} Suspension is unavailable until the impact can be reviewed.`;
-    }
+    impact.textContent = 'Enter a reason, then review the current account and active sessions.';
   } else if (button.matches('[data-restore]') && row) {
     button.disabled = true;
     try {
@@ -2046,7 +2038,7 @@ $('#suspend-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Suspending access and checking live sessions…');
   try {
-    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST', body: { confirmation: data.get('confirmation'), review_token: data.get('review_token') } }));
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST', body: { confirmation: data.get('confirmation'), reason: data.get('reason'), review_token: data.get('review_token') } }));
     const result = await response.json();
     const verification = result.remaining === null
       ? ' Access is blocked; live-session verification was unavailable.'
@@ -2062,6 +2054,44 @@ $('#suspend-form')?.addEventListener('submit', async (event) => {
       $('button[type="submit"]', form).disabled = true;
     }
     setBusy(form, false);
+  }
+});
+
+$('#suspend-form')?.addEventListener('input', (event) => {
+  const form = event.currentTarget;
+  if (event.target.matches('[name="reason"]')) form.elements.review_token.value = '';
+  const reasonValid = form.elements.reason.value.trim().length >= 12;
+  const confirmationValid = form.elements.confirmation.value.trim() === form.dataset.suspendUsername;
+  $('[data-suspend-review]', form).disabled = !reasonValid;
+  $('button[type="submit"]', form).disabled = !form.elements.review_token.value || !confirmationValid;
+});
+
+$('[data-suspend-review]')?.addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const form = button.closest('#suspend-form');
+  const reason = form.elements.reason.value.trim();
+  if (reason.length < 12 || reason.length > 240) return;
+  button.disabled = true;
+  form.elements.review_token.value = '';
+  $('button[type="submit"]', form).disabled = true;
+  const impact = $('[data-suspend-impact]', form);
+  impact.textContent = 'Checking the account and binding the reason to this suspension review…';
+  try {
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(form.elements.user_id.value)}/suspend/preview`, {
+      method: 'POST', body: { reason },
+    }));
+    const preview = await response.json();
+    if (form.elements.reason.value.trim() !== reason) {
+      impact.textContent = 'The reason changed while the review was loading. Review the current reason again.';
+      return;
+    }
+    form.elements.review_token.value = preview.review_token || '';
+    impact.textContent = `${preview.user}: ${preview.active_sessions} active VPN session${preview.active_sessions === 1 ? '' : 's'} will be disconnected. ${preview.effect} Reason: ${preview.reason}.`;
+    $('button[type="submit"]', form).disabled = !preview.review_token || form.elements.confirmation.value.trim() !== preview.user;
+  } catch (error) {
+    impact.textContent = `${error.message} Suspension is unavailable until the impact can be reviewed.`;
+  } finally {
+    button.disabled = form.elements.reason.value.trim().length < 12;
   }
 });
 

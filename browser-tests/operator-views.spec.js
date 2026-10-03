@@ -113,6 +113,25 @@ test('account deletion requires and binds a reason before enabling apply', async
   await expect(apply).toBeDisabled();
 });
 
+test('individual suspension requires and binds a reason before enabling apply', async ({ page }) => {
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  const firstUser = page.locator('.user-card').first();
+  await firstUser.locator('.action-menu summary').click();
+  await firstUser.locator('[data-suspend]').click();
+  const dialog = page.locator('#suspend-dialog');
+  const reason = dialog.getByLabel('Reason for suspending access');
+  const review = dialog.getByRole('button', { name: 'Review impact' });
+  const apply = dialog.getByRole('button', { name: 'Suspend and disconnect' });
+  await expect(apply).toBeDisabled();
+  await reason.fill('Security review is pending');
+  await review.click();
+  await expect(dialog.locator('[data-suspend-impact]')).toContainText('Reason: Security review is pending');
+  await dialog.locator('[name="confirmation"]').fill(await dialog.locator('[data-suspend-user]').textContent());
+  await expect(apply).toBeEnabled();
+  await reason.fill('Different reason after review');
+  await expect(apply).toBeDisabled();
+});
+
 async function tabTo(page, locator) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;
