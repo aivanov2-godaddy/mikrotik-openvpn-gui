@@ -187,6 +187,83 @@ class SQLiteRecoveryTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_repeated_backups_and_checkpoints_remain_consistent_under_multiple_writers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "dashboard.sqlite"
+            backup = root / "backups" / "dashboard.sqlite"
+            store = MetadataStore(str(database))
+            writer_count = 3
+            writes_per_writer = 80
+            writer_stores = [MetadataStore(str(database)) for _ in range(writer_count)]
+            start = threading.Barrier(writer_count + 1)
+            errors: list[BaseException] = []
+
+            def write_rows(writer_index: int, writer: MetadataStore) -> None:
+                try:
+                    start.wait(timeout=5)
+                    for row_index in range(writes_per_writer):
+                        writer.audit(
+                            actor="sqlite-stress-test",
+                            action="sqlite.stress",
+                            target=f"writer-{writer_index}-row-{row_index}",
+                            status="success",
+                            details={"writer": writer_index, "row": row_index},
+                        )
+                        if row_index % 10 == 0:
+                            time.sleep(0.002)
+                except BaseException as error:
+                    errors.append(error)
+
+            writers = [
+                threading.Thread(target=write_rows, args=(writer_index, writer_stores[writer_index]))
+                for writer_index in range(writer_count)
+            ]
+            for writer in writers:
+                writer.start()
+
+            start.wait(timeout=5)
+            expected_writes = writer_count * writes_per_writer
+            for _ in range(5):
+                checkpoint = store.checkpoint_wal("PASSIVE")
+                self.assertGreaterEqual(checkpoint["log_frames"], 0)
+                self.assertGreaterEqual(checkpoint["checkpointed_frames"], 0)
+                self.assertLessEqual(checkpoint["checkpointed_frames"], checkpoint["log_frames"])
+
+                result = store.backup_database(str(backup))
+                self.assertGreater(result["bytes"], 0)
+                connection = sqlite3.connect(backup)
+                try:
+                    self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                    snapshot_count = connection.execute(
+                        "SELECT COUNT(*) FROM audit WHERE action='sqlite.stress'"
+                    ).fetchone()[0]
+                    self.assertGreaterEqual(snapshot_count, 0)
+                    self.assertLessEqual(snapshot_count, expected_writes)
+                finally:
+                    connection.close()
+
+            for writer in writers:
+                writer.join(timeout=10)
+                self.assertFalse(writer.is_alive(), "SQLite stress writer did not finish")
+            self.assertFalse(errors, str(errors))
+
+            store.checkpoint_wal("PASSIVE")
+            store.backup_database(str(backup))
+            restored = MetadataStore(str(backup))
+            restored.verify_readiness()
+            connection = sqlite3.connect(backup)
+            try:
+                self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM audit WHERE action='sqlite.stress'"
+                    ).fetchone()[0],
+                    expected_writes,
+                )
+            finally:
+                connection.close()
+
     def test_backup_restore_rehearsal_recovers_a_consistent_point_in_time_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
