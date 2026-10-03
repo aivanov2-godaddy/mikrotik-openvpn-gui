@@ -1599,9 +1599,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._policy_template_action(match.group(1), match.group(2))
             return
-        match = re.fullmatch(r"/api/users/([^/]+)/suspend/preview", path)
+        match = re.fullmatch(r"/api/users/([^/]+)/(suspend|restore)/preview", path)
         if match:
-            self._preview_user_suspend(urllib.parse.unquote(match.group(1)))
+            if match.group(2) == "suspend":
+                self._preview_user_suspend(urllib.parse.unquote(match.group(1)))
+            else:
+                self._preview_user_restore(urllib.parse.unquote(match.group(1)))
             return
         match = re.fullmatch(r"/api/users/([^/]+)/delete/preview", path)
         if match:
@@ -4013,6 +4016,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
         })
 
+    def _preview_user_restore(self, user_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
+            return
+        credentials = self._credentials(session)
+        try:
+            user = self._find_user(credentials, user_id)
+        except (RouterOSError, ValueError):
+            self._json({
+                "error": "RouterOS could not verify the account. Refresh VPN Users before restoring access.",
+                "review_available": False,
+            }, status=HTTPStatus.BAD_GATEWAY)
+            return
+        if not user.get("disabled"):
+            self._json({"error": "This VPN user is already enabled."}, status=HTTPStatus.CONFLICT)
+            return
+        intent_digest = self._user_suspend_intent_digest(user, [])
+        self._json({
+            "user": str(user["name"]),
+            "effect": "Allow this account to establish new VPN connections again.",
+            "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
+        })
+
     def _set_user_access(self, user_id: str, *, suspended: bool) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
@@ -4040,6 +4066,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 ):
                     self._json({
                         "error": "The account or active-session state changed since review. Review the suspension again before applying.",
+                        "code": "routeros.review_stale",
+                    }, status=HTTPStatus.CONFLICT)
+                    return
+            else:
+                expected_digest = self._user_suspend_intent_digest(user, [])
+                if not self.server.review_receipts.consume(
+                    str(data.get("review_token", "")), session.session_id, expected_digest,
+                ):
+                    self.server.context.store.audit(
+                        actor=session.username, action="user.restore", target=username,
+                        status="failed", details={"reason": "stale_or_missing_review"},
+                    )
+                    self._json({
+                        "error": "The account state changed since review. Review the restore again before applying.",
                         "code": "routeros.review_stale",
                     }, status=HTTPStatus.CONFLICT)
                     return

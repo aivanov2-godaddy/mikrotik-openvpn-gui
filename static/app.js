@@ -1465,7 +1465,10 @@ document.addEventListener('click', async (event) => {
   } else if (button.matches('[data-restore]') && row) {
     button.disabled = true;
     try {
-      await resultOrError(await api(`/api/users/${encodeURIComponent(row.dataset.userId)}/restore`, { method: 'POST' }));
+      const path = `/api/users/${encodeURIComponent(row.dataset.userId)}/restore`;
+      const previewResponse = await resultOrError(await api(`${path}/preview`, { method: 'POST', body: {} }));
+      const preview = await previewResponse.json();
+      await resultOrError(await api(path, { method: 'POST', body: { review_token: preview.review_token } }));
       toast(`VPN access restored for ${row.dataset.userName}.`);
       setTimeout(() => location.reload(), 450);
     } catch (error) {

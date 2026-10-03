@@ -205,6 +205,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return json.loads(payload)
 
+    def preview_user_restore(self, user_id: str) -> dict[str, Any]:
+        status, _, payload = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/restore/preview", {},
+        )
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        return json.loads(payload)
+
     def preview_profile(
         self, user_id: str, device_name: str, *, delivery: str = "zip", legacy_certificate: str = "",
     ) -> dict[str, Any]:
@@ -603,7 +610,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/policy-templates/test/apply", "/api/users/test-user/suspend",
             "/api/users/test-user/delete/preview",
             "/api/sessions/test-session/preview",
-            "/api/users/test-user/restore", "/api/users/test-user/suspend/preview",
+            "/api/users/test-user/restore", "/api/users/test-user/restore/preview",
+            "/api/users/test-user/suspend/preview",
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
             "/api/users/test-user/duplicate", "/api/users/test-user/duplicate/preview", "/api/alerts/1/ack",
@@ -718,6 +726,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
             "/api/users/test-user/duplicate", "/api/users/test-user/duplicate/preview",
             "/api/users/test-user/suspend", "/api/users/test-user/restore",
+            "/api/users/test-user/restore/preview",
             "/api/users/test-user/suspend/preview", "/api/devices/test-device/revoke/preview",
             "/api/devices/test-device/revoke", "/api/admin/api-tokens", "/api/alerts/1/ack",
             "/api/openvpn-foundation-plan", "/api/admin/break-glass/plan",
@@ -2263,8 +2272,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(disabled["disabled"], "yes")
         self.assertIsNotNone(self.server.context.store.recent_connections(1)[0]["disconnected_at"])
 
+        restore_review = self.preview_user_restore(user_two_id)
         status, _, payload = self.json_request(
-            "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/restore"
+            "POST", f"/api/users/{urllib.parse.quote(user_two_id, safe='*')}/restore",
+            {"review_token": restore_review["review_token"]},
         )
         self.assertEqual(status, 200)
         self.assertFalse(json.loads(payload)["disabled"])
@@ -2273,6 +2284,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         actions = [item["action"] for item in self.server.context.store.recent_audit(10)]
         self.assertIn("user.suspend", actions)
         self.assertIn("user.restore", actions)
+
+    def test_restore_rejects_account_state_changed_after_review(self) -> None:
+        self.login()
+        user = next(item for item in self.mock.state.users.values() if item["name"] == "user-two")
+        user["disabled"] = "yes"
+        review = self.preview_user_restore("*2")
+        user["disabled"] = "no"
+        mutations_before = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/users/%2A2/restore", {"review_token": review["review_token"]},
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, mutations_before)
 
     def test_user_suspend_preview_is_read_only_and_stale_session_set_blocks_apply(self) -> None:
         self.login()
