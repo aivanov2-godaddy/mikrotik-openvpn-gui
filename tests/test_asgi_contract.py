@@ -84,6 +84,53 @@ class ASGIContractTests(unittest.TestCase):
             for key, _ in response.get("headers", [])
         })
 
+    @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
+    def test_socketio_asgi_rejects_foreign_origin_at_websocket_handshake(self) -> None:
+        import socketio
+
+        from asgi import NativeSocketIO
+
+        native = NativeSocketIO(object())
+        application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+        messages: list[dict[str, object]] = []
+        connected = False
+
+        async def receive() -> dict[str, object]:
+            nonlocal connected
+            if connected:
+                return {"type": "websocket.disconnect", "code": 1000}
+            connected = True
+            return {"type": "websocket.connect"}
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        asyncio.run(application(
+            {
+                "type": "websocket",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "scheme": "wss",
+                "path": "/socket.io/",
+                "raw_path": b"/socket.io/",
+                "query_string": b"EIO=4&transport=websocket",
+                "headers": [
+                    (b"host", b"vpn.example.test"),
+                    (b"origin", b"https://attacker.example"),
+                    (b"sec-websocket-key", b"dGhlIHNhbXBsZSBub25jZQ=="),
+                    (b"sec-websocket-version", b"13"),
+                ],
+                "client": ("192.0.2.10", 54321),
+                "server": ("vpn.example.test", 443),
+                "subprotocols": [],
+            },
+            receive,
+            send,
+        ))
+
+        self.assertNotIn("websocket.accept", [message["type"] for message in messages])
+        self.assertIn("websocket.close", [message["type"] for message in messages])
+
     def test_socketio_reconnect_rejects_expired_cookie_even_if_auth_claims_identity(self) -> None:
         from asgi import NativeSocketIO
 
