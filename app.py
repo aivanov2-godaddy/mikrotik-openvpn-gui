@@ -2329,6 +2329,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "replayed_events": 0,
             "snapshot_recoveries": 0,
             "rejected_clients": 0,
+            "delivery_observations": 0,
+            "delivery_queue_age_seconds": -1.0,
+            "delivery_queue_age_p95_seconds": -1.0,
         }
         lines.extend([
             "# HELP vpn_dashboard_telemetry_gateway_clients Current authorized telemetry subscriptions.",
@@ -2345,6 +2348,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_telemetry_gateway_rejected_clients_total Subscription attempts rejected by authentication, authorization, or client limit.",
             "# TYPE vpn_dashboard_telemetry_gateway_rejected_clients_total counter",
             f"vpn_dashboard_telemetry_gateway_rejected_clients_total {gateway['rejected_clients']}",
+            "# HELP vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds Latest observed time from gateway enqueue to authorized client poll; -1 means none observed.",
+            "# TYPE vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds gauge",
+            f"vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds {gateway['delivery_queue_age_seconds']}",
+            "# HELP vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds P95 gateway enqueue-to-poll delay across the bounded recent sample window; -1 means none observed.",
+            "# TYPE vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds gauge",
+            f"vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds {gateway['delivery_queue_age_p95_seconds']}",
+            "# HELP vpn_dashboard_telemetry_gateway_delivery_observations Number of queue-delay samples in the bounded recent window.",
+            "# TYPE vpn_dashboard_telemetry_gateway_delivery_observations gauge",
+            f"vpn_dashboard_telemetry_gateway_delivery_observations {gateway['delivery_observations']}",
         ])
         socketio = getattr(self.server, "native_socketio", None)
         socketio_metrics = socketio.metrics() if socketio is not None else {

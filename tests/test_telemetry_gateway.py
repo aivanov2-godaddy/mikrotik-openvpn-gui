@@ -14,7 +14,14 @@ from telemetry_gateway import (
 class TelemetryGatewayContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.broker = TelemetryBroker(clock=lambda: 100)
-        self.gateway = TelemetryGatewayContract(self.broker, clock=lambda: 100, max_replay=2, max_clients=1)
+        self.monotonic = [10.0]
+        self.gateway = TelemetryGatewayContract(
+            self.broker,
+            clock=lambda: 100,
+            monotonic_clock=lambda: self.monotonic[0],
+            max_replay=2,
+            max_clients=1,
+        )
         self.principal = TelemetryPrincipal.from_session(
             types.SimpleNamespace(auth_method="routeros", role="owner", capabilities=None)
         )
@@ -113,6 +120,25 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         metrics = self.gateway.metrics()
         self.assertEqual(metrics["active_clients"], 0)
         self.assertEqual(metrics["rejected_clients"], 1)
+
+    def test_delivery_queue_age_is_bounded_aggregate_and_identifier_free(self) -> None:
+        subscription = self.gateway.open(self.principal)
+        events = self.broker.apply(
+            RouterOSReply("re", {".id": "*secret-id", "name": "private-user"}),
+            now=100,
+        )
+        self.gateway.publish(events)
+        self.monotonic[0] += 1.25
+
+        frames = self.gateway.poll(subscription)
+        metrics = self.gateway.metrics()
+
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(metrics["delivery_observations"], 1)
+        self.assertEqual(metrics["delivery_queue_age_seconds"], 1.25)
+        self.assertEqual(metrics["delivery_queue_age_p95_seconds"], 1.25)
+        self.assertNotIn("private-user", str(metrics))
+        self.assertNotIn("secret-id", str(metrics))
 
 
 if __name__ == "__main__":

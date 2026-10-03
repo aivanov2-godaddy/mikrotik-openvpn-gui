@@ -99,6 +99,7 @@ class TelemetryRuntime:
 
     def status(self) -> dict[str, Any]:
         value = self.state.as_dict()
+        value["gateway"] = self.gateway.metrics()
         if self.supervisor is not None:
             value["supervisor"] = self.supervisor.health().as_dict()
         return value
