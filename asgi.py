@@ -195,7 +195,9 @@ class NativeSocketIO:
         self.runtime = runtime
         self.server = socketio.AsyncServer(
             async_mode="asgi",
-            cors_allowed_origins=[],
+            # None preserves Engine.IO's default same-origin validation.
+            # An empty list disables its CORS/origin handling entirely.
+            cors_allowed_origins=None,
             transports=["websocket", "polling"],
             ping_interval=25,
             ping_timeout=20,

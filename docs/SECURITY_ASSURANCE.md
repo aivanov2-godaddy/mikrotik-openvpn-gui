@@ -17,7 +17,7 @@ The V7 references follow the [OWASP ASVS 5.0 session management requirements](ht
 | V7.4.1 | Logout destroys the server-side session; Socket.IO pump and SSE endpoint re-check the current session before sending subsequent telemetry. SSE revalidation does not touch/extend idle expiry. | `tests/test_app.py::test_login_health_and_authentication_boundaries`; `tests/test_app.py::DashboardIntegrationTests.test_sse_stops_emitting_when_server_session_is_revoked`; `tests/test_asgi_contract.py::test_live_pump_disconnects_when_session_is_revoked`; `tests/test_asgi_contract.py::test_expired_live_session_is_disconnected_without_emitting_telemetry` | Covered for in-process logout/revocation and expiry paths; no claim about deployed proxy behavior or unrelated downstream systems. |
 | V7.4.5, V7.5.2 | Capability-protected session inventory and revocation endpoints; current session cannot revoke itself. | `tests/test_app.py::test_auth_audit_events_are_detailed_but_secret_free`; `tests/test_security.py::test_session_snapshot_is_safe_and_revoke_is_scoped`; `tests/test_app.py::DashboardIntegrationTests.test_read_only_role_cannot_cross_audit_or_mutation_capability_boundaries` | Curated negative tests cover audit/token reads and sensitive mutations for read-only sessions; not an independent authorization review. |
 | V7.5.1 | Sensitive dashboard mutations require the existing authenticated session and CSRF validation. | `tests/test_app.py::test_user_profile_lifecycle_and_csrf`; `tests/test_security.py::test_csrf_comparison`; `tests/test_app.py::DashboardIntegrationTests.test_sensitive_route_matrix_fails_closed_for_anonymous_requests` | The curated route matrix covers sensitive API reads/writes for anonymous requests, missing CSRF on writes, and checks no RouterOS mutation occurs. It must be maintained as routes evolve and is not a complete independent route audit. |
-| V4 authorization (role/capability boundary) | Explicit role capability matrix; unknown roles default to read-only; telemetry principal contains authorization facts, not the session object. | `tests/test_security.py::test_dashboard_role_capability_matrix_fails_closed`; `tests/test_asgi_contract.py::test_live_pump_rechecks_capabilities_on_the_current_session` | Covered for tested capability behavior. Full authorization matrix across every route remains open. |
+| V4 authorization (role/capability boundary) | Explicit role capability matrix; unknown roles default to read-only; telemetry principal contains authorization facts, not the session object. Socket.IO retains python-engineio's default same-origin validation. | `tests/test_security.py::test_dashboard_role_capability_matrix_fails_closed`; `tests/test_asgi_contract.py::test_live_pump_rechecks_capabilities_on_the_current_session`; `tests/test_asgi_contract.py::test_socketio_does_not_disable_engineio_same_origin_validation` | Covered for tested capability behavior and same-origin policy configuration. Full authorization matrix across every route remains open. |
 
 Run focused evidence locally:
 
@@ -47,7 +47,9 @@ blanket pass for ASVS, OWASP, or production security.
   environment.
 - Automated live-stream evidence covers Socket.IO pump revalidation in-process.
   It does not prove an actual browser reconnect, cross-origin behavior at the
-  deployed proxy, or revocation timing on a physical router.
+  deployed proxy, or revocation timing on a physical router. The application
+  leaves python-engineio origin handling enabled; an empty allowed-origin list
+  would disable that check and is intentionally not used.
 - The SSE endpoint has a bounded response loop and requires an authenticated
   RouterOS session with `sessions.read` at entry. It checks the same server-side
   session and capability before each telemetry write without extending idle

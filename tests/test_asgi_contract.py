@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import socket
 import time
 import unittest
@@ -11,6 +12,29 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
+    def test_socketio_does_not_disable_engineio_same_origin_validation(self) -> None:
+        from asgi import NativeSocketIO
+
+        native = NativeSocketIO(object())
+
+        # python-engineio interprets [] as "disable origin handling"; None
+        # retains its default same-origin check for HTTP and WebSocket requests.
+        engineio = native.server.eio
+        self.assertIsNone(engineio.cors_allowed_origins)
+        environ = {
+            "wsgi.url_scheme": "https",
+            "HTTP_HOST": "vpn.example.test",
+            "HTTP_ORIGIN": "https://attacker.example",
+        }
+        allowed_origins = engineio._cors_allowed_origins(environ)
+        self.assertEqual(allowed_origins, ["https://vpn.example.test"])
+        self.assertNotIn(environ["HTTP_ORIGIN"], allowed_origins)
+        self.assertIn(
+            "https://vpn.example.test",
+            engineio._cors_allowed_origins({**environ, "HTTP_ORIGIN": "https://vpn.example.test"}),
+        )
+
     def test_socketio_reconnect_rejects_expired_cookie_even_if_auth_claims_identity(self) -> None:
         from asgi import NativeSocketIO
 
