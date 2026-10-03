@@ -1544,6 +1544,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 suspended=match.group(2) == "suspend",
             )
             return
+        match = re.fullmatch(r"/api/users/([^/]+)/profiles/preview", path)
+        if match:
+            self._preview_profile(urllib.parse.unquote(match.group(1)))
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/profiles", path)
         if match:
             self._create_profile(urllib.parse.unquote(match.group(1)))
@@ -2854,6 +2858,95 @@ class DashboardHandler(BaseHTTPRequestHandler):
             source_name=str(source["name"]),
         )
 
+    def _profile_review_context(
+        self, session: Session, credentials: RouterOSCredentials,
+        user_id: str, data: dict[str, Any],
+    ) -> tuple[dict[str, Any], str, str, str, dict[str, Any], list[dict[str, Any]], str]:
+        device_name = self._validate_device(str(data.get("device_name", "")))
+        delivery = str(data.get("delivery", "ovpn"))
+        if delivery not in {"ovpn", "zip", "qr"}:
+            raise ValueError("Choose a valid profile delivery method")
+        user = self._find_user(credentials, user_id)
+        legacy_certificate_name = str(data.get("legacy_certificate", "")).strip()
+        certificates = self.server.context.router.list_ovpn_client_certificates(
+            credentials, include_legacy=True,
+        )
+        if legacy_certificate_name:
+            legacy = next(
+                (item for item in certificates if str(item.get("name", "")) == legacy_certificate_name),
+                None,
+            )
+            username = str(user["name"])
+            common_name = str((legacy or {}).get("common_name", "")).casefold()
+            is_current_ca = str((legacy or {}).get("certificate_authority", "")) == str(
+                self.server.context.router.ovpn_ca or ""
+            )
+            if not legacy or is_current_ca or bool(legacy.get("revoked")):
+                raise ValueError("Choose an active profile issued by a previous CA")
+            managed = self.server.context.store.device_by_certificate(legacy_certificate_name)
+            owned_by_user = common_name.startswith(f"{username.casefold()}-") or (
+                bool(managed) and str(managed.get("vpn_user", "")) == username
+            )
+            if not owned_by_user:
+                raise ValueError("The legacy profile does not belong to this VPN user")
+        controls = self.server.context.store.user_controls(str(user["name"]))
+        policy = str(controls.get("policy", "full-tunnel"))
+        dns_mode = str(controls.get("dns_mode", "router"))
+        self.server.context.config.topology.require_profile_generation(policy=policy, dns_mode=dns_mode)
+        inventory = sorted(
+            ({
+                "id": str(item.get("id", "")),
+                "name": str(item.get("name", "")),
+                "revoked": bool(item.get("revoked")),
+                "authority": str(item.get("certificate_authority", "")),
+            } for item in certificates),
+            key=lambda item: (item["id"], item["name"]),
+        )
+        receipt = {
+            "user_id": str(user.get("id", "")),
+            "username": str(user.get("name", "")),
+            "disabled": bool(user.get("disabled")),
+            "device_name": device_name,
+            "delivery": delivery,
+            "legacy_certificate": legacy_certificate_name,
+            "policy": policy,
+            "dns_mode": dns_mode,
+            "certificate_inventory": inventory,
+        }
+        token = hmac.new(
+            session.csrf_token.encode("utf-8"),
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return user, device_name, delivery, legacy_certificate_name, controls, certificates, token
+
+    def _preview_profile(self, user_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
+            return
+        try:
+            data = self._read_json()
+            user, device_name, delivery, legacy_name, controls, _, token = self._profile_review_context(
+                session, self._credentials(session), user_id, data,
+            )
+            self._json({
+                "user": str(user["name"]),
+                "device": device_name,
+                "policy": str(controls.get("policy", "full-tunnel")),
+                "dns_mode": str(controls.get("dns_mode", "router")),
+                "delivery": delivery,
+                "legacy_migration": bool(legacy_name),
+                "old_profile_remains_active": bool(legacy_name),
+                "review_token": token,
+            })
+        except RouterOSError:
+            self._json({
+                "error": "RouterOS could not verify the user or certificate state. Refresh and review profile issuance again.",
+                "review_available": False,
+            }, status=HTTPStatus.BAD_GATEWAY)
+        except ValueError as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+
     def _create_profile(self, user_id: str) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
@@ -2861,43 +2954,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = self._credentials(session)
         try:
             data = self._read_json()
-            device_name = self._validate_device(str(data.get("device_name", "")))
             passphrase = self._validate_secret(
                 str(data.get("key_passphrase", "")), "Private-key passphrase"
             )
-            delivery = str(data.get("delivery", "ovpn"))
-            if delivery not in {"ovpn", "zip", "qr"}:
-                raise ValueError("Choose a valid profile delivery method")
-            user = self._find_user(credentials, user_id)
-            legacy_certificate_name = str(data.get("legacy_certificate", "")).strip()
-            if legacy_certificate_name:
-                legacy = next(
-                    (
-                        item for item in self.server.context.router.list_ovpn_client_certificates(
-                            credentials, include_legacy=True
-                        )
-                        if str(item.get("name", "")) == legacy_certificate_name
-                    ),
-                    None,
-                )
-                username = str(user["name"])
-                common_name = str((legacy or {}).get("common_name", "")).casefold()
-                is_current_ca = str((legacy or {}).get("certificate_authority", "")) == str(
-                    self.server.context.router.ovpn_ca or ""
-                )
-                if not legacy or is_current_ca or bool(legacy.get("revoked")):
-                    raise ValueError("Choose an active profile issued by a previous CA")
-                managed = self.server.context.store.device_by_certificate(legacy_certificate_name)
-                owned_by_user = common_name.startswith(f"{username.casefold()}-") or (
-                    bool(managed) and str(managed.get("vpn_user", "")) == username
-                )
-                if not owned_by_user:
-                    raise ValueError("The legacy profile does not belong to this VPN user")
-            controls = self.server.context.store.user_controls(str(user["name"]))
-            self.server.context.config.topology.require_profile_generation(
-                policy=str(controls.get("policy", "full-tunnel")),
-                dns_mode=str(controls.get("dns_mode", "router")),
+            user, device_name, delivery, legacy_certificate_name, controls, _, expected_token = (
+                self._profile_review_context(session, credentials, user_id, data)
             )
+            supplied_token = str(data.get("review_token", ""))
+            if not supplied_token or not hmac.compare_digest(supplied_token, expected_token):
+                self._json({
+                    "code": "routeros.review_stale",
+                    "error": "The user, device request, policy, or certificate inventory changed since review. Review profile issuance again.",
+                }, status=HTTPStatus.CONFLICT)
+                return
             if not self._checkpoint(session, "profile.create"):
                 return
             profile = self.server.context.router.provision_profile(

@@ -225,6 +225,15 @@ review, not a guarantee that a new tunnel cannot appear between the check and
 the RouterOS account update; the account is disabled first and the handler then
 terminates and verifies remaining sessions.
 
+Device-profile issuance also requires a two-step review. The receipt binds the
+VPN user, device label, effective policy and DNS mode, delivery type, optional
+legacy-certificate migration target, and the current certificate inventory.
+Changing any of those facts or replaying a completed receipt requires a fresh
+review. The private-key passphrase is intentionally excluded from the preview
+and receipt; it is used only when generating the new private key. For a legacy
+migration, the old profile stays active until separately revoked after the
+replacement has been imported and tested.
+
 SQLite backups must be consistent:
 
 1. Run `python scripts/backup_sqlite.py --database /data/dashboard.sqlite --destination /secure/dashboard.sqlite` from an approved maintenance environment.

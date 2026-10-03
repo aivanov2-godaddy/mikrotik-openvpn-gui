@@ -997,7 +997,8 @@ function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertif
   $('[data-profile-description]', form).textContent = delivery === 'qr'
     ? 'Generate a protected profile link that the phone can open after scanning.'
     : 'A ZIP archive with the protected OpenVPN profile will download automatically.';
-  $('[data-profile-submit]', form).textContent = delivery === 'qr' ? 'Create and show QR' : 'Create and download .zip';
+  $('[data-profile-submit]', form).textContent = 'Review profile request';
+  $('[data-profile-review]', form).hidden = true;
   const migrationNote = $('[data-migration-note]', form);
   if (legacyCertificate) {
     $('[data-profile-title]', form).textContent = 'Replace legacy profile';
@@ -1513,10 +1514,29 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const data = new FormData(form);
   setBusy(form, true);
-  setStatus(form, 'Preparing a secure file for this device…');
   try {
     const delivery = data.get('delivery') || 'zip';
-    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/profiles`, { method: 'POST', body: { device_name: data.get('device_name'), key_passphrase: data.get('key_passphrase'), delivery, legacy_certificate: data.get('legacy_certificate') || '' } }));
+    const intent = {
+      device_name: data.get('device_name'), delivery,
+      legacy_certificate: data.get('legacy_certificate') || '',
+    };
+    if (!data.get('review_token')) {
+      setStatus(form, 'Checking the current user policy and certificate state…');
+      const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/profiles/preview`, { method: 'POST', body: intent }));
+      const preview = await response.json();
+      form.elements.review_token.value = preview.review_token || '';
+      const migration = preview.legacy_migration
+        ? ' The previous profile remains active; this does not revoke or disconnect it.'
+        : '';
+      $('[data-profile-review]', form).textContent = `Reviewed: ${preview.user} · ${preview.device} · ${preview.policy} · ${preview.dns_mode} DNS · ${preview.delivery}.${migration} Private-key passphrase is not part of the review.`;
+      $('[data-profile-review]', form).hidden = false;
+      $('[data-profile-submit]', form).textContent = delivery === 'qr' ? 'Create and show QR' : 'Create and download .zip';
+      setStatus(form, 'Review the details above, then select the button again to issue the profile.');
+      setBusy(form, false);
+      return;
+    }
+    setStatus(form, 'Creating a RouterOS checkpoint and issuing the reviewed profile…');
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/profiles`, { method: 'POST', body: { ...intent, key_passphrase: data.get('key_passphrase'), review_token: data.get('review_token') } }));
     if (delivery === 'qr') {
       const payload = await response.json();
       const username = $('[data-profile-user]', form).textContent;
@@ -1529,7 +1549,23 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
     setStatus(form, 'Profile ZIP downloaded successfully.');
     toast(data.get('legacy_certificate') ? 'Replacement profile generated. Import and test it before revoking the old certificate.' : 'New device profile generated and downloaded.');
     setTimeout(() => location.reload(), 700);
-  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) {
+    setStatus(form, error.message, true);
+    if (error.status === 409) {
+      form.elements.review_token.value = '';
+      $('[data-profile-review]', form).hidden = true;
+      $('[data-profile-submit]', form).textContent = 'Review profile request';
+    }
+    setBusy(form, false);
+  }
+});
+
+$('#profile-form')?.addEventListener('input', (event) => {
+  if (!['device_name'].includes(event.target.name)) return;
+  const form = event.currentTarget;
+  form.elements.review_token.value = '';
+  $('[data-profile-review]', form).hidden = true;
+  $('[data-profile-submit]', form).textContent = 'Review profile request';
 });
 
 $('#duplicate-form')?.addEventListener('submit', async (event) => {
