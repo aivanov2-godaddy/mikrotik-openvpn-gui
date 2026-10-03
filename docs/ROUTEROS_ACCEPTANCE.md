@@ -95,7 +95,11 @@ Notes: <no credentials, addresses, hosts, profiles, or exports>
 ## Collect a bounded app-health window
 
 `scripts/collect_release_acceptance.py` samples only `GET /healthz` and
-`GET /readyz` on both private app origins. It checks the readiness revision
+`GET /readyz` on both private app origins. If `--cookie-env` is supplied, the
+short-lived cookie is sent to health, readiness, and optional metrics probes
+so deployments behind an authenticated reverse proxy (for example, Access)
+can be checked. Cookie-bearing probes require HTTPS; the cookie and probe
+origins are never written to the report. It checks the readiness revision
 against the immutable image tag, records the observation window and sample
 gaps, and can optionally sample the authenticated aggregate `GET /metrics`
 endpoint, including Redis/outbox health and process-observation ages for

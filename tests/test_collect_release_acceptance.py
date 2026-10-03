@@ -131,7 +131,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(telemetry["session_event"]["max_seconds"], 0.25)
         self.assertEqual(telemetry["traffic_sample"]["max_seconds"], 0.75)
         self.assertIn("not RouterOS-to-browser delivery latency", telemetry["meaning"])
-        self.assertTrue(all(cookie == "session=secret-cookie" for url, cookie in seen if url.endswith("/metrics")))
+        self.assertTrue(all(cookie == "session=secret-cookie" for _, cookie in seen))
         serialized = json.dumps(report)
         self.assertNotIn("must-not-appear-in-output", serialized)
         self.assertNotIn("private-label", serialized)
