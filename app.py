@@ -3113,6 +3113,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         profile: ProvisionedProfile | None = None
         user_creation_confirmed = False
         rate_profile_recovery = "not_applicable"
+        rationale = str(data.get("_review_rationale", ""))
         try:
             username = self._validate_username(str(data.get("username", "")))
             password = self._validate_secret(str(data.get("password", "")), "VPN password")
@@ -3177,7 +3178,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action=audit_action,
                 target=username,
                 status="success",
-                details={"device": device_name, "email": email, **({"source": source_name} if source_name else {})},
+                details={
+                    "device": device_name, "email": email, "rationale": rationale,
+                    **({"source": source_name} if source_name else {}),
+                },
             )
             self._deliver_profile(profile, f"{username}-{device_name}.ovpn", delivery)
         except Exception as error:  # noqa: BLE001 - reconcile failures after RouterOS provisioning begins
@@ -3284,6 +3288,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "account_absent": account_absent,
                     "certificate_cleanup": certificate_cleanup,
                     "rate_profile_recovery": rate_profile_recovery,
+                    "rationale": rationale,
                 },
             )
             if recovery != "verified":
@@ -3341,6 +3346,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.server.context.config.topology.require_profile_generation(
             policy=controls["policy"], dns_mode=controls["dns_mode"],
         )
+        rationale = str(enriched.get("reason", "")).strip()
+        if not 12 <= len(rationale) <= 240 or any(ord(character) < 32 for character in rationale):
+            raise ValueError("Provide a reason between 12 and 240 printable characters")
+        enriched["_review_rationale"] = rationale
         rate_profile_state = (
             self.server.context.router.rate_profile_snapshot(credentials, username=username)
             if int(controls["rate_limit_kbps"]) > 0
@@ -3360,6 +3369,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "device_name": device_name,
             "delivery": delivery,
             "comment": comment,
+            "rationale": rationale,
             "controls": {**controls, "expires_at": None},
             "router_rate_profile": rate_profile_state,
             "expiry_intent": str(enriched.get("expiry", "")),
@@ -3385,6 +3395,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "device": enriched["device_name"],
                 "delivery": enriched["delivery"],
                 "comment": enriched["comment"],
+                "reason": enriched["_review_rationale"],
                 "policy": controls["policy"],
                 "dns_mode": controls["dns_mode"],
                 "notifications": controls["notifications"],

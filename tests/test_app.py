@@ -1393,6 +1393,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "username": "maria", "email": "maria@example.com", "password": "profile-pass",
             "key_passphrase": "maria-key-passphrase", "device_name": "Tablet test",
             "comment": "integration test", "delivery": "ovpn",
+            "reason": "Approved remote access for Maria",
         }
         preview = self.preview_user_provision({key: value for key, value in create_request.items() if key not in {"password", "key_passphrase"}})
         status, headers, profile = self.json_request(
@@ -1406,6 +1407,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"redirect-gateway def1", profile)
         self.assertIn(b"<key>", profile)
         self.assertNotIn(b"profile-pass", profile)
+        create_audit = next(
+            item for item in self.server.context.store.recent_audit()
+            if item["action"] == "user.create" and item["target"] == "maria"
+        )
+        self.assertEqual(json.loads(create_audit["details"])["rationale"], create_request["reason"])
 
         users = {
             item["name"]: item
@@ -1504,6 +1510,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         create_intent = {
             "username": "review-race", "email": "review-race@example.test",
             "device_name": "New phone", "delivery": "zip", "policy": "full-tunnel",
+            "reason": "Approved remote access for review race",
         }
         before_mutations = list(self.mock.state.mutation_requests)
         before_certificates = set(self.mock.state.certificates)
@@ -1539,12 +1546,13 @@ class DashboardIntegrationTests(unittest.TestCase):
             "username": "review-change", "email": "review-change@example.test",
             "device_name": "New phone", "delivery": "zip", "policy": "full-tunnel",
             "rate_limit_kbps": "10240", "comment": "Reviewed comment",
+            "reason": "Approved remote access for review change",
         }
         before_mutations = list(self.mock.state.mutation_requests)
         before_certificates = set(self.mock.state.certificates)
         preview = self.preview_user_provision(create_intent)
         changed_intent = {
-            **create_intent, "policy": "lan-only", "password": "changed-intent-password",
+            **create_intent, "policy": "lan-only", "reason": "Different approved access purpose", "password": "changed-intent-password",
             "key_passphrase": "changed-intent-key-passphrase", "review_token": preview["review_token"],
         }
         status, _, payload = self.json_request("POST", "/api/users", changed_intent)
@@ -1553,12 +1561,43 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(set(self.mock.state.certificates), before_certificates)
 
+    def test_user_creation_review_requires_reason_before_routeros_reads(self) -> None:
+        self.login()
+        status, _, payload = self.json_request("POST", "/api/users/preview", {
+            "username": "reason-required", "email": "reason@example.test",
+            "device_name": "Phone", "delivery": "zip",
+        })
+        self.assertEqual(status, 400)
+        self.assertIn("reason", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, [])
+
+    def test_user_creation_review_binds_and_displays_reason(self) -> None:
+        self.login()
+        intent = {
+            "username": "review-reason", "email": "reason@example.test",
+            "device_name": "Phone", "delivery": "zip",
+            "reason": "Approved remote access for a contractor",
+        }
+        preview = self.preview_user_provision(intent)
+        self.assertEqual(preview["reason"], intent["reason"])
+        before_mutations = list(self.mock.state.mutation_requests)
+        status, _, payload = self.json_request("POST", "/api/users", {
+            **intent, "reason": "Different purpose for VPN access",
+            "password": "reason-required-password",
+            "key_passphrase": "reason-required-key-passphrase",
+            "review_token": preview["review_token"],
+        })
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
     def test_user_creation_review_binds_generated_rate_profile_state(self) -> None:
         self.login()
         intent = {
             "username": "review-rate-race", "email": "rate-race@example.test",
             "device_name": "New phone", "delivery": "zip", "policy": "full-tunnel",
             "rate_limit_kbps": "10240",
+            "reason": "Approved rate-limited remote access",
         }
         before_mutations = list(self.mock.state.mutation_requests)
         before_certificates = set(self.mock.state.certificates)
@@ -1619,6 +1658,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         intent = {
             "username": "provision-recovery", "email": "provision-recovery@example.test",
             "device_name": "Test laptop", "delivery": "ovpn", "policy": "full-tunnel",
+            "reason": "Approved recovery scenario for VPN setup",
         }
         review = self.preview_user_provision(intent)
         router = self.server.context.router
@@ -1648,6 +1688,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "username": "provision-rate-residue", "email": "rate-residue@example.test",
             "device_name": "Test laptop", "delivery": "ovpn", "policy": "full-tunnel",
             "rate_limit_kbps": "10240",
+            "reason": "Approved rate-limited recovery scenario",
         }
         review = self.preview_user_provision(intent)
         router = self.server.context.router
@@ -2322,6 +2363,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "username": "user-one-copy", "email": "user.one.copy@example.test",
             "password": "duplicate-pass", "key_passphrase": "duplicate-key-passphrase",
             "device_name": "Backup phone", "comment": "Copied access", "delivery": "ovpn",
+            "reason": "Approved additional access for backup phone",
         }
         preview = self.preview_user_provision(
             {key: value for key, value in duplicate_request.items() if key not in {"password", "key_passphrase"}},
@@ -2339,6 +2381,14 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(
             self.server.context.store.user_emails()["user-one-copy"],
             "user.one.copy@example.test",
+        )
+        duplicate_audit = next(
+            item for item in self.server.context.store.recent_audit()
+            if item["action"] == "user.duplicate" and item["target"] == "user-one-copy"
+        )
+        self.assertEqual(
+            json.loads(duplicate_audit["details"])["rationale"],
+            duplicate_request["reason"],
         )
 
         session_id = next(iter(self.mock.state.active_sessions))
@@ -2402,6 +2452,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "password": "stale-copy-password", "key_passphrase": "stale-copy-passphrase",
             "device_name": "Backup phone", "comment": "Copied access", "delivery": "ovpn",
             "policy": "full-tunnel",
+            "reason": "Approved additional access for review race",
         }
         preview = self.preview_user_provision(
             {key: value for key, value in request_data.items() if key not in {"password", "key_passphrase"}},
