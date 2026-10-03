@@ -2442,6 +2442,88 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertEqual(self.mock.state.mutation_requests, before_replay)
 
+    def test_bulk_suspend_review_detects_routeros_disabled_string_change(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-two"
+        )
+        review = self.preview_bulk_action("suspend", [user["id"]])
+        before_mutations = list(self.mock.state.mutation_requests)
+        self.mock.state.users[user["id"]]["disabled"] = "yes"
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {
+                "action": "suspend", "user_ids": [user["id"]],
+                "confirmation": "APPLY SUSPEND TO 1 USERS", "review_token": review["review_token"],
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
+    def test_bulk_tag_review_detects_changed_tag_set(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-two"
+        )
+        review = self.preview_bulk_action("tag", [user["id"]], tag="Field Team")
+        self.server.context.store.add_user_tag(user["name"], "External label")
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {
+                "action": "tag", "tag": "Field Team", "user_ids": [user["id"]],
+                "confirmation": "APPLY TAG TO 1 USERS", "review_token": review["review_token"],
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.server.context.store.user_tags(user["name"]), ["External label"])
+
+    def test_bulk_revoke_review_detects_changed_certificate_set(self) -> None:
+        _, _ = self._managed_device_revoke_request()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-one"
+        )
+        review = self.preview_bulk_action("revoke", [user["id"]])
+        self.server.context.store.add_device(
+            device_id="managed-device-added-after-preview",
+            vpn_user="user-one",
+            device_name="Managed test laptop",
+            certificate_name="ovpn-user-one-added-after-preview",
+            certificate_id="*CL3",
+            fingerprint="C3:EX:48",
+        )
+        self.mock.state.certificates["*CL3"] = {
+            **self.mock.state.certificates["*CL1"],
+            ".id": "*CL3", "name": "ovpn-user-one-added-after-preview",
+            "fingerprint": "C3:EX:48", "revoked": "no",
+        }
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/apply",
+            {
+                "action": "revoke", "user_ids": [user["id"]],
+                "confirmation": "APPLY REVOKE TO 1 USERS", "review_token": review["review_token"],
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
+        self.assertEqual(self.mock.state.certificates["*CL3"]["revoked"], "no")
+
     def test_bulk_suspend_reconciles_lost_mutation_response_by_user_readback(self) -> None:
         self.login()
         router = self.server.context.router
