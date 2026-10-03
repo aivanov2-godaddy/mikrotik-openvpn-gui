@@ -196,6 +196,28 @@ test('operations timeline filters bounded observations and labels its coverage',
   await expect(visibleRows.first()).toBeVisible();
   await expect.poll(() => visibleRows.evaluateAll((rows) => rows.every((row) => row.dataset.operationType === 'health')))
     .toBe(true);
+  await type.selectOption('all');
+  await panel.getByLabel('Search operations timeline').fill('');
+
+  const dateWindow = await panel.locator('[data-operation-row]').evaluateAll((rows) => {
+    const dayFor = (timestamp) => {
+      const date = new Date(Number(timestamp) * 1000);
+      return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+    };
+    const dates = rows.map((row) => dayFor(row.dataset.operationCreated));
+    const selectedDay = dates[0];
+    return { selectedDay, expected: dates.filter((date) => date === selectedDay).length };
+  });
+  await page.locator('[data-history-from]').fill(dateWindow.selectedDay);
+  await page.locator('[data-history-to]').fill(dateWindow.selectedDay);
+  await expect(panel.locator('[data-operation-row]:visible')).toHaveCount(dateWindow.expected);
+
+  await page.locator('[data-history-from]').fill('2100-01-01');
+  await page.locator('[data-history-to]').fill('2100-01-01');
+  await expect(panel.locator('[data-operation-row]:visible')).toHaveCount(0);
+  await page.locator('[data-history-from]').fill('');
+  await page.locator('[data-history-to]').fill('');
+
   await panel.getByLabel('Search operations timeline').fill('no-such-event');
   await expect(panel.locator('[data-operation-count]')).toContainText('0 shown');
 
