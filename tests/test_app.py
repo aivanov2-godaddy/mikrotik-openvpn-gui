@@ -872,17 +872,21 @@ class DashboardIntegrationTests(unittest.TestCase):
         }
         maria_id = users["maria"]["id"]
 
-        status, _, payload = self.json_request(
-            "PATCH",
-            f"/api/users/{urllib.parse.quote(maria_id, safe='*')}",
-            {
+        edit = {
                 "email": "maria.new@example.com", "comment": "changed", "disabled": True,
                 "password": "new-profile-pass", "policy": "lan-only", "expiry": "1d",
                 "max_sessions": "2", "rate_limit_kbps": "25600", "quota_mb": "10240",
                 "schedule": "weekdays", "dns_mode": "cloudflare",
-                "notifications": True,
-            },
-        )
+                "notifications": True, "reason": "Update Maria access settings",
+            }
+        edit_path = f"/api/users/{urllib.parse.quote(maria_id, safe='*')}"
+        status, _, preview_payload = self.json_request("POST", edit_path + "/preview", edit)
+        self.assertEqual(status, 200)
+        preview = json.loads(preview_payload)
+        self.assertTrue(preview["changes"]["password_changed"])
+        self.assertNotIn("new-profile-pass", preview_payload.decode())
+        edit["review_token"] = preview["review_token"]
+        status, _, payload = self.json_request("PATCH", edit_path, edit)
         self.assertEqual(status, 200)
         self.assertEqual(
             json.loads(payload),
@@ -939,6 +943,14 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(all(self.mock.state.certificates[item]["revoked"] for item in ("*C1", "*C2")))
         self.assertTrue(all(item["revoked_at"] for item in self.server.context.store.devices_for_user("maria", include_revoked=True)))
 
+    def _review_user_edit(self, path: str, values: dict[str, Any]) -> dict[str, Any]:
+        reviewed = {**values, "reason": "Unit-test reviewed account change"}
+        status, _, payload = self.json_request("POST", path + "/preview", reviewed)
+        if status != 200:
+            raise AssertionError(f"user edit preview failed: {status} {payload!r}")
+        reviewed["review_token"] = json.loads(payload)["review_token"]
+        return reviewed
+
     def test_user_update_reconciles_lost_routeros_response_from_readback(self) -> None:
         self.login()
         router = self.server.context.router
@@ -952,10 +964,14 @@ class DashboardIntegrationTests(unittest.TestCase):
             update_user(*args, **kwargs)
             raise RouterOSError("private RouterOS response", 503)
 
+        reviewed = self._review_user_edit(
+            f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
+            {"comment": "updated safely", "disabled": False, "policy": "full-tunnel"},
+        )
         with mock.patch.object(router, "update_user", side_effect=update_then_lose_response):
             status, _, payload = self.json_request(
                 "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
-                {"comment": "updated safely", "disabled": False, "policy": "full-tunnel"},
+                reviewed,
             )
 
         self.assertEqual(status, 200)
@@ -979,12 +995,19 @@ class DashboardIntegrationTests(unittest.TestCase):
             if item["name"] == "user-two"
         )
         initial_users = router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+        reviewed = {
+            "comment": "update not yet confirmed", "disabled": True, "policy": "lan-only",
+        }
         with mock.patch.object(
-            router, "list_ovpn_users", side_effect=[initial_users, RouterOSError("read-back unavailable")],
+            router, "list_ovpn_users",
+            side_effect=[initial_users, initial_users, RouterOSError("read-back unavailable")],
         ):
+            reviewed = self._review_user_edit(
+                f"/api/users/{urllib.parse.quote(user['id'], safe='*')}", reviewed,
+            )
             status, _, payload = self.json_request(
                 "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
-                {"comment": "update not yet confirmed", "disabled": True, "policy": "lan-only"},
+                reviewed,
             )
 
         self.assertEqual(status, 502)
@@ -1006,9 +1029,13 @@ class DashboardIntegrationTests(unittest.TestCase):
             if item["name"] == "user-two"
         )
         with mock.patch.object(router, "update_user"):
+            reviewed = self._review_user_edit(
+                f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
+                {"comment": "not applied", "disabled": True, "policy": "lan-only"},
+            )
             status, _, payload = self.json_request(
                 "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
-                {"comment": "not applied", "disabled": True, "policy": "lan-only"},
+                reviewed,
             )
 
         self.assertEqual(status, 409)
@@ -1029,13 +1056,17 @@ class DashboardIntegrationTests(unittest.TestCase):
             update_user(*args, **kwargs)
             raise RouterOSError("private RouterOS response", 503)
 
+        reviewed = self._review_user_edit(
+            f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
+            {
+                "comment": "observable settings applied", "disabled": False,
+                "password": "sensitive-password-value", "policy": "full-tunnel",
+            },
+        )
         with mock.patch.object(router, "update_user", side_effect=update_then_lose_response):
             status, _, payload = self.json_request(
                 "PATCH", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}",
-                {
-                    "comment": "observable settings applied", "disabled": False,
-                    "password": "sensitive-password-value", "policy": "full-tunnel",
-                },
+                reviewed,
             )
 
         self.assertEqual(status, 502)
@@ -1044,6 +1075,38 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn("sensitive-password-value", payload.decode())
         self.assertNotIn("private RouterOS response", payload.decode())
         self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
+    def test_user_edit_receipt_rejects_tampering_staleness_and_other_session(self) -> None:
+        self.login()
+        user = next(item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass")) if item["name"] == "user-one")
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        edit = {"email": "one@example.test", "comment": "reviewed", "disabled": False,
+                "password": "secret-preview-value", "policy": "full-tunnel", "expiry": "never",
+                "max_sessions": "5", "rate_limit_kbps": "0", "quota_mb": "0",
+                "schedule": "always", "dns_mode": "router", "notifications": True,
+                "reason": "Routine access review"}
+        status, _, payload = self.json_request("POST", path + "/preview", edit)
+        self.assertEqual(status, 200)
+        preview = json.loads(payload)
+        self.assertNotIn("secret-preview-value", payload.decode())
+
+        tampered = dict(edit, password="different-secret", review_token=preview["review_token"])
+        status, _, _ = self.json_request("PATCH", path, tampered)
+        self.assertEqual(status, 409)
+        self.assertNotEqual(self.mock.state.users[user["id"]].get("password"), "different-secret")
+
+        stale = dict(edit, review_token=preview["review_token"])
+        self.mock.state.users[user["id"]]["comment"] = "changed in RouterOS"
+        status, _, _ = self.json_request("PATCH", path, stale)
+        self.assertEqual(status, 409)
+        self.mock.state.users[user["id"]]["comment"] = ""
+
+        status, _, payload = self.json_request("POST", path + "/preview", edit)
+        token = json.loads(payload)["review_token"]
+        self.login()
+        status, _, _ = self.json_request("PATCH", path, dict(edit, review_token=token))
+        self.assertEqual(status, 409)
+        audit = json.dumps(self.server.context.store.recent_audit(20))
+        self.assertNotIn("secret-preview-value", audit)
 
     def test_qr_profile_share_is_a_bounded_zip_download(self) -> None:
         self.login()
