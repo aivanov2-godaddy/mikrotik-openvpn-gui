@@ -265,6 +265,19 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(delivered["dead_lettered"], 0)
             self.assertGreater(delivered["last_delivered"], 0)
 
+    def test_recent_integration_delivery_state_omits_payload_and_event_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            store.set_audit_hook(lambda _event: None)
+            store.audit(actor="private-actor", action="private.action", target="private-target", status="success", details={"secret": "no"})
+            rows = store.recent_integration_delivery_events()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["event_type"], "audit")
+            self.assertIn("source_id", rows[0])
+            self.assertNotIn("event_id", rows[0])
+            self.assertNotIn("payload", rows[0])
+            self.assertNotIn("last_error", rows[0])
+
     def test_database_readiness_success_is_cached_briefly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))

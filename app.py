@@ -76,6 +76,7 @@ def operations_timeline(
     deployments: list[dict[str, Any]],
     health: list[dict[str, Any]],
     *,
+    integrations: list[dict[str, Any]] | None = None,
     now: int | None = None,
 ) -> dict[str, Any]:
     """Join bounded, already-redacted dashboard ledgers without implying completeness."""
@@ -141,6 +142,31 @@ def operations_timeline(
                 f"{int(item.get('unavailable_count', 0) or 0)} unavailable"
             ),
         })
+    for item in integrations or []:
+        occurred_at = int(item.get("delivered_at") or item.get("dead_lettered_at") or item.get("created_at", 0) or 0)
+        if occurred_at <= 0:
+            continue
+        event_type = str(item.get("event_type", ""))
+        # The outbox is currently audit-only; never surface arbitrary database
+        # values as a type, target, summary, or label.
+        if event_type != "audit":
+            continue
+        dead_lettered = bool(item.get("dead_lettered_at"))
+        delivered = bool(item.get("delivered_at"))
+        outcome = "dead-lettered" if dead_lettered else "delivered" if delivered else "pending"
+        events.append({
+            "id": f"integration:{int(item.get('source_id', 0) or 0)}",
+            "occurred_at": occurred_at,
+            "source": "integration delivery",
+            "type": "integration",
+            "actor": "",
+            "target": "audit event delivery",
+            "outcome": outcome,
+            "severity": "warning" if dead_lettered else "info",
+            "summary": (
+                f"Audit delivery {outcome} · {max(0, int(item.get('attempts', 0) or 0))} attempts"
+            ),
+        })
     events.sort(key=lambda item: (item["occurred_at"], item["id"]), reverse=True)
     bounded = events[:150]
     for event in bounded:
@@ -151,7 +177,7 @@ def operations_timeline(
         "coverage": {
             "complete": False,
             "message": (
-                "Bounded dashboard audit, health, and deployment observations only. "
+                "Bounded dashboard audit, health, deployment, and integration-delivery observations only. "
                 "RouterOS session/traffic events are live telemetry, not a durable full-history feed; gaps are possible."
             ),
         },
@@ -962,6 +988,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.server.context.store.recent_audit(100) if include_audit else [],
             events,
             health_timeline,
+            integrations=(
+                self.server.context.store.recent_integration_delivery_events(50)
+                if include_audit else []
+            ),
         )
         current = {
             "version": self.server.context.release_version,
@@ -1360,6 +1390,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 store.recent_audit(100, start_at=start_at, end_at=end_at),
                 store.recent_deployment_events(20),
                 store.recent_health_snapshots(30),
+                integrations=store.recent_integration_delivery_events(50),
             )
             report["events"] = [
                 item for item in report["events"]
