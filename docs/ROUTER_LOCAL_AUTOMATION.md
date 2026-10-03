@@ -65,7 +65,10 @@ production to the same SQLite file: one database must have one writer.
 
 ## Promotion sequence
 
-1. The scheduler takes a local lock so two runs cannot overlap.
+1. The updater counts active RouterOS script jobs to prevent overlap. RouterOS
+   job state is authoritative; the legacy global lock is diagnostic only and
+   may remain set after an interrupted run without blocking a later recovery
+   attempt (PR #278).
 2. It fetches the approved public manifest through HTTPS with certificate
    validation and checks its schema, architecture, image prefix, and complete
    SHA-tag format. The request carries a router-clock cache-busting query so a
