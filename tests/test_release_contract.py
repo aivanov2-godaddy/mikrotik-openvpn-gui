@@ -33,6 +33,15 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", publish)
         self.assertNotIn("ROUTEROS_", publish)
 
+    def test_container_publish_requires_rendered_browser_verification(self) -> None:
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        verify = publish.split("  publish:\n", maxsplit=1)[0]
+        self.assertIn("runs-on: windows-latest", verify)
+        self.assertIn("npm ci", verify)
+        self.assertIn("npx playwright install chromium", verify)
+        self.assertIn("npm run test:browser", verify)
+        self.assertIn("needs: verify", publish)
+
     def test_release_sbom_and_provenance_are_detached_from_runtime_image(self) -> None:
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
         release_notes = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")
