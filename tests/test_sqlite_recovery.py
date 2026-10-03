@@ -226,9 +226,17 @@ class SQLiteRecoveryTests(unittest.TestCase):
             expected_writes = writer_count * writes_per_writer
             for _ in range(5):
                 checkpoint = store.checkpoint_wal("PASSIVE")
-                self.assertGreaterEqual(checkpoint["log_frames"], 0)
-                self.assertGreaterEqual(checkpoint["checkpointed_frames"], 0)
-                self.assertLessEqual(checkpoint["checkpointed_frames"], checkpoint["log_frames"])
+                # Concurrent writers can auto-checkpoint and remove the WAL
+                # between transactions. SQLite reports -1 for both frame
+                # counts when there is no WAL to inspect.
+                if checkpoint["log_frames"] == -1:
+                    self.assertEqual(checkpoint["checkpointed_frames"], -1)
+                else:
+                    self.assertGreaterEqual(checkpoint["log_frames"], 0)
+                    self.assertGreaterEqual(checkpoint["checkpointed_frames"], 0)
+                    self.assertLessEqual(
+                        checkpoint["checkpointed_frames"], checkpoint["log_frames"]
+                    )
 
                 result = store.backup_database(str(backup))
                 self.assertGreater(result["bytes"], 0)
