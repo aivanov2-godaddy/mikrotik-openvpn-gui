@@ -119,8 +119,8 @@ perimeter: firewall rules and upstream controls remain an explicit manual
 review. HTTP management services are flagged as unencrypted. For HTTPS/TLS
 services, the check reports whether a certificate assignment is observable,
 not whether the certificate chain/hostname is valid. See MikroTik's
-[User and User Groups documentation](https://help.mikrotik.com/docs/spaces/ROS/pages/8978504/User)
-and [IP Services documentation](https://help.mikrotik.com/docs/spaces/ROS/pages/103841820/Services).
+[User and User Groups documentation](https://manual.mikrotik.com/docs/authentication-authorization-accounting/user/)
+and [`/ip/service` reference](https://manual.mikrotik.com/docs/cli-reference/ip/service/).
 
 ### Authentication and authorization audit events
 

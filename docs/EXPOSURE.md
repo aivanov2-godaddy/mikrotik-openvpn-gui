@@ -26,13 +26,15 @@ private container network and explicitly trusted operator networks. Do not
 publish RouterOS REST, API, or API-SSL ports to the internet. Use the encrypted
 REST endpoint (`www-ssl`) and, when Binary API telemetry is enabled, the
 encrypted API endpoint (`api-ssl`); do not enable plain HTTP/REST or plain API
-for production. A RouterOS service `address` allowlist and a RouterOS user
-`address` restriction are useful layers, but neither proves the effective
-firewall or upstream network boundary. Verify the input-chain policy separately.
+for production. A RouterOS service `available-from` allowlist (called
+`address` by older RouterOS releases) and a RouterOS user `address` restriction
+are useful layers, but neither proves the effective firewall or upstream
+network boundary. Verify the input-chain policy separately.
 
 The dashboard's **Connection Doctor → RouterOS access and exposure** check is
 read-only. It reports derived account/group/service facts, redacts source
-ranges and service ports, and deliberately marks firewall enforcement
+ranges and service ports, reads both current and legacy service-property names,
+and deliberately marks firewall enforcement
 **unknown**. A restricted source field proves only that a restriction is
 configured, not that it matches the dashboard's actual source address or that
 the route is otherwise unreachable.
@@ -57,9 +59,10 @@ permissions as a generic troubleshooting step. Treat missing/unsupported policy
 fields as unknown, and validate a proposed custom group on a non-production
 router or controlled canary before using it.
 
-References: [MikroTik User and group policies](https://help.mikrotik.com/docs/spaces/ROS/pages/8978504/User),
-[RouterOS REST API](https://help.mikrotik.com/docs/spaces/ROS/pages/47579162/REST%2BAPI),
-and [RouterOS Services](https://help.mikrotik.com/docs/spaces/ROS/pages/103841820/Services).
+References: [MikroTik User and group policies](https://manual.mikrotik.com/docs/authentication-authorization-accounting/user/),
+[RouterOS REST API](https://manual.mikrotik.com/docs/developer-guides/rest-api/),
+[RouterOS `/ip/service` reference](https://manual.mikrotik.com/docs/cli-reference/ip/service/),
+and [RouterOS firewall input chain](https://manual.mikrotik.com/docs/firewall-and-quality-of-service/firewall/filter/).
 
 ## Direct HTTPS with a domain
 
