@@ -2904,12 +2904,76 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 policy=str(controls.get("policy", "full-tunnel")),
                 dns_mode=str(controls.get("dns_mode", "router")),
             )
-            self._record_profile(
-                session=session,
-                vpn_user=str(user["name"]),
-                device_name=device_name,
-                profile=profile,
-            )
+            try:
+                self._record_profile(
+                    session=session,
+                    vpn_user=str(user["name"]),
+                    device_name=device_name,
+                    profile=profile,
+                )
+            except Exception as storage_error:  # noqa: BLE001 - reconcile router state after local commit failure
+                router_verified = False
+                local_reconciled = False
+                try:
+                    try:
+                        self.server.context.router.revoke_certificate(
+                            credentials, certificate_id=profile.certificate_id,
+                        )
+                    except RouterOSError:
+                        # A lost RouterOS response is resolved only by the exact certificate read-back.
+                        pass
+                    certificates = self.server.context.router.list_ovpn_client_certificates(
+                        credentials, include_legacy=True,
+                    )
+                    certificate = next(
+                        (item for item in certificates if str(item.get("id", "")) == profile.certificate_id),
+                        None,
+                    )
+                    router_verified = bool(certificate and certificate.get("revoked"))
+                except RouterOSError:
+                    router_verified = False
+                try:
+                    recorded_device = self.server.context.store.device_by_certificate(
+                        profile.certificate_name,
+                    )
+                    if recorded_device:
+                        if router_verified:
+                            self.server.context.store.mark_revoked(str(recorded_device["id"]))
+                            updated_device = self.server.context.store.device_by_id(
+                                str(recorded_device["id"]),
+                            )
+                            local_reconciled = bool(updated_device and updated_device.get("revoked_at"))
+                    else:
+                        local_reconciled = True
+                except Exception:  # noqa: BLE001 - storage is the failed boundary
+                    local_reconciled = False
+                reconciliation = "verified" if router_verified and local_reconciled else "unknown"
+                try:
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="profile.create.recovery",
+                        target=str(user["name"]),
+                        status=reconciliation,
+                        details={
+                            "router_certificate_revoked": router_verified,
+                            "local_metadata_reconciled": local_reconciled,
+                            "storage_error": type(storage_error).__name__,
+                        },
+                    )
+                except Exception:  # noqa: BLE001 - preserve the safe API response if storage remains unavailable
+                    pass
+                self._json(
+                    {
+                        "error": (
+                            "Dashboard storage could not record this device. RouterOS confirms the new certificate was revoked; no profile was delivered. Retry after storage recovers."
+                            if reconciliation == "verified" else
+                            "Dashboard storage could not record this device, and recovery is not fully verified. No profile was delivered; check Device Profiles and the RouterOS certificate inventory before retrying."
+                        ),
+                        "recovery": reconciliation,
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
             if legacy_certificate_name:
                 self.server.context.store.record_profile_migration(
                     legacy_certificate_name=legacy_certificate_name,

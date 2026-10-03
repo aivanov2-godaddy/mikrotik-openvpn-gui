@@ -1052,6 +1052,75 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(all(self.mock.state.certificates[item]["revoked"] for item in ("*C1", "*C2")))
         self.assertTrue(all(item["revoked_at"] for item in self.server.context.store.devices_for_user("maria", include_revoked=True)))
 
+    def test_profile_creation_revokes_new_certificate_when_local_recording_fails(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        revoke_certificate = self.server.context.router.revoke_certificate
+
+        def revoke_then_lose_response(credentials: Any, *, certificate_id: str) -> None:
+            revoke_certificate(credentials, certificate_id=certificate_id)
+            raise RouterOSError("private RouterOS response", 503)
+
+        with mock.patch.object(
+            self.server.context.store, "add_device", side_effect=OSError("injected disk full"),
+        ), mock.patch.object(
+            self.server.context.router, "revoke_certificate", side_effect=revoke_then_lose_response,
+        ):
+            status, _, payload = self.json_request(
+                "POST", path,
+                {"device_name": "Recovery phone", "key_passphrase": "private-file-passphrase", "delivery": "zip"},
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["recovery"], "verified")
+        self.assertIn("certificate was revoked", response["error"])
+        self.assertNotIn("injected disk full", response["error"])
+        self.assertNotIn(b"private-file-passphrase", payload)
+        certificates = self.server.context.router.list_ovpn_client_certificates(
+            RouterOSCredentials("admin", "routerpass"), include_legacy=True,
+        )
+        generated = [
+            item for item in certificates
+            if item["name"].startswith("ovpn-ui-user-two-recovery-phone-")
+        ]
+        self.assertEqual(len(generated), 1)
+        self.assertTrue(generated[0]["revoked"])
+        self.assertIsNone(self.server.context.store.device_by_certificate(generated[0]["name"]))
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["action"], "profile.create.recovery")
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "verified")
+
+    def test_profile_creation_reports_unknown_if_cleanup_cannot_be_verified(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        with mock.patch.object(
+            self.server.context.store, "add_device", side_effect=OSError("injected disk full"),
+        ), mock.patch.object(self.server.context.router, "revoke_certificate"):
+            status, _, payload = self.json_request(
+                "POST", path,
+                {"device_name": "Uncertain phone", "key_passphrase": "private-file-passphrase", "delivery": "zip"},
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["recovery"], "unknown")
+        self.assertIn("before retrying", response["error"])
+        self.assertNotIn(b"private-file-passphrase", payload)
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["action"], "profile.create.recovery")
+
     def _review_user_edit(self, path: str, values: dict[str, Any]) -> dict[str, Any]:
         reviewed = {**values, "reason": "Unit-test reviewed account change"}
         status, _, payload = self.json_request("POST", path + "/preview", reviewed)
