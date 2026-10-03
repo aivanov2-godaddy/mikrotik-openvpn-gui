@@ -1261,6 +1261,39 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(set(self.mock.state.certificates), before_certificates)
 
+    def test_user_edit_relative_expiry_review_survives_second_boundary(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        edit = {
+            "email": "user.two@example.test", "comment": "Expiry boundary test",
+            "policy": "full-tunnel", "expiry": "1d", "max_sessions": "2",
+            "rate_limit_kbps": "0", "quota_mb": "0", "schedule": "always",
+            "dns_mode": "router", "notifications": True,
+            "reason": "Test expiry review stability",
+        }
+        status, _, payload = self.json_request("POST", f"{path}/preview", edit)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        edit["review_token"] = json.loads(payload)["review_token"]
+
+        parse_controls = DashboardHandler._parse_controls
+
+        def simulate_next_second(data: dict[str, Any], current: dict[str, Any] | None = None) -> dict[str, Any]:
+            controls = parse_controls(data, current)
+            if data.get("expiry") == "1d" and controls["expires_at"] is not None:
+                controls["expires_at"] += 1
+            return controls
+
+        with mock.patch.object(DashboardHandler, "_parse_controls", side_effect=simulate_next_second):
+            status, _, payload = self.json_request("PATCH", path, edit)
+
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertTrue(json.loads(payload)["verified"])
+
     def test_user_provision_reports_incomplete_cleanup_when_router_still_has_account(self) -> None:
         self.login()
         intent = {

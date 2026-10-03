@@ -3359,6 +3359,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             controls = self._parse_controls(
                 data, self.server.context.store.user_controls(str(user["name"]))
             )
+            expiry_intent = str(data.get("expiry", ""))
+            reviewed_controls = dict(controls)
+            if expiry_intent in EXPIRY_SECONDS:
+                # Relative expiries resolve to a fresh absolute timestamp each
+                # request. Bind the reviewed choice, not the preview/apply second.
+                reviewed_controls["expires_at"] = f"relative:{expiry_intent}"
             reason = str(data.get("reason", "")).strip()
             if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
                 raise ValueError("Provide a reason between 12 and 240 printable characters")
@@ -3366,7 +3372,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "user_id": str(user_id), "username": str(user["name"]),
                 "password_changed": bool(password_raw), "email": email,
                 "password_commitment": self.server.review_receipts.secret_commitment(password_raw),
-                "comment": comment, "disabled": disabled, "controls": controls,
+                "comment": comment, "disabled": disabled, "controls": reviewed_controls,
+                "expiry_intent": expiry_intent,
                 "reason": reason,
             }
             control_keys = tuple(controls)
