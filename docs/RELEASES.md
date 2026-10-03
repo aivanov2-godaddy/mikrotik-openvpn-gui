@@ -32,26 +32,28 @@ deployment model.
 
 ## Published images
 
-### Latest main build (not yet verified on RouterOS)
+### Latest published runtime image (not yet verified on RouterOS)
 
-Main revision `a026d06f382518c6ea467443f7aa879b16bf903b` includes the
-same-origin Socket.IO security correction and idempotent reconnect handling
-(PRs [#287](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/287)
-and [#288](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/288)).
-Publish workflow [37094185555](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37094185555)
-completed both architecture builds, runtime smoke tests, and exact-digest
-provenance/SBOM attestation verification on 2026-10-03.
+Runtime revision `b71a1709cae1d2b677e7e209e34681d6d315a108` includes merged
+token read-scope enforcement and exact-session reconciliation after an
+ambiguous RouterOS termination response (PRs [#316](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/316)
+and [#317](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/317)).
+Publish workflow [37117748260](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37117748260)
+completed both architecture builds, published-runtime smoke tests, and
+exact-digest provenance/SBOM attestation verification on 2026-10-03.
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-a026d06f382518c6ea467443f7aa879b16bf903b-arm64` | `sha256:9d2a6405d921bc1fffb4e348bcb52aaef7dfc0ffd4ee0fb57cb097f9f2437662` |
-| CHR/x86 AMD64 (evaluation) | `sha-a026d06f382518c6ea467443f7aa879b16bf903b-amd64` | `sha256:0492fce6c4905e724d7f17fdc2477555fd880245c8e7a9199a93f872f9bb2ed9` |
+| RouterOS ARM64 | `sha-b71a1709cae1d2b677e7e209e34681d6d315a108-arm64` | `sha256:10531b9f5a776c206edb969ca9fe6f201d7d69d9b6b2db363c163e282614da6b` |
+| CHR/x86 AMD64 (evaluation) | `sha-b71a1709cae1d2b677e7e209e34681d6d315a108-amd64` | `sha256:d1b457a3915452768fe0e3c0bfc3829230fefb5f97b0857119963ec410fdc1d1` |
 
 These are published artifacts, not a deployment claim. The ARM64 image has
 not been verified on the RouterOS canary or production containers, and no
 RouterOS compatibility, resource, or live-event acceptance is inferred from
-the CI smoke test. The v2.5.0 feature release remains the latest versioned
-release until a separate release decision is made.
+the CI smoke test. Main revision `2c96c0f8cfc11a619c1c35ab1af4bc0293c895a8`
+also contains documentation-only changes after this runtime image; it does not
+produce a different container. The v2.5.0 feature release remains the latest
+versioned release until a separate release decision is made.
 
 The public `Publish container` workflow verifies a `main` change, then publishes
 single-platform images to GHCR using the repository's current owner and name.
