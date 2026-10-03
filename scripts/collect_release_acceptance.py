@@ -239,8 +239,11 @@ def collect(
     for environment, metrics_url in metrics_urls.items():
         if _origin(metrics_url) != _origin(readyz_urls[environment]):
             raise ValueError(f"{environment} metrics URL origin must exactly match its readiness probe origin")
-    if cookie and any(urlsplit(url).scheme != "https" for url in metrics_urls.values()):
-        raise ValueError("authenticated metrics probes require HTTPS")
+    if cookie and any(
+        urlsplit(url).scheme != "https"
+        for url in (*readyz_urls.values(), *metrics_urls.values())
+    ):
+        raise ValueError("authenticated acceptance probes require HTTPS")
 
     safe_records: dict[str, dict[str, Any]] = {}
     for record, environment in zip(records, ENVIRONMENTS):
@@ -265,8 +268,8 @@ def collect(
         observed = clock()
         for environment in ENVIRONMENTS:
             base = readyz_urls[environment]
-            health_code, _ = probe(_probe_url(base, "/healthz"), cookie=None, timeout=timeout_seconds)
-            ready_code, ready_body = probe(_probe_url(base, "/readyz"), cookie=None, timeout=timeout_seconds)
+            health_code, _ = probe(_probe_url(base, "/healthz"), cookie=cookie, timeout=timeout_seconds)
+            ready_code, ready_body = probe(_probe_url(base, "/readyz"), cookie=cookie, timeout=timeout_seconds)
             ready_payload = _json_status(ready_body) if ready_code == 200 else {}
             revision = ready_payload.get("revision") if isinstance(ready_payload.get("revision"), str) else ""
             metrics: dict[str, float] = {}
