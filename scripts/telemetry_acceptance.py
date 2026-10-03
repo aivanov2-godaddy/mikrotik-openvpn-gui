@@ -58,7 +58,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
     reconnects: list[dict[str, Any]] = []
     comparisons: list[dict[str, Any]] = []
     security: list[dict[str, Any]] = []
-    sequences: list[int] = []
+    sequence_epochs: dict[int, dict[str, Any]] = {}
     failures: list[str] = []
     counter_resets = 0
     counter_reset_failures = 0
@@ -90,19 +90,35 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
                 raw_sequence = record["event_sequence"]
                 if isinstance(raw_sequence, bool) or not isinstance(raw_sequence, int) or raw_sequence < 0:
                     raise ValueError("event_sequence must be a non-negative integer")
+                raw_epoch = record.get("event_epoch", 0)
+                if isinstance(raw_epoch, bool) or not isinstance(raw_epoch, int) or raw_epoch < 0:
+                    raise ValueError("event_epoch must be a non-negative integer")
                 sequence = raw_sequence
-                if sequences and sequence > sequences[-1] + 1:
+                epoch = sequence_epochs.setdefault(raw_epoch, {"last": None, "seen": set()})
+                last_sequence = epoch["last"]
+                if last_sequence is not None and sequence > last_sequence + 1:
                     failures.append("event_loss")
-                sequences.append(sequence)
+                inferred_duplicate = sequence in epoch["seen"]
+                inferred_out_of_order = last_sequence is not None and sequence < last_sequence
+                epoch["seen"].add(sequence)
+                if last_sequence is None or sequence > last_sequence:
+                    epoch["last"] = sequence
                 sequence_evidence += 1
+            else:
+                inferred_duplicate = False
+                inferred_out_of_order = False
+            duplicate_flag = False
+            out_of_order_flag = False
             for name in ("event_lost", "event_duplicated", "out_of_order"):
                 if name in record and _boolean(record[name], name):
                     if name == "event_lost":
                         failures.append("event_loss")
                     elif name == "event_duplicated":
-                        duplicate_events += 1
+                        duplicate_flag = True
                     else:
-                        out_of_order_events += 1
+                        out_of_order_flag = True
+            duplicate_events += int(duplicate_flag or inferred_duplicate)
+            out_of_order_events += int(out_of_order_flag or inferred_out_of_order)
             if record.get("counter_reset"):
                 if not _boolean(record["counter_reset"], "counter_reset"):
                     raise ValueError("counter_reset must be boolean")
@@ -159,7 +175,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         failures.append("binary_rest_comparison_missing")
     if duplicate_events:
         failures.append("duplicate_events")
-    if out_of_order_events or any(right <= left for left, right in zip(sequences, sequences[1:])):
+    if out_of_order_events:
         failures.append("out_of_order_events")
     if counter_reset_failures:
         failures.append("counter_reset_recovery")

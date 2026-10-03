@@ -208,6 +208,60 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("event_loss", result["failed_gates"])
 
+    def test_repeated_sequence_is_reported_as_duplicate_not_reordering(self) -> None:
+        window = acceptance_window({
+            "type": "sample", "event_sequence": 101, "latency_ms": 100,
+            "event_age_seconds": 0.5, "router_cpu_percent": 22,
+            "router_memory_percent": 34, "router_storage_percent": 12,
+        })
+        window.extend(records({"type": "sample", "event_sequence": 101}))
+
+        code, result = evaluate(window, limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertIn("duplicate_events", result["failed_gates"])
+        self.assertNotIn("out_of_order_events", result["failed_gates"])
+        self.assertEqual(result["duplicate_events"], 1)
+
+    def test_sequence_regression_is_reported_as_reordering(self) -> None:
+        window = acceptance_window({
+            "type": "sample", "event_sequence": 101, "latency_ms": 100,
+            "event_age_seconds": 0.5, "router_cpu_percent": 22,
+            "router_memory_percent": 34, "router_storage_percent": 12,
+        })
+        window.extend(records(
+            {"type": "sample", "event_sequence": 102},
+            {"type": "sample", "event_sequence": 100},
+        ))
+
+        code, result = evaluate(window, limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertIn("out_of_order_events", result["failed_gates"])
+        self.assertNotIn("duplicate_events", result["failed_gates"])
+        self.assertEqual(result["out_of_order_events"], 1)
+
+    def test_sequence_reset_requires_a_new_epoch(self) -> None:
+        window = acceptance_window({
+            "type": "sample", "event_sequence": 101, "latency_ms": 100,
+            "event_age_seconds": 0.5, "router_cpu_percent": 22,
+            "router_memory_percent": 34, "router_storage_percent": 12,
+        })
+        window.extend(records({"type": "sample", "event_epoch": 1, "event_sequence": 0}))
+
+        code, result = evaluate(window, limits=LIMITS)
+
+        self.assertIn("counter_reset_evidence_missing", result["failed_gates"])
+        self.assertNotIn("event_loss", result["failed_gates"])
+        self.assertNotIn("out_of_order_events", result["failed_gates"])
+        self.assertNotIn("duplicate_events", result["failed_gates"])
+        self.assertEqual(result["duplicate_events"], 0)
+        self.assertEqual(result["out_of_order_events"], 0)
+
+    def test_event_epoch_must_be_a_non_negative_integer(self) -> None:
+        with self.assertRaisesRegex(ValueError, "event_epoch"):
+            evaluate(records({"type": "sample", "event_sequence": 101, "event_epoch": "restart"}), limits=LIMITS)
+
     def test_event_sequence_must_be_an_integer(self) -> None:
         with self.assertRaisesRegex(ValueError, "non-negative integer"):
             evaluate(records({"type": "sample", "event_sequence": 101.5}), limits=LIMITS)
