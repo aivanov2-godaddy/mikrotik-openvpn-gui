@@ -107,6 +107,17 @@ new candidate has not been confirmed on the canary, the updater lock state has
 not been independently resolved, and no current production read-back is
 available. Do not promote or claim acceptance based solely on this table.
 
+### Subsequent canary read-back
+
+After the updater's overlapping run cleared, a later read-only canary check
+returned HTTP 200 from `/readyz` with revision
+`1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e`, matching the published candidate.
+Unauthenticated requests to `/api/telemetry`, `/metrics`, and
+`/api/observability` each returned HTTP 401. This verifies candidate readiness
+and anonymous denial only. It does not verify authenticated telemetry freshness,
+the Redis delivery path, RouterOS reconnect/snapshot recovery, a 30-minute soak,
+or production deployment. No RouterOS policy or secrets were changed.
+
 ## Latest deployed correction
 
 PR [#179](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/179)
