@@ -895,10 +895,18 @@ class DashboardIntegrationTests(unittest.TestCase):
                     )
 
     def test_read_only_role_cannot_cross_audit_or_mutation_capability_boundaries(self) -> None:
-        session = self.server.context.sessions.create(
-            "viewer", "routerpass", role="read_only", source_address="127.0.0.1",
+        self.mock.state.admin_group = "read"
+        self.login()
+        self.server.context.store.audit(
+            actor="admin", action="security.review", target="private-audit-marker",
+            status="success", details="audit rows require audit.read",
         )
-        cookie = f"vpn_session={session.session_id}"
+        cookie = self.cookie
+        self.assertTrue(cookie)
+        status, _, page = self.request("GET", "/dashboard", headers={"Cookie": cookie})
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"private-audit-marker", page)
+        self.assertNotIn(b'href="#audit-log"', page)
         status, _, payload = self.request("GET", "/api/observability", headers={"Cookie": cookie})
         self.assertEqual(status, 200)
         operations = json.loads(payload)["operations_timeline"]["events"]
@@ -913,7 +921,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         csrf_headers = {
             "Content-Type": "application/json",
             "Cookie": cookie,
-            "X-CSRF-Token": session.csrf_token,
+            "X-CSRF-Token": self.csrf,
         }
         before_mutations = list(self.mock.state.mutation_requests)
 

@@ -1789,7 +1789,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 ovpn_server=ovpn_server,
                 certificate_settings=certificate_settings,
                 warnings=warnings,
-                audit=self.server.context.store.recent_audit(100),
+                audit=(
+                    self.server.context.store.recent_audit(100)
+                    if self._capability_allowed(session, "audit.read")
+                    else []
+                ),
                 alerts=self.server.context.store.recent_alerts(20),
                 policy_templates=self.server.context.store.list_policy_templates(),
                 admin_role=session.role,

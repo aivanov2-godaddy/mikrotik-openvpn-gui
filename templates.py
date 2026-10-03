@@ -401,6 +401,7 @@ def dashboard_page(
     can_manage_alerts = has_capability(normalized_role, "alert.manage")
     can_manage_policies = has_capability(normalized_role, "policies.manage")
     can_manage_security = has_capability(normalized_role, "security.manage")
+    can_read_audit = has_capability(normalized_role, "audit.read")
     add_user_button = (
         f'<button class="primary" type="button" data-open-add>{_icon("plus")}<span>Add VPN user</span></button>'
         if can_manage_users
@@ -897,7 +898,7 @@ def dashboard_page(
     <a href="#profile-security" data-view-target="profile-security" aria-label="Device Profiles" title="Device Profiles">{_icon('device')}<span>Device Profiles</span></a>
     <a href="#policy-templates" data-view-target="policy-templates" aria-label="Policy Templates" title="Policy Templates">{_icon('template')}<span>Policy Templates</span></a>
     <span class="nav-section-title">ADMINISTRATION</span>
-    <a href="#audit-log" class="nav-subitem" data-view-target="audit-log" aria-label="Change History" title="Change History">{_icon('log')}<span>Change History</span></a>
+    {f'<a href="#audit-log" class="nav-subitem" data-view-target="audit-log" aria-label="Change History" title="Change History">{_icon("log")}<span>Change History</span></a>' if can_read_audit else ''}
     <a href="#admin-sessions" class="nav-subitem" data-view-target="admin-sessions" aria-label="Administrator Sessions" title="Administrator Sessions">{_icon('shield')}<span>Admin sessions</span></a>
     <span class="nav-section-title">SETUP</span>
     <a href="#setup-planner" class="nav-subitem" data-view-target="setup-planner" aria-label="Setup Planner" title="Setup Planner">{_icon('plan')}<span>Setup Planner</span></a>
