@@ -1597,23 +1597,14 @@ document.addEventListener('click', async (event) => {
     const sessionCard = button.closest('.session-card');
     form.reset();
     form.session_id.value = button.dataset.sessionId;
-    const apply = $('button[type="submit"]', form);
-    apply.disabled = true;
+    $('button[type="submit"]', form).disabled = true;
     $('[data-terminate-user]', form).textContent = sessionCard.dataset.sessionUser || 'VPN device';
     $('[data-confirm-target]', form).textContent = sessionCard.dataset.sessionUser || 'VPN device';
     const facts = $$('dd', sessionCard).map((item) => item.textContent.trim());
     $('[data-terminate-detail]', form).textContent = `${facts[0] || 'VPN session'} · ${facts[1] || 'unknown source'}`;
     openDialog('terminate-dialog');
-    setStatus(form, 'Reviewing the current live session…');
-    try {
-      const response = await resultOrError(await api(`/api/sessions/${encodeURIComponent(form.session_id.value)}/preview`, { method: 'POST', body: {} }));
-      const review = await response.json();
-      form.review_token.value = review.review_token || '';
-      setStatus(form, `${review.username}: this active VPN connection will be disconnected. It may reconnect while the account remains enabled.`);
-      apply.disabled = !review.review_token;
-    } catch (error) {
-      setStatus(form, `${error.message} Termination is unavailable until the current session can be reviewed.`, true);
-    }
+    $('[data-terminate-review]', form).disabled = false;
+    setStatus(form, 'Enter a reason and review the current live session before disconnecting it.');
   }
   button.closest('details')?.removeAttribute('open');
 });
@@ -1931,11 +1922,43 @@ $('#terminate-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Disconnecting the device…');
   try {
-    await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), review_token: data.get('review_token') } }));
+    await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), reason: data.get('reason'), review_token: data.get('review_token') } }));
     setStatus(form, 'Session terminated.');
     toast('OpenVPN session terminated.');
     setTimeout(() => { getDialog('terminate-dialog').close(); pollStatus(); }, 450);
   } catch (error) { form.review_token.value = ''; $('button[type="submit"]', form).disabled = true; setStatus(form, error.message, true); setBusy(form, false); }
+});
+
+$('#terminate-form')?.addEventListener('input', (event) => {
+  if (event.target.matches('[name="reason"], [name="confirmation"]')) {
+    const form = event.currentTarget;
+    form.elements.review_token.value = '';
+    $('button[type="submit"]', form).disabled = true;
+  }
+});
+
+$('[data-terminate-review]')?.addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const form = button.closest('#terminate-form');
+  if (!form.reportValidity()) return;
+  const data = new FormData(form);
+  button.disabled = true;
+  setStatus(form, 'Checking the live session and binding your reason to this review…');
+  try {
+    const response = await resultOrError(await api(`/api/sessions/${encodeURIComponent(data.get('session_id'))}/preview`, {
+      method: 'POST', body: { reason: data.get('reason') },
+    }));
+    const review = await response.json();
+    form.elements.review_token.value = review.review_token || '';
+    setStatus(form, `${review.username}: disconnect this active VPN session? Reason: ${review.reason}. It may reconnect while the account remains enabled.`);
+    $('button[type="submit"]', form).disabled = !review.review_token;
+  } catch (error) {
+    form.elements.review_token.value = '';
+    $('button[type="submit"]', form).disabled = true;
+    setStatus(form, error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $('#revoke-device-form')?.addEventListener('input', (event) => {
