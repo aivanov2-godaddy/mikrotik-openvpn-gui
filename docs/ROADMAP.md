@@ -291,6 +291,15 @@ are verified partial milestones, not issue completions:
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
+The latest publication supersedes the older image digests recorded in the #203
+row above: commit `a54302145af109efc7003538b342ecb1f91f73c2` was published by
+[run 37131566738](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37131566738).
+ARM64 digest: `sha256:cf0743d880e47762b9701b3a80fe3a9c1c86bcfd7074e804e5efbfb4e7345ed6`;
+AMD64 digest: `sha256:ee6a928cdc187845cf45b83e63e66a7173627a04caa9a4a528c10b1cc0aef8b9`.
+The stable manifest was fetched and confirmed to reference this commit. These
+are registry/public-manifest checks only; deployment, canary health, and
+production read-back for this newer revision are not verified.
+
 The `routeros-stable` manifest was refreshed by publication run
 [37085223385](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37085223385)
 for runtime commit `01055d4efdc041c2443f41e08235896bf6f4f754`. Its ARM64 image
