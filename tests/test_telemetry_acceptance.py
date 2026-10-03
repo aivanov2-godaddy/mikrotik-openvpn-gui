@@ -21,6 +21,28 @@ def records(*values: dict[str, object]) -> list[str]:
     return [json.dumps(value) for value in values]
 
 
+def acceptance_window(sample: dict[str, object]) -> list[str]:
+    return records(
+        sample,
+        {
+            "type": "reconnect", "recovery_seconds": 1,
+            "snapshot_recovered": True, "api_interruption_tested": True,
+            "rest_fallback_available": True,
+        },
+        {"type": "comparison", "binary_matches_rest": True},
+        {
+            "type": "security", "unauthenticated_denied": True,
+            "secret_bearing_payload": False, "secret_free_logs": True,
+        },
+        {
+            "type": "verification", "event_latency_measured": True,
+            "traffic_freshness_measured": True, "counter_reset_tested": True,
+            "event_integrity_tested": True, "binary_rest_parity_tested": True,
+            "secret_scan_complete": True,
+        },
+    )
+
+
 class TelemetryAcceptanceTests(unittest.TestCase):
     def test_complete_acceptance_window_passes(self) -> None:
         code, result = evaluate(
@@ -70,6 +92,29 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(result["healthy"])
         self.assertEqual(result["failed_gates"], [])
+
+    def test_router_resource_measurements_are_required_individually(self) -> None:
+        sample: dict[str, object] = {
+            "transport": "binary", "latency_ms": 180, "event_age_seconds": 0.7,
+            "router_cpu_percent": 22, "router_memory_percent": 34,
+            "router_storage_percent": 12, "container_healthy": True,
+            "event_sequence": 101, "event_lost": False,
+            "counter_reset": True, "counter_reset_recovered": True,
+        }
+        expected_gates = {
+            "router_cpu_percent": "router_cpu_measurement_missing",
+            "router_memory_percent": "router_memory_measurement_missing",
+            "router_storage_percent": "router_storage_measurement_missing",
+        }
+
+        for field, expected_gate in expected_gates.items():
+            with self.subTest(field=field):
+                incomplete_sample = dict(sample)
+                incomplete_sample.pop(field)
+                code, result = evaluate(acceptance_window(incomplete_sample), limits=LIMITS)
+                self.assertEqual(code, 1)
+                self.assertFalse(result["healthy"])
+                self.assertIn(expected_gate, result["failed_gates"])
 
     def test_reconnect_and_secret_failures_are_reported(self) -> None:
         code, result = evaluate(
