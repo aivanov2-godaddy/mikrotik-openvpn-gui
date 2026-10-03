@@ -56,9 +56,12 @@ fields, the permission posture is `unknown`, not a complete/verified result.
 Raw account, group, service, address, certificate, and firewall records are
 not included in the report.
 
-This interpretation follows MikroTik's primary references for
-[IP Services](https://help.mikrotik.com/docs/spaces/ROS/pages/103841820/Services)
-and [RouterOS users and groups](https://help.mikrotik.com/docs/spaces/ROS/pages/8978504/User).
+This interpretation follows MikroTik's current primary references for
+[`/ip/service`](https://manual.mikrotik.com/docs/cli-reference/ip/service/)
+and [RouterOS users and groups](https://manual.mikrotik.com/docs/authentication-authorization-accounting/user/).
+The diagnostic reads the current `available-from` service property and retries
+the deprecated `address` spelling when an older RouterOS version rejects it.
+In either case only the derived restriction status is exposed, never the range.
 Because RouterOS service properties and permission behavior can vary by
 version, the diagnostic is advisory and read-only; verify effective access at
 the router and network boundary before treating exposure as resolved.

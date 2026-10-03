@@ -359,8 +359,13 @@ class RouterOSClient:
         if group_name and group is None and states.get("group") == "verified":
             states["group"] = "unknown"
         services = read(
-            "/ip/service", "services", "name,disabled,address,certificate",
+            "/ip/service", "services", "name,disabled,available-from,address,certificate",
         )
+        # RouterOS currently documents `available-from`; `address` is its
+        # deprecated alias. Older releases may reject the newer property in a
+        # .proplist, so retry with the legacy spelling without widening reads.
+        if services is None and states.get("services") == "unknown":
+            services = read("/ip/service", "services", "name,disabled,address,certificate")
         return {"account": account, "group": group, "services": services, "source_status": states}
 
     def create_configuration_export(

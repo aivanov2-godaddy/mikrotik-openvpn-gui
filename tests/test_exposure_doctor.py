@@ -47,6 +47,17 @@ class ExposureDoctorTests(unittest.TestCase):
         self.assertEqual(checks["service-api-ssl"]["status"], "unknown")
         self.assertEqual(checks["unrecognized-policy-flags"]["status"], "unknown")
 
+    def test_current_available_from_service_field_is_derived_and_redacted(self):
+        values = self.inputs()
+        values["services"] = [
+            {"name": "api-ssl", "disabled": "no", "available-from": "10.22.0.0/24", "certificate": "private-cert-name"},
+        ]
+        result = exposure_doctor_snapshot(**values)
+        checks = {item["id"]: item for item in result["checks"]}
+        self.assertEqual(checks["service-api-ssl"]["status"], "verified")
+        self.assertNotIn("10.22.0.0/24", str(result))
+        self.assertNotIn("private-cert-name", str(result))
+
     def test_unavailable_and_unsupported_sources_remain_distinct(self):
         result = exposure_doctor_snapshot(
             account=None, group=None, services=None,

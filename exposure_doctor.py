@@ -156,7 +156,10 @@ def exposure_doctor_snapshot(
                     "Verify the service in WinBox; service names and properties vary by RouterOS version.")
                 continue
             disabled = _truth(item.get("disabled"))
-            scope = _address_scope(item.get("address"))
+            source_ranges = item.get("available-from")
+            if source_ranges is None:
+                source_ranges = item.get("address")
+            scope = _address_scope(source_ranges)
             if disabled is True:
                 state = "verified"
                 message = f"{label} is disabled."

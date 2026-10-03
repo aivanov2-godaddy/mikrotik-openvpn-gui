@@ -28,13 +28,40 @@ class RouterOSClientTests(unittest.TestCase):
         self.assertEqual(snapshot["account"]["name"], "admin")
         self.assertNotIn("password", snapshot["account"])
         self.assertEqual(set(snapshot["group"]), {"name", "policy"})
-        self.assertTrue(all(set(service) <= {"name", "disabled", "address", "certificate"} for service in snapshot["services"]))
+        self.assertTrue(all(set(service) <= {"name", "disabled", "address", "available-from", "certificate"} for service in snapshot["services"]))
         self.assertEqual({path for path, _ in mock.state.rest_reads}, {"/user", "/user/group", "/ip/service"})
         self.assertEqual(
             {path: query.get(".proplist") for path, query in mock.state.rest_reads},
             {"/user": ["name,group,disabled,address"], "/user/group": ["name,policy"],
-             "/ip/service": ["name,disabled,address,certificate"]},
+             "/ip/service": ["name,disabled,available-from,address,certificate"]},
         )
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_management_exposure_falls_back_for_legacy_routeros_service_property(self) -> None:
+        with MockRouterOS() as mock:
+            mock.state.reject_available_from_service_property = True
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
+
+        service_queries = [query[".proplist"][0] for path, query in mock.state.rest_reads if path == "/ip/service"]
+        self.assertEqual(service_queries, [
+            "name,disabled,available-from,address,certificate",
+            "name,disabled,address,certificate",
+        ])
+        self.assertEqual(snapshot["source_status"]["services"], "verified")
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_management_exposure_keeps_current_service_property_allowlisted(self) -> None:
+        with MockRouterOS() as mock:
+            mock.state.ip_services = [
+                {"name": "api-ssl", "disabled": "no", "available-from": "192.0.2.0/24", "certificate": "private-cert"},
+            ]
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
+
+        self.assertEqual(snapshot["services"], [
+            {"name": "api-ssl", "disabled": "no", "available-from": "192.0.2.0/24", "certificate": "private-cert"},
+        ])
         self.assertEqual(mock.state.mutation_requests, [])
 
     def test_missing_routeros_group_is_unknown_not_verified(self) -> None:

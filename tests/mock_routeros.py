@@ -97,6 +97,7 @@ class State:
         self.mutation_requests: list[str] = []
         self.rest_reads: list[tuple[str, dict[str, list[str]]]] = []
         self.unsupported_management_services = False
+        self.reject_available_from_service_property = False
         self.active_sessions: dict[str, dict[str, Any]] = {
             "*A1": {
                 ".id": "*A1",
@@ -233,6 +234,9 @@ class MockHandler(BaseHTTPRequestHandler):
             elif path == "/ip/service":
                 if state.unsupported_management_services:
                     self._json({"error": "not found"}, 404)
+                    return
+                if state.reject_available_from_service_property and "available-from" in query.get(".proplist", [""])[0]:
+                    self._json({"error": 400, "message": "Bad Request", "detail": "unknown parameter available-from"}, 400)
                     return
                 self._json(state.ip_services)
             elif path == "/ppp/secret":
