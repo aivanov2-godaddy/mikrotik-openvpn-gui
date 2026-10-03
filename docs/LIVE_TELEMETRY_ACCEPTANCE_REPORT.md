@@ -23,8 +23,8 @@ have not been recorded as complete.
 | Latest recorded deployed runtime commit | a2d0ce2 (`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`) |
 | Latest recorded deployed ARM64 tag | `sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64` |
 | Published ARM64 manifest digest | `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38` |
-| Latest stable registry publication | `10930dfc34f0f7c059ac6398a0494475f464149f` (run [37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210)) |
-| Latest published ARM64 / AMD64 digests | `sha256:72006cded1bac627c0890f4ce9ac696c1a7505e146fba5958396b5c8efa72247` / `sha256:fde9f46830a3695fb0ed8f5774156ea6f8b9e016d5059f351599eb3064fdae4c` |
+| Latest stable registry publication | `34a880970ecc6ce622c257e3307c9b7cc2885b96` (run [37149717625](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37149717625)) |
+| Latest published ARM64 / AMD64 digests | `sha256:8c2346ea7971b5e26a47af34cb07bc27a39516e15c9860dd2f9bee76f1e0f184` / `sha256:aad9d850feba0b72c7db4660858cef6e747b8855f200d1d75957e3db3f9394fd` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS at acceptance / current | RouterOS 7.24.4 stable during acceptance; 7.24.5 stable currently / arm64 |
 
@@ -40,12 +40,12 @@ Access.
 ## Latest stable registry publication — 2026-10-03
 
 The public `routeros-stable` manifest now points to commit
-`10930dfc34f0f7c059ac6398a0494475f464149f`. Publication run
-[37147865210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37147865210)
+`34a880970ecc6ce622c257e3307c9b7cc2885b96`. Publication run
+[37149717625](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37149717625)
 passed source and rendered-browser verification, ARM64 and AMD64 builds,
 runtime smoke tests, and exact-digest provenance/SBOM verification. The
-published tags are `sha-10930dfc34f0f7c059ac6398a0494475f464149f-arm64` and
-`sha-10930dfc34f0f7c059ac6398a0494475f464149f-amd64`; the registry digests
+published tags are `sha-34a880970ecc6ce622c257e3307c9b7cc2885b96-arm64` and
+`sha-34a880970ecc6ce622c257e3307c9b7cc2885b96-amd64`; the registry digests
 are recorded above. The workflow summary now reports platform and architecture
 without shell command substitution.
 
