@@ -700,11 +700,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials, cookies, private keys, and profile contents are never
         included.
         """
-        allowed = (
-            capability in (session.capabilities or frozenset())
-            if session.capabilities is not None
-            else has_capability(session.role, capability)
-        )
+        allowed = self._capability_allowed(session, capability)
         if allowed:
             return True
         target = action or urllib.parse.urlsplit(self.path).path
@@ -1372,7 +1368,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._metadata_backup(session)
             return
         if path == "/api/connections.csv":
-            if not self._require_session(api=True):
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "sessions.read"):
                 return
             try:
                 start_at, end_at = self._report_range(query)
@@ -1402,7 +1399,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/usage.csv":
-            if not self._require_session(api=True):
+            session = self._require_session(api=True)
+            if not session or not self._require_capability(session, "sessions.read"):
                 return
             period_start = DashboardServer._quota_period_start(int(time.time()))
             usage = self.server.context.store.usage_summary(period_start)
@@ -2254,7 +2252,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if (
                     current_session is None
                     or current_session.auth_method != "routeros"
-                    or not has_capability(current_session.role, "sessions.read")
+                    or not self._capability_allowed(current_session, "sessions.read")
                 ):
                     return
                 active = self.server.context.router.list_active_ovpn_sessions(credentials)
@@ -2273,7 +2271,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _compliance_report(self) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_capability(session, "audit.read"):
+        if (
+            not session
+            or not self._require_capability(session, "audit.read")
+            or not self._require_capability(session, "sessions.read")
+        ):
             return
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         try:
