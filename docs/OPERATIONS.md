@@ -216,6 +216,15 @@ passwords, private keys, or profile contents.
 
 For an irreversible action, the dialog displays the exact RouterOS username that will be affected. The operator must type it exactly; the server validates that confirmation again before it creates the RouterOS checkpoint or changes anything. Suspending access is reversible. Removing access and terminating a live tunnel are not undoable by the dashboard.
 
+Before suspending a user, the dashboard reads the current account and active
+session inventory and displays the number of that user's tunnels that will be
+disconnected. The apply request carries a session-bound review receipt; if the
+account state or matching session IDs changed since preview, the request is
+rejected before checkpointing or changing RouterOS. This is a point-in-time
+review, not a guarantee that a new tunnel cannot appear between the check and
+the RouterOS account update; the account is disabled first and the handler then
+terminates and verifies remaining sessions.
+
 SQLite backups must be consistent:
 
 1. Run `python scripts/backup_sqlite.py --database /data/dashboard.sqlite --destination /secure/dashboard.sqlite` from an approved maintenance environment.

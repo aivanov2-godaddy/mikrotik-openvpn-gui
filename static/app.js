@@ -121,7 +121,9 @@ async function resultOrError(response) {
   if (response.ok) return response;
   let message = `Request failed (${response.status})`;
   try { message = (await response.json()).error || message; } catch (_) { /* response was not JSON */ }
-  throw new Error(message);
+  const error = new Error(message);
+  error.status = response.status;
+  throw error;
 }
 
 async function downloadResponse(response, fallback) {
@@ -1426,7 +1428,21 @@ document.addEventListener('click', async (event) => {
     form.user_id.value = row.dataset.userId;
     $('[data-suspend-user]', form).textContent = row.dataset.userName;
     $('[data-confirm-target]', form).textContent = row.dataset.userName;
+    const apply = $('button[type="submit"]', form);
+    const impact = $('[data-suspend-impact]', form);
+    apply.disabled = true;
+    impact.textContent = 'Checking the current account and active sessions…';
     openDialog('suspend-dialog');
+    try {
+      const response = await resultOrError(await api(`/api/users/${encodeURIComponent(row.dataset.userId)}/suspend/preview`, { method: 'POST', body: {} }));
+      const preview = await response.json();
+      form.elements.review_token.value = preview.review_token || '';
+      const count = preview.active_sessions;
+      impact.textContent = `${preview.user}: ${count} active VPN session${count === 1 ? '' : 's'} will be disconnected. ${preview.effect}`;
+      apply.disabled = !preview.review_token;
+    } catch (error) {
+      impact.textContent = `${error.message} Suspension is unavailable until the impact can be reviewed.`;
+    }
   } else if (button.matches('[data-restore]') && row) {
     button.disabled = true;
     try {
@@ -1756,7 +1772,7 @@ $('#suspend-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Suspending access and checking live sessions…');
   try {
-    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST', body: { confirmation: data.get('confirmation') } }));
+    const response = await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST', body: { confirmation: data.get('confirmation'), review_token: data.get('review_token') } }));
     const result = await response.json();
     const verification = result.remaining === null
       ? ' Access is blocked; live-session verification was unavailable.'
@@ -1766,6 +1782,11 @@ $('#suspend-form')?.addEventListener('submit', async (event) => {
     setTimeout(() => location.reload(), 700);
   } catch (error) {
     setStatus(form, error.message, true);
+    if (error.status === 409) {
+      form.elements.review_token.value = '';
+      $('[data-suspend-impact]', form).textContent = 'Account or sessions changed. Close and reopen this review to refresh the impact.';
+      $('button[type="submit"]', form).disabled = true;
+    }
     setBusy(form, false);
   }
 });

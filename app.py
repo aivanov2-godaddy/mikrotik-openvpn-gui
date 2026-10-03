@@ -1533,6 +1533,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._policy_template_action(match.group(1), match.group(2))
             return
+        match = re.fullmatch(r"/api/users/([^/]+)/suspend/preview", path)
+        if match:
+            self._preview_user_suspend(urllib.parse.unquote(match.group(1)))
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/(suspend|restore)", path)
         if match:
             self._set_user_access(
@@ -3667,6 +3671,47 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         self._json({"error": "Saved view was not found"}, status=HTTPStatus.NOT_FOUND)
 
+    def _user_suspend_receipt(
+        self, session: Session, user: dict[str, Any], active_sessions: list[dict[str, Any]],
+    ) -> str:
+        receipt = {
+            "user_id": str(user.get("id", "")),
+            "username": str(user.get("name", "")),
+            "disabled": bool(user.get("disabled")),
+            "active_session_ids": sorted(
+                str(item.get("id", "")) for item in active_sessions
+                if str(item.get("name", "")) == str(user.get("name", ""))
+            ),
+        }
+        return hmac.new(
+            session.csrf_token.encode("utf-8"),
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def _preview_user_suspend(self, user_id: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
+            return
+        credentials = self._credentials(session)
+        try:
+            user = self._find_user(credentials, user_id)
+            active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+        except (RouterOSError, ValueError):
+            self._json({
+                "error": "RouterOS could not verify the account and active-session state. Refresh and review before suspending.",
+                "review_available": False,
+            }, status=HTTPStatus.BAD_GATEWAY)
+            return
+        username = str(user["name"])
+        active_count = sum(1 for item in active_sessions if str(item.get("name", "")) == username)
+        self._json({
+            "user": username,
+            "active_sessions": active_count,
+            "effect": "Block new logins and disconnect the active sessions currently shown; device profiles remain issued.",
+            "review_token": self._user_suspend_receipt(session, user, active_sessions),
+        })
+
     def _set_user_access(self, user_id: str, *, suspended: bool) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
@@ -3678,6 +3723,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             username = str(user["name"])
             if suspended and not self._require_target_confirmation(data, username):
                 return
+            if suspended:
+                try:
+                    active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+                except RouterOSError:
+                    self._json({
+                        "error": "RouterOS could not verify active sessions. Review the suspension again before applying.",
+                        "verification": "unknown",
+                    }, status=HTTPStatus.BAD_GATEWAY)
+                    return
+                expected_receipt = self._user_suspend_receipt(session, user, active_sessions)
+                supplied_receipt = str(data.get("review_token", ""))
+                if not supplied_receipt or not hmac.compare_digest(supplied_receipt, expected_receipt):
+                    self._json({
+                        "error": "The account or active-session state changed since review. Review the suspension again before applying.",
+                        "code": "routeros.review_stale",
+                    }, status=HTTPStatus.CONFLICT)
+                    return
             if not self._checkpoint(session, "user.suspend" if suspended else "user.restore"):
                 return
             mutation_error: RouterOSError | None = None
