@@ -291,18 +291,19 @@ are verified partial milestones, not issue completions:
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication now verifies each detached attestation against the exact image digest, expected signer workflow, and source commit, with verification guidance and trust boundaries documented (#249). | RouterOS hardware compatibility and resource baselines remain unverified. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
-The current `routeros-stable` manifest targets runtime commit
-`194b6f4264f8ec96eb775dbe71e6ee76bce33efe`; the published ARM64 image digest
-is `sha256:c42dca20cf0703d65fb2b2da7d74ae5c2430b5340a4f927a0d4dac5d0ca99a75`.
-Publication run [37076261020](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37076261020) succeeded, and the image provenance and detached
-SPDX attestation verified against the expected workflow and source commit. The
-most recent router observation on 2026-10-03 was still revision
-`a9deb20a50363712fa8c65f933163f2ffd5678ce` with healthy `/readyz` on canary and
-production after a 60-second canary soak and production repull. Thus the newer
-stable candidate `194b6f4` is published but is not yet observed on the router.
-The RouterOS UI does not expose the registry manifest digest for independent
-on-device comparison. This is partial deployment evidence, not completion of
-#199's long-window acceptance criteria; public readiness remains gated behind
-Cloudflare Access.
+The `routeros-stable` manifest was refreshed by publication run
+[37082214037](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37082214037)
+for runtime commit `a46b0ad4574be7b3e43521124b96d4eefe68d07f`. Its ARM64 image
+digest is `sha256:72ca5966dcfe2935f1cb6ecc476d11da928b85d447290146b42743f75631c105`
+and AMD64 digest is
+`sha256:04d41e61e4e20b71958be5030b21e39a0123dc5c16a8d123a4073a7236e552e0`.
+Both architecture jobs passed exact-digest provenance/SBOM verification and
+runtime smoke tests. The last image revision previously observed from the
+application readiness endpoint remains `a9deb20a50363712fa8c65f933163f2ffd5678ce`;
+a 2026-10-03 read-only WinBox check showed both app containers healthy, but did
+not establish their installed image revisions or digests. Thus `a46b0ad` is
+published but is not verified deployed on the router. This is partial
+deployment evidence, not completion of #199's long-window acceptance criteria;
+public readiness remains gated behind Cloudflare Access.
 
 Each issue is delivered as a focused PR with CI and acceptance evidence. Dependency order may pull security or reliability work forward when required to make a feature safe. Core live telemetry, REST/SSE fallback, RouterOS as source of truth, redaction, and review-first destructive actions remain product invariants.
