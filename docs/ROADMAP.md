@@ -309,8 +309,10 @@ row above: commit `a54302145af109efc7003538b342ecb1f91f73c2` was published by
 ARM64 digest: `sha256:cf0743d880e47762b9701b3a80fe3a9c1c86bcfd7074e804e5efbfb4e7345ed6`;
 AMD64 digest: `sha256:ee6a928cdc187845cf45b83e63e66a7173627a04caa9a4a528c10b1cc0aef8b9`.
 The stable manifest was fetched and confirmed to reference this commit. These
-are registry/public-manifest checks only; deployment, canary health, and
-production read-back for this newer revision are not verified.
+registry checks are complemented by the RouterOS read-back recorded above:
+both canary and production reported healthy with this configured tag. The
+router did not expose the registry content digest, so exact on-device digest
+identity, sustained acceptance, and rollback remain unverified.
 
 The `routeros-stable` manifest was refreshed by publication run
 [37085223385](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37085223385)
