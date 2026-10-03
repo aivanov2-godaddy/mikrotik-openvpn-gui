@@ -832,6 +832,12 @@ class DashboardIntegrationTests(unittest.TestCase):
         operations = json.loads(payload)["operations_timeline"]["events"]
         self.assertFalse(any(item["source"] == "dashboard audit" for item in operations))
         self.assertFalse(any(item.get("actor") for item in operations))
+        status, _, payload = self.request("GET", "/api/telemetry", headers={"Cookie": cookie})
+        self.assertEqual(status, 200)
+        telemetry_status = json.loads(payload)
+        self.assertIn("transport", telemetry_status)
+        self.assertNotIn("sessions", telemetry_status)
+        self.assertNotIn("router_password", payload.decode("utf-8").casefold())
         csrf_headers = {
             "Content-Type": "application/json",
             "Cookie": cookie,

@@ -40,6 +40,12 @@ additionally require CSRF. API-token access is restricted by the token's
 stored scopes. Unknown roles fail closed through the central capability
 matrix.
 
+`GET /api/telemetry` is intentionally limited to a RouterOS-authenticated
+dashboard session, including the `read_only` role, and returns transport
+health/status only. It does not return VPN session records and does not require
+`sessions.read`; API-token sessions are not accepted by this endpoint. The
+read-only role boundary test verifies this explicit exception.
+
 ## Limits of this evidence
 
 Automated route tests establish the listed dispatch and role-denial assertions;
