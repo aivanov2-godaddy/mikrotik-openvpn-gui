@@ -1476,9 +1476,22 @@ document.addEventListener('click', async (event) => {
     const form = $('#delete-form');
     form.reset();
     form.user_id.value = row.dataset.userId;
+    form.review_token.value = '';
     $('[data-delete-user]', form).textContent = row.dataset.userName;
     $('[data-confirm-target]', form).textContent = row.dataset.userName;
+    const apply = $('button[type="submit"]', form);
+    apply.disabled = true;
     openDialog('delete-dialog');
+    setStatus(form, 'Checking the current account and managed certificates…');
+    try {
+      const response = await resultOrError(await api(`/api/users/${encodeURIComponent(row.dataset.userId)}/delete/preview`, { method: 'POST', body: {} }));
+      const review = await response.json();
+      form.review_token.value = review.review_token || '';
+      setStatus(form, `${review.username}: deleting this account will revoke ${review.managed_devices} managed device certificate${review.managed_devices === 1 ? '' : 's'} before removing VPN access. Type the account name below to confirm.`);
+      apply.disabled = !review.review_token;
+    } catch (error) {
+      setStatus(form, `${error.message} Deletion is unavailable until the current impact can be reviewed.`, true);
+    }
   } else if (button.matches('[data-device-revoke]')) {
     const form = $('#revoke-device-form');
     form.reset();
@@ -1929,11 +1942,17 @@ $('#delete-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Removing access and its managed device records…');
   try {
-    await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation') } }));
+    await resultOrError(await api(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), review_token: data.get('review_token') } }));
     setStatus(form, 'Access removed.');
     toast('VPN user and managed access removed.');
     setTimeout(() => location.reload(), 500);
-  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) {
+    form.review_token.value = '';
+    $('button[type="submit"]', form).disabled = true;
+    setStatus(form, `${error.message} The review has expired or been consumed; close and reopen the dialog to inspect current state.`, true);
+    setBusy(form, false);
+    $('button[type="submit"]', form).disabled = true;
+  }
 });
 
 async function runSetupPreflight() {
