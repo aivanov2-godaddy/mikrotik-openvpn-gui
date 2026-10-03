@@ -4944,9 +4944,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "session.terminate"):
                 return
-            self.server.context.router.terminate_session(
-                credentials, session_id=session_id
-            )
+            mutation_error: RouterOSError | None = None
+            try:
+                self.server.context.router.terminate_session(
+                    credentials, session_id=session_id
+                )
+            except RouterOSError as error:
+                # RouterOS may have committed the disconnect even when its response
+                # was lost. Reconcile the exact reviewed session before reporting it.
+                mutation_error = error
             try:
                 remaining = self.server.context.router.list_active_ovpn_sessions(credentials)
             except RouterOSError as error:
@@ -4958,6 +4964,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     details={
                         "verification": "unavailable",
                         "reason": type(error).__name__,
+                        **({"mutation_response": "unknown"} if mutation_error else {}),
                     },
                 )
                 self._json(
@@ -4986,7 +4993,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     action="session.terminate",
                     target=str(active["name"]),
                     status="failed",
-                    details={"verification": "session_still_active"},
+                    details={
+                        "verification": "session_still_active",
+                        **({"mutation_response": "error"} if mutation_error else {}),
+                    },
                 )
                 self._json(
                     {
@@ -5009,6 +5019,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "verification": "session_absent",
                     "source_address": active.get("source_address", ""),
                     "vpn_address": active.get("vpn_address", ""),
+                    **({"mutation_response": "lost"} if mutation_error else {}),
                 },
             )
             self._json({"ok": True, "verified": True})
