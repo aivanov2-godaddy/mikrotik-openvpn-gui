@@ -34,25 +34,27 @@ deployment model.
 
 ### Latest published runtime image and RouterOS tag read-back
 
-Runtime revision `a54302145af109efc7003538b342ecb1f91f73c2` includes prior
-management-source diagnostics, telemetry queue-delay metrics, and redacted
-session-termination audit data, plus DST-safe operations timeline date filters
-(PR [#340](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/340))
-and explicit partial/unknown recovery reporting when generated PPP rate-profile
-state remains after failed account provisioning (PR
-[#341](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/341)).
-Publish workflow [37131566738](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37131566738)
+Runtime revision `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3` includes the
+previous published runtime plus Engine.IO polling SID-to-session binding (PR
+[#345](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/345)),
+telemetry process-epoch snapshot recovery (PR
+[#346](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/346)),
+read-only telemetry endpoint authorization documentation and contract coverage
+(PR [#347](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/347)),
+and light-theme contrast plus accessible Add-user dialog improvements (PR
+[#348](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/348)).
+Publish workflow [37135796169](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37135796169)
 completed both architecture builds, published-runtime smoke tests, stable
 manifest publication, and exact-digest provenance/SBOM attestation verification
 on 2026-10-03.
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-a54302145af109efc7003538b342ecb1f91f73c2-arm64` | `sha256:cf0743d880e47762b9701b3a80fe3a9c1c86bcfd7074e804e5efbfb4e7345ed6` |
-| CHR/x86 AMD64 (evaluation) | `sha-a54302145af109efc7003538b342ecb1f91f73c2-amd64` | `sha256:ee6a928cdc187845cf45b83e63e66a7173627a04caa9a4a528c10b1cc0aef8b9` |
+| RouterOS ARM64 | `sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64` | `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38` |
+| CHR/x86 AMD64 (evaluation) | `sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-amd64` | `sha256:800de775757f38b4a7a7c13501d664a1f9afa20a3276f766797d1de5343ce5c3` |
 
 The public `routeros-stable` manifest was fetched and points to commit
-`a54302145af109efc7003538b342ecb1f91f73c2`. On 2026-10-03, authenticated
+`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`. On 2026-10-03, authenticated
 RouterOS read-back showed both the canary and production containers using the
 ARM64 immutable tag above; both were marked healthy. RouterOS reports the
 configured image tag, not the local registry content digest, so digest
