@@ -34,17 +34,19 @@ deployment model.
 
 ### Latest published runtime image (not yet verified on RouterOS)
 
-Runtime revision `5260970ea3e7d4d637cff3d54c31d108c3d33af9` includes merged
-bounded session-history correlation, non-causal temporal context links, and
-dual-scope timeline export (PR [#321](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/321)).
-Publish workflow [37119886872](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37119886872)
+Runtime revision `27c3ef3daa6dff0d8da9b63d8490b6115e9d97d8` includes
+read-only RouterOS management-source allowlist diagnostics (PR
+[#331](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/331)) and
+bounded telemetry gateway queue-delay metrics (PR
+[#334](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/334)).
+Publish workflow [37126681318](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37126681318)
 completed both architecture builds, published-runtime smoke tests, and
 exact-digest provenance/SBOM attestation verification on 2026-10-03.
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-5260970ea3e7d4d637cff3d54c31d108c3d33af9-arm64` | `sha256:f043f3c8140071ea6089f88decb6be24e818ca47c2ae5260672f95a3201edb09` |
-| CHR/x86 AMD64 (evaluation) | `sha-5260970ea3e7d4d637cff3d54c31d108c3d33af9-amd64` | `sha256:9e86c086444bbecd0eafd49ca51343396ddfbfc411844e08c4d67941507db65f` |
+| RouterOS ARM64 | `sha-27c3ef3daa6dff0d8da9b63d8490b6115e9d97d8-arm64` | `sha256:210151a9f3f0da67ee1fcac7a74e08fda25fadf68772c0020f8ae15b983046f2` |
+| CHR/x86 AMD64 (evaluation) | `sha-27c3ef3daa6dff0d8da9b63d8490b6115e9d97d8-amd64` | `sha256:fd030dad01ccade1d360d49a7139879f8097a77647bb576dc59f30398e85895d` |
 
 These are published artifacts, not a deployment claim. The ARM64 image has
 not been verified on the RouterOS canary or production containers, and no
