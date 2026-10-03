@@ -313,6 +313,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'data-exposure-doctor', page)
         self.assertIn(b'data-view="audit-log"', page)
         self.assertIn(b"Change History", page)
+
         self.assertIn(b"not a complete RouterOS telemetry timeline", page)
         self.assertIn(b"up to 100 entries \xc2\xb7 audit only", page)
         self.assertIn(b'data-history-category aria-label="Filter history by event"', page)
@@ -526,6 +527,96 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(payload)["compatible"])
+
+    def test_sensitive_route_matrix_fails_closed_for_anonymous_requests(self) -> None:
+        """Cover route dispatch auth gates independently of individual handler tests."""
+        read_routes = (
+            "/api/telemetry", "/api/admin/sessions", "/api/admin/api-tokens",
+            "/api/reports/compliance.zip", "/api/reports/diagnostics.zip",
+            "/api/release/verify", "/api/policy-templates", "/api/users",
+            "/api/bulk/views", "/api/status", "/api/service-health",
+            "/api/observability", "/api/setup-preflight", "/api/audit.csv",
+            "/api/audit.json", "/api/backups/metadata.zip", "/api/connections.csv",
+            "/api/usage.csv", "/metrics", "/api/events",
+        )
+        write_routes = (
+            "/api/users", "/api/users/test-user/preview", "/api/bulk/preview",
+            "/api/bulk/apply", "/api/bulk/views", "/api/setup-plan",
+            "/api/openvpn-foundation-plan", "/api/admin/api-tokens",
+            "/api/admin/break-glass/plan", "/api/network/segment-plan",
+            "/api/profile/diagnose", "/api/connection-doctor",
+            "/api/security/exposure-doctor", "/api/backups/preflight",
+            "/api/backups/validate", "/api/backups/restore-plan",
+            "/api/policy-templates", "/api/policy-templates/test/preview",
+            "/api/policy-templates/test/apply", "/api/users/test-user/suspend",
+            "/api/users/test-user/restore", "/api/users/test-user/profiles",
+            "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
+            "/api/users/test-user/duplicate", "/api/alerts/1/ack",
+        )
+        self.cookie = ""
+        self.csrf = ""
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        for path in read_routes:
+            with self.subTest(method="GET", path=path):
+                status, _, payload = self.request("GET", path)
+                self.assertEqual(status, 401)
+                self.assertNotIn(b"routerpass", payload)
+                self.assertNotIn(b"user-one", payload)
+
+        body = json.dumps({}).encode("utf-8")
+        for path in write_routes:
+            with self.subTest(method="POST", path=path):
+                status, _, payload = self.request(
+                    "POST", path, body=body, headers={"Content-Type": "application/json"},
+                )
+                self.assertEqual(status, 401)
+                self.assertNotIn(b"routerpass", payload)
+                self.assertNotIn(b"user-one", payload)
+
+        self.login()
+        for path in write_routes:
+            with self.subTest(method="POST without CSRF", path=path):
+                status, _, payload = self.request(
+                    "POST", path, body=body,
+                    headers={"Content-Type": "application/json", "Cookie": self.cookie},
+                )
+                self.assertEqual(status, 403)
+                self.assertNotIn(b"routerpass", payload)
+                self.assertNotIn(b"user-one", payload)
+
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
+    def test_read_only_role_cannot_cross_audit_or_mutation_capability_boundaries(self) -> None:
+        session = self.server.context.sessions.create(
+            "viewer", "routerpass", role="read_only", source_address="127.0.0.1",
+        )
+        cookie = f"vpn_session={session.session_id}"
+        csrf_headers = {
+            "Content-Type": "application/json",
+            "Cookie": cookie,
+            "X-CSRF-Token": session.csrf_token,
+        }
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        for path in ("/api/admin/api-tokens", "/api/audit.csv", "/api/audit.json"):
+            with self.subTest(method="GET", path=path):
+                status, _, payload = self.request("GET", path, headers={"Cookie": cookie})
+                self.assertEqual(status, 403)
+                self.assertNotIn(b"routerpass", payload)
+
+        for path in (
+            "/api/users", "/api/policy-templates", "/api/users/test-user/profiles",
+            "/api/devices/test-device/revoke/preview", "/api/admin/api-tokens",
+        ):
+            with self.subTest(method="POST", path=path):
+                status, _, payload = self.request(
+                    "POST", path, body=b"{}", headers=csrf_headers,
+                )
+                self.assertEqual(status, 403)
+                self.assertNotIn(b"routerpass", payload)
+
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
         self.login()
