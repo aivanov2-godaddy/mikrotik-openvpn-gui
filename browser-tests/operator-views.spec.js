@@ -77,6 +77,29 @@ for (const view of views) {
   });
 }
 
+test('active alert recurrence is announced without creating duplicate rows', async ({ page }) => {
+  await page.route('**/api/status', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.alerts = [{
+      id: 9001,
+      severity: 'critical',
+      title: 'Access restriction needs review',
+      details: 'RouterOS read-back remains uncertain.',
+      created_at: 1791030000,
+      last_seen_at: 1791030300,
+      occurrence_count: 3,
+    }];
+    await route.fulfill({ response, body: JSON.stringify(payload) });
+  });
+  await page.reload();
+
+  const row = page.locator('[data-alert-id="9001"]');
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('Seen 3 times');
+  await expect(row.locator('time')).toHaveAttribute('aria-label', /last seen.*first seen/i);
+});
+
 test('bulk destructive rationale stays hidden until needed and invalidates a stale review', async ({ page }) => {
   await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
   await page.locator('[data-user-select]').first().check();

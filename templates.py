@@ -618,13 +618,22 @@ def dashboard_page(
         severity = str(alert.get("severity", "info"))
         title = str(alert.get("title", "VPN alert"))
         details = str(alert.get("details", ""))
-        created = time.strftime("%d %b %Y · %H:%M", time.localtime(int(alert.get("created_at", 0) or 0)))
+        created_at = int(alert.get("created_at", 0) or 0)
+        last_seen_at = int(alert.get("last_seen_at", created_at) or created_at)
+        first_seen = time.strftime("%d %b %Y · %H:%M", time.localtime(created_at))
+        last_seen = time.strftime("%d %b %Y · %H:%M", time.localtime(last_seen_at))
+        last_seen_iso = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(last_seen_at))
+        occurrence_count = max(1, int(alert.get("occurrence_count", 1) or 1))
+        recurrence = (
+            f'<small class="alert-meta">Seen {occurrence_count} times</small>'
+            if occurrence_count > 1 else ""
+        )
         acknowledge = (
             f'<button type="button" class="table-action" data-alert-ack="{alert_id}">Acknowledge</button>'
             if can_manage_alerts else '<span class="muted-label">Read-only</span>'
         )
         alert_rows.append(
-            f'<li class="alert-item {html.escape(severity, quote=True)}" data-alert-id="{alert_id}"><i></i><div><strong>{html.escape(title)}</strong><small>{html.escape(details)}</small></div><time>{html.escape(created)}</time>{acknowledge}</li>'
+            f'<li class="alert-item {html.escape(severity, quote=True)}" data-alert-id="{alert_id}"><i></i><div><strong>{html.escape(title)}</strong><small>{html.escape(details)}</small>{recurrence}</div><time datetime="{html.escape(last_seen_iso, quote=True)}" aria-label="Last seen {html.escape(last_seen, quote=True)}, first seen {html.escape(first_seen, quote=True)}" title="First seen {html.escape(first_seen, quote=True)}">{html.escape(last_seen)}</time>{acknowledge}</li>'
         )
     alert_markup = "".join(alert_rows) or '<li class="alert-empty">No active alerts. Automated checks will appear here when action is needed.</li>'
 

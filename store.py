@@ -131,7 +131,9 @@ class MetadataStore:
                     title TEXT NOT NULL,
                     details TEXT NOT NULL,
                     acknowledged INTEGER NOT NULL DEFAULT 0,
-                    created_at INTEGER NOT NULL
+                    created_at INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL DEFAULT 0,
+                    occurrence_count INTEGER NOT NULL DEFAULT 1
                 );
 
                 CREATE TABLE IF NOT EXISTS policy_templates (
@@ -257,6 +259,20 @@ class MetadataStore:
             except sqlite3.OperationalError as error:
                 if "duplicate column name" not in str(error).lower():
                     raise
+            for column, definition in {
+                "last_seen_at": "INTEGER NOT NULL DEFAULT 0",
+                "occurrence_count": "INTEGER NOT NULL DEFAULT 1",
+            }.items():
+                try:
+                    connection.execute(f"ALTER TABLE alerts ADD COLUMN {column} {definition}")
+                except sqlite3.OperationalError as error:
+                    if "duplicate column name" not in str(error).lower():
+                        raise
+            connection.execute("UPDATE alerts SET last_seen_at=created_at WHERE last_seen_at=0")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_alerts_active_incident "
+                "ON alerts(action, target, acknowledged, created_at DESC)"
+            )
             connection.execute(
                 """CREATE INDEX IF NOT EXISTS idx_integration_outbox_active
                    ON integration_outbox(delivered_at, dead_lettered_at, next_attempt_at, created_at)"""
@@ -746,13 +762,35 @@ class MetadataStore:
         with self._lock, self._connection() as connection:
             duplicate = connection.execute(
                 """
-                SELECT 1 FROM alerts
+                SELECT id, severity, last_seen_at FROM alerts
                 WHERE action=? AND target=? AND acknowledged=0 AND created_at>?
+                ORDER BY created_at DESC, id DESC
                 LIMIT 1
                 """,
                 (action, target, created - ALERT_DEDUP_WINDOW_SECONDS),
             ).fetchone()
             if duplicate:
+                severity_rank = {"info": 0, "warning": 1, "critical": 2}
+                current_severity = str(duplicate["severity"])
+                chosen_severity = (
+                    severity if severity_rank.get(severity, 0) > severity_rank.get(current_severity, 0)
+                    else current_severity
+                )
+                connection.execute(
+                    """
+                    UPDATE alerts
+                    SET severity=?,
+                        title=CASE WHEN ? >= last_seen_at THEN ? ELSE title END,
+                        details=CASE WHEN ? >= last_seen_at THEN ? ELSE details END,
+                        last_seen_at=MAX(last_seen_at, ?),
+                        occurrence_count=occurrence_count+1
+                    WHERE id=?
+                    """,
+                    (
+                        chosen_severity, created, title, created, details, created,
+                        int(duplicate["id"]),
+                    ),
+                )
                 return False
             recent_count = connection.execute(
                 "SELECT COUNT(*) FROM alerts WHERE action=? AND created_at>?",
@@ -762,10 +800,11 @@ class MetadataStore:
                 return False
             connection.execute(
                 """
-                INSERT INTO alerts(severity, action, target, title, details, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO alerts(
+                    severity, action, target, title, details, created_at, last_seen_at, occurrence_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
                 """,
-                (severity, action, target, title, details, created),
+                (severity, action, target, title, details, created, created),
             )
             return True
 
@@ -774,7 +813,7 @@ class MetadataStore:
         with self._connection() as connection:
             where = "" if include_acknowledged else "WHERE acknowledged=0"
             rows = connection.execute(
-                f"SELECT * FROM alerts {where} ORDER BY id DESC LIMIT ?", (safe_limit,)
+                f"SELECT * FROM alerts {where} ORDER BY last_seen_at DESC, id DESC LIMIT ?", (safe_limit,)
             )
             return [dict(row) for row in rows]
 

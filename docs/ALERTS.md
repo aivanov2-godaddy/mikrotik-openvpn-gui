@@ -12,12 +12,19 @@ inventory. A certificate that has expired creates a critical alert. A
 certificate with 30 days or less remaining creates a warning. Alerts include
 only the certificate name, expiry timestamp, and the safe replacement action.
 
-The dashboard deduplicates the same alert for one hour and caps each alert
-action at ten new notifications per minute, so repeated live polls and bursts
-across many targets do not overwhelm the alert list. Alert throttling applies
-only to actionable alerts; it does not alter the durable audit or integration
-outbox paths. Alert targets remain in the authenticated dashboard alert record
-and are not emitted as metric labels or log fields. Use **Acknowledge** after
+The dashboard groups an unacknowledged alert with the same action and target
+for one hour. Recurrences update the latest safe title/details, last-seen time,
+and observation count on that alert; out-of-order older observations increase
+the count without replacing newer details, and a higher severity is retained
+instead of being downgraded. The row shows when it was last seen and exposes
+the first-seen time in its accessible label and hover text, so operators can
+distinguish a continuing incident from a new alert. Acknowledging closes the
+group; a later observation starts a new alert. Each action is also capped at
+ten new alert records per minute, so repeated live polls and bursts across many
+targets do not overwhelm the alert list. Grouping and alert throttling never
+suppress durable audit or integration outbox writes. Alert targets remain in
+the authenticated dashboard alert record and are not emitted as metric labels
+or log fields. Use **Acknowledge** after
 the replacement profile has been issued and the old certificate has been
 revoked. The check is read-only: it never changes RouterOS certificates
 automatically.
