@@ -77,6 +77,40 @@ for (const view of views) {
   });
 }
 
+async function tabTo(page, locator) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (await locator.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  throw new Error('Could not reach the requested navigation link using Tab');
+}
+
+test('keyboard activation reaches Connections and VPN Users navigation views', async ({ page }) => {
+  const connectionsLink = page.getByRole('link', { name: 'Connections', exact: true });
+  await tabTo(page, connectionsLink);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-view="live-sessions"]')).toBeVisible();
+  await expect(connectionsLink).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Connected Devices', exact: true })).toBeVisible();
+
+  const usersLink = page.getByRole('link', { name: 'VPN Users', exact: true });
+  await tabTo(page, usersLink);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-view="vpn-users"]')).toBeVisible();
+  await expect(usersLink).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'VPN Users', exact: true })).toBeVisible();
+});
+
+test('narrow desktop reflow keeps navigation and primary action reachable', async ({ page }) => {
+  // 720 CSS px is a 200%-zoom-equivalent reflow approximation for a 1440px
+  // desktop layout. It does not emulate actual browser zoom.
+  await page.setViewportSize({ width: 720, height: 500 });
+  await expect(page.getByRole('link', { name: 'VPN Users', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add VPN user' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
+});
+
 test('forced-colors mode keeps Dashboard navigation and keyboard focus visible', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await expect.poll(() => page.evaluate(() => window.matchMedia('(forced-colors: active)').matches))
