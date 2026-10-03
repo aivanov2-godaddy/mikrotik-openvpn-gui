@@ -90,9 +90,9 @@ test('keyboard-only navigation activates Dashboard, VPN Users, and Connections',
   // in the same keyboard tab sequence across the configured browser projects.
   await page.setViewportSize({ width: 720, height: 500 });
   const navigation = [
-    { name: 'VPN Users', target: 'vpn-users', heading: 'VPN Users' },
-    { name: 'Connections', target: 'live-sessions', heading: 'Connected Devices' },
     { name: 'Dashboard', target: 'overview', heading: 'VPN at a glance' },
+    { name: 'Connections', target: 'live-sessions', heading: 'Connected Devices' },
+    { name: 'VPN Users', target: 'vpn-users', heading: 'VPN Users' },
   ];
 
   for (const view of navigation) {
