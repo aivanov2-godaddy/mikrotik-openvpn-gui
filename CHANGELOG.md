@@ -23,6 +23,8 @@ semantic-version style release tags.
   single-use review receipt, and include it in successful and recovery audits.
 - Policy-template application now requires an operator rationale, binds it to
   the single-use preview receipt, and records it in apply audits.
+- Repeated active alerts now update bounded incident recurrence metadata and
+  retain severity escalation without suppressing durable audit/outbox events.
 - Enforce `health.read` on service-health and setup-preflight routes; keep
   RouterOS user/status data endpoints unavailable to API-token principals.
 - Require timestamped, sufficiently sampled 30-minute telemetry evidence before

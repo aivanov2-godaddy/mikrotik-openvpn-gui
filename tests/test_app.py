@@ -1359,9 +1359,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0]["action"], "certificate.expiring")
         self.assertIn("ovpn-user-one-device-a", alerts[0]["details"])
-        # Repeated five-second polls are deduplicated by the metadata store.
+        # Repeated five-second polls update the same incident rather than
+        # spamming separate alerts.
         self.request("GET", "/api/service-health")
-        self.assertEqual(len(self.server.context.store.recent_alerts()), 1)
+        repeated = self.server.context.store.recent_alerts()
+        self.assertEqual(len(repeated), 1)
+        self.assertEqual(repeated[0]["occurrence_count"], 2)
+        self.assertGreaterEqual(repeated[0]["last_seen_at"], repeated[0]["created_at"])
 
     def test_favicon_variants_are_public_and_linked(self) -> None:
         status, headers, svg = self.request("GET", "/favicon.svg")

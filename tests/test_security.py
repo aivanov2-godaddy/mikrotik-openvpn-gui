@@ -357,6 +357,31 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(set(timeline[0]), {"id", "vpn_user", "connected_at", "disconnected_at"})
             self.assertEqual(store.recent_connection_timeline(10, start_at=1021, end_at=1030), [])
 
+    def test_alert_recurrence_migrates_existing_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "legacy.sqlite"
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    """CREATE TABLE alerts (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT, severity TEXT NOT NULL,
+                       action TEXT NOT NULL, target TEXT NOT NULL, title TEXT NOT NULL,
+                       details TEXT NOT NULL, acknowledged INTEGER NOT NULL DEFAULT 0,
+                       created_at INTEGER NOT NULL)"""
+                )
+                connection.execute(
+                    """INSERT INTO alerts(severity, action, target, title, details, created_at)
+                       VALUES ('warning', 'user.expire', 'user-one', 'Expired', 'safe', 1000)"""
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            store = MetadataStore(str(path))
+            alert = store.recent_alerts()[0]
+            self.assertEqual(alert["created_at"], 1000)
+            self.assertEqual(alert["last_seen_at"], 1000)
+            self.assertEqual(alert["occurrence_count"], 1)
+
     def test_controls_and_alerts_are_persistent_and_secret_free(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
@@ -377,9 +402,25 @@ class SecurityTests(unittest.TestCase):
                 title="Access expired", details="safe details", now=1000,
             ))
             self.assertFalse(store.add_alert(
-                severity="warning", action="user.expire", target="user-one",
-                title="Access expired", details="duplicate", now=1000,
+                severity="critical", action="user.expire", target="user-one",
+                title="Access expiry requires urgent review", details="latest safe details", now=1015,
             ))
+            grouped = next(item for item in store.recent_alerts() if item["target"] == "user-one")
+            self.assertEqual(grouped["created_at"], 1000)
+            self.assertEqual(grouped["last_seen_at"], 1015)
+            self.assertEqual(grouped["occurrence_count"], 2)
+            self.assertEqual(grouped["severity"], "critical")
+            self.assertEqual(grouped["title"], "Access expiry requires urgent review")
+            self.assertEqual(grouped["details"], "latest safe details")
+            self.assertFalse(store.add_alert(
+                severity="warning", action="user.expire", target="user-one",
+                title="Out-of-order stale alert", details="stale details", now=1010,
+            ))
+            grouped = next(item for item in store.recent_alerts() if item["target"] == "user-one")
+            self.assertEqual(grouped["last_seen_at"], 1015)
+            self.assertEqual(grouped["occurrence_count"], 3)
+            self.assertEqual(grouped["title"], "Access expiry requires urgent review")
+            self.assertEqual(grouped["details"], "latest safe details")
             for index in range(1, 10):
                 self.assertTrue(store.add_alert(
                     severity="warning", action="user.expire", target=f"user-{index}",
@@ -400,6 +441,13 @@ class SecurityTests(unittest.TestCase):
             for alert in alerts:
                 store.acknowledge_alert(int(alert["id"]))
             self.assertEqual(store.recent_alerts(), [])
+            self.assertTrue(store.add_alert(
+                severity="warning", action="user.expire", target="user-one",
+                title="Access expired again", details="new incident after acknowledgement", now=1061,
+            ))
+            reopened = next(item for item in store.recent_alerts() if item["target"] == "user-one")
+            self.assertEqual(reopened["occurrence_count"], 1)
+            self.assertEqual(reopened["created_at"], 1061)
 
 
 if __name__ == "__main__":

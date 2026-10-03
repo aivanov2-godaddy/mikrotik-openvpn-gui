@@ -548,7 +548,10 @@ function renderAlerts(alerts = []) {
   const canManage = panel.dataset.canManageAlerts === 'true';
   const renderKey = JSON.stringify({
     canManage,
-    alerts: alerts.map((alert) => [alert.id, alert.severity, alert.title, alert.details, alert.created_at]),
+    alerts: alerts.map((alert) => [
+      alert.id, alert.severity, alert.title, alert.details, alert.created_at,
+      alert.last_seen_at, alert.occurrence_count,
+    ]),
   });
   if (panel.dataset.renderKey === renderKey) return;
   panel.dataset.renderKey = renderKey;
@@ -564,7 +567,17 @@ function renderAlerts(alerts = []) {
     item.dataset.alertId = String(alert.id || '');
     const copy = node('div');
     copy.append(node('strong', '', String(alert.title || 'VPN alert')), node('small', '', String(alert.details || '')));
-    item.append(node('i'), copy, node('time', '', formatObservationTime(alert.created_at)));
+    const occurrenceCount = Math.max(1, Number(alert.occurrence_count) || 1);
+    if (occurrenceCount > 1) {
+      copy.append(node('small', 'alert-meta', `Seen ${occurrenceCount} times`));
+    }
+    const lastSeen = Number(alert.last_seen_at) || Number(alert.created_at) || 0;
+    const firstSeenLabel = formatObservationTime(alert.created_at);
+    const time = node('time', '', formatObservationTime(lastSeen));
+    time.dateTime = new Date(lastSeen * 1000).toISOString();
+    time.title = `First seen ${firstSeenLabel}`;
+    time.setAttribute('aria-label', `Last seen ${formatObservationTime(lastSeen)}, first seen ${firstSeenLabel}`);
+    item.append(node('i'), copy, time);
     if (canManage) {
       const acknowledge = node('button', 'table-action', 'Acknowledge');
       acknowledge.type = 'button';
