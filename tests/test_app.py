@@ -828,6 +828,31 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(payload)["compatible"])
 
+    def test_filtered_timeline_export_has_no_references_to_omitted_events(self) -> None:
+        self.login()
+        start_at = 1767312000  # 2026-01-02 00:00:00 UTC
+        store = self.server.context.store
+        store.record_health_snapshot(
+            {"overall": "healthy", "checks": []}, now=start_at - 30,
+        )
+        store.observe_sessions(
+            [{"id": "*timeline-session", "name": "timeline-user", "uptime": "1m"}],
+            now=start_at + 90,
+        )
+
+        status, _, payload = self.request(
+            "GET", "/api/operations-timeline.json?from=2026-01-02&to=2026-01-02"
+        )
+        self.assertEqual(status, 200)
+        timeline = json.loads(payload)
+        event_ids = {event["id"] for event in timeline["events"]}
+        self.assertTrue(event_ids)
+        self.assertTrue(all(event["type"] == "session" for event in timeline["events"]))
+        for event in timeline["events"]:
+            self.assertTrue(
+                all(item["event_id"] in event_ids for item in event["related_events"])
+            )
+
     def test_sensitive_route_matrix_fails_closed_for_anonymous_requests(self) -> None:
         """Cover route dispatch auth gates independently of individual handler tests."""
         read_routes = (

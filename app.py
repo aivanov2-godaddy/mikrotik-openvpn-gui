@@ -78,6 +78,8 @@ def operations_timeline(
     *,
     integrations: list[dict[str, Any]] | None = None,
     connections: list[dict[str, Any]] | None = None,
+    start_at: int | None = None,
+    end_at: int | None = None,
     now: int | None = None,
 ) -> dict[str, Any]:
     """Join bounded, already-redacted dashboard ledgers without implying completeness."""
@@ -199,8 +201,12 @@ def operations_timeline(
                 "outcome": "not-observed",
                 "severity": "info",
                 "timestamp_quality": "absence-observed",
-                "summary": "VPN session was absent from a later RouterOS snapshot",
-            })
+            "summary": "VPN session was absent from a later RouterOS snapshot",
+        })
+    if start_at is not None:
+        events = [event for event in events if event["occurred_at"] >= int(start_at)]
+    if end_at is not None:
+        events = [event for event in events if event["occurred_at"] < int(end_at)]
     events.sort(key=lambda item: (item["occurred_at"], item["id"]), reverse=True)
     bounded = events[:150]
     for event in bounded:
@@ -1538,12 +1544,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 connections=store.recent_connection_timeline(
                     50, start_at=start_at, end_at=end_at,
                 ),
+                start_at=start_at,
+                end_at=end_at,
             )
-            report["events"] = [
-                item for item in report["events"]
-                if (start_at is None or item["occurred_at"] >= start_at)
-                and (end_at is None or item["occurred_at"] < end_at)
-            ]
             self._json_download("vpn-operations-timeline.json", report)
             return
         if path == "/api/backups/metadata.zip":
