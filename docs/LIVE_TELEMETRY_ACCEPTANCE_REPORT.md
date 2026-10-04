@@ -41,16 +41,15 @@ primarily records the staged migration/profile-recovery release state.
 A later WebFig inspection read the System Resources page and container table;
 no RouterOS values were changed. Both dashboard containers still showed the
 v2.7.0 immutable ARM64 tag and healthy (`H`) marker, and the Redis container
-showed running (`R`). The dashboard containers reported approximately
-33.4–33.5 MiB memory and 0.6% CPU each; Redis reported approximately 10 MiB
-memory and 1.1% CPU. During several nearby resource-page observations, router
-CPU load varied from 4% to 31%, free memory from 725.5 to 726.2 MiB of 1 GiB,
-and free disk space from 847.1 to 847.4 MiB of 1 GiB. These are a few
-point-in-time readings, not peak measurements, a sustained resource baseline,
-or the formal acceptance soak. The configured tag remains the only image
-identity visible in RouterOS; this does not independently verify the registry
-digest. The container inventory included environment configuration, which can
-contain secrets; no environment values are reproduced here.
+showed running (`R`). Resource values were sampled, but deployment-specific
+CPU, memory, and storage measurements are retained only in private acceptance
+evidence and are intentionally omitted from this public repository. The few
+readings are point-in-time observations, not peak measurements, a sustained
+resource baseline, or the formal acceptance soak. The configured tag remains
+the only image identity visible in RouterOS; this does not independently
+verify the registry digest. The container inventory included environment
+configuration, which can contain secrets; no environment values are
+reproduced here.
 
 ### Post-release security fix deployment (main build)
 
