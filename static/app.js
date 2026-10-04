@@ -1049,6 +1049,24 @@ function applyOperationsFilters() {
     control?.addEventListener(control.matches('input[type="search"]') ? 'input' : 'change', applyOperationsFilters);
   });
 
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('[data-operation-related-link]');
+  if (!link) return;
+  const targetId = (link.getAttribute('href') || '').slice(1);
+  const target = targetId ? document.getElementById(targetId) : null;
+  if (!target) return;
+  event.preventDefault();
+  if (target.classList.contains('is-filtered-out')) {
+    target.classList.remove('is-filtered-out');
+    const rows = $$('[data-operation-row]');
+    const visible = rows.filter((row) => !row.classList.contains('is-filtered-out')).length;
+    const count = $('[data-operation-count]');
+    if (count) count.textContent = `${visible} shown · related event outside filters · ${rows.length} loaded`;
+  }
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: 'center', behavior: 'auto' });
+});
+
 async function refreshServiceHealth() {
   const button = $('[data-service-health-refresh]');
   if (button) button.disabled = true;

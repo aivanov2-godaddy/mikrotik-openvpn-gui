@@ -83,6 +83,33 @@ class OperationsTimelineTests(unittest.TestCase):
         audit = next(item for item in result["events"] if item["type"] == "change")
         self.assertEqual({item["relation"] for item in audit["related_events"]}, {"same-account-near-time", "delivery-status"})
 
+    def test_related_events_render_as_accessible_links_to_redacted_rows(self) -> None:
+        result = operations_timeline(
+            [{"id": 7, "created_at": 98, "actor": "operator", "action": "user.update", "target": "alice", "status": "success", "details": {"password": "private-password"}}],
+            [], [],
+            integrations=[{"source_id": 7, "event_type": "audit", "created_at": 99, "delivered_at": 100, "attempts": 1, "payload": "private-payload"}],
+            connections=[{"id": 12, "vpn_user": "alice", "connected_at": 100, "session_id": "private-session", "source_address": "192.0.2.8"}],
+            now=110,
+        )
+        page = dashboard_page(
+            actor="operator", csrf="csrf", users=[], sessions=[], admin_sessions=[], devices=[],
+            connections=[], connection_summaries={}, certificates=[], profile_migrations={},
+            current_ca="", ovpn_server={}, certificate_settings={}, warnings=[], audit=[], alerts=[],
+            policy_templates=[], admin_role="owner", router={}, health={},
+            observability={"operations_timeline": result},
+        )
+
+        targets = re.findall(r'<a class="operation-related-link"[^>]*href="#([^"]+)"', page)
+        self.assertEqual(len(targets), 4)
+        for target in targets:
+            self.assertRegex(page, rf'<tr id="{re.escape(target)}" tabindex="-1" data-operation-row')
+        self.assertIn('aria-label="Related events"', page)
+        self.assertIn('aria-label="View related event:', page)
+        self.assertNotIn("private-password", page)
+        self.assertNotIn("private-payload", page)
+        self.assertNotIn("private-session", page)
+        self.assertNotIn("192.0.2.8", page)
+
     def test_join_is_ordered_redacted_and_explicitly_incomplete(self) -> None:
         result = operations_timeline(
             [{

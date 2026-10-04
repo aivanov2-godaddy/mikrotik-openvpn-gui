@@ -36,6 +36,18 @@ def main() -> None:
             limiter=LoginRateLimiter(),
             config=config,
         )
+        # Synthetic, redacted-only history for the rendered correlation-link
+        # regression. The fixture never leaves the local mock server.
+        context.store.set_audit_hook(lambda _event: None)
+        context.store.audit(
+            actor="mock-owner", action="user.update", target="user-two", status="success",
+        )
+        context.store.observe_sessions([{
+            "id": "*A1", "name": "user-two", "source_address": "192.0.2.8",
+            "vpn_address": "10.8.0.8", "encoding": "AES-256-GCM",
+            "uptime": "1m", "rx_bytes": 1024, "tx_bytes": 2048,
+            "rx_packets": 10, "tx_packets": 20,
+        }])
         server = DashboardServer(("127.0.0.1", arguments.port), context)
         print(f"mock dashboard ready at http://127.0.0.1:{arguments.port}", flush=True)
         try:
