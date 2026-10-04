@@ -420,6 +420,10 @@ test('operations timeline filters bounded observations and labels its coverage',
     },
   ];
   await page.route('**/api/observability', (route) => route.fulfill({ json: frozenObservability }));
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
   await page.getByRole('link', { name: 'Change History', exact: true }).click();
   await page.evaluate((observability) => renderObservability({ observability }), frozenObservability);
   const panel = page.locator('.operations-timeline-panel');
