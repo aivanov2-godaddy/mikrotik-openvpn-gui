@@ -1954,6 +1954,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._preview_profile(urllib.parse.unquote(match.group(1)))
             return
+        match = re.fullmatch(r"/api/profile-migrations/([^/]+)/steps/(imported|tested)", path)
+        if match:
+            self._confirm_profile_migration_step(
+                urllib.parse.unquote(match.group(1)), match.group(2)
+            )
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/profiles", path)
         if match:
             self._create_profile(urllib.parse.unquote(match.group(1)))
@@ -3625,6 +3631,76 @@ class DashboardHandler(BaseHTTPRequestHandler):
             json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         return user, device_name, delivery, legacy_certificate_name, controls, certificates, intent_digest
+
+    def _confirm_profile_migration_step(self, legacy_certificate_name: str, step: str) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
+            return
+        migration = self.server.context.store.profile_migrations().get(legacy_certificate_name)
+        if migration is None:
+            self._json({"error": "Profile migration was not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        if step == "tested" and migration.get("imported_at") is None:
+            self._json(
+                {"error": "Confirm the replacement import before recording its connection test"},
+                status=HTTPStatus.CONFLICT,
+            )
+            return
+        try:
+            credentials = self._credentials(session)
+            certificates = self.server.context.router.list_ovpn_client_certificates(
+                credentials, include_legacy=True
+            )
+        except RouterOSError:
+            self._json(
+                {"error": "RouterOS certificate state is unavailable; no migration progress was recorded"},
+                status=HTTPStatus.BAD_GATEWAY,
+            )
+            return
+        by_name = {str(item.get("name", "")): item for item in certificates}
+        old_certificate = by_name.get(legacy_certificate_name)
+        replacement_name = str(migration.get("replacement_certificate_name", ""))
+        replacement = by_name.get(replacement_name)
+        if (
+            old_certificate is None
+            or bool(old_certificate.get("revoked"))
+            or replacement is None
+            or bool(replacement.get("revoked"))
+            or str(replacement.get("certificate_authority", ""))
+            != str(getattr(self.server.context.router, "ovpn_ca", ""))
+        ):
+            self._json(
+                {"error": "RouterOS no longer shows the legacy identity and replacement as active, or the replacement is not under the configured CA; no progress was recorded"},
+                status=HTTPStatus.CONFLICT,
+            )
+            return
+        try:
+            updated = self.server.context.store.record_profile_migration_step(
+                legacy_certificate_name=legacy_certificate_name,
+                step=step,
+                actor=session.username,
+            )
+        except (KeyError, ValueError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.CONFLICT)
+            return
+        self.server.context.store.audit(
+            actor=session.username,
+            action=f"profile.migration.{step}",
+            target=legacy_certificate_name,
+            status="operator_attested",
+            details={"replacement_certificate": replacement_name},
+        )
+        # RouterOS does not expose which client certificate was used by a
+        # particular session. These steps remain explicitly operator-attested.
+        self._json(
+            {
+                "status": "recorded",
+                "step": step,
+                "operator_attested": True,
+                "imported_at": updated.get("imported_at"),
+                "tested_at": updated.get("tested_at"),
+            }
+        )
 
     def _preview_profile(self, user_id: str) -> None:
         session = self._require_session(api=True)

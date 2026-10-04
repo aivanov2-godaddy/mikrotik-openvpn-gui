@@ -1704,6 +1704,27 @@ document.addEventListener('click', async (event) => {
     openDialog('delete-dialog');
     $('[data-delete-review]', form).disabled = true;
     setStatus(form, 'Enter a reason, then review the account and managed certificates before removal.');
+  } else if (button.matches('[data-migration-step]')) {
+    const step = button.dataset.migrationStep;
+    const stepDescription = step === 'tested'
+      ? 'Only confirm after you have connected the VPN device using the replacement profile. RouterOS cannot prove which client certificate an active session used.'
+      : 'Only confirm after you have imported the replacement profile on the VPN device. The old profile remains active.';
+    if (!window.confirm(stepDescription)) return;
+    button.disabled = true;
+    try {
+      const legacyCertificate = button.dataset.legacyCertificate || '';
+      await resultOrError(await api(
+        `/api/profile-migrations/${encodeURIComponent(legacyCertificate)}/steps/${encodeURIComponent(step)}`,
+        { method: 'POST', body: {} },
+      ));
+      toast(step === 'tested'
+        ? 'Connection test recorded as operator-confirmed.'
+        : 'Profile import recorded as operator-confirmed.');
+      setTimeout(() => location.reload(), 450);
+    } catch (error) {
+      toast(error.message, 'error');
+      button.disabled = false;
+    }
   } else if (button.matches('[data-device-revoke]')) {
     const form = $('#revoke-device-form');
     form.reset();

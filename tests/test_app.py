@@ -979,6 +979,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/users/test-user/restore", "/api/users/test-user/restore/preview",
             "/api/users/test-user/suspend/preview",
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
+            "/api/profile-migrations/legacy-user-one-phone/steps/imported",
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
             "/api/users/test-user/duplicate", "/api/users/test-user/duplicate/preview", "/api/alerts/1/ack",
         )
@@ -1228,6 +1229,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("users.manage", "DELETE", "/api/users/test-user", {}),
             ("profiles.manage", "POST", "/api/users/test-user/profiles", {}),
             ("profiles.manage", "POST", "/api/users/test-user/profiles/preview", {}),
+            ("profiles.manage", "POST", "/api/profile-migrations/legacy-user-one-phone/steps/imported", {}),
             ("policies.manage", "POST", "/api/policy-templates/test/preview", {}),
             ("policies.manage", "POST", "/api/policy-templates/test/apply", {}),
             ("policies.manage", "PATCH", "/api/policy-templates/test", {}),
@@ -1264,7 +1266,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                     self.assertNotIn(b"routerpass", payload)
                     denied_cases += 1
 
-        self.assertEqual(denied_cases, 110)
+        self.assertEqual(denied_cases, 112)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
@@ -2654,13 +2656,79 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, page = self.request("GET", "/dashboard")
         self.assertEqual(status, 200)
         self.assertIn(migration["replacement_certificate_name"].encode(), page)
-        self.assertIn(b"Import and test it before revoking this certificate.", page)
+        self.assertIn(b"Replacement issued; import pending", page)
+        self.assertIn(b"Import it on the VPN device first", page)
         legacy = next(
             item for item in self.server.context.router.list_ovpn_client_certificates(
                 RouterOSCredentials("admin", "routerpass"), include_legacy=True
             ) if item["name"] == "legacy-user-one-phone"
         )
         self.assertFalse(legacy["revoked"])
+
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("Confirm the replacement import", json.loads(payload)["error"])
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/imported", {},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["operator_attested"])
+        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
+        self.assertIsNotNone(migration["imported_at"])
+        self.assertIsNone(migration["tested_at"])
+
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["step"], "tested")
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Replacement test confirmed by operator", page)
+        self.assertIn(b"RouterOS cannot identify which client certificate", page)
+
+    def test_profile_migration_progress_requires_live_active_certificates_and_profile_capability(self) -> None:
+        self.mock.state.certificates["*OLD"] = {
+            ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.server.context.store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone",
+            vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-20261004",
+        )
+        self.mock.state.certificates["*REPLACEMENT"] = {
+            ".id": "*REPLACEMENT", "name": "user-one-phone-20261004", "common-name": "user-one-phone-20261004",
+            "fingerprint": "NEW:FAKE", "issuer": "vpn-ca", "ca": "vpn-ca",
+            "trusted": "yes", "revoked": "yes", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.login()
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/imported", {},
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("no progress was recorded", json.loads(payload)["error"])
+        self.assertIsNone(
+            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["imported_at"]
+        )
+
+        self.mock.state.certificates["*REPLACEMENT"]["revoked"] = "no"
+        self.mock.state.admin_group = "read"
+        self.cookie = ""
+        self.csrf = ""
+        self.login()
+        status, _, _ = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/imported", {},
+        )
+        self.assertEqual(status, 403)
+        self.assertIsNone(
+            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["imported_at"]
+        )
 
     def test_incomplete_instance_topology_fails_before_profile_mutation(self) -> None:
         self.login()
