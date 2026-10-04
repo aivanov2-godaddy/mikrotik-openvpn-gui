@@ -71,6 +71,7 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
     sequence_evidence = 0
     counter_reset_evidence = 0
     sample_timestamps: list[float] = []
+    attestation_timestamps: list[tuple[str, float]] = []
     verification_records: list[dict[str, bool]] = []
     required_verifications = (
         "event_latency_measured",
@@ -89,6 +90,11 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         if not isinstance(record, dict):
             raise ValueError("each record must be a JSON object")
         record_type = record.get("type", "sample")
+        if isinstance(record_type, str) and record_type in {"reconnect", "comparison", "security", "verification"}:
+            if "observed_at" not in record:
+                failures.append(f"{record_type}_timestamp_missing")
+            else:
+                attestation_timestamps.append((record_type, _number(record["observed_at"], "observed_at")))
         if record_type == "sample":
             samples.append(json.dumps(record, separators=(",", ":")))
             if "observed_at" not in record:
@@ -210,6 +216,18 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         if len(sample_timestamps) >= 2 and all(delta >= 0 for delta in timestamp_deltas)
         else 0.0
     )
+    valid_sample_window = (
+        len(sample_timestamps) == len(samples)
+        and len(sample_timestamps) >= 2
+        and all(delta > 0 for delta in timestamp_deltas)
+    )
+    if valid_sample_window:
+        window_start, window_end = sample_timestamps[0], sample_timestamps[-1]
+        for record_type, timestamp in attestation_timestamps:
+            if timestamp < window_start or timestamp > window_end:
+                failures.append(f"{record_type}_outside_observation_window")
+    elif attestation_timestamps:
+        failures.append("attestation_window_unverifiable")
     if len(samples) < MIN_SAMPLES:
         failures.append("sample_count")
     if len(sample_timestamps) != len(samples):
