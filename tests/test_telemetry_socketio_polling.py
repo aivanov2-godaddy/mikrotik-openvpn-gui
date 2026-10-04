@@ -121,6 +121,67 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
         self.assertNotIn(sid, self.bridge._clients)
         self.assertEqual(self.bridge.gateway.client_count, 0)
 
+    def test_idle_client_expires_and_releases_gateway_capacity(self) -> None:
+        now = [100.0]
+        gateway = TelemetryGatewayContract(
+            self.broker, clock=lambda: 100, max_clients=1
+        )
+        bridge = SocketIOPollingBridge(
+            gateway,
+            lambda _session_id: self.principal,
+            idle_timeout_seconds=10,
+            clock=lambda: now[0],
+        )
+        first = bridge.handshake("session-1")
+        self.assertIsNotNone(first)
+        first_sid, _ = first
+        self.assertTrue(bridge.post(first_sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(gateway.client_count, 1)
+        self.assertTrue(bridge.post(first_sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(gateway.client_count, 1)
+
+        # At the exact timeout boundary, the next handshake reaps the client
+        # and closes its gateway subscription before another client connects.
+        now[0] += 10
+        second = bridge.handshake("session-2")
+        self.assertIsNotNone(second)
+        second_sid, _ = second
+        self.assertNotIn(first_sid, bridge._clients)
+        self.assertEqual(gateway.client_count, 0)
+
+        self.assertTrue(bridge.post(second_sid, "session-2", b"40/telemetry,"))
+        self.assertEqual(gateway.client_count, 1)
+
+    def test_idle_timeout_boundary_and_activity_refresh(self) -> None:
+        now = [0.0]
+        bridge = SocketIOPollingBridge(
+            self.bridge.gateway,
+            lambda _session_id: self.principal,
+            idle_timeout_seconds=10,
+            clock=lambda: now[0],
+        )
+        result = bridge.handshake("session-1")
+        self.assertIsNotNone(result)
+        sid, _ = result
+        self.assertTrue(bridge.post(sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(bridge.poll(sid, "session-1"), "40/telemetry,")
+
+        now[0] = 9.999
+        bridge.handshake("session-2")
+        self.assertIn(sid, bridge._clients)
+        self.assertEqual(self.bridge.gateway.client_count, 1)
+
+        # A successful poll refreshes activity, so expiry is measured from
+        # the most recent request rather than from namespace connection.
+        self.assertEqual(bridge.poll(sid, "session-1"), "2")
+        now[0] = 19.998
+        bridge.handshake("session-3")
+        self.assertIn(sid, bridge._clients)
+        now[0] = 20.0
+        bridge.handshake("session-4")
+        self.assertNotIn(sid, bridge._clients)
+        self.assertEqual(self.bridge.gateway.client_count, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

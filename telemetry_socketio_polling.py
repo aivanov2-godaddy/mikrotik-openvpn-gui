@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,6 +23,7 @@ from telemetry_gateway import TelemetryGatewayContract, TelemetrySubscriptionErr
 class PollingClient:
     sid: str
     session_id: str
+    last_activity: float
     subscription: str | None = None
     namespace_connected: bool = False
     pending: list[str] = field(default_factory=list)
@@ -36,9 +38,14 @@ class SocketIOPollingBridge:
         self,
         gateway: TelemetryGatewayContract,
         principal_resolver: Any,
+        *,
+        idle_timeout_seconds: float = 45.0,
+        clock: Any = time.monotonic,
     ) -> None:
         self.gateway = gateway
         self.principal_resolver = principal_resolver
+        self.idle_timeout_seconds = max(0.0, float(idle_timeout_seconds))
+        self.clock = clock
         self._clients: dict[str, PollingClient] = {}
         self._lock = threading.RLock()
         self._state_changed = threading.Condition(self._lock)
@@ -49,7 +56,9 @@ class SocketIOPollingBridge:
             return None
         sid = secrets.token_urlsafe(18)
         with self._lock:
-            self._clients[sid] = PollingClient(sid, session_id)
+            now = self.clock()
+            self._expire_idle_locked(now)
+            self._clients[sid] = PollingClient(sid, session_id, now)
         packet = "0" + json.dumps(
             {
                 "sid": sid,
@@ -67,21 +76,24 @@ class SocketIOPollingBridge:
         if principal is None or not principal.may_stream:
             return False
         with self._state_changed:
+            self._expire_idle_locked(self.clock())
             client = self._clients.get(sid)
             if client is None:
                 return False
             if not secrets.compare_digest(client.session_id, session_id):
                 self._close_locked(sid)
                 return False
+            client.last_activity = self.clock()
             packets = body.decode("utf-8", "replace").split("\x1e")
             for packet in packets:
                 if packet.startswith("40"):
-                    try:
-                        client.subscription = self.gateway.open(principal)
-                    except TelemetrySubscriptionError:
-                        return False
-                    client.namespace_connected = True
-                    client.pending.append("40/telemetry,")
+                    if not client.namespace_connected or not client.subscription:
+                        try:
+                            client.subscription = self.gateway.open(principal)
+                        except TelemetrySubscriptionError:
+                            return False
+                        client.namespace_connected = True
+                        client.pending.append("40/telemetry,")
                     self._state_changed.notify_all()
                 elif packet.startswith("42") and client.namespace_connected:
                     # The dashboard's subscribe request is advisory.  The
@@ -99,12 +111,14 @@ class SocketIOPollingBridge:
             self.close(sid)
             return None
         with self._state_changed:
+            self._expire_idle_locked(self.clock())
             client = self._clients.get(sid)
             if client is None:
                 return None
             if not secrets.compare_digest(client.session_id, session_id):
                 self._close_locked(sid)
                 return None
+            client.last_activity = self.clock()
             # The Socket.IO client starts its first poll as soon as the
             # Engine.IO handshake completes, in parallel with the namespace
             # connect POST.  Do not answer that race with an Engine.IO ping:
@@ -140,3 +154,12 @@ class SocketIOPollingBridge:
         if client and client.subscription:
             self.gateway.close(client.subscription)
         self._state_changed.notify_all()
+
+    def _expire_idle_locked(self, now: float) -> None:
+        expired = [
+            sid
+            for sid, client in self._clients.items()
+            if now - client.last_activity >= self.idle_timeout_seconds
+        ]
+        for sid in expired:
+            self._close_locked(sid)
