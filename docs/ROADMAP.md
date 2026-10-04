@@ -46,6 +46,28 @@ was at sign-in, so authenticated post-restart rendering was not verified.
 This is point-in-time rollout evidence, not the sustained acceptance tracked
 in issues #198/#199 or independent on-router digest comparison.
 
+### Post-v2.7.0 runtime patch — PR #448
+
+PR [#448](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/448)
+adds reviewed retirement for an unmanaged legacy certificate after its
+replacement import and connection test are operator-confirmed. The change
+preserves the `device.manage` gate, one-time state-bound review, and RouterOS
+read-back; it does not prove session termination or reconnect rejection. Main
+commit `72c4c255b92b9c5ffb9af509fea5b6306da65657` was published by container
+workflow [37230021532](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37230021532).
+Both architectures passed source verification, rendered browser/accessibility
+tests, image smoke tests, and exact-digest provenance/SBOM verification. ARM64
+tag/digest:
+`sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64` /
+`sha256:55f2735691f53950d65ed681fa8d47f6861972544e002e40349ac849e4dda185`.
+AMD64 tag/digest:
+`sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-amd64` /
+`sha256:bbb9aaf2e0d943397d7968a7a4c452408c2ba37e9990dd936495c3721fc87198`.
+The `routeros-stable` manifest now names this commit. That is publication, not
+proof of RouterOS rollout: no post-publication RouterOS image/health read-back
+or live lifecycle acceptance is recorded here. Formal version v2.7.0 remains
+the latest numbered release.
+
 ## v1.1 — Installation Wizard ✅
 
 An offline, review-only installer that validates non-secret answers and renders
