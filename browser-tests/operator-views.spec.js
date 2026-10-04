@@ -57,6 +57,76 @@ for (const view of views) {
   });
 }
 
+test('Dashboard warning alert state renders consistently', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1440', 'Additional state snapshots are intentionally desktop-only.');
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click();
+
+  // Exercise the same REST-backed renderer used by status refreshes, but invoke
+  // it directly with a fixed alert fixture. EventSource remains disabled by
+  // beforeEach, and no stream or timing behavior is part of this screenshot.
+  await page.route('**/api/status', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.alerts = [{
+      id: 9201,
+      severity: 'warning',
+      title: 'VPN capacity needs review',
+      details: 'The configured session limit is close to its current usage.',
+      created_at: 1791028800,
+      last_seen_at: 1791028800,
+      occurrence_count: 1,
+    }];
+    await route.fulfill({ response, body: JSON.stringify(payload) });
+  });
+  await page.evaluate(async () => {
+    const response = await fetch('/api/status');
+    updateDashboard(await response.json());
+  });
+
+  await expect(page.locator('[data-alert-id="9201"]')).toContainText('VPN capacity needs review');
+  await expect(page).toHaveScreenshot('dashboard-warning.png', {
+    fullPage: true,
+    style: '#system-status time { visibility: hidden !important; }',
+  });
+});
+
+test('VPN Users no-results state renders consistently', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1440', 'Additional state snapshots are intentionally desktop-only.');
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: 'Find VPN user' });
+  await search.fill('no-such-user');
+  await search.blur();
+  await expect(page.locator('[data-user-filter-empty]')).toBeVisible();
+  await expect(page.locator('[data-user-filter-empty]')).toContainText('No users match your search');
+  await expect(page).toHaveScreenshot('vpn-users-no-results.png', {
+    fullPage: true,
+    style: '#system-status time { visibility: hidden !important; }',
+  });
+});
+
+test('VPN Users add-user dialog renders consistently', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1440', 'Additional state snapshots are intentionally desktop-only.');
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  await page.getByRole('button', { name: 'Add VPN user' }).click();
+  await expect(page.getByRole('dialog', { name: 'Add a person and phone' })).toBeVisible();
+  await expect(page).toHaveScreenshot('vpn-users-add-dialog.png', {
+    fullPage: true,
+    style: '#system-status time { visibility: hidden !important; }',
+  });
+});
+
+test('Connections termination-review prompt renders consistently', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1440', 'Additional state snapshots are intentionally desktop-only.');
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
+  await expect(page.locator('.session-card')).toHaveCount(1);
+  await page.locator('.session-card [data-terminate]').click();
+  await expect(page.locator('#terminate-dialog')).toBeVisible();
+  await expect(page).toHaveScreenshot('connections-terminate-prompt.png', {
+    fullPage: true,
+    style: '#system-status time { visibility: hidden !important; }',
+  });
+});
+
 for (const view of accessibilityViews) {
   test(`${view.name} has no new serious WCAG 2.2 A/AA violations`, async ({ page }, testInfo) => {
     if (view.target !== 'overview') {
