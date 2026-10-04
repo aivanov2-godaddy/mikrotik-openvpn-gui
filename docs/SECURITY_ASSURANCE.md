@@ -82,10 +82,18 @@ blanket pass for ASVS, OWASP, or production security.
 
 ## Explicitly unverified live-router / deployment evidence
 
-No RouterOS, production service, credentials, cookies, router names, IP
-addresses, or raw records were read or changed for this assurance work. The
-following remain **NOT VERIFIED** and require an authorized controlled test
-window:
+No RouterOS or production state was changed for this assurance work. On
+2026-10-04, unauthenticated HTTPS GET requests to `/`, `/api/events`,
+`/api/observability`, `/api/operations-timeline.json`, and `/metrics` on the
+public dashboard origin each returned HTTP 302 before following redirects. The
+browser showed the redirect flow is Cloudflare Access. This is evidence that
+the public edge gated these requests at that time; it does not prove the
+application's own anonymous-route behavior, authenticated authorization,
+cross-origin handling, or live-stream revocation. No redirect query, cookies,
+credentials, telemetry payloads, or router identifiers are recorded here.
+
+The following remain **NOT VERIFIED** and require an authorized controlled
+test window:
 
 - Observe logout, server-side revocation, idle expiry, and absolute expiry on
   the deployed image behind the actual reverse proxy while a live stream is
