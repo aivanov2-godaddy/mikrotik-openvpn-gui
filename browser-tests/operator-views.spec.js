@@ -396,6 +396,29 @@ test('operations timeline filters bounded observations and labels its coverage',
     const response = await fetch('/api/observability');
     return response.json();
   });
+  const occurredAt = Math.floor(Date.now() / 1000);
+  frozenObservability.operations_timeline.events = [
+    {
+      id: 'audit:focus-target', occurred_at: occurredAt, age_seconds: 2,
+      source: 'Dashboard audit', type: 'change', actor: 'operator', target: 'admin',
+      outcome: 'success', severity: 'info', summary: 'Role assigned',
+      relationship_summary: '', related_events: [],
+    },
+    {
+      id: 'integration:focus-source', occurred_at: occurredAt - 1, age_seconds: 3,
+      source: 'Redis delivery', type: 'integration', actor: '', target: '',
+      outcome: 'delivered', severity: 'info', summary: 'Event delivered',
+      relationship_summary: '', related_events: [
+        { event_id: 'audit:focus-target', relation: 'delivery-status' },
+      ],
+    },
+    {
+      id: 'health:focus-filter', occurred_at: occurredAt - 2, age_seconds: 4,
+      source: 'Service health', type: 'health', actor: '', target: '',
+      outcome: 'success', severity: 'info', summary: 'Router is healthy',
+      relationship_summary: '', related_events: [],
+    },
+  ];
   await page.route('**/api/observability', (route) => route.fulfill({ json: frozenObservability }));
   await page.evaluate((observability) => renderObservability({ observability }), frozenObservability);
   await page.getByRole('link', { name: 'Change History', exact: true }).click();
@@ -428,6 +451,13 @@ test('operations timeline filters bounded observations and labels its coverage',
   await refreshedRelatedLink.press('Enter');
   await expect(refreshedRow).toBeFocused();
   await expect(refreshedRow).toBeInViewport();
+
+  await page.evaluate((snapshot) => {
+    const observability = structuredClone(snapshot);
+    observability.operations_timeline.events[0].age_seconds += 1;
+    renderObservability({ observability });
+  }, frozenObservability);
+  await expect(panel.locator(refreshedHref)).toBeFocused();
 
   await expect(panel).not.toContainText('192.0.2.8');
 
