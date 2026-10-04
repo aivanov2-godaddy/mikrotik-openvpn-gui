@@ -10,6 +10,32 @@ copied into this repository. The later runtime image listed below is a newer
 build; its full 30-minute Redis/telemetry acceptance window and rollback drill
 have not been recorded as complete.
 
+## PR #455 publication and RouterOS rollback — 2026-10-05
+
+PR [#455](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/455)
+was merged as `2fd42b651dfc01ef4dbdf03679e937627858ebbb`. Publication workflow
+[37237241486](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37237241486)
+completed successfully, including the rendered-browser checks and ARM64 runtime
+smoke. The `routeros-stable` manifest now names the immutable ARM64 candidate
+tag `sha-2fd42b651dfc01ef4dbdf03679e937627858ebbb-arm64`.
+
+Read-only RouterOS WebFig inspection on 2026-10-05 showed the updater starting
+that candidate as canary, then stopping it about five seconds later. The
+container log recorded termination followed by exit with signal 9; the updater
+re-pulled the prior canary image. A subsequent status read showed both canary
+and production healthy on the previous tag
+`sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64`. Production was not
+promoted, and no router policy, CA, VPN-user data, or production database was
+changed.
+
+The available RouterOS log does not establish whether the rejection was caused
+by readiness timeout, revision mismatch, or another startup condition. The
+router-private readiness address was also unreachable from the VPN workstation,
+so no direct candidate response was available. Do not retry by manually
+promoting the candidate. Deployment and live verification of the footer-count
+fix remain pending; this is a successful publication followed by a canary
+rollback, not a production rollout or acceptance result.
+
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
 ### Formal v2.7.0 release and its RouterOS image read-back
