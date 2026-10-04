@@ -31,7 +31,11 @@ a profile is lost, issue a replacement, import and test it, then separately
 revoke the prior certificate. Issuing a replacement does not itself terminate
 an active VPN session, and inventory/revocation read-back does not prove CRL
 enforcement or rejection on a fresh connection. Do not describe this as
-same-identity re-download.
+same-identity re-download. After issuance, the Device Profiles migration row
+shows the replacement certificate name and reminds the operator to import and
+test it before revoking the legacy certificate. “Replacement issued” records
+only that issuance completed; it is not evidence that the profile was imported,
+tested, or connected successfully.
 
 ## Validation
 

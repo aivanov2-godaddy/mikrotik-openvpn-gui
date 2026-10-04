@@ -722,7 +722,12 @@ def dashboard_page(
             if migration:
                 migrated_profile_count += 1
                 migration_status = "Replacement issued"
+                replacement_name = html.escape(str(migration.get("replacement_certificate_name", "")))
                 migration_action = f'<span class="device-status"><i></i>{html.escape(migration_status)}</span>'
+                migration_detail = (
+                    f'<small class="table-secondary">New identity: {replacement_name}. '
+                    "Import and test it before revoking this certificate.</small>"
+                )
             elif owner in user_ids:
                 migration_status = "Replacement needed"
                 migration_action = (
@@ -734,13 +739,15 @@ def dashboard_page(
                     f'{_icon("refresh")}<span>Issue replacement</span></button>'
                     if can_manage_profiles else '<span class="muted-label">Read-only</span>'
                 )
+                migration_detail = ""
             else:
                 migration_status = "Match owner manually"
                 migration_action = '<span class="muted-label">No matching VPN user</span>'
+                migration_detail = ""
             migration_rows.append(
                 f'''<tr><td><strong>{html.escape(certificate_name)}</strong><small class="table-secondary">{html.escape(device_label)}</small></td>
                 <td><strong>{html.escape(owner)}</strong><small class="table-secondary">Issued by {html.escape(certificate_authority or 'previous CA')}</small></td>
-                <td><span class="device-status warning"><i></i>{html.escape(migration_status)}</span></td><td>{migration_action}</td></tr>'''
+                <td><span class="device-status warning"><i></i>{html.escape(migration_status)}</span>{migration_detail}</td><td>{migration_action}</td></tr>'''
             )
         lifecycle_label, lifecycle_state = _certificate_expiry(expiry)
         certificate_state = "revoked" if revoked else lifecycle_state
