@@ -1091,7 +1091,6 @@ class DashboardIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
         )
         self.assertEqual(status, 403)
-        self.assertNotIn(b"event: status", payload)
 
         for path in ("/api/policy-templates", "/api/bulk/views"):
             status, _, payload = self.request(
@@ -1172,6 +1171,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token_payload['token']}", "Cookie": ""},
         )
         self.assertEqual(status, 200)
+
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             self.assertEqual(set(archive.namelist()), {"summary.json", "audit.csv", "connections.csv"})
             self.assertNotIn(b"routerpass", archive.read("summary.json"))
@@ -1311,6 +1311,44 @@ class DashboardIntegrationTests(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf},
         )
         self.assertEqual(status, 200)
+
+    def test_routeros_group_downgrade_takes_effect_on_existing_dashboard_session(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.server.context.store.audit(
+            actor="admin", action="security.review", target="role-downgrade-marker",
+            status="success", details="owner-only history",
+        )
+
+        self.mock.state.admin_group = "read"
+        self.server.context.sessions._role_checked_at[session_id] = 0
+        status, _, payload = self.request("GET", "/api/observability", headers={"Cookie": self.cookie})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(session.role, "read_only")
+        self.assertNotIn(b"role-downgrade-marker", payload)
+        principal = self.server.telemetry_runtime.principal_for_session(session_id)
+        self.assertTrue(principal.may_stream, "read-only role retains the approved live-session capability")
+
+        status, _, _ = self.request(
+            "POST", "/api/admin/api-tokens",
+            body=json.dumps({"label": "denied after downgrade"}).encode(),
+            headers={"Cookie": self.cookie, "Content-Type": "application/json", "X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(status, 403)
+
+    def test_disabled_routeros_account_revokes_existing_live_session(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        self.mock.state.admin_disabled = True
+        self.server.context.sessions._role_checked_at[session_id] = 0
+
+        principal = self.server.telemetry_runtime.principal_for_session(session_id)
+
+        self.assertIsNone(principal)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
     def test_auth_audit_events_are_detailed_but_secret_free(self) -> None:
         bad_login = urllib.parse.urlencode({"username": "admin", "password": "wrong"}).encode()

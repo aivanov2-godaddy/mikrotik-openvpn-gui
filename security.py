@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 SESSION_IDLE_SECONDS = 30 * 60
 SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60
+SESSION_ROLE_REVALIDATION_SECONDS = 15
 
 # Dashboard roles are deliberately derived from the authenticated RouterOS
 # account.  They are capabilities, not another password database, so the
@@ -109,6 +110,8 @@ class SessionStore:
         self.absolute_seconds = absolute_seconds
         self._sessions: dict[str, Session] = {}
         self._lock = threading.RLock()
+        self._role_checked_at: dict[str, float] = {}
+        self._role_check_locks: dict[str, threading.Lock] = {}
 
     def create(
         self,
@@ -133,6 +136,7 @@ class SessionStore:
         )
         with self._lock:
             self._sessions[session.session_id] = session
+            self._role_checked_at[session.session_id] = current
         return session
 
     def get(
@@ -153,14 +157,90 @@ class SessionStore:
             absolute_expired = current - session.created_at > self.absolute_seconds
             if idle_expired or absolute_expired:
                 self._sessions.pop(session_id, None)
+                self._role_checked_at.pop(session_id, None)
+                self._role_check_locks.pop(session_id, None)
                 return None
             if touch:
                 session.last_seen = current
             return session
 
+    @staticmethod
+    def _role_is_subset(left: str, right: str) -> bool:
+        left_capabilities = role_capabilities(left)
+        right_capabilities = role_capabilities(right)
+        return "*" in right_capabilities or (
+            "*" not in left_capabilities and left_capabilities <= right_capabilities
+        )
+
+    def revalidate_role(
+        self,
+        session_id: str,
+        role_resolver,
+        *,
+        now: float | None = None,
+        interval_seconds: int = SESSION_ROLE_REVALIDATION_SECONDS,
+    ) -> Session | None:
+        """Refresh RouterOS-derived authorization without extending session idle time.
+
+        Role decreases take effect on the existing session. Role increases do not
+        silently elevate an already-authenticated dashboard session. If RouterOS
+        reports an incompatible capability change or the account is gone, revoke
+        the session and require a fresh login.
+        """
+        session = self.get(session_id, now=now, touch=False)
+        if session is None or session.auth_method != "routeros":
+            return session
+        current = time.time() if now is None else now
+        with self._lock:
+            checked_at = self._role_checked_at.get(session_id, session.created_at)
+            if current - checked_at < max(0, interval_seconds):
+                return session
+            check_lock = self._role_check_locks.setdefault(session_id, threading.Lock())
+
+        check_lock.acquire()
+        try:
+            session = self.get(session_id, now=now, touch=False)
+            if session is None or session.auth_method != "routeros":
+                return session
+            current = time.time() if now is None else now
+            with self._lock:
+                checked_at = self._role_checked_at.get(session_id, session.created_at)
+                if current - checked_at < max(0, interval_seconds):
+                    return session
+
+            try:
+                resolved_role = role_resolver(session)
+            except Exception:
+                # RouterOS could not prove the prior privilege set. Retain only
+                # the safe read-only capability set until the next check/login.
+                resolved_role = "read_only"
+            checked_at = time.time() if now is None else now
+            if resolved_role is None:
+                self.destroy(session_id)
+                return None
+
+            current_role = normalize_role(session.role)
+            resolved_role = normalize_role(resolved_role)
+            if self._role_is_subset(resolved_role, current_role):
+                session.role = resolved_role
+            elif not self._role_is_subset(current_role, resolved_role):
+                self.destroy(session_id)
+                return None
+            # A role increase leaves the established privilege set unchanged;
+            # the operator must sign in again to obtain the new permissions.
+            with self._lock:
+                if self._sessions.get(session_id) is not session:
+                    return None
+                self._role_checked_at[session_id] = checked_at
+            return session
+        finally:
+            check_lock.release()
+
     def destroy(self, session_id: str) -> None:
         with self._lock:
             self._sessions.pop(session_id, None)
+            self._role_checked_at.pop(session_id, None)
+            self._role_check_locks.pop(session_id, None)
 
     def purge(self, now: float | None = None) -> int:
         current = time.time() if now is None else now
@@ -173,6 +253,8 @@ class SessionStore:
             ]
             for key in expired:
                 self._sessions.pop(key, None)
+                self._role_checked_at.pop(key, None)
+                self._role_check_locks.pop(key, None)
             return len(expired)
 
     def active(self, now: float | None = None) -> list[Session]:
@@ -219,7 +301,10 @@ class SessionStore:
     def revoke(self, session_id: str) -> bool:
         """Revoke one dashboard session and report whether it existed."""
         with self._lock:
-            return self._sessions.pop(session_id, None) is not None
+            existed = self._sessions.pop(session_id, None) is not None
+            self._role_checked_at.pop(session_id, None)
+            self._role_check_locks.pop(session_id, None)
+            return existed
 
     def revoke_all_except(self, session_id: str) -> int:
         """Revoke every dashboard session except the caller's session."""
@@ -227,6 +312,8 @@ class SessionStore:
             candidates = [key for key in self._sessions if key != session_id]
             for key in candidates:
                 self._sessions.pop(key, None)
+                self._role_checked_at.pop(key, None)
+                self._role_check_locks.pop(key, None)
             return len(candidates)
 
 

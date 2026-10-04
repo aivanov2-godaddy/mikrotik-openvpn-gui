@@ -20,6 +20,24 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_admin_role_lookup_fails_closed_for_unknown_disabled_or_unreadable_accounts(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            self.assertEqual(client.get_admin_role(credentials), "owner")
+
+            mock.state.admin_group = "read"
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+            self.assertIsNone(client.get_admin_role(RouterOSCredentials("missing", "routerpass")))
+
+            mock.state.admin_group = "full"
+            mock.state.admin_disabled = True
+            self.assertIsNone(client.get_admin_role(credentials))
+
+            mock.state.admin_disabled = False
+            mock.state.admin_user_read_error = 403
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+
     def test_rate_profile_change_requires_reviewed_state_and_exact_readback(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 from urllib.parse import urlsplit
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from routeros_binary import RouterOSBinaryConnection
 from security import SessionStore
@@ -36,8 +36,10 @@ class TelemetryRuntime:
         insecure_tls: bool,
         api_ssl_port: int,
         requested_transport: str,
+        role_resolver: Callable[[Any], str | None] | None = None,
     ) -> None:
         self.sessions = sessions
+        self.role_resolver = role_resolver
         self.requested_transport = requested_transport
         self.enabled = requested_transport in {"binary", "auto"}
         parsed = urlsplit(rest_url)
@@ -108,10 +110,23 @@ class TelemetryRuntime:
         # Live-stream authorization is a read-only revalidation, not evidence
         # of operator activity. Otherwise an unattended socket could keep an
         # otherwise-idle dashboard session alive indefinitely.
-        session = self.sessions.get(session_id, touch=False)
+        session = self.revalidate_session(session_id)
         if session is None:
             return None
         return TelemetryPrincipal.from_session(session)
+
+    def revalidate_session(self, session_id: str):
+        """Re-check a dashboard session and its RouterOS-derived role.
+
+        This is shared by ordinary authenticated requests and both live
+        transports. Session role checks are bounded and do not extend idle
+        lifetime. Tests or embedders without RouterOS access may omit the
+        resolver; production wires the existing RouterOS REST client.
+        """
+        role_resolver = getattr(self, "role_resolver", None)
+        if role_resolver is None:
+            return self.sessions.get(session_id, touch=False)
+        return self.sessions.revalidate_role(session_id, role_resolver)
 
     def _connection(self) -> RouterOSBinaryConnection:
         return RouterOSBinaryConnection(

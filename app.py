@@ -626,6 +626,9 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
             insecure_tls=context.config.routeros_insecure_tls,
             api_ssl_port=context.config.routeros_api_ssl_port,
             requested_transport=context.config.live_transport,
+            role_resolver=lambda session: context.router.get_admin_role(
+                RouterOSCredentials(session.username, session.password)
+            ),
         )
         self.context.telemetry_runtime = self.telemetry_runtime
         self.context.telemetry_state = self.telemetry_runtime.state
@@ -799,7 +802,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _session(self) -> Session | None:
         cookie_session = self.server.context.sessions.get(self._session_id())
         if cookie_session:
-            return cookie_session
+            return self.server.telemetry_runtime.revalidate_session(cookie_session.session_id)
         authorization = self.headers.get("Authorization", "")
         scheme, _, value = authorization.partition(" ")
         if scheme.casefold() != "bearer" or not value.strip():
@@ -2439,7 +2442,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # not sufficient: logout, revocation, or expiry must stop the
                 # next telemetry write. Do not touch idle time merely because
                 # the stream is open.
-                current_session = self.server.context.sessions.get(session_id, touch=False)
+                current_session = self.server.telemetry_runtime.revalidate_session(session_id)
                 if (
                     current_session is None
                     or current_session.auth_method != "routeros"
@@ -2960,6 +2963,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Password is required")
             credentials = RouterOSCredentials(username, password)
             self.server.context.router.verify_credentials(credentials)
+            role = self.server.context.router.get_admin_role(credentials)
+            if role is None:
+                raise RouterOSError("RouterOS account is disabled or unavailable", 401)
         except (ValueError, RouterOSError) as error:
             self.server.context.limiter.fail(identity)
             self.server.context.store.audit(
@@ -2981,7 +2987,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
         self.server.context.limiter.success(identity)
-        role = normalize_role(self.server.context.router.get_admin_role(credentials))
+        role = normalize_role(role)
         session = self.server.context.sessions.create(
             username,
             password,
