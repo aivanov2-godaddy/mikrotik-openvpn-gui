@@ -183,6 +183,60 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertTrue(first.closed)
         self.assertTrue(second.closed)
 
+    def test_snapshot_failures_keep_backoff_and_do_not_publish_partial_reconciliation(self):
+        class RecordingStopEvent:
+            def __init__(self):
+                self.delays = []
+
+            def is_set(self):
+                return False
+
+            def wait(self, delay):
+                self.delays.append(delay)
+                return False
+
+        connections = [FakeConnection(), FakeConnection(), FakeConnection()]
+        connection_iter = iter(connections)
+        stop_event = RecordingStopEvent()
+        received = []
+        reads = 0
+
+        def read_snapshot(_connection):
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                def interrupted_snapshot():
+                    yield {".id": "*partial", "name": "partial"}
+                    raise OSError("snapshot interrupted")
+
+                return interrupted_snapshot()
+            if reads == 2:
+                self.assertEqual([item["name"] for item in supervisor.broker.snapshot()], ["alice"])
+                self.assertEqual(received, [])
+                self.assertEqual(supervisor.health().status, "connecting")
+                raise OSError("snapshot unavailable")
+            return [{".id": "*2", "name": "bob"}]
+
+        supervisor = TelemetrySupervisor(
+            lambda: next(connection_iter),
+            lambda: ("user", "secret"),
+            snapshot_reader=read_snapshot,
+            config=TelemetrySupervisorConfig(enabled=True, initial_backoff=0.01, max_backoff=0.08),
+            stop_event=stop_event,
+            on_events=received.extend,
+        )
+        supervisor.broker.apply(RouterOSReply("re", {".id": "*1", "name": "alice"}), now=99)
+
+        supervisor.run_forever(max_attempts=3)
+
+        self.assertEqual(stop_event.delays, [0.01, 0.02, 0.01])
+        self.assertEqual(reads, 3)
+        self.assertEqual([item["name"] for item in supervisor.broker.snapshot()], ["bob"])
+        self.assertTrue(any(event.name == "telemetry.snapshot" for event in received))
+        self.assertFalse(any(event.payload.get("session", {}).get("name") == "partial" for event in received))
+        self.assertEqual(sum(event.name == "telemetry.snapshot" for event in received), 1)
+        self.assertTrue(all(connection.closed for connection in connections))
+
     def test_reconnect_backoff_is_bounded_and_error_is_redacted(self):
         created = []
         stop_event = threading.Event()
