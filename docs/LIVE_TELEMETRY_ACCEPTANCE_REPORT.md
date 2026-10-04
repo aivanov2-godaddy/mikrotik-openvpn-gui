@@ -12,6 +12,32 @@ have not been recorded as complete.
 
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
+### Post-release security fix deployment (main build)
+
+PR [#424](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/424)
+merged as `1690eb89e8d17c272ca128cb7752f89eec856841`. It closes the SSE
+revocation-during-fetch race by revalidating authorization after the blocking
+RouterOS session query and before persistence or delivery. The full unit suite,
+pre-commit, hosted security/browser/accessibility checks, and ARM64/AMD64 build,
+provenance, and runtime smoke gates passed. Container run
+[#37197892650](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37197892650)
+published the stable main image:
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-1690eb89e8d17c272ca128cb7752f89eec856841-arm64` | `sha256:ba11813eeb1b621574e1822ec3a657f2f79f49a6318415883089d09fc14e9966` |
+| CHR/x86 AMD64 (evaluation) | `sha-1690eb89e8d17c272ca128cb7752f89eec856841-amd64` | `sha256:4d0145dd432737b39ff926c1fc66408e4cc122373dcc925dcc1aacb80e3856c3` |
+
+The RouterOS updater began the canary test at 14:21:26 Europe/Sofia. It
+recovered from transient fetch timeouts, reported canary healthy with HTTP 200
+readiness at 14:22:43, and promoted production at 14:23:50 after its configured
+stability window. Production startup completed and readiness returned HTTP 200;
+the updater logged promotion complete at 14:24:01. Redis remained running.
+This is point-in-time configured-tag and health evidence, not a resource
+baseline, authenticated browser review, digest read-back, or formal sustained
+acceptance. RouterOS policy, CA, certificates, VPN user data, credentials, and
+persistent application data were not changed.
+
 ### Current formal release and RouterOS rollout
 
 Formal release **v2.6.3** points to commit
