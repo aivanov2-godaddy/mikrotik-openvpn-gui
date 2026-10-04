@@ -8,6 +8,14 @@ full-page Chromium screenshot at 1440×1000, 768×1024, and 390×844 CSS pixels.
 CI uses the same Windows runner family as the committed screenshot baselines to
 keep font rasterization consistent.
 
+In addition to the three default screenshots at every viewport, desktop-only
+state snapshots cover a dashboard warning alert, a VPN Users no-results filter,
+the add-user dialog, and the Connections termination-review prompt. The default
+mock RouterOS fixture provides the populated/connected state. These cases use
+the local mock app and fixed REST/UI fixtures; EventSource is disabled, and
+neither live-stream timing nor a real router is involved. This is a selected
+regression set, not an exhaustive combination of every view and state.
+
 ## Run locally
 
 Install Python runtime dependencies, Node.js 24, then run:
@@ -38,6 +46,6 @@ results. CI fails on new serious/critical findings. Removing or correcting a
 finding is allowed; do not broaden the baseline to silence a new one.
 
 This is automated coverage of ten views, not a whole-application conformance
-claim. Additional populated/error states and open dialog states, assistive
-technology, real browser zoom at 200%, and human task validation are not
-established by this suite and remain separate review work.
+claim. Additional populated/error states beyond the selected screenshots,
+assistive technology, real browser zoom at 200%, and human task validation are
+not established by this suite and remain separate review work.

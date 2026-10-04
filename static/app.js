@@ -1337,7 +1337,9 @@ function refreshBulkTagOptions() {
 function applyBulkFilters() {
   const filters = bulkFilters();
   const query = filters.query.toLocaleLowerCase();
-  bulkCards().forEach((card) => {
+  const cards = bulkCards();
+  let visibleCount = 0;
+  cards.forEach((card) => {
     const haystack = `${card.dataset.userName} ${card.dataset.userEmail} ${card.dataset.userComment} ${card.dataset.userTags || ''}`.toLocaleLowerCase();
     const matchesQuery = !query || haystack.includes(query);
     const matchesStatus = filters.status === 'all'
@@ -1345,8 +1347,17 @@ function applyBulkFilters() {
       || (filters.status === 'offline' && card.dataset.userConnected !== 'true' && card.dataset.userDisabled !== 'true')
       || (filters.status === 'suspended' && card.dataset.userDisabled === 'true');
     const matchesTag = !filters.tag || (card.dataset.userTags || '').split(',').map((tag) => tag.trim()).includes(filters.tag);
-    card.classList.toggle('is-filtered-out', !(matchesQuery && matchesStatus && matchesTag));
+    const matches = matchesQuery && matchesStatus && matchesTag;
+    card.classList.toggle('is-filtered-out', !matches);
+    if (matches) visibleCount += 1;
   });
+  const empty = $('[data-user-filter-empty]');
+  if (empty) {
+    empty.hidden = cards.length === 0 || visibleCount > 0;
+    $('strong', empty).textContent = query
+      ? 'No users match your search'
+      : 'No users match these filters';
+  }
   updateBulkSelection();
 }
 
