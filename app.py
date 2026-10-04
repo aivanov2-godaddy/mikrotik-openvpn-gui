@@ -204,6 +204,7 @@ def operations_timeline(
     events.sort(key=lambda item: (item["occurred_at"], item["id"]), reverse=True)
     bounded = events[:150]
     for event in bounded:
+        event["clock_skew_seconds"] = max(0, event["occurred_at"] - generated_at)
         event["age_seconds"] = max(0, generated_at - event["occurred_at"])
         event["related_events"] = []
 

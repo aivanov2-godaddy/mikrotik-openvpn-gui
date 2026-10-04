@@ -23,7 +23,7 @@ from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from security import LoginRateLimiter, SessionStore
 from store import MetadataStore
-from templates import evaluate_device_posture
+from templates import dashboard_page, evaluate_device_posture
 from tests.mock_routeros import MockRouterOS
 
 
@@ -122,6 +122,25 @@ class OperationsTimelineTests(unittest.TestCase):
 
         self.assertEqual(before, "audit:42")
         self.assertEqual(after, before)
+
+    def test_future_timestamps_are_flagged_as_clock_skew_not_fresh(self) -> None:
+        result = operations_timeline(
+            [{"id": 17, "created_at": 115, "actor": "operator", "action": "user.update", "target": "alice", "status": "success"}],
+            [], [], now=100,
+        )
+
+        event = result["events"][0]
+        self.assertEqual(event["age_seconds"], 0)
+        self.assertEqual(event["clock_skew_seconds"], 15)
+        page = dashboard_page(
+            actor="operator", csrf="csrf", users=[], sessions=[], admin_sessions=[], devices=[],
+            connections=[], connection_summaries={}, certificates=[], profile_migrations={},
+            current_ca="", ovpn_server={}, certificate_settings={}, warnings=[], audit=[], alerts=[],
+            policy_templates=[], admin_role="owner", router={}, health={},
+            observability={"operations_timeline": result},
+        )
+        self.assertIn("Timestamp 15s in the future · check clock", page)
+        self.assertNotIn("0s ago", page)
 
     def test_integration_delivery_events_are_bounded_redacted_and_status_only(self) -> None:
         result = operations_timeline(
