@@ -1118,7 +1118,7 @@ def dashboard_page(
       <footer class="app-footer"><span>{dashboard_name_safe}</span><span>RouterOS authentication</span></footer>
     </main>
 
-    <footer class="winbox-statusbar" id="system-status" tabindex="0" aria-label="Router connection status"><span class="status-led"></span><strong>{router_display_name_safe}</strong><span>{board} / arm64 / RouterOS {version}</span><span class="status-spacer"></span><span>{len(users)} users</span><span>{len(sessions)} active</span><span>{actor_safe}</span><time>{time.strftime('%Y-%m-%d %H:%M')}</time></footer>
+    <footer class="winbox-statusbar" id="system-status" tabindex="0" aria-label="Router connection status"><span class="status-led"></span><strong>{router_display_name_safe}</strong><span>{board} / arm64 / RouterOS {version}</span><span class="status-spacer"></span><span>{len(users)} users</span><span><span data-session-total>{len(sessions)}</span> active</span><span>{actor_safe}</span><time>{time.strftime('%Y-%m-%d %H:%M')}</time></footer>
   </section>
 </div>
 
