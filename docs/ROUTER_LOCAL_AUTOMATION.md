@@ -89,6 +89,11 @@ production to the same SQLite file: one database must have one writer.
    name, public address, loopback, link-local, multicast address, query, or
    fragment. This allows a router-local probe where TLS is terminated by a
    separate local proxy without weakening the public-release trust boundary.
+   The updater records bounded readiness result classes (`fetch-error`, HTTP
+   status, incomplete response, not-ready response, or revision mismatch) for
+   failed attempts. It never writes the response body, fetch error text, or
+   readiness URL to the log; `check-error` indicates an unexpected script-side
+   failure while evaluating the probe.
 6. It keeps the canary healthy for the configured stability window (60 seconds
    in the example script), then probes `/readyz` again immediately before
    promotion. Set `canaryValidationSeconds` to the locally appropriate value;
