@@ -2651,11 +2651,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"BEGIN CERTIFICATE", payload)
         migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
         self.assertEqual(migration["vpn_user"], "user-one")
-        self.assertIn("legacy-user-one-phone", [
-            item["name"] for item in self.server.context.router.list_ovpn_client_certificates(
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(migration["replacement_certificate_name"].encode(), page)
+        self.assertIn(b"Import and test it before revoking this certificate.", page)
+        legacy = next(
+            item for item in self.server.context.router.list_ovpn_client_certificates(
                 RouterOSCredentials("admin", "routerpass"), include_legacy=True
-            )
-        ])
+            ) if item["name"] == "legacy-user-one-phone"
+        )
+        self.assertFalse(legacy["revoked"])
 
     def test_incomplete_instance_topology_fails_before_profile_mutation(self) -> None:
         self.login()
