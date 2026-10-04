@@ -6,6 +6,15 @@ semantic-version style release tags.
 
 ## Unreleased
 
+## 2.6.2 - 2026-10-04
+
+### Fixed
+
+- Apply timeline export date filters before related-event correlation so
+  exported references never point to events omitted by the selected range.
+- Expire idle Socket.IO polling clients and release their gateway subscriptions
+  so abandoned sessions cannot retain live-client capacity indefinitely.
+
 ## 2.6.1 - 2026-10-04
 
 ### Fixed
