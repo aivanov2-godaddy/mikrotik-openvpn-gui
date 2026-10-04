@@ -7,6 +7,16 @@ const views = [
   { name: 'VPN Users', heading: 'VPN Users', target: 'vpn-users' },
   { name: 'Connections', heading: 'Connected Devices', target: 'live-sessions' },
 ];
+const accessibilityViews = [
+  ...views,
+  { name: 'Device Profiles', heading: 'Device Profiles', target: 'profile-security' },
+  { name: 'Service Health', heading: 'Service health', target: 'service-health' },
+  { name: 'Connection Doctor', heading: 'Connection Doctor', target: 'connection-doctor' },
+  { name: 'Policy Templates', heading: 'Policy Templates', target: 'policy-templates' },
+  { name: 'Change History', heading: 'Change History', target: 'audit-log' },
+  { name: 'Administrator Sessions', heading: 'Administrator sessions', target: 'admin-sessions' },
+  { name: 'Setup Planner', heading: 'Installation planner', target: 'setup-planner' },
+];
 
 test.beforeEach(async ({ page }) => {
   // Freeze browser time and prevent a real-time transport from starting. The
@@ -45,12 +55,15 @@ for (const view of views) {
       style: '#system-status time { visibility: hidden !important; }',
     });
   });
+}
 
+for (const view of accessibilityViews) {
   test(`${view.name} has no new serious WCAG 2.2 A/AA violations`, async ({ page }, testInfo) => {
     if (view.target !== 'overview') {
       await page.getByRole('link', { name: view.name, exact: true }).click();
     }
     await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
+    await page.waitForLoadState('networkidle');
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
