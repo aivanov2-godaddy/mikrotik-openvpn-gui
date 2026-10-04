@@ -295,25 +295,27 @@ point-in-time/device-independent checks complete live acceptance:
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
-Latest stable registry publication and RouterOS read-back (2026-10-04): release **v2.6.1**, commit
-`0aa90ab1deb9bffd44a1c78797f3b599dd9208b2`, is published by container run
-[37184131858](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131858)
+Latest stable registry publication and RouterOS rollout status (2026-10-04):
+release **v2.6.2**, commit `537c5d0ec156489e281d6121f1c86d199a4bf5dc`, is the
+current `routeros-stable` manifest target. Container publication run
+[37191459676](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37191459676)
 and release-notes run
-[37184131881](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131881).
-ARM64 tag/digest: `sha-0aa90ab1deb9bffd44a1c78797f3b599dd9208b2-arm64` /
-`sha256:979c8a4e34858e1188b3314f12b28ab5e0d09571ea0722f42c05532f0f9cc92b`.
-AMD64 digest: `sha256:db71b92af8d259ff995a9ab55345038ad4b78ceaa93289d5f06e3c5731f2d2f9`.
-Both architectures, runtime smoke tests, and exact-digest provenance/SBOM
-verification passed; the public stable manifest was updated. The scheduled
-RouterOS updater passed canary readiness and stability, then promoted production.
-A fresh read-only WebFig read-back at 2026-10-04 08:17 UTC showed canary and
-production on the immutable v2.6.1 ARM64 tag, both healthy, with Redis running.
-Point-in-time CPU/memory were 0.6%/33.3 MiB (canary), 0.7%/33.4 MiB
-(production), and 1.0%/10.0 MiB (Redis); these are not sustained baselines.
-The publisher maps the observed immutable ARM64 tag to the digest above;
-RouterOS itself exposes the configured tag, not the registry digest. Publication and
-rollout do not establish event-latency/freshness percentiles, API-restart
-recovery, event-integrity, or rollback results. See
+[37191459666](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37191459666)
+passed both architecture builds, runtime smoke tests, exact-digest
+provenance/SBOM verification, and stable-manifest publication. ARM64 tag/digest:
+`sha-537c5d0ec156489e281d6121f1c86d199a4bf5dc-arm64` /
+`sha256:a94196dffa2be1af3c9d15fdecda938cb19523f9eabae8303b5e69692594b89b`.
+AMD64 tag/digest: `sha-537c5d0ec156489e281d6121f1c86d199a4bf5dc-amd64` /
+`sha256:584cbee9fbf5fb432d944b8cef9010ffe82fa5a8d038e0089adf114b774bfdc0`.
+The router-local updater is expected to process the new stable manifest, but a
+post-publication read-back confirming the v2.6.2 immutable tag and healthy state
+on both canary and production has not been recorded. The last available RouterOS
+read-back remains the historical v2.6.1 observation at 2026-10-04 08:17 UTC;
+its point-in-time resource readings are not v2.6.2 measurements. Do not claim
+the new release is deployed until the tag and health are observed on both
+containers. Publication and a tag read-back alone do not establish
+event-latency/freshness percentiles, API-restart recovery, event integrity, or
+rollback results. See
 [LIVE_TELEMETRY_ACCEPTANCE_REPORT.md](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
 for the current acceptance limits.
 
