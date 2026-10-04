@@ -6,6 +6,13 @@ semantic-version style release tags.
 
 ## Unreleased
 
+## 2.6.1 - 2026-10-04
+
+### Fixed
+
+- Return an explicit forbidden response when scoped API tokens request the
+  RouterOS-session-only telemetry status endpoint.
+
 ## 2.6.0 - 2026-10-04
 
 ### Added
