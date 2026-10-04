@@ -6,6 +6,20 @@ semantic-version style release tags.
 
 ## Unreleased
 
+## 2.6.3 - 2026-10-04
+
+### Fixed
+
+- Reject legacy Socket.IO polling requests whose `Origin` is not allowed,
+  matching the WebSocket origin policy.
+- Show an explicit no-results state when VPN Users search or filters match no
+  accounts.
+
+### Tests
+
+- Cover dashboard warning, VPN Users empty state, add-user dialog, and
+  Connections termination prompt in rendered-browser regression tests.
+
 ## 2.6.2 - 2026-10-04
 
 ### Fixed
