@@ -80,6 +80,21 @@ freshness, Redis delivery evidence, sleep/wake recovery, API restart/snapshot
 recovery, event-integrity proof, or a 30-minute soak. Exact router resource
 values remain in the operator-local private record.
 
+### 30-minute elapsed deployment checkpoint — 2026-10-05 02:23:57 Europe/Sofia
+
+This checkpoint is 30 minutes after production started the immutable image at
+01:53:57. The authenticated Dashboard still reported `Live · SOCKETIO` and
+`Operational` service health; its main connected-user card and lower status
+strip both showed zero. Intermediate read-only Dashboard observations showed
+advancing RouterOS uptime and changing CPU samples. This is an elapsed-time
+deployment observation with spot checks, not a continuously collected or
+per-sample acceptance window. No complete Redis/outbox and telemetry metric
+series, latency/freshness percentiles, VPN-client event transition,
+RouterOS-API restart/snapshot recovery, event-integrity verification, or
+rollback drill was collected. The formal #199 acceptance gate therefore
+remains open. Exact router-resource samples remain in the operator-local
+private record.
+
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
 ### Formal v2.7.0 release and its RouterOS image read-back
