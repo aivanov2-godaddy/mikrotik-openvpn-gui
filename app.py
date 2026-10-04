@@ -1275,7 +1275,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/telemetry":
             session = self._require_session(api=True)
-            if not session or session.auth_method != "routeros":
+            if not session or not self._require_routeros_session(session):
                 return
             # REST/SSE remains available as the fallback and mutation-adjacent
             # path.  When LIVE_TRANSPORT is binary or auto, the runtime also
