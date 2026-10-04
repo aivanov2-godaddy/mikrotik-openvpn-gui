@@ -1192,10 +1192,10 @@ function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertif
   form.delivery.value = delivery;
   form.legacy_certificate.value = legacyCertificate;
   $('[data-profile-user]', form).textContent = userName;
-  $('[data-profile-title]', form).textContent = delivery === 'qr' ? 'Create QR code' : 'Download profile';
+  $('[data-profile-title]', form).textContent = delivery === 'qr' ? 'Issue profile by QR' : 'Issue new profile';
   $('[data-profile-description]', form).textContent = delivery === 'qr'
-    ? 'Generate a protected profile link that the phone can open after scanning.'
-    : 'A ZIP archive with the protected OpenVPN profile will download automatically.';
+    ? 'Create a new device certificate and one-time protected link. This cannot re-download an earlier profile.'
+    : 'Create a new device certificate and protected ZIP. This cannot re-download an earlier profile.';
   $('[data-profile-submit]', form).textContent = 'Review profile request';
   $('[data-profile-submit]', form).disabled = true;
   $('[data-profile-review]', form).hidden = true;

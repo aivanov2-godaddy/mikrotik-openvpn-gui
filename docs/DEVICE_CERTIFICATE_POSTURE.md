@@ -22,6 +22,17 @@ remain part of the existing operator inventory UI; this change adds no new
 identifiers, private data, or raw RouterOS fields to telemetry, logs, or
 reports.
 
+## Lost profile recovery
+
+Issued private keys are not retained for later re-download. The VPN Users
+profile actions therefore issue a **new device certificate** and a new
+protected profile; they do not retrieve the earlier profile or private key. If
+a profile is lost, issue a replacement, import and test it, then separately
+revoke the prior certificate. Issuing a replacement does not itself terminate
+an active VPN session, and inventory/revocation read-back does not prove CRL
+enforcement or rejection on a fresh connection. Do not describe this as
+same-identity re-download.
+
 ## Validation
 
 Run the focused checks with:

@@ -458,8 +458,8 @@ def dashboard_page(
         if can_manage_profiles:
             action_parts.extend([
                 f'<button type="button" data-profile>{_icon("plus")}<span>Add another device</span></button>',
-                f'<button type="button" data-download-profile>{_icon("download")}<span>Download profile (.zip)</span></button>',
-                f'<button type="button" data-qr-profile>{_icon("qr")}<span>Show QR code</span></button>',
+                f'<button type="button" data-download-profile>{_icon("download")}<span>Issue new profile (.zip)</span></button>',
+                f'<button type="button" data-qr-profile>{_icon("qr")}<span>Issue profile by QR</span></button>',
             ])
         if can_manage_users:
             access_action = (

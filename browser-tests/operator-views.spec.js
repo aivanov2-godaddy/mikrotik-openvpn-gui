@@ -260,6 +260,29 @@ test('new device profile requires a reason and invalidates review when it change
   await expect(dialog.locator('[data-profile-submit]')).toHaveText('Review profile request');
 });
 
+test('profile delivery actions clearly state that they issue a new identity', async ({ page }) => {
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  const firstUser = page.locator('.user-card').first();
+  await firstUser.locator('.action-menu summary').click();
+  const zipAction = firstUser.locator('[data-download-profile]');
+  const qrAction = firstUser.locator('[data-qr-profile]');
+  await expect(zipAction).toHaveText('Issue new profile (.zip)');
+  await expect(qrAction).toHaveText('Issue profile by QR');
+
+  await zipAction.click();
+  const dialog = page.locator('#profile-dialog');
+  await expect(dialog.locator('[data-profile-title]')).toHaveText('Issue new profile');
+  await expect(dialog.locator('[data-profile-description]')).toContainText('new device certificate');
+  await expect(dialog.locator('[data-profile-description]')).toContainText('cannot re-download an earlier profile');
+
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await firstUser.locator('.action-menu summary').click();
+  await qrAction.click();
+  await expect(dialog.locator('[data-profile-title]')).toHaveText('Issue profile by QR');
+  await expect(dialog.locator('[data-profile-description]')).toContainText('new device certificate');
+  await expect(dialog.locator('[data-profile-description]')).toContainText('cannot re-download an earlier profile');
+});
+
 async function tabTo(page, locator) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;
