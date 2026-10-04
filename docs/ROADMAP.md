@@ -274,11 +274,19 @@ The next roadmap is tracked as [epic #205](https://github.com/aivanov2-godaddy/m
 ### Execution status — 2026-10-04
 
 This table retains the delivery evidence for roadmap issues #188–#204, including
-issues already closed for their repository implementation. Only #192, #195,
-and #200 remain open as standalone issues; the epic #205 tracks cross-cutting
-acceptance still requiring human, physical-router, or external review evidence.
+issues already closed for their repository implementation. Issues #192, #194,
+#195, and #200 remain open as standalone issues; the epic #205 tracks
+cross-cutting acceptance still requiring human, physical-router, or external
+review evidence.
 The entries below are not claims that every listed issue remains open or that
 point-in-time/device-independent checks complete live acceptance:
+
+**Certificate lifecycle status:** #194 was reopened on 2026-10-04 because the
+tracking issue for PR #255 explicitly said it did not close #194, although the
+parent had been closed. The repository has a basic migration path that issues a
+replacement profile without retiring the legacy certificate; the full staged
+renewal/re-download/recovery experience and live RouterOS CRL, active-session,
+reconnect, and rollback acceptance remain incomplete.
 
 **Production acceptance update (2026-10-04, 15:02 Europe/Sofia):** the
 operator-authenticated Owner session loaded the protected production Dashboard
