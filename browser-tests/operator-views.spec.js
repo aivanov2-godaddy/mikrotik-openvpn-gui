@@ -64,8 +64,10 @@ test('Dashboard warning alert state renders consistently', async ({ page }, test
   // Exercise the same REST-backed renderer used by status refreshes, but invoke
   // it directly with a fixed alert fixture. EventSource remains disabled by
   // beforeEach, and no stream or timing behavior is part of this screenshot.
-  const statusResponse = await page.request.get('/api/status');
-  const payload = await statusResponse.json();
+  const payload = await page.evaluate(async () => {
+    const response = await fetch('/api/status');
+    return response.json();
+  });
   payload.alerts = [{
     id: 9201,
     severity: 'warning',
