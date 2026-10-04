@@ -26,6 +26,26 @@ on both canary and production containers, each with the RouterOS healthy
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
+### Post-v2.7.0 runtime patch — PR #443
+
+PR [#443](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/443)
+removes the certificate-revocation status check and its warning from the
+dashboard's Service Health and protection-summary UI. Certificate inventory,
+reviewed per-device revocation actions, and RouterOS enforcement were not
+changed. The merged source is commit `9045057e155b97408e9364bf759e329d60f81b69`;
+container workflow [37223686260](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37223686260)
+passed release-source verification, the rendered browser/accessibility suite,
+ARM64/AMD64 publication, runtime smoke, and exact-digest provenance/SBOM
+verification. The ARM64 image is
+`sha-9045057e155b97408e9364bf759e329d60f81b69-arm64` /
+`sha256:aa632131c3f5ae5efb0a5bc24246223cd5e7fa26b21ba4810c226e6228d229ad`.
+After the stable manifest update, RouterOS WebFig showed that immutable tag on
+both canary and production, each with healthy (`H`) status. The dashboard
+container restart invalidated the prior browser session; the subsequent page
+was at sign-in, so authenticated post-restart rendering was not verified.
+This is point-in-time rollout evidence, not the sustained acceptance tracked
+in issues #198/#199 or independent on-router digest comparison.
+
 ## v1.1 — Installation Wizard ✅
 
 An offline, review-only installer that validates non-secret answers and renders
@@ -42,10 +62,14 @@ apply; later direct edits are retained as visible per-user overrides.
 ## v1.3 — Health and actionable alerts (implemented)
 
 The dashboard now brings RouterOS REST reachability, dashboard storage,
-OpenVPN service, profile-issuance prerequisites, certificate state, and router
-capacity into one read-only view. Each result explains its impact and a safe
-next step; it never changes RouterOS automatically. Per-user quota and schedule
-alerts remain visible in the normal dashboard alert list.
+OpenVPN service, profile-issuance prerequisites, client-certificate inventory,
+and router capacity into one read-only view. It no longer displays a
+certificate-revocation/CRL status check. Reviewed per-device revocation
+workflows remain available; removing the status display did not change
+RouterOS enforcement or configuration. Each displayed health result explains
+its impact and a safe next step; it never changes RouterOS automatically.
+Per-user quota and schedule alerts remain visible in the normal dashboard
+alert list.
 
 ## v1.4 — Reports and audit (implemented)
 
