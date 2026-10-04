@@ -188,12 +188,19 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         failures.append("out_of_order_events")
     if counter_reset_failures:
         failures.append("counter_reset_recovery")
+    complete_verification_record = any(
+        all(record.get(name) is True for name in required_verifications)
+        for record in verification_records
+    )
     if not verification_records:
         failures.append("verification_evidence_missing")
-    else:
-        for name, present in verification.items():
-            if not present:
-                failures.append(f"{name}_missing")
+    elif not complete_verification_record:
+        # Partial records cannot be combined to imply that one full-window
+        # verification attestation covered every required check.
+        failures.append("verification_record_incomplete")
+        for name in required_verifications:
+            failures.append(f"{name}_missing")
+        verification = {name: False for name in required_verifications}
     decoded_samples = [json.loads(sample) for sample in samples]
     timestamp_deltas = [
         later - earlier for earlier, later in zip(sample_timestamps, sample_timestamps[1:])

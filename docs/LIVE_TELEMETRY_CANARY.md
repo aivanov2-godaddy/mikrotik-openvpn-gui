@@ -69,20 +69,25 @@ python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
 
 Every sample requires `observed_at`, a non-negative Unix timestamp in seconds.
 The evaluator requires a timestamped 30-minute observation window, at least
-30 samples, no gap between adjacent samples over 120 seconds, and at least 30
+30 samples, a boolean container-health observation on every sample, no gap
+between adjacent samples over 120 seconds, and at least 30
 measurements each for event latency, traffic freshness, router CPU, memory,
 and storage. It also requires at least 30 sequenced events so event-integrity
 checks are based on more than a single observation. These minimums match the
 release acceptance collector's 30-minute soak and 30-health-sample floor.
+Missing container-health coverage fails with
+`container_health_sample_coverage`.
 
 The command emits only aggregate metrics and failed gate names. It also
 requires at least one reconnect test, one security test, and one explicit
-verification record covering every precision, reset, ordering, parity, and
+verification record that itself covers every precision, reset, ordering, parity, and
 secret-scan gate. Each passing window must also contain at least one CPU,
 memory, and storage measurement; missing values fail independently with
 `router_cpu_measurement_missing`, `router_memory_measurement_missing`, or
 `router_storage_measurement_missing`. A window without those observations or
-attestations cannot report pass.
+attestations cannot report pass. Flags split across multiple partial
+verification records do not combine; an incomplete record set fails with
+`verification_record_incomplete`.
 
 `event_sequence` is checked within an `event_epoch` (a non-negative integer
 identifying one telemetry-process sequence lifetime); omitted epochs default

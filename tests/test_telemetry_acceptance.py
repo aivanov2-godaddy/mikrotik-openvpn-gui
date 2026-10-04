@@ -313,6 +313,42 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-negative integer"):
             evaluate(records({"type": "sample", "event_sequence": 101.5}), limits=LIMITS)
 
+    def test_container_health_is_required_for_every_acceptance_sample(self) -> None:
+        sample = {
+            "type": "sample", "observed_at": 1_728_000_000,
+            "latency_ms": 100, "event_age_seconds": 0.5,
+            "router_cpu_percent": 22, "router_memory_percent": 34,
+            "router_storage_percent": 12, "event_sequence": 1,
+        }
+        code, result = evaluate(acceptance_window(sample), limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("container_health_sample_coverage", result["failed_gates"])
+
+    def test_verification_flags_from_separate_records_cannot_be_combined(self) -> None:
+        samples = [
+            {
+                "type": "sample", "observed_at": 1_728_000_000 + index * 60,
+                "latency_ms": 180, "event_age_seconds": 0.7,
+                "router_cpu_percent": 22, "router_memory_percent": 34,
+                "router_storage_percent": 12, "container_healthy": True,
+                "event_sequence": 101 + index,
+            }
+            for index in range(31)
+        ]
+        window = records(
+            *samples,
+            {"type": "reconnect", "recovery_seconds": 1, "snapshot_recovered": True, "api_interruption_tested": True, "rest_fallback_available": True},
+            {"type": "comparison", "binary_matches_rest": True},
+            {"type": "security", "unauthenticated_denied": True, "secret_bearing_payload": False, "secret_free_logs": True},
+            {"type": "verification", "event_latency_measured": True, "traffic_freshness_measured": True, "counter_reset_tested": True},
+            {"type": "verification", "event_integrity_tested": True, "binary_rest_parity_tested": True, "secret_scan_complete": True},
+        )
+        code, result = evaluate(window, limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertFalse(result["healthy"])
+        self.assertIn("verification_record_incomplete", result["failed_gates"])
+        self.assertFalse(any(result["verification"].values()))
+
 
 if __name__ == "__main__":
     unittest.main()

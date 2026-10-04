@@ -3,7 +3,9 @@
 The input is newline-delimited JSON from an operator harness.  Each line may
 contain ``latency_ms``, ``event_age_seconds``, ``router_cpu_percent``,
 ``router_memory_percent``, ``router_storage_percent``, ``container_healthy``,
-``reconnects``, ``event_lost`` and ``transport``.
+``reconnects``, ``event_lost`` and ``transport``. Every sample must include a
+boolean ``container_healthy`` observation; missing health evidence fails the
+summary closed.
 The command emits aggregate metrics and pass/fail gates only; it never echoes
 RouterOS records, addresses, credentials, or session identifiers.
 """
@@ -56,6 +58,7 @@ def summarize(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, d
     reconnects = 0
     event_loss = 0
     container_health_failures = 0
+    container_health_samples = 0
     samples = 0
     transports: dict[str, int] = {}
     for line in lines:
@@ -77,6 +80,7 @@ def summarize(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, d
         if "container_healthy" in sample:
             if not isinstance(sample["container_healthy"], bool):
                 raise ValueError("container_healthy must be boolean")
+            container_health_samples += 1
             if not sample["container_healthy"]:
                 container_health_failures += 1
         reconnects += int(_number(sample, "reconnects") or 0)
@@ -100,10 +104,13 @@ def summarize(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, d
         "max_router_memory_percent": max(memory) if memory else None,
         "max_router_storage_percent": max(storage) if storage else None,
         "container_health_failures": container_health_failures,
+        "container_health_samples": container_health_samples,
         "reconnects": reconnects,
         "event_loss_count": event_loss,
     }
     failures: list[str] = []
+    if container_health_samples != samples:
+        failures.append("container_health_sample_coverage")
     if metrics["latency_p95_ms"] is not None and metrics["latency_p95_ms"] > limits["latency_p95_ms"]:
         failures.append("latency_p95")
     if metrics["max_event_age_seconds"] is not None and metrics["max_event_age_seconds"] > limits["event_age_seconds"]:
