@@ -64,9 +64,16 @@ AMD64 tag/digest:
 `sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-amd64` /
 `sha256:bbb9aaf2e0d943397d7968a7a4c452408c2ba37e9990dd936495c3721fc87198`.
 The `routeros-stable` manifest now names this commit. That is publication, not
-proof of RouterOS rollout: no post-publication RouterOS image/health read-back
-or live lifecycle acceptance is recorded here. Formal version v2.7.0 remains
-the latest numbered release.
+proof of RouterOS rollout. A read-only WebFig observation at 2026-10-04 23:41
+Europe/Sofia subsequently showed this exact immutable ARM64 tag configured on
+both canary and production, each with healthy (`H`) status; Redis showed
+running (`R`). The container table's point-in-time CPU/memory values were also
+observed, but are not a sustained baseline and are not reproduced in this
+public roadmap. RouterOS reports the configured tag, not the registry digest.
+The public dashboard was at its RouterOS-authenticated sign-in page, so no
+authenticated application, live telemetry, or lifecycle test was performed.
+Formal version v2.7.0 remains the latest numbered release. This read-back does
+not complete the live lifecycle or telemetry acceptance gates.
 
 ## v1.1 — Installation Wizard ✅
 
@@ -401,6 +408,17 @@ browser check is still outstanding.
 | [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202) | Policy-template apply revalidates a session-bound preview receipt and current RouterOS state (#223); session termination reads back RouterOS state and reports verified, failed, or unknown outcomes; policy-template application now performs per-user RouterOS profile read-back and preserves local metadata only after verification (#250); user deletion verifies managed certificate revocation before account deletion and verifies account absence before clearing local metadata, reconciling lost responses and reporting unknown/partial outcomes (#261); single-user suspend/restore verifies the RouterOS `disabled` state before clearing local enforcement, reconciles lost PATCH responses, and distinguishes mismatch from unavailable read-back (#264); single-user edits verify RouterOS state before committing metadata, reconcile response loss and keep passwords unverifiable/partial (#265, #272); generated PPP rate-limit profile state is now bound into account-provision, edit, and policy-template review receipts, with exact `rate-limit` read-back after create/update; bulk suspend/revoke use read-back and preserve partial progress; device revocation and profile issuance require reviewed state and reconcile failures (#279, #282, #292, #293); account creation and duplication now preview copied/effective settings, exclude secrets from review display, and reject stale intent before mutation (#294); all review-first edit, policy apply, suspension, device revoke, profile issue, and account provision flows now use server-side atomic single-use receipts, with replay rejected and changed password values bound by a process-keyed commitment (#295); bulk suspend/revoke/tag bind receipts to selected users and relevant account/session/certificate/tag state, reject stale previews, and prevent replay (#298); account deletion now reviews the exact managed-certificate scope and consumes a one-time session-bound receipt before revocation/deletion, rejecting changed certificate inventories (#301); deletion review also binds dashboard-local metadata and clears account-scoped tags, policy assignment, controls, and email only after confirmed absence (#302); individual session termination now binds the exact live session identity to a single-use review receipt and rejects changed sessions before disconnecting (#303); access restoration also requires a one-time receipt bound to the disabled account state (#304); account-provisioning failure verifies account/certificate cleanup and compares generated PPP profile state against the reviewed snapshot, retaining shared-profile residue and reporting `partial`/`unknown` explicitly instead of falsely claiming complete recovery; failed profile issuance now reads back the uniquely named partial certificate after cleanup and reports unresolved RouterOS residue instead of silently ignoring a rejected DELETE; relative expiry selections now remain stable across review/apply second boundaries (#305); ambiguous individual session-termination DELETE responses are now reconciled by exact-session read-back even when the request response is lost (#317); the route-by-route mutation and local-write boundary is documented in [MUTATION_SAFETY.md](MUTATION_SAFETY.md). | Live-router acceptance across the supported release/model matrix and independent review of ambiguous/competing-operator scenarios; compensating recovery may remain partial/unknown because RouterOS has no cross-resource transaction. |
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
+
+**Latest read-only RouterOS observation (2026-10-04 23:41 Europe/Sofia):**
+WebFig showed PR #448's immutable ARM64 image tag configured on both canary
+and production, both with healthy (`H`) status; Redis was running (`R`). The
+container table exposed point-in-time per-container CPU/memory readings, but
+they are not a sustained baseline or a RouterOS-wide resource sample and are
+not reproduced here. The dashboard browser was at its RouterOS-authenticated
+sign-in page; no authenticated app, freshness, or recovery check was performed.
+This read-back supersedes the earlier v2.7.0-only container status above, but
+does not satisfy #198/#199 acceptance or independently verify the registry
+digest.
 
 Historical v2.6.4 registry publication and RouterOS rollout (2026-10-04):
 formal release **v2.6.4**, commit `9671f27db9e5bad61323378fcdab51fca3d39a8b`,

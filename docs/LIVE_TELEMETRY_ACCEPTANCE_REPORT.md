@@ -12,7 +12,7 @@ have not been recorded as complete.
 
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
-### Formal v2.7.0 release and latest RouterOS image read-back
+### Formal v2.7.0 release and its RouterOS image read-back
 
 Formal release **v2.7.0** points to commit
 `2e01f111e1445c79b1753477a41efbaec27a1a2d`. Release-notes workflow
@@ -34,7 +34,29 @@ it is not a `/readyz` observation, independent registry-digest comparison,
 application/browser check after this release, or formal VPN/telemetry
 acceptance. No resource sample or sustained soak was collected in this
 read-back. The release is based on the PR #434 application code; v2.7.0
-primarily records the staged migration/profile-recovery release state.
+primarily records the staged migration/profile-recovery release state. The
+newer PR #448 image read-back is recorded separately below.
+
+### Latest post-PR #448 RouterOS read-back — 2026-10-04 23:41 Europe/Sofia
+
+Read-only WebFig inspection showed both the canary and production dashboard
+containers configured with the immutable ARM64 tag
+`sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64`; each displayed healthy
+(`H`) status. The separately configured Redis container displayed running
+(`R`). The published ARM64 digest for this tag is
+`sha256:55f2735691f53950d65ed681fa8d47f6861972544e002e40349ac849e4dda185`
+from the verified publication record above; RouterOS exposes the tag, not an
+independent registry digest, so this is not an on-device digest verification.
+
+The container table showed point-in-time CPU and memory readings for both
+dashboard instances and Redis. Those readings are retained as operational
+observations, not reproduced here, and are not RouterOS-wide resource samples,
+peaks, or a sustained baseline. The production site rendered its RouterOS
+dashboard sign-in page; no dashboard credentials were entered, so authenticated
+application state, telemetry freshness, and post-release UI behavior remain
+unverified. No router configuration or running container was changed during
+this inspection. This observation does not satisfy the sustained soak,
+reconnect/recovery, event-integrity, or rollback gates.
 
 ### Read-only RouterOS resource and container snapshot — 2026-10-04 16:39 UTC
 
@@ -155,13 +177,14 @@ acceptance window.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Last authenticated production application observation | At 2026-10-04 15:02 Europe/Sofia, before v2.7.0 deployment, an authenticated Owner browser session loaded the protected Dashboard and Connections views; both displayed the live Socket.IO transport. Read-only UI verification; no live VPN session was active for session-event correlation. After the PR #443 runtime-patch restart, the browser was at sign-in; post-restart authenticated rendering and a new live-session event remain unverified. |
-| Latest RouterOS container read-back | On 2026-10-04, WebFig showed the v2.7.0 ARM64 immutable tag on canary and production, both with healthy (`H`) status. This is configured-tag/container-health evidence only; no `/readyz` check was made. |
-| Latest published release | v2.7.0, commit `2e01f111e1445c79b1753477a41efbaec27a1a2d`, publication run [37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038); exact-digest provenance/SBOM and runtime smoke passed |
-| Latest published ARM64 / AMD64 digests | `sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a` / `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f` |
-| Latest main runtime patch | PR #443, commit `9045057e155b97408e9364bf759e329d60f81b69`, container workflow [37223686260](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37223686260); it removes only the dashboard CRL/revocation status display and its status-only RouterOS read. It is a main-branch image patch, not a new semantic release. |
-| Latest patch image digests | ARM64 `sha256:aa632131c3f5ae5efb0a5bc24246223cd5e7fa26b21ba4810c226e6228d229ad`; AMD64 `sha256:2cfd0293075d2a6f6be9ecdd4975ad309649dd5f336c4bb349381d6efc16b6c2` |
-| RouterOS read-back after PR #443 | WebFig showed the exact immutable ARM64 tag `sha-9045057e155b97408e9364bf759e329d60f81b69-arm64` configured and healthy (`H`) on canary and production. This links the deployed immutable tag to the signed publication digest above; RouterOS does not expose an independently measured registry digest. |
+| Last authenticated production application observation | At 2026-10-04 15:02 Europe/Sofia, before v2.7.0 deployment, an authenticated Owner browser session loaded the protected Dashboard and Connections views; both displayed the live Socket.IO transport. Read-only UI verification; no live VPN session was active for session-event correlation. The current browser is at the RouterOS-authenticated dashboard sign-in page; no post-PR #448 authenticated rendering or new live-session event was verified. |
+| Latest RouterOS container read-back | On 2026-10-04 23:41 Europe/Sofia, WebFig showed PR #448's immutable ARM64 tag `sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64` on canary and production, both healthy (`H`), with Redis running (`R`). Point-in-time container CPU/memory readings were observed; they are not a sustained baseline. No `/readyz` or authenticated app check was made. |
+| Latest numbered release | v2.7.0, commit `2e01f111e1445c79b1753477a41efbaec27a1a2d`, publication run [37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038); exact-digest provenance/SBOM and runtime smoke passed |
+| Latest published runtime image | PR #448 main commit `72c4c255b92b9c5ffb9af509fea5b6306da65657`, publication run [37230021532](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37230021532); ARM64 digest `sha256:55f2735691f53950d65ed681fa8d47f6861972544e002e40349ac849e4dda185`; AMD64 digest `sha256:bbb9aaf2e0d943397d7968a7a4c452408c2ba37e9990dd936495c3721fc87198` |
+| Formal v2.7.0 ARM64 / AMD64 digests | `sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a` / `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f` |
+| Latest main runtime patch | PR #448, commit `72c4c255b92b9c5ffb9af509fea5b6306da65657`, container workflow [37230021532](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37230021532); this is a main-branch image patch, not a new semantic release. |
+| Previous main runtime patch | PR #443, commit `9045057e155b97408e9364bf759e329d60f81b69`, container workflow [37223686260](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37223686260); it removed only the dashboard CRL/revocation status display and its status-only RouterOS read. |
+| RouterOS read-back after PR #448 | WebFig showed the exact immutable ARM64 tag `sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64` configured and healthy (`H`) on canary and production; Redis was running (`R`). This configured-tag read-back does not independently verify the registry digest. |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
@@ -422,12 +445,14 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current runtime result: **v2.7.0 IMAGE DEPLOYED / CONTAINER HEALTH OBSERVED;
-FORMAL ACCEPTANCE PENDING —** on 2026-10-04 WebFig read-back showed the v2.7.0
-ARM64 tag on canary and production, each with healthy (`H`) status. This is not
-a readiness endpoint or post-release authenticated browser check. The published
-ARM64 registry digest is known, but RouterOS exposes only the configured tag,
-so no independent on-router digest comparison is available. The 30-minute
+Current runtime result: **PR #448 IMAGE TAG DEPLOYED / CONTAINER HEALTH
+OBSERVED; FORMAL ACCEPTANCE PENDING —** on 2026-10-04 23:41 Europe/Sofia,
+WebFig showed PR #448's immutable ARM64 tag on canary and production, each
+healthy (`H`), and Redis running (`R`). Point-in-time per-container CPU/memory
+readings were visible; they are not a RouterOS-wide resource sample or a
+sustained baseline. RouterOS exposes the configured tag rather than an
+independent registry digest. The dashboard browser was at its RouterOS-auth
+sign-in page; there was no authenticated application check. The 30-minute
 Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
 session expiry/revocation exercise, and rollback drill remain pending.**
 
