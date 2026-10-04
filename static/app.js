@@ -975,7 +975,18 @@ function renderObservability(payload) {
     ]));
     if (operationBody.dataset.renderKey !== renderKey) {
       const focusedTimelineRow = document.activeElement?.closest?.('[data-operation-row]');
-      const focusedTimelineRowId = focusedTimelineRow?.id || '';
+      const rowFocusKey = (row) => row ? [
+        row.dataset.operationType || '',
+        row.dataset.operationCreated || '',
+        row.dataset.operationSearch || '',
+      ].join('\u001f') : '';
+      const focusedTimelineRowKey = rowFocusKey(focusedTimelineRow);
+      const focusedTimelineRowIndex = focusedTimelineRow
+        ? Array.from(operationBody.querySelectorAll('[data-operation-row]')).indexOf(focusedTimelineRow)
+        : -1;
+      const focusedRelatedLink = document.activeElement?.closest?.('[data-operation-related-link]');
+      const focusedRelatedLabel = focusedRelatedLink?.getAttribute('aria-label') || '';
+      const focusedRelatedSourceKey = rowFocusKey(focusedRelatedLink?.closest?.('[data-operation-row]'));
       operationBody.dataset.renderKey = renderKey;
       operationBody.replaceChildren(...(operations.length ? operations.map((event, index) => {
         const row = node('tr');
@@ -1033,7 +1044,20 @@ function renderObservability(payload) {
       const coverage = $('.operations-timeline-panel .history-coverage-note');
       if (coverage && model.operations_timeline?.coverage?.message) coverage.textContent = model.operations_timeline.coverage.message;
       applyOperationsFilters();
-      if (focusedTimelineRowId) document.getElementById(focusedTimelineRowId)?.focus({ preventScroll: true });
+      const currentRows = Array.from(operationBody.querySelectorAll('[data-operation-row]'));
+      const rowForFocusKey = (key) => key ? currentRows.find((row) => rowFocusKey(row) === key) : null;
+      if (focusedRelatedLabel) {
+        const replacementLink = $$('[data-operation-related-link]').find((link) =>
+          link.getAttribute('aria-label') === focusedRelatedLabel
+          && rowFocusKey(link.closest('[data-operation-row]')) === focusedRelatedSourceKey
+        );
+        if (replacementLink) replacementLink.focus({ preventScroll: true });
+        else (rowForFocusKey(focusedTimelineRowKey) || currentRows[Math.min(Math.max(0, focusedTimelineRowIndex), currentRows.length - 1)])
+          ?.focus({ preventScroll: true });
+      } else if (focusedTimelineRowKey) {
+        (rowForFocusKey(focusedTimelineRowKey) || currentRows[Math.min(Math.max(0, focusedTimelineRowIndex), currentRows.length - 1)])
+          ?.focus({ preventScroll: true });
+      }
     }
   }
 }
