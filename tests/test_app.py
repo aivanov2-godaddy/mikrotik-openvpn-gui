@@ -619,6 +619,31 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("not terminated", preview["effect"])
         return {**request, "review_token": preview["review_token"]}
 
+    def _legacy_migration_revoke_request(self) -> tuple[str, str]:
+        self.login()
+        legacy_name = "legacy-user-one-phone"
+        self.mock.state.certificates["*OLD"] = {
+            ".id": "*OLD", "name": legacy_name, "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.mock.state.certificates["*REPLACEMENT"] = {
+            ".id": "*REPLACEMENT", "name": "user-one-phone-current", "common-name": "user-one-phone-current",
+            "fingerprint": "NEW:FAKE", "issuer": "vpn-ca", "ca": "vpn-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        store = self.server.context.store
+        store.record_profile_migration(
+            legacy_certificate_name=legacy_name,
+            vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-current",
+        )
+        store.record_profile_migration_step(legacy_certificate_name=legacy_name, step="imported", actor="operator")
+        store.record_profile_migration_step(legacy_certificate_name=legacy_name, step="tested", actor="operator")
+        return f"/api/profile-migrations/{legacy_name}/revoke", legacy_name
+
     def _policy_template_review(self) -> tuple[str, str, dict[str, Any]]:
         status, _, payload = self.json_request(
             "POST", "/api/policy-templates",
@@ -981,6 +1006,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/users/test-user/suspend/preview",
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
             "/api/profile-migrations/legacy-user-one-phone/steps/imported",
+            "/api/profile-migrations/legacy-user-one-phone/revoke/preview",
+            "/api/profile-migrations/legacy-user-one-phone/revoke",
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
             "/api/users/test-user/duplicate", "/api/users/test-user/duplicate/preview", "/api/alerts/1/ack",
         )
@@ -1116,6 +1143,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/users/test-user/restore/preview",
             "/api/users/test-user/suspend/preview", "/api/devices/test-device/revoke/preview",
             "/api/devices/test-device/revoke", "/api/admin/api-tokens", "/api/alerts/1/ack",
+            "/api/profile-migrations/legacy-user-one-phone/revoke/preview",
+            "/api/profile-migrations/legacy-user-one-phone/revoke",
             "/api/openvpn-foundation-plan", "/api/admin/break-glass/plan",
             "/api/network/segment-plan", "/api/backups/preflight",
             "/api/backups/validate", "/api/backups/restore-plan",
@@ -1240,6 +1269,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("session.manage", "DELETE", "/api/sessions/session-1", {}),
             ("device.manage", "POST", "/api/devices/device-1/revoke/preview", {}),
             ("device.manage", "POST", "/api/devices/device-1/revoke", {}),
+            ("device.manage", "POST", "/api/profile-migrations/legacy-user-one-phone/revoke/preview", {}),
+            ("device.manage", "POST", "/api/profile-migrations/legacy-user-one-phone/revoke", {}),
             ("alert.manage", "POST", "/api/alerts/999999/ack", {}),
             ("users.manage", "POST", "/api/bulk/preview", {"action": "suspend", "user_ids": ["*1"]}),
             ("users.manage", "POST", "/api/bulk/apply", {"action": "tag", "user_ids": ["*1"], "tag": "review"}),
@@ -1267,7 +1298,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                     self.assertNotIn(b"routerpass", payload)
                     denied_cases += 1
 
-        self.assertEqual(denied_cases, 112)
+        self.assertEqual(denied_cases, 118)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
@@ -3127,6 +3158,71 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
         self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
         self.assertIn("POST /certificate/issued-revoke", self.mock.state.mutation_requests)
+
+    def test_tested_unmanaged_legacy_migration_can_be_reviewed_and_revoked_safely(self) -> None:
+        path, legacy_name = self._legacy_migration_revoke_request()
+        request = {"confirmation": legacy_name, "reason": "Replacement tested; retire old phone identity."}
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b'data-revoke-kind="legacy"', page)
+        self.assertIn(b"Review old-certificate revocation", page)
+        before = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request("POST", f"{path}/preview", request)
+
+        preview = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(preview["certificate"], legacy_name)
+        self.assertEqual(preview["vpn_user"], "user-one")
+        self.assertEqual(self.mock.state.mutation_requests, before)
+        status, _, payload = self.json_request("POST", path, {**request, "review_token": preview["review_token"]})
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertTrue(result["verified"])
+        self.assertTrue(self.mock.state.certificates["*OLD"]["revoked"])
+        self.assertEqual(self.mock.state.certificates["*REPLACEMENT"]["revoked"], "no")
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Old identity revoked on RouterOS", page)
+        self.assertNotIn(b"No managed device record to revoke here", page)
+
+    def test_unmanaged_legacy_revoke_rejects_changed_replacement_after_review(self) -> None:
+        path, _ = self._legacy_migration_revoke_request()
+        request = {"confirmation": "legacy-user-one-phone", "reason": "Replacement tested; retire old identity."}
+        status, _, payload = self.json_request("POST", f"{path}/preview", request)
+        self.assertEqual(status, 200)
+        review = json.loads(payload)
+        self.mock.state.certificates["*REPLACEMENT"]["fingerprint"] = "CHANGED:FAKE"
+        before = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "POST", path, {**request, "review_token": review["review_token"]},
+        )
+
+        self.assertEqual(status, 409)
+        self.assertIn("Review this revocation again", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, before)
+        self.assertEqual(self.mock.state.certificates["*OLD"]["revoked"], "no")
+
+    def test_unmanaged_legacy_migration_revoke_requires_tested_current_ca_replacement(self) -> None:
+        path, _ = self._legacy_migration_revoke_request()
+        self.server.context.store.record_profile_migration_step(
+            legacy_certificate_name="legacy-user-one-phone", step="imported", actor="operator",
+        )
+        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
+        self.server.context.store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
+            replacement_certificate_name=migration["replacement_certificate_name"],
+        )
+        before = list(self.mock.state.mutation_requests)
+        status, _, payload = self.json_request(
+            "POST", f"{path}/preview",
+            {"confirmation": "legacy-user-one-phone", "reason": "Retire after replacement test."},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("tested profile migration", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, before)
 
     def test_device_revoke_preview_is_read_only_and_stale_review_is_rejected(self) -> None:
         path, device_id = self._managed_device_revoke_request()

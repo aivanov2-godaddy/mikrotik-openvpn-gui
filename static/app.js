@@ -1729,6 +1729,7 @@ document.addEventListener('click', async (event) => {
     const form = $('#revoke-device-form');
     form.reset();
     form.device_id.value = button.dataset.deviceId;
+    form.dataset.revokeKind = button.dataset.revokeKind === 'legacy' ? 'legacy' : 'device';
     $('[data-revoke-device-name]', form).textContent = button.dataset.deviceName || 'This device';
     $('[data-confirm-target]', form).textContent = button.dataset.deviceName || 'This device';
     $('[data-revoke-summary]', form).hidden = true;
@@ -2131,7 +2132,8 @@ $('[data-revoke-review]')?.addEventListener('click', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Checking the certificate and preparing a review…');
   try {
-    const response = await resultOrError(await api(`/api/devices/${encodeURIComponent(data.get('device_id'))}/revoke/preview`, {
+    const route = form.dataset.revokeKind === 'legacy' ? 'profile-migrations' : 'devices';
+    const response = await resultOrError(await api(`/api/${route}/${encodeURIComponent(data.get('device_id'))}/revoke/preview`, {
       method: 'POST', body: { reason: data.get('reason'), confirmation: data.get('confirmation') },
     }));
     const preview = await response.json();
@@ -2160,6 +2162,7 @@ $('#revoke-device-form')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const data = new FormData(form);
   const deviceId = data.get('device_id');
+  const route = form.dataset.revokeKind === 'legacy' ? 'profile-migrations' : 'devices';
   if (!data.get('review_token')) {
     event.preventDefault();
     setStatus(form, 'Review the current RouterOS certificate state before applying revocation.', true);
@@ -2168,7 +2171,7 @@ $('#revoke-device-form')?.addEventListener('submit', async (event) => {
   setBusy(form, true);
   setStatus(form, 'Revoking the device certificate…');
   try {
-    const result = await resultOrError(await api(`/api/devices/${encodeURIComponent(deviceId)}/revoke`, {
+    const result = await resultOrError(await api(`/api/${route}/${encodeURIComponent(deviceId)}/revoke`, {
       method: 'POST', body: {
         confirmation: data.get('confirmation'), reason: data.get('reason'),
         review_token: data.get('review_token'),
