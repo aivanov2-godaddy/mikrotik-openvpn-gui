@@ -22,8 +22,8 @@ have not been recorded as complete.
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Latest authenticated production observation | After the 2026-10-04 rollout, RouterOS read-back confirmed `297d9607a070dfe71a2b8c15075ef739127eb8ce` configured on both containers and healthy; authenticated browser verification is pending operator sign-in after the restart |
 | Latest verified canary observation | RouterOS read-back on 2026-10-04 confirmed the canary on `297d9607a070dfe71a2b8c15075ef739127eb8ce` and healthy at that point in time |
-| Latest published candidate | `297d9607a070dfe71a2b8c15075ef739127eb8ce` (publication run [37166529360](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37166529360)); both RouterOS configured image tags read back as this revision |
-| Latest published ARM64 / AMD64 digests | `sha256:ddcf57b91b9daa31c962c9e63fbbff2db5adea3ce4f18c349396a04f4d2699fd` / `sha256:2a50bcfd6bbdbfca68b6af1c95df196d5fde7495d3ab3e52183b5703cf9802a9` |
+| Latest published candidate | `015ee9278adb1f438fdae9e6a82397f4cfcbaca6` (publication run [37171199073](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37171199073)); RouterOS deployment read-back for this candidate is pending |
+| Latest published ARM64 / AMD64 digests | `sha256:b53d519b3d427d3dbd4c789c882e82cc7ead2406c27af906ed69a3409f45c2b6` / `sha256:dcd9f10de3786c894feadd3100f09ad6c83575ba0075c9c1ae26423951ce6ec9` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
@@ -64,6 +64,31 @@ configured local health check; it is not a substitute for the formal
 30-minute telemetry/Redis acceptance window. No RouterOS configuration,
 policy, CA, certificates, VPN user data, or persistent data was changed in
 this observation.
+
+## Newer published candidate — deployment verification pending — 2026-10-04
+
+PR #392 merged as `015ee9278adb1f438fdae9e6a82397f4cfcbaca6`. Publication run
+[37171199073](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37171199073)
+passed release-source verification, the complete rendered browser/accessibility
+suite, ARM64 and AMD64 builds, runtime smoke tests, and exact-digest
+provenance/SBOM verification. The immutable ARM64 image is
+`sha-015ee9278adb1f438fdae9e6a82397f4cfcbaca6-arm64` with digest
+`sha256:b53d519b3d427d3dbd4c789c882e82cc7ead2406c27af906ed69a3409f45c2b6`;
+the AMD64 digest is
+`sha256:dcd9f10de3786c894feadd3100f09ad6c83575ba0075c9c1ae26423951ce6ec9`.
+
+| Check | Result |
+| --- | --- |
+| Publication and image verification | Passed for both architectures, including runtime smoke and exact-digest attestations |
+| Canary / production configured image | Not yet read back for this candidate; the last confirmed tag remains the `297d960` ARM64 image recorded above |
+| Container health, Redis, and router resources | No post-publication router observation recorded |
+| Authenticated dashboard event freshness / reconnect | Pending operator sign-in and live-device observation |
+| Formal soak, API interruption, counter-reset, and rollback drill | Pending; this publication does not complete the runtime acceptance window |
+
+The router-local deployment controller is expected to consume the approved
+immutable release, but no deployment is claimed until read-back confirms it.
+No router policy, CA, certificates, VPN user data, or persistent data was
+changed by this publication.
 
 ## Previously published candidate and canary observation — 2026-10-04
 
