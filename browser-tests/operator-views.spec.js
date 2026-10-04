@@ -396,6 +396,24 @@ test('operations timeline filters bounded observations and labels its coverage',
   const panel = page.locator('.operations-timeline-panel');
   await expect(panel.getByText('Operations timeline', { exact: true })).toBeVisible();
   await expect(panel.locator('.history-coverage-note')).toContainText('gaps are possible');
+  const relatedLink = panel.getByRole('link', { name: /^View related event:/ }).first();
+  await expect(relatedLink).toBeVisible();
+  const relatedHref = await relatedLink.getAttribute('href');
+  expect(relatedHref).toMatch(/^#operation-event-\d+$/);
+  const relatedRow = panel.locator(relatedHref);
+  await relatedLink.focus();
+  await page.keyboard.press('Enter');
+  await expect(relatedRow).toBeFocused();
+  await expect(relatedRow).toBeInViewport();
+  await page.evaluate(async () => {
+    const response = await fetch('/api/observability');
+    const observability = await response.json();
+    observability.operations_timeline.events[0].age_seconds += 1;
+    renderObservability({ observability });
+  });
+  await expect(panel.locator(relatedHref)).toBeFocused();
+  await expect(panel).not.toContainText('192.0.2.8');
+
   const type = panel.getByLabel('Filter timeline by event type');
   await type.selectOption('health');
   const visibleRows = panel.locator('[data-operation-row]:visible');

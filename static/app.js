@@ -960,14 +960,27 @@ function renderObservability(payload) {
   const operationBody = $('[data-operations-timeline]');
   const operations = Array.isArray(model.operations_timeline?.events) ? model.operations_timeline.events : [];
   if (operationBody) {
+    const operationDomIds = new Map(operations.map((event, index) => [String(event.id || ''), `operation-event-${index}`]));
+    const operationById = new Map(operations.map((event) => [String(event.id || ''), event]));
+    const relationLabels = {
+      'delivery-of': 'Delivery status',
+      'delivery-status': 'Audit change',
+      'same-account-near-time': 'Same-account context',
+      'nearby-context': 'Nearby health or deployment context',
+    };
     const renderKey = JSON.stringify(operations.map((event) => [
       event.id, event.occurred_at, event.source, event.type, event.actor,
-      event.target, event.outcome, event.severity, event.summary, event.age_seconds, event.clock_skew_seconds, event.relationship_summary,
+      event.target, event.outcome, event.severity, event.summary, event.age_seconds, event.clock_skew_seconds,
+      event.relationship_summary, event.related_events,
     ]));
     if (operationBody.dataset.renderKey !== renderKey) {
+      const focusedTimelineRow = document.activeElement?.closest?.('[data-operation-row]');
+      const focusedTimelineRowId = focusedTimelineRow?.id || '';
       operationBody.dataset.renderKey = renderKey;
-      operationBody.replaceChildren(...(operations.length ? operations.map((event) => {
+      operationBody.replaceChildren(...(operations.length ? operations.map((event, index) => {
         const row = node('tr');
+        row.id = operationDomIds.get(String(event.id || '')) || `operation-event-${index}`;
+        row.tabIndex = -1;
         row.dataset.operationRow = '';
         row.dataset.operationType = String(event.type || 'other');
         row.dataset.operationOutcome = String(event.outcome || 'unknown');
@@ -985,6 +998,28 @@ function renderObservability(payload) {
         description.append(node('strong', '', event.summary || 'Event'));
         description.append(node('small', 'table-secondary', event.source || 'unknown'));
         if (event.relationship_summary) description.append(node('small', 'table-secondary', event.relationship_summary));
+        const relatedEvents = Array.isArray(event.related_events) ? event.related_events.slice(0, 5) : [];
+        const relatedLinks = relatedEvents.flatMap((relation) => {
+          const relatedId = String(relation.event_id || '');
+          const targetId = operationDomIds.get(relatedId);
+          const targetEvent = operationById.get(relatedId);
+          if (!targetId || !targetEvent) return [];
+          const relationLabel = relationLabels[String(relation.relation || '')] || 'Related event';
+          const targetSummary = String(targetEvent.summary || 'Event');
+          const item = node('li');
+          const link = node('a', 'operation-related-link', `${relationLabel} · ${targetSummary}`);
+          link.href = `#${targetId}`;
+          link.dataset.operationRelatedLink = '';
+          link.setAttribute('aria-label', `View related event: ${relationLabel} — ${targetSummary}`);
+          item.append(link);
+          return [item];
+        });
+        if (relatedLinks.length) {
+          const relatedList = node('ul', 'operation-related-events');
+          relatedList.setAttribute('aria-label', 'Related events');
+          relatedList.append(...relatedLinks);
+          description.append(relatedList);
+        }
         const status = node('td');
         status.append(node('span', `history-status ${event.severity || 'info'}`, String(event.outcome || 'unknown').replace(/\b\w/g, (letter) => letter.toUpperCase())));
         row.append(when, description, node('td', '', event.target || '—'), node('td', '', event.actor || '—'), status);
@@ -993,6 +1028,7 @@ function renderObservability(payload) {
       const coverage = $('.operations-timeline-panel .history-coverage-note');
       if (coverage && model.operations_timeline?.coverage?.message) coverage.textContent = model.operations_timeline.coverage.message;
       applyOperationsFilters();
+      if (focusedTimelineRowId) document.getElementById(focusedTimelineRowId)?.focus({ preventScroll: true });
     }
   }
 }
@@ -1048,6 +1084,24 @@ function applyOperationsFilters() {
     const control = $(selector);
     control?.addEventListener(control.matches('input[type="search"]') ? 'input' : 'change', applyOperationsFilters);
   });
+
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('[data-operation-related-link]');
+  if (!link) return;
+  const targetId = (link.getAttribute('href') || '').slice(1);
+  const target = targetId ? document.getElementById(targetId) : null;
+  if (!target) return;
+  event.preventDefault();
+  if (target.classList.contains('is-filtered-out')) {
+    target.classList.remove('is-filtered-out');
+    const rows = $$('[data-operation-row]');
+    const visible = rows.filter((row) => !row.classList.contains('is-filtered-out')).length;
+    const count = $('[data-operation-count]');
+    if (count) count.textContent = `${visible} shown · related event outside filters · ${rows.length} loaded`;
+  }
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: 'center', behavior: 'auto' });
+});
 
 async function refreshServiceHealth() {
   const button = $('[data-service-health-refresh]');
