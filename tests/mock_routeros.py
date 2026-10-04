@@ -142,6 +142,8 @@ class State:
         self.next_cert = 1
         self.next_file = 1
         self.admin_group = "full"
+        self.admin_disabled = False
+        self.admin_user_read_error: int | None = None
         self.active_router_users = [{"name": "admin", "via": "rest-api", "address": "172.31.250.10"}]
         self.unsupported_active_router_users = False
         self.user_groups = [{
@@ -224,7 +226,13 @@ class MockHandler(BaseHTTPRequestHandler):
             elif path == "/system/package":
                 self._json([{"name": "container", "version": "7.23.3", "disabled": "no"}])
             elif path == "/user":
-                records = [{"name": "admin", "group": state.admin_group, "disabled": "no", "address": ""}]
+                if state.admin_user_read_error:
+                    self._json({"error": state.admin_user_read_error}, state.admin_user_read_error)
+                    return
+                records = [{
+                    "name": "admin", "group": state.admin_group,
+                    "disabled": "yes" if state.admin_disabled else "no", "address": "",
+                }]
                 if query.get("name"):
                     records = [item for item in records if item.get("name") == query["name"][0]]
                 self._json(records)

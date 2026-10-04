@@ -95,6 +95,62 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(session.last_seen, 100)
         self.assertIsNone(store.get(session.session_id, now=111, touch=False))
 
+    def test_routeros_role_revalidation_downgrades_without_extending_idle_lifetime(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "router-secret", role="owner", now=100)
+        checked = store.revalidate_role(
+            session.session_id, lambda _session: "read_only", now=116,
+        )
+
+        self.assertIs(checked, session)
+        self.assertEqual(session.role, "read_only")
+        self.assertEqual(session.last_seen, 100)
+        self.assertIs(
+            store.revalidate_role(
+                session.session_id,
+                lambda _session: self.fail("cached role validation should not call RouterOS again"),
+                now=117,
+            ),
+            session,
+        )
+
+    def test_routeros_role_revalidation_never_elevates_an_existing_session(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "router-secret", role="read_only", now=100)
+
+        self.assertIs(
+            store.revalidate_role(session.session_id, lambda _session: "owner", now=116),
+            session,
+        )
+        self.assertEqual(session.role, "read_only")
+
+    def test_routeros_role_revalidation_revokes_missing_or_incomparable_identity(self) -> None:
+        missing_store = SessionStore()
+        missing = missing_store.create("admin", "router-secret", role="owner", now=100)
+        self.assertIsNone(missing_store.revalidate_role(missing.session_id, lambda _session: None, now=116))
+        self.assertIsNone(missing_store.get(missing.session_id, now=116, touch=False))
+
+        changed_store = SessionStore()
+        changed = changed_store.create("admin", "router-secret", role="administrator", now=100)
+        self.assertIsNone(
+            changed_store.revalidate_role(changed.session_id, lambda _session: "security_operator", now=116)
+        )
+        self.assertIsNone(changed_store.get(changed.session_id, now=116, touch=False))
+
+    def test_routeros_role_lookup_error_falls_back_to_read_only(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "router-secret", role="owner", now=100)
+
+        checked = store.revalidate_role(
+            session.session_id,
+            lambda _session: (_ for _ in ()).throw(RuntimeError("private RouterOS failure")),
+            now=116,
+        )
+
+        self.assertIs(checked, session)
+        self.assertEqual(session.role, "read_only")
+        self.assertNotIn("private RouterOS failure", repr(checked))
+
     def test_session_snapshot_is_safe_and_revoke_is_scoped(self) -> None:
         store = SessionStore(idle_seconds=60, absolute_seconds=600)
         first = store.create("admin", "router-secret", now=100, source_address="192.0.2.10", user_agent="Test browser")

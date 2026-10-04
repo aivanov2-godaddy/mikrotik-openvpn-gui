@@ -291,7 +291,7 @@ class RouterOSClient:
             ),
         }
 
-    def get_admin_role(self, credentials: RouterOSCredentials) -> str:
+    def get_admin_role(self, credentials: RouterOSCredentials) -> str | None:
         try:
             records = _records(
                 self._request(
@@ -301,11 +301,17 @@ class RouterOSClient:
                     query={"name": credentials.username, ".proplist": "name,group,disabled"},
                 )
             )
-        except RouterOSError:
-            # Older RouterOS builds or restricted accounts may not expose /user.
-            # Authentication already succeeded, so retain backwards-compatible owner access.
-            return "owner"
-        record = records[0] if records else {}
+        except RouterOSError as error:
+            # A failed or unsupported privilege lookup must never grant Owner.
+            # Invalid credentials/account disablement revokes; other lookup
+            # failures retain only the least-privileged dashboard role.
+            return None if error.status == 401 else "read_only"
+        record = next(
+            (item for item in records if str(item.get("name", "")) == credentials.username),
+            None,
+        )
+        if record is None or str(record.get("disabled", "no")).strip().casefold() in {"yes", "true", "1"}:
+            return None
         group = str(record.get("group", "full")).strip().lower()
         # RouterOS groups are the identity source.  The additional named
         # groups are optional custom groups; unknown groups fail closed in the
