@@ -423,6 +423,14 @@ image. This verifies the deployed revision tag, not the local image's content
 digest. The full 30-minute acceptance window and rollback rehearsal remain
 pending, and public readiness remains gated behind Cloudflare Access.
 
+Unauthenticated edge check for #200 (2026-10-04): direct HTTPS GET requests to
+the public root, event, observability, operations-timeline, and metrics routes
+each returned HTTP 302 before redirects were followed; the browser showed
+Cloudflare Access. This is a point-in-time edge-gate observation only, not
+proof of backend anonymous-route denial, authenticated role enforcement,
+cross-origin behavior, or live-session revocation. The authenticated dashboard
+check and live RouterOS authorization-expiry/revocation exercise remain open.
+
 Additional repository work merged on 2026-10-03: PR #328 added exact account
 and session read-back, persisted pending intent, secret-safe partial/unknown
 automation outcomes, recovery tests, and keyboard/reflow browser checks for
