@@ -371,6 +371,21 @@ post-restart UI check is claimed. This rollout record does not include a
 resource baseline, live certificate/CRL acceptance, or formal sustained
 telemetry acceptance.
 
+PR #434 subsequently completed the repository-side staged migration guidance
+and was merged as `bd9be4e25831e53c84b89fe2e332d27bf9c985c7`. Its ARM64 image
+was published by run
+[37209541229](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37209541229)
+with tag
+`sha-bd9be4e25831e53c84b89fe2e332d27bf9c985c7-arm64` and registry digest
+`sha256:99e2f3cb9a0cd2542b677ccc15c286ae564f415c19453aabbdd7b30cdf5acdc8`.
+Read-only RouterOS WebFig read-back showed that tag on the canary and production
+containers with healthy status. This is rollout evidence, not a fresh `/readyz`
+assertion or end-to-end certificate acceptance. Import and connection-test
+steps are operator attestations; RouterOS inventory cannot establish which
+certificate an existing VPN session used. The formal application version at
+that image is still v2.6.4; the next versioned release is being prepared as
+v2.7.0 to include the profile recovery and staged migration improvements.
+
 An earlier `routeros-stable` manifest was refreshed by publication run
 [37085223385](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37085223385)
 for runtime commit `01055d4efdc041c2443f41e08235896bf6f4f754`. Its ARM64 image

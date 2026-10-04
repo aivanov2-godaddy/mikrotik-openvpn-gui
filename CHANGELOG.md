@@ -6,6 +6,24 @@ semantic-version style release tags.
 
 ## Unreleased
 
+## 2.7.0 - 2026-10-04
+
+### Added
+
+- Guided, per-device certificate migration: issue a replacement profile, record
+  operator-attested import and connection-test steps, and keep the old
+  certificate active until its separately reviewed revocation.
+- Device Profiles identifies the exact replacement certificate and clarifies
+  that RouterOS inventory cannot prove which certificate a live client session
+  used. Lost-profile recovery issues a new identity rather than re-downloading
+  a private key that the dashboard does not retain.
+
+### Tests
+
+- Verify migration-step ordering, current-CA and active-certificate read-back,
+  audit attribution, stale/re-issued migration handling, and that progress
+  records do not claim RouterOS verified client import or session identity.
+
 ## 2.6.4 - 2026-10-04
 
 ### Fixed
