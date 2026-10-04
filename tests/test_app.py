@@ -1141,7 +1141,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         with mock.patch.object(
             self.server.context.router, "_request", wraps=self.server.context.router._request,
         ) as router_request:
-            for path in ("/api/status", "/api/users"):
+            for path in ("/api/status", "/api/users", "/api/telemetry"):
                 status, _, payload = self.request(
                     "GET", path,
                     headers={"Authorization": f"Bearer {health_token}", "Cookie": ""},
