@@ -12,16 +12,18 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The current published feature release is **v2.6.0**. It includes the v2.1
+The current published feature release is **v2.6.1**. It includes the v2.1
 mobile administrator workflows, v2.2 administrator roles and authentication
 audit, v2.3 enterprise operations foundations, v2.4 bulk operations and saved
 views, and v2.5 Binary API live telemetry with the Socket.IO gateway and
 fallback paths. v2.6 adds Redis/outbox reliability and recovery coverage,
 security and operations controls, accessibility and timeline improvements, and
-redacted acceptance tooling. The release also includes the subsequent
+redacted acceptance tooling. Patch v2.6.1 gives scoped API tokens a deliberate
+403 response when they request the RouterOS-session-only telemetry status.
+The release also includes the subsequent
 live-stream stability, typography, security, and runtime dependency updates.
-Earlier v2.5 images were deployed and verified on RouterOS; v2.6 deployment is
-tracked separately below and is not yet claimed as accepted. The first
+The v2.6.1 image is deployed on RouterOS as recorded below; this point-in-time
+read-back is not the formal sustained acceptance. The first
 controlled acceptance window verified container health, REST fallback during a
 temporary API-SSL interruption, automatic Binary API recovery, authentication
 denial, and the deployed resource snapshot. A connected-client window also
@@ -37,23 +39,25 @@ deployment model.
 
 ### Latest stable registry publication
 
-Runtime commit `b60e977a5e4dada47fbaec18b7a15a2646e6865d` (release **v2.6.0**)
+Runtime commit `0aa90ab1deb9bffd44a1c78797f3b599dd9208b2` (release **v2.6.1**)
 is the current `routeros-stable` manifest target. Container publication run
-[#37181655530](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37181655530)
+[#37184131858](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131858)
 and release-notes run
-[#37181655568](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37181655568)
+[#37184131881](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131881)
 passed. Both architecture builds, published-runtime smoke tests, stable-manifest
 publication, and exact-digest provenance/SBOM verification passed. The immutable
 tags and registry digests are:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-arm64` | `sha256:7fd9276428933c4f1ce529354f8bb95d79cef16d4d416f0011a3f825fe661a81` |
-| CHR/x86 AMD64 (evaluation) | `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-amd64` | `sha256:2ed94f2551bbbca626ff1d27ef4b28752170f42af9f7003d3affac1a33c1614a` |
+| RouterOS ARM64 | `sha-0aa90ab1deb9bffd44a1c78797f3b599dd9208b2-arm64` | `sha256:979c8a4e34858e1188b3314f12b28ab5e0d09571ea0722f42c05532f0f9cc92b` |
+| CHR/x86 AMD64 (evaluation) | `sha-0aa90ab1deb9bffd44a1c78797f3b599dd9208b2-amd64` | `sha256:db71b92af8d259ff995a9ab55345038ad4b78ceaa93289d5f06e3c5731f2d2f9` |
 
 The scheduled RouterOS updater processed the manifest. A read-only WebFig
-read-back on 2026-10-04 06:22 UTC confirmed canary and production on the v2.6.0
-ARM64 tag, both healthy; Redis was running. This is a point-in-time tag/health
+read-back on 2026-10-04 07:04 UTC confirmed canary and production on the v2.6.1
+ARM64 tag, both healthy; Redis was running. Point-in-time CPU/memory were
+0.7%/33.2 MiB (canary), 0.6%/32.6 MiB (production), and 1.0%/10.0 MiB
+(Redis). This is a point-in-time tag/health/resource
 and resource observation, not an independent registry-digest comparison or the
 formal sustained acceptance window. Event latency/freshness percentiles,
 restart/recovery, counter-reset/event-integrity, and rollback drills remain

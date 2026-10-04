@@ -57,3 +57,22 @@ Automated route tests establish the listed dispatch and role-denial assertions;
 they do not replace a code-owner review of every handler, an external
 penetration test, or verification behind the production proxy. The high-impact
 router mutation workflow is tracked separately in [mutation safety](ROADMAP.md#phase-4-release-and-security-assurance).
+
+## Independent code review record — 2026-10-04
+
+An independent AI-assisted review of `origin/main` commit `bb3ff5e` traced the
+GET/POST/PATCH/DELETE route families, token scopes, dashboard session checks,
+and SSE/Socket.IO authorization paths. It found no demonstrated privilege
+escalation or unauthorized RouterOS operation in the reviewed paths. It did
+find that a valid API token on `GET /api/telemetry` returned no HTTP response
+instead of a deliberate denial. PR #405 fixed this by reusing the
+RouterOS-session guard and adding a token regression; v2.6.1 is the deployed
+patch. The independent reviewer ran 26 focused tests; the subsequent local app,
+security, and ASGI run passed 158 tests, and hosted CI passed before release.
+
+This internal code review is not an external penetration test or compliance
+assessment. Role-derived authorization for ordinary authenticated reads and
+live streams is rechecked at most every 15 seconds; privileged management
+actions force an immediate role lookup. Full route-by-role/token-scope
+cross-product coverage, maximum physical-router revocation latency, and
+authenticated production-proxy behavior remain unverified.
