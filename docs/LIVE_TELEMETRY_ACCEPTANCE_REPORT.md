@@ -95,6 +95,19 @@ rollback drill was collected. The formal #199 acceptance gate therefore
 remains open. Exact router-resource samples remain in the operator-local
 private record.
 
+### Read-only management-VPN follow-up — 2026-10-05, about 02:50–02:51 Europe/Sofia
+
+The authenticated production Dashboard continued to report `Live · SOCKETIO`
+and `Operational`; RouterOS uptime advanced and its CPU sample changed between
+views without a page reload. The connected-user count remained zero. RouterOS
+container logs around this check recorded successful `/readyz` HTTP 200 probes
+for both canary and production, and Redis completed its scheduled RDB save.
+These are point-in-time health and persistence observations only: no VPN-client
+event, Redis Stream delivery/replay, RouterOS API interruption/recovery, or
+rollback was exercised, and no continuous metric series was collected. No
+RouterOS configuration or container was changed. Exact resource values and
+private network identifiers are intentionally omitted.
+
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
 ### Formal v2.7.0 release and its RouterOS image read-back

@@ -454,6 +454,16 @@ reported live/operational with both session counts at zero. This was an elapsed
 time checkpoint with spot checks, not a continuous sampled soak; #199 remains
 open.
 
+**Read-only management-VPN follow-up (2026-10-05, about 02:50–02:51
+Europe/Sofia):** the authenticated Dashboard remained `Live · SOCKETIO` and
+`Operational`; uptime and CPU changed between views without a page reload, and
+the connected-session count remained zero. RouterOS logs showed successful
+`/readyz` responses for canary and production, and a successful scheduled Redis
+RDB save. This supplements point-in-time health/persistence evidence only; it
+does not measure a VPN-client event, Redis stream delivery/recovery, API
+restart/snapshot recovery, or formal soak. No router configuration or container
+was changed. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
 **Acceptance evidence integrity (in progress):** the local telemetry-acceptance
 evaluator now requires reconnect, comparison, security, and verification
 attestations to carry timestamps within the same strictly increasing sample
