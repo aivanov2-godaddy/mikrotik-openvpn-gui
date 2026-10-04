@@ -962,7 +962,7 @@ function renderObservability(payload) {
   if (operationBody) {
     const renderKey = JSON.stringify(operations.map((event) => [
       event.id, event.occurred_at, event.source, event.type, event.actor,
-      event.target, event.outcome, event.severity, event.summary, event.age_seconds, event.relationship_summary,
+      event.target, event.outcome, event.severity, event.summary, event.age_seconds, event.clock_skew_seconds, event.relationship_summary,
     ]));
     if (operationBody.dataset.renderKey !== renderKey) {
       operationBody.dataset.renderKey = renderKey;
@@ -977,7 +977,10 @@ function renderObservability(payload) {
           .map((value) => String(value || '')).join(' ').toLocaleLowerCase();
         const when = node('td');
         when.append(node('time', '', formatObservationTime(event.occurred_at)));
-        when.append(node('small', 'table-secondary', `${Math.max(0, Number(event.age_seconds) || 0)}s ago`));
+        const clockSkew = Math.max(0, Number(event.clock_skew_seconds) || 0);
+        when.append(node('small', 'table-secondary', clockSkew > 0
+          ? `Timestamp ${clockSkew}s in the future · check clock`
+          : `${Math.max(0, Number(event.age_seconds) || 0)}s ago`));
         const description = node('td');
         description.append(node('strong', '', event.summary || 'Event'));
         description.append(node('small', 'table-secondary', event.source || 'unknown'));
