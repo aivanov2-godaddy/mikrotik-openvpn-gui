@@ -857,6 +857,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials, cookies, private keys, and profile contents are never
         included.
         """
+        if session.auth_method == "routeros" and capability.endswith(".manage"):
+            session = self.server.telemetry_runtime.revalidate_session(
+                session.session_id,
+                force_role_check=True,
+            )
+            if session is None:
+                self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
+                return False
         allowed = self._capability_allowed(session, capability)
         if allowed:
             return True

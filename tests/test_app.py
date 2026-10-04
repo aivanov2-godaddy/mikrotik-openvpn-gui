@@ -1339,6 +1339,23 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 403)
 
+    def test_routeros_role_downgrade_blocks_mutation_without_waiting_for_cache(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "owner")
+        before_mutations = self.mock.state.mutation_requests
+
+        # Keep the ordinary 15-second session-role cache warm, then downgrade
+        # the RouterOS account before its cached role expires.
+        self.mock.state.admin_group = "read"
+        status, _, _ = self.json_request("POST", "/api/users", {})
+
+        self.assertEqual(status, 403)
+        self.assertEqual(session.role, "read_only")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
     def test_disabled_routeros_account_revokes_existing_live_session(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]

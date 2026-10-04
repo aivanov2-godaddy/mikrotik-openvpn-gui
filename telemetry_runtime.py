@@ -115,7 +115,7 @@ class TelemetryRuntime:
             return None
         return TelemetryPrincipal.from_session(session)
 
-    def revalidate_session(self, session_id: str):
+    def revalidate_session(self, session_id: str, *, force_role_check: bool = False):
         """Re-check a dashboard session and its RouterOS-derived role.
 
         This is shared by ordinary authenticated requests and both live
@@ -126,7 +126,11 @@ class TelemetryRuntime:
         role_resolver = getattr(self, "role_resolver", None)
         if role_resolver is None:
             return self.sessions.get(session_id, touch=False)
-        return self.sessions.revalidate_role(session_id, role_resolver)
+        return self.sessions.revalidate_role(
+            session_id,
+            role_resolver,
+            interval_seconds=0 if force_role_check else 15,
+        )
 
     def _connection(self) -> RouterOSBinaryConnection:
         return RouterOSBinaryConnection(
