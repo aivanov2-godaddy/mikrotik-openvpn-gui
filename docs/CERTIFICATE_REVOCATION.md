@@ -1,4 +1,13 @@
-# Certificate revocation migration
+# RouterOS CRL enforcement migration (separate operational runbook)
+
+This is an optional CA-wide RouterOS migration procedure, separate from the
+dashboard's per-device certificate lifecycle workflows tracked in issue #194.
+It is not required for ordinary per-device issuance or revocation. The
+dashboard no longer presents an aggregate CRL/revocation status check; its
+per-device inventory and revoke actions do not prove CRL enforcement, active
+session termination, or rejection after reconnect. Use this runbook only for
+a deliberately scheduled CA migration with the required client and rollback
+testing.
 
 RouterOS can reject a revoked OpenVPN client certificate only when all of the
 following are true:
@@ -9,9 +18,9 @@ following are true:
 3. CRL download and use are enabled; and
 4. the list is retained in persistent RouterOS storage.
 
-The dashboard deliberately reports a warning unless it can verify all four
-conditions. Enabling `crl-use` by itself is not a fix: on a router with a CA
-that has no CRL endpoint, it can reject otherwise valid certificate chains.
+Enabling `crl-use` by itself is not a fix: on a router with a CA that has no
+CRL endpoint, it can reject otherwise valid certificate chains. The dashboard
+does not evaluate or display these aggregate conditions.
 
 ## Before you begin
 
@@ -94,8 +103,10 @@ if the currently active OpenVPN CA has no working CRL distribution point.
    CA, then enable `crl-use=yes`. Validate that the revoked test profile is
    rejected and the non-revoked test profile succeeds. Restart only the
    dashboard container(s) through the canary-first deployment process.
-8. Verify the dashboard reports **Certificate revocation checks — Healthy**.
-   Retain the old chain for the documented rollback window before retiring it.
+8. Verify the RouterOS settings and both disposable test-profile outcomes using
+   the checks below. The dashboard does not provide an aggregate CRL-health
+   indicator. Retain the old chain for the documented rollback window before
+   retiring it.
 
 ## Verification commands
 
