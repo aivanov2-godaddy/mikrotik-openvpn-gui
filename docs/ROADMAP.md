@@ -5,6 +5,27 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
+## Current release status — 2026-10-04
+
+Formal release **v2.7.0** is published from commit
+`2e01f111e1445c79b1753477a41efbaec27a1a2d`. Release workflow
+[37212204043](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204043)
+and container workflow
+[37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038)
+completed successfully. ARM64 image tag/digest:
+`sha-2e01f111e1445c79b1753477a41efbaec27a1a2d-arm64` /
+`sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a`.
+AMD64 image tag/digest:
+`sha-2e01f111e1445c79b1753477a41efbaec27a1a2d-amd64` /
+`sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f`.
+Both image builds passed runtime smoke tests and detached provenance/SBOM
+verification; the `routeros-stable` manifest now points to this commit. On
+2026-10-04, RouterOS WebFig read-back confirmed the v2.7.0 ARM64 immutable tag
+on both canary and production containers, each with the RouterOS healthy
+(`H`) marker. This verifies image deployment and container health only; it is
+not formal VPN/telemetry acceptance and does not replace the outstanding
+operator acceptance evidence tracked below.
+
 ## v1.1 — Installation Wizard ✅
 
 An offline, review-only installer that validates non-secret answers and renders
