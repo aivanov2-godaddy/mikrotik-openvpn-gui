@@ -974,6 +974,8 @@ function renderObservability(payload) {
       event.relationship_summary, event.related_events,
     ]));
     if (operationBody.dataset.renderKey !== renderKey) {
+      const focusedTimelineRow = document.activeElement?.closest?.('[data-operation-row]');
+      const focusedTimelineRowId = focusedTimelineRow?.id || '';
       operationBody.dataset.renderKey = renderKey;
       operationBody.replaceChildren(...(operations.length ? operations.map((event, index) => {
         const row = node('tr');
@@ -1026,6 +1028,7 @@ function renderObservability(payload) {
       const coverage = $('.operations-timeline-panel .history-coverage-note');
       if (coverage && model.operations_timeline?.coverage?.message) coverage.textContent = model.operations_timeline.coverage.message;
       applyOperationsFilters();
+      if (focusedTimelineRowId) document.getElementById(focusedTimelineRowId)?.focus({ preventScroll: true });
     }
   }
 }

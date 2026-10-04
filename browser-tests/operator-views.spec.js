@@ -405,6 +405,13 @@ test('operations timeline filters bounded observations and labels its coverage',
   await page.keyboard.press('Enter');
   await expect(relatedRow).toBeFocused();
   await expect(relatedRow).toBeInViewport();
+  await page.evaluate(async () => {
+    const response = await fetch('/api/observability');
+    const observability = await response.json();
+    observability.operations_timeline.events[0].age_seconds += 1;
+    renderObservability({ observability });
+  });
+  await expect(panel.locator(relatedHref)).toBeFocused();
   await expect(panel).not.toContainText('192.0.2.8');
 
   const type = panel.getByLabel('Filter timeline by event type');
