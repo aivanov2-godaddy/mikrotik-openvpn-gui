@@ -291,20 +291,23 @@ are verified partial milestones, not issue completions:
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
-Latest stable registry publication (2026-10-04): the public `routeros-stable`
-manifest points to commit `7eacb9fdbd42ca1e3e9b67005d2f2eea4a5a262a`, published
-by [run 37175496014](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37175496014).
-ARM64 digest:
-`sha256:0614da1d2eb1c029312c13ecb951adea6ff09ff387149472ca712a070de2d4f3`.
-AMD64 digest:
-`sha256:9ffde399b83fe07f0417a3d53f41a8df62af6e3bce6fc5973c88382cf2e8e53e`.
+Latest stable registry publication (2026-10-04): release **v2.6.0**, commit
+`b60e977a5e4dada47fbaec18b7a15a2646e6865d`, is published by container run
+[37181655530](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37181655530)
+and release-notes run
+[37181655568](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37181655568).
+ARM64 tag/digest: `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-arm64` /
+`sha256:7fd9276428933c4f1ce529354f8bb95d79cef16d4d416f0011a3f825fe661a81`.
+AMD64 digest: `sha256:2ed94f2551bbbca626ff1d27ef4b28752170f42af9f7003d3affac1a33c1614a`.
 Both architectures, runtime smoke tests, and exact-digest provenance/SBOM
-verification passed. A subsequent read-only RouterOS WebFig read-back showed
-canary and production both on the immutable `sha-7eacb9f...-arm64` tag and
-healthy, with Redis running. This is point-in-time tag/health evidence only:
-there was no independent router-side digest comparison or sustained acceptance
-window, and it does not establish event-latency/freshness percentiles,
-API-restart recovery, event-integrity, or rollback results. See
+verification passed; the public stable manifest was updated. The scheduled
+RouterOS updater then deployed the candidate. Read-only WebFig read-back at
+2026-10-04 06:22 UTC showed canary and production on the immutable v2.6.0
+ARM64 tag, both healthy, with Redis running. Point-in-time CPU/memory were
+0.6%/33.4 MiB (canary), 0.8%/33.2 MiB (production), and 1.1%/10.0 MiB
+(Redis); these are not sustained baselines. Publication and rollout do not
+establish event-latency/freshness percentiles, API-restart recovery,
+event-integrity, or rollback results. See
 [LIVE_TELEMETRY_ACCEPTANCE_REPORT.md](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
 for the current acceptance limits.
 
