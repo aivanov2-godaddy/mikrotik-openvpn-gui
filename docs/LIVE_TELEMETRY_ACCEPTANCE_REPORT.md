@@ -25,9 +25,11 @@ runtime smoke tests, and exact-digest provenance/SBOM checks passed.
 | RouterOS ARM64 image | `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-arm64`, `sha256:7fd9276428933c4f1ce529354f8bb95d79cef16d4d416f0011a3f825fe661a81` |
 | AMD64 image (evaluation only) | `sha256:2ed94f2551bbbca626ff1d27ef4b28752170f42af9f7003d3affac1a33c1614a` |
 | Stable manifest | Updated to v2.6.0 ARM64/AMD64 immutable tags |
-| Canary and production at latest WebFig check | Still configured with the older `sha-bcb7633` ARM64 image; both showed healthy status, Redis was running |
+| Canary and production at latest WebFig check (2026-10-04 06:22 UTC) | Both configured with `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-arm64` and healthy; Redis was running |
+| Point-in-time RouterOS resource snapshot | Canary: 0.6% CPU, 33.4 MiB memory; production: 0.8% CPU, 33.2 MiB; Redis: 1.1% CPU, 10.0 MiB. Not a sustained baseline. |
 | Router digest comparison | Not available from the RouterOS configured-tag read-back |
-| v2.6.0 deployment and formal acceptance | Pending; no sustained acceptance or rollback result is claimed |
+| v2.6.0 deployment | Confirmed on canary and production by immutable tag and healthy status; point-in-time only |
+| Formal acceptance | Pending; no sustained acceptance or rollback result is claimed |
 
 No RouterOS policy, CA, certificates, VPN user data, credentials, or persistent
 application data were changed by release publication. The existing scheduled
@@ -44,8 +46,8 @@ confirmed by a subsequent read-back before updating the result above.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest authenticated production observation | The last RouterOS read-back after v2.6.0 publication still showed the previous `bcb7633` image configured on canary and production and healthy; a fresh post-update authenticated browser check remains pending |
-| Latest verified canary observation | Latest post-publication RouterOS read-back still showed `bcb7633` configured and healthy |
+| Latest authenticated production observation | RouterOS read-back at 2026-10-04 06:22 UTC confirmed the v2.6.0 ARM64 tag on production and healthy status; a fresh post-update authenticated browser check remains pending operator sign-in |
+| Latest verified canary observation | RouterOS read-back at 2026-10-04 06:22 UTC confirmed the v2.6.0 ARM64 tag and healthy status |
 | Latest published candidate | v2.6.0, commit `b60e977a5e4dada47fbaec18b7a15a2646e6865d`, publication run [37181655530](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37181655530); router rollout pending |
 | Latest published ARM64 / AMD64 digests | `sha256:7fd9276428933c4f1ce529354f8bb95d79cef16d4d416f0011a3f825fe661a81` / `sha256:2ed94f2551bbbca626ff1d27ef4b28752170f42af9f7003d3affac1a33c1614a` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |

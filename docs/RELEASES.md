@@ -51,12 +51,11 @@ tags and registry digests are:
 | RouterOS ARM64 | `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-arm64` | `sha256:7fd9276428933c4f1ce529354f8bb95d79cef16d4d416f0011a3f825fe661a81` |
 | CHR/x86 AMD64 (evaluation) | `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-amd64` | `sha256:2ed94f2551bbbca626ff1d27ef4b28752170f42af9f7003d3affac1a33c1614a` |
 
-The RouterOS updater is expected to process this manifest on its scheduled
-check. The latest read-only WebFig check after publication still showed the
-previous `bcb7633` ARM64 tag on canary and production, with both containers
-healthy and Redis running. The v2.6.0 RouterOS rollout is therefore pending
-read-back. Even after deployment, a point-in-time tag/health check is not the
-formal sustained acceptance window; event latency/freshness percentiles,
+The scheduled RouterOS updater processed the manifest. A read-only WebFig
+read-back on 2026-10-04 06:22 UTC confirmed canary and production on the v2.6.0
+ARM64 tag, both healthy; Redis was running. This is a point-in-time tag/health
+and resource observation, not an independent registry-digest comparison or the
+formal sustained acceptance window. Event latency/freshness percentiles,
 restart/recovery, counter-reset/event-integrity, and rollback drills remain
 outstanding.
 

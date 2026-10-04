@@ -300,12 +300,14 @@ ARM64 tag/digest: `sha-b60e977a5e4dada47fbaec18b7a15a2646e6865d-arm64` /
 `sha256:7fd9276428933c4f1ce529354f8bb95d79cef16d4d416f0011a3f825fe661a81`.
 AMD64 digest: `sha256:2ed94f2551bbbca626ff1d27ef4b28752170f42af9f7003d3affac1a33c1614a`.
 Both architectures, runtime smoke tests, and exact-digest provenance/SBOM
-verification passed; the public stable manifest was updated. Latest read-only
-RouterOS WebFig observation after publication still showed canary and
-production on the older `sha-bcb7633` ARM64 image, both healthy, with Redis
-running. Rollout is pending router read-back. Publication does not establish
-event-latency/freshness percentiles, API-restart recovery, event-integrity, or
-rollback results. See
+verification passed; the public stable manifest was updated. The scheduled
+RouterOS updater then deployed the candidate. Read-only WebFig read-back at
+2026-10-04 06:22 UTC showed canary and production on the immutable v2.6.0
+ARM64 tag, both healthy, with Redis running. Point-in-time CPU/memory were
+0.6%/33.4 MiB (canary), 0.8%/33.2 MiB (production), and 1.1%/10.0 MiB
+(Redis); these are not sustained baselines. Publication and rollout do not
+establish event-latency/freshness percentiles, API-restart recovery,
+event-integrity, or rollback results. See
 [LIVE_TELEMETRY_ACCEPTANCE_REPORT.md](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
 for the current acceptance limits.
 
