@@ -12,7 +12,7 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The current published feature release is **v2.6.1**. It includes the v2.1
+The current published feature release is **v2.6.2**. It includes the v2.1
 mobile administrator workflows, v2.2 administrator roles and authentication
 audit, v2.3 enterprise operations foundations, v2.4 bulk operations and saved
 views, and v2.5 Binary API live telemetry with the Socket.IO gateway and
@@ -20,10 +20,14 @@ fallback paths. v2.6 adds Redis/outbox reliability and recovery coverage,
 security and operations controls, accessibility and timeline improvements, and
 redacted acceptance tooling. Patch v2.6.1 gives scoped API tokens a deliberate
 403 response when they request the RouterOS-session-only telemetry status.
-The release also includes the subsequent
+Patch v2.6.2 fixes timeline date filtering before bounded event correlation,
+expires abandoned Socket.IO polling sessions, and completes exhaustive
+route/token scope-subset coverage. The release also includes the subsequent
 live-stream stability, typography, security, and runtime dependency updates.
-The v2.6.1 image is deployed on RouterOS as recorded below; this point-in-time
-read-back is not the formal sustained acceptance. The first
+RouterOS deployment of v2.6.2 is pending a post-publication read-back; the
+previous v2.6.1 point-in-time observation below is not evidence of the new
+image running. Neither image publication nor a point-in-time tag read-back is
+the formal sustained acceptance. The first
 controlled acceptance window verified container health, REST fallback during a
 temporary API-SSL interruption, automatic Binary API recovery, authentication
 denial, and the deployed resource snapshot. A connected-client window also
@@ -39,23 +43,27 @@ deployment model.
 
 ### Latest stable registry publication
 
-Runtime commit `0aa90ab1deb9bffd44a1c78797f3b599dd9208b2` (release **v2.6.1**)
+Runtime commit `537c5d0ec156489e281d6121f1c86d199a4bf5dc` (release **v2.6.2**)
 is the current `routeros-stable` manifest target. Container publication run
-[#37184131858](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131858)
+[#37191459676](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37191459676)
 and release-notes run
-[#37184131881](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131881)
-passed. Both architecture builds, published-runtime smoke tests, stable-manifest
-publication, and exact-digest provenance/SBOM verification passed. The immutable
-tags and registry digests are:
+[#37191459666](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37191459666)
+passed on 2026-10-04. Both architecture builds, published-runtime smoke tests,
+stable-manifest publication, and exact-digest provenance/SBOM verification
+passed. The immutable tags and registry digests are:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-0aa90ab1deb9bffd44a1c78797f3b599dd9208b2-arm64` | `sha256:979c8a4e34858e1188b3314f12b28ab5e0d09571ea0722f42c05532f0f9cc92b` |
-| CHR/x86 AMD64 (evaluation) | `sha-0aa90ab1deb9bffd44a1c78797f3b599dd9208b2-amd64` | `sha256:db71b92af8d259ff995a9ab55345038ad4b78ceaa93289d5f06e3c5731f2d2f9` |
+| RouterOS ARM64 | `sha-537c5d0ec156489e281d6121f1c86d199a4bf5dc-arm64` | `sha256:a94196dffa2be1af3c9d15fdecda938cb19523f9eabae8303b5e69692594b89b` |
+| CHR/x86 AMD64 (evaluation) | `sha-537c5d0ec156489e281d6121f1c86d199a4bf5dc-amd64` | `sha256:584cbee9fbf5fb432d944b8cef9010ffe82fa5a8d038e0089adf114b774bfdc0` |
 
-The scheduled RouterOS updater processed the manifest. A read-only WebFig
-read-back on 2026-10-04 07:04 UTC confirmed canary and production on the v2.6.1
-ARM64 tag, both healthy; Redis was running. Point-in-time CPU/memory were
+The `routeros-stable` manifest was updated after these images passed validation.
+The router-local scheduled updater is responsible for processing it; a
+post-publication read-back confirming v2.6.2 on canary and production has not
+yet been recorded. Do not interpret the earlier v2.6.1 RouterOS observation as
+deployment evidence for this release. The last recorded v2.6.1 read-back on
+2026-10-04 07:04 UTC confirmed canary and production healthy; Redis was running.
+Point-in-time CPU/memory were
 0.7%/33.2 MiB (canary), 0.6%/32.6 MiB (production), and 1.0%/10.0 MiB
 (Redis). This is a point-in-time tag/health/resource
 and resource observation, not an independent registry-digest comparison or the
@@ -221,7 +229,7 @@ repository.
 8. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
 
 The repository's next release version is kept in [`VERSION`](../VERSION). Run
-`python scripts/validate_release.py --tag v2.6.1` before creating a tag. The
+`python scripts/validate_release.py --tag v2.6.2` before creating a tag. The
 `Release notes` workflow previews GitHub-generated notes without changing a
 release when run manually with `dry_run=true`; a pushed, matching `v*` tag is
 the only event that publishes a release. Notes contain commit and pull-request
