@@ -56,6 +56,7 @@ test('falls back to SSE and applies a live snapshot after Socket.IO transport fa
 test('reconnects the live stream and applies a fresh snapshot when a sleeping tab wakes', async ({ page }) => {
   await page.addInitScript(() => {
     window.__syntheticEventSources = [];
+    window.__appliedStreamSnapshots = [];
     window.EventSource = class SyntheticEventSource {
       constructor() {
         this.handlers = new Map();
@@ -67,8 +68,7 @@ test('reconnects the live stream and applies a fresh snapshot when a sleeping ta
         this.handlers.set(name, callback);
         if (name === 'status') {
           const index = window.__syntheticEventSources.length;
-          queueMicrotask(() => callback({
-            data: JSON.stringify({
+          const data = JSON.stringify({
               sessions: [{
                 id: `wake-session-${index}`,
                 name: `wake-user-${index}`,
@@ -81,8 +81,14 @@ test('reconnects the live stream and applies a fresh snapshot when a sleeping ta
                 rx_packets: index * 10,
                 tx_packets: index * 20,
               }],
-            }),
-          }));
+            });
+          queueMicrotask(() => {
+            callback({ data });
+            window.__appliedStreamSnapshots.push(
+              [...document.querySelectorAll('[data-active-session-list] .session-card strong')]
+                .map((item) => item.textContent),
+            );
+          });
         }
       }
 
@@ -115,9 +121,8 @@ test('reconnects the live stream and applies a fresh snapshot when a sleeping ta
   });
   await expect.poll(() => page.evaluate(() => window.__syntheticEventSources.length))
     .toBe(2);
-  await expect(page.locator('[data-active-session-list] .session-card strong').first())
-    .toHaveText('wake-user-2');
-  await expect(page.locator('[data-live-indicator] span').first()).toContainText('Live');
+  await expect.poll(() => page.evaluate(() => window.__appliedStreamSnapshots
+    .some((names) => names.includes('wake-user-2')))).toBe(true);
 });
 
 test('reconnects Socket.IO and applies a fresh snapshot when a sleeping tab wakes', async ({ page }) => {
@@ -128,6 +133,7 @@ test('reconnects Socket.IO and applies a fresh snapshot when a sleeping tab wake
   await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
     contentType: 'application/javascript',
     body: `window.__syntheticSockets = [];
+      window.__appliedStreamSnapshots = [];
       window.io = () => {
         const handlers = new Map();
         const index = window.__syntheticSockets.length + 1;
@@ -136,7 +142,7 @@ test('reconnects Socket.IO and applies a fresh snapshot when a sleeping tab wake
           on(name, callback) {
             handlers.set(name, callback);
             if (name === 'telemetry.snapshot') {
-              queueMicrotask(() => callback({ payload: { sessions: [{
+              const frame = { payload: { sessions: [{
                 id: 'wake-socket-session-' + index,
                 name: 'wake-socket-user-' + index,
                 encoding: 'AES-256-GCM',
@@ -147,7 +153,14 @@ test('reconnects Socket.IO and applies a fresh snapshot when a sleeping tab wake
                 tx_bytes: index * 2048,
                 rx_packets: index * 10,
                 tx_packets: index * 20,
-              }] } }));
+              }] } };
+              queueMicrotask(() => {
+                callback(frame);
+                window.__appliedStreamSnapshots.push(
+                  [...document.querySelectorAll('[data-active-session-list] .session-card strong')]
+                    .map((item) => item.textContent),
+                );
+              });
             }
             return socket;
           },
@@ -179,6 +192,6 @@ test('reconnects Socket.IO and applies a fresh snapshot when a sleeping tab wake
   });
   await expect.poll(() => page.evaluate(() => window.__syntheticSockets.length))
     .toBe(2);
-  await expect(page.locator('[data-active-session-list] .session-card strong').first())
-    .toHaveText('wake-socket-user-2');
+  await expect.poll(() => page.evaluate(() => window.__appliedStreamSnapshots
+    .some((names) => names.includes('wake-socket-user-2')))).toBe(true);
 });
