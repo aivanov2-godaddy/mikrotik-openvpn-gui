@@ -65,6 +65,21 @@ point-in-time rollout and authenticated UI check, not the outstanding 30-minute
 telemetry/Redis soak, RouterOS API-restart recovery, event-integrity exercise,
 or controlled rollback rehearsal.
 
+### Follow-up live-stream observation after management-VPN reconnect — 2026-10-05
+
+At approximately 02:03–02:04 Europe/Sofia, the authenticated production
+Dashboard was inspected twice about 75 seconds apart without reloading. It
+continued to report `Live · SOCKETIO`; RouterOS uptime advanced and its CPU
+sample changed between observations, while service health remained
+`Operational`. The connected-user card and lower status strip both stayed at
+zero, and the resource samples remained below the documented acceptance
+cutoffs. This confirms the page continued receiving live health updates, not a
+VPN-client connect/disconnect event: no OpenVPN session was active. It does not
+provide latency percentiles, a nonzero session transition, traffic-sample
+freshness, Redis delivery evidence, sleep/wake recovery, API restart/snapshot
+recovery, event-integrity proof, or a 30-minute soak. Exact router resource
+values remain in the operator-local private record.
+
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
 ### Formal v2.7.0 release and its RouterOS image read-back
