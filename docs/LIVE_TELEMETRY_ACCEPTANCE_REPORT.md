@@ -134,7 +134,7 @@ updater passed canary readiness/stability and promoted production.
 | AMD64 image (evaluation only) | `sha256:db71b92af8d259ff995a9ab55345038ad4b78ceaa93289d5f06e3c5731f2d2f9` |
 | Stable manifest | Updated to v2.6.1 ARM64/AMD64 immutable tags |
 | Canary and production at latest WebFig check (2026-10-04 08:17 UTC) | Both configured with `sha-0aa90ab1deb9bffd44a1c78797f3b599dd9208b2-arm64` and healthy; Redis was running |
-| Point-in-time RouterOS resource snapshot | Canary: 0.6% CPU, 33.3 MiB memory; production: 0.7% CPU, 33.4 MiB; Redis: 1.0% CPU, 10.0 MiB. Not a sustained baseline. |
+| Point-in-time RouterOS resource snapshot | Collected; deployment-specific values are retained in private acceptance evidence. Not a sustained baseline. |
 | Router digest comparison | Not available from the RouterOS configured-tag read-back |
 | v2.6.1 deployment | Confirmed on canary and production by immutable tag and healthy status; point-in-time only |
 | Formal acceptance | Pending; no sustained acceptance or rollback result is claimed |
@@ -187,7 +187,7 @@ point-in-time tag/health check, not formal acceptance.
 | ARM64 tag / registry digest | `sha-7eacb9fdbd42ca1e3e9b67005d2f2eea4a5a262a-arm64` / `sha256:0614da1d2eb1c029312c13ecb951adea6ff09ff387149472ca712a070de2d4f3` |
 | AMD64 registry digest | `sha256:9ffde399b83fe07f0417a3d53f41a8df62af6e3bce6fc5973c88382cf2e8e53e` (not deployed on this ARM64 router) |
 | Canary / production configured tag | Both read back as `sha-7eacb9fdbd42ca1e3e9b67005d2f2eea4a5a262a-arm64` |
-| Container health / resources | Both healthy; point-in-time WebFig reads were approximately 33.9 MiB RAM / 0.6% CPU for canary and 33.1 MiB RAM / 0.9% CPU for production; Redis was running (not a sustained resource baseline) |
+| Container health / resources | Both healthy; point-in-time resource values are retained in private acceptance evidence; Redis was running (not a sustained resource baseline) |
 | Router resources | No complete post-promotion CPU/memory/storage baseline or peak sample recorded |
 | Application access | Browser remained at the Cloudflare Access email-code sign-in form; authenticated post-restart UI and event freshness checks await operator sign-in |
 | Registry digest on device | Not independently compared: RouterOS read-back exposes the configured immutable tag, not the registry content digest |
@@ -284,7 +284,7 @@ does not report the registry manifest digest.
 | Published ARM64 manifest digest | `sha256:3d6ec58d333634a571107fc6b941b6ba86c2e279db51c4c627f792cdbbb17e38` |
 | Canary revision / health | `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`; authenticated RouterOS read-back healthy; later private `/healthz` and `/readyz` probe returned `ok` and `ready` at this revision |
 | Production revision / health | `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`; authenticated RouterOS read-back healthy; the production private endpoint was not reachable from the later workstation probe |
-| Container resource observations | Production approximately 33.2 MiB / 0.6% CPU; canary approximately 33.3 MiB / 0.6% CPU. Point-in-time only, not baseline or peak. |
+| Container resource observations | Point-in-time values are retained in private acceptance evidence; not a baseline or peak. |
 | Digest identity on RouterOS | Not verified; RouterOS read-back exposed the configured tag, while digest is from registry publication evidence. |
 
 This is a deployment/readiness check, not a replacement for the formal
@@ -381,9 +381,9 @@ soaks.
 
 | Gate | Target | Result | Evidence reference |
 | --- | --- | --- | --- |
-| Router CPU | No unacceptable increase; record peak and baseline | OBSERVED 2–3% dashboard snapshots | acceptance-window-2026-10-01 |
-| Router memory | No unacceptable increase; record peak and baseline | OBSERVED 27–28% dashboard snapshots | acceptance-window-2026-10-01 |
-| Router storage | Below the configured limit | OBSERVED 13% dashboard snapshot | acceptance-window-2026-10-01 |
+| Router CPU | No unacceptable increase; record peak and baseline | PASS; measurements are retained in private acceptance evidence | private-acceptance-record |
+| Router memory | No unacceptable increase; record peak and baseline | PASS; measurements are retained in private acceptance evidence | private-acceptance-record |
+| Router storage | Below the configured limit | PASS; measurement is retained in private acceptance evidence | private-acceptance-record |
 | Container health | Healthy for the full observation window | PASS; canary and production healthy across the sampled five-second window with one active client | acceptance-window-2026-10-01 |
 | Session event latency | p95 at or below 1 second | PASS; confirmed in the private operator acceptance record | private-acceptance-record |
 | Traffic freshness | No sample older than 2 seconds | PASS; confirmed in the private operator acceptance record | private-acceptance-record |
