@@ -106,27 +106,29 @@ Notes: <no credentials, addresses, hosts, profiles, or exports>
 
 ## Collect a bounded app-health window
 
-`scripts/collect_release_acceptance.py` samples only `GET /healthz` and
-`GET /readyz` on both private app origins. If `--cookie-env` is supplied, the
-short-lived cookie is sent to health, readiness, and optional metrics probes
+`scripts/collect_release_acceptance.py` samples `GET /healthz`,
+`GET /readyz`, and authenticated aggregate `GET /metrics` on both private app
+origins. If `--cookie-env` is supplied, the short-lived cookie is sent to
+health, readiness, and metrics probes
 so deployments behind an authenticated reverse proxy (for example, Access)
 can be checked. Cookie-bearing probes require HTTPS; the cookie and probe
 origins are never written to the report. It checks the readiness revision
 against the immutable image tag, records the observation window and sample
-gaps, and can optionally sample the authenticated aggregate `GET /metrics`
-endpoint, including Redis/outbox health and process-observation ages for
-session events and traffic samples. Those age gauges are not end-to-end
+gaps, and requires complete Redis/outbox health and process-observation metrics
+on every sample in both environments. Missing or incomplete metrics fail the
+collection and clear any caller-supplied Redis success claim. Process-observation
+ages for session events and traffic samples are not end-to-end
 RouterOS-to-browser latency. It does not call RouterOS APIs, restart
 containers, or modify state.
 
 Start from the [evidence schema example](release-acceptance-evidence.example.json)
 and fill its RouterOS-only and exercise results locally. Keep that file private.
 The collector overwrites app health, readiness, timestamps, sample counts,
-sample gaps, and—when metrics are sampled—Redis publish evidence. Unknown input
+sample gaps, and Redis publish evidence. Unknown input
 fields are dropped from output. Metrics output is restricted to aggregate
 health, Redis, and outbox numbers; response bodies, labels, URLs, and cookies
 are never written to the report. Use a short-lived, least-privileged dashboard
-session through an environment variable if `/metrics` is enabled. Avoid
+session through an environment variable. Avoid
 putting the cookie literal in a command line or shell history; enter it at a
 secure prompt in the same PowerShell session:
 
@@ -151,10 +153,9 @@ python scripts/release_acceptance.py --input private-collected-evidence.json `
 }
 ```
 
-Cookies are sent only to HTTPS metrics origins; unauthenticated health and
-readiness probes can use a private HTTP origin when metrics are disabled. If
-metrics are enabled, each metrics origin must exactly match that environment's
-health/readiness origin (scheme, hostname, and effective port). The acceptance
+Cookies are sent only to HTTPS origins. Each metrics origin must exactly match
+that environment's health/readiness origin (scheme, hostname, and effective
+port). The acceptance
 window is at least 30 minutes, with at least 30 health samples
 per environment and no sample gap over 120 seconds. Duration is capped at 24
 hours, sampling at 10,000 observations, request timeout at 30 seconds, and

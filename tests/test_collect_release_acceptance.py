@@ -69,9 +69,19 @@ class FakeTime:
 
 
 class ReleaseCollectionTests(unittest.TestCase):
-    def run_collection(self, *, ready: bool = True) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
+    def run_collection(
+        self,
+        *,
+        ready: bool = True,
+        include_metrics: bool = True,
+        preclaim_redis: bool = False,
+    ) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
         time = FakeTime()
         seen: list[tuple[str, str | None]] = []
+        source = evidence()
+        if preclaim_redis:
+            for deployment in source["deployments"]:
+                deployment["redis_publish_verified"] = True
 
         def probe(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
             del timeout
@@ -102,9 +112,12 @@ class ReleaseCollectionTests(unittest.TestCase):
             return 200, payload.encode()
 
         code, report = collect(
-            evidence(),
+            source,
             readyz_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
-            metrics_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
+            metrics_urls=(
+                {"canary": "https://192.168.1.2", "production": "https://private.example"}
+                if include_metrics else None
+            ),
             cookie="session=secret-cookie",
             duration_seconds=1,
             interval_seconds=0.5,
@@ -124,6 +137,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(collected["collection"]["format"], "vpn-dashboard-release-collection-v1")
         self.assertEqual(len(collected["deployments"]), 2)
         self.assertGreaterEqual(collected["deployments"][0]["health_sample_count"], 2)
+        self.assertEqual(report["deployments"][0]["metrics_sample_count"], 3)
         self.assertTrue(collected["deployments"][0]["redis_publish_verified"])
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_last"], 0)
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_dead_lettered_last"], 0)
@@ -137,6 +151,17 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertNotIn("private-label", serialized)
         self.assertNotIn("session=secret-cookie", serialized)
         self.assertNotIn("192.168.1.2", serialized)
+
+    def test_missing_metrics_fail_closed_and_clear_supplied_redis_claims(self) -> None:
+        code, report, _ = self.run_collection(include_metrics=False, preclaim_redis=True)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_metrics_samples_insufficient", report["failed_gates"])
+        self.assertIn("production_metrics_samples_insufficient", report["failed_gates"])
+        for deployment in report["evidence"]["deployments"]:
+            self.assertFalse(deployment["redis_configured"])
+            self.assertFalse(deployment["redis_publish_verified"])
+        for deployment in report["deployments"]:
+            self.assertEqual(deployment["metrics_sample_count"], 0)
 
     def test_unknown_telemetry_age_is_not_reported_as_fresh(self) -> None:
         from scripts.collect_release_acceptance import _metric_window
