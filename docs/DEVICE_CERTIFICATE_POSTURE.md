@@ -53,8 +53,11 @@ certificate, profile archive, or user record is used by these checks.
   flag alone.
 - Under an approved test window, prove that revocation prevents a fresh
   connection and separately test the handling of an already-active session.
-- Design staged per-device renewal so replacement can be imported and tested
-  before the previous identity is retired; validate profile redownload and
-  recovery behavior. This partial adds no renewal or revocation actions.
+- Complete and accept the guided staged per-device renewal flow: issue a
+  replacement, import and test it, then separately retire the prior identity.
+  PR #429 clarifies that this is a new identity, not same-identity re-download;
+  issued private keys are deliberately not retained. Validate the replacement
+  recovery flow and its RouterOS outcomes in the approved test window. This
+  read-only posture evaluator itself adds no mutation action.
 - Exercise those workflows on a canary with rollback evidence before any
   production rollout. No such live validation or deployment is claimed here.
