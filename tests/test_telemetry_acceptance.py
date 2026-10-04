@@ -18,7 +18,13 @@ LIMITS = {
 
 
 def records(*values: dict[str, object]) -> list[str]:
-    return [json.dumps(value) for value in values]
+    rendered = []
+    for value in values:
+        record = dict(value)
+        if record.get("type") in {"reconnect", "comparison", "security", "verification"}:
+            record.setdefault("observed_at", 1_728_000_900)
+        rendered.append(json.dumps(record))
+    return rendered
 
 
 def acceptance_window(sample: dict[str, object]) -> list[str]:
@@ -70,20 +76,23 @@ class TelemetryAcceptanceTests(unittest.TestCase):
                 *samples,
                 {
                     "type": "reconnect",
+                    "observed_at": 1_728_000_900,
                     "recovery_seconds": 4.2,
                     "snapshot_recovered": True,
                     "api_interruption_tested": True,
                     "rest_fallback_available": True,
                 },
-                {"type": "comparison", "binary_matches_rest": True},
+                {"type": "comparison", "observed_at": 1_728_000_900, "binary_matches_rest": True},
                 {
                     "type": "security",
+                    "observed_at": 1_728_000_900,
                     "unauthenticated_denied": True,
                     "secret_bearing_payload": False,
                     "secret_free_logs": True,
                 },
                 {
                     "type": "verification",
+                    "observed_at": 1_728_000_900,
                     "event_latency_measured": True,
                     "traffic_freshness_measured": True,
                     "counter_reset_tested": True,
@@ -99,6 +108,59 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["failed_gates"], [])
         self.assertEqual(result["sample_count"], 31)
         self.assertEqual(result["observation_window_seconds"], 1800)
+
+    def test_attestations_must_be_timestamped_inside_sample_window(self) -> None:
+        samples = [
+            {
+                "type": "sample", "observed_at": 1_728_000_000 + index * 60,
+                "latency_ms": 180, "event_age_seconds": 0.7,
+                "router_cpu_percent": 22, "router_memory_percent": 34,
+                "router_storage_percent": 12, "container_healthy": True,
+                "event_sequence": 101 + index,
+            }
+            for index in range(31)
+        ]
+        lines = records(
+            *samples,
+            {"type": "reconnect", "observed_at": 1_727_999_999,
+             "recovery_seconds": 1, "snapshot_recovered": True,
+             "api_interruption_tested": True, "rest_fallback_available": True},
+            {"type": "comparison", "binary_matches_rest": True},
+            {"type": "security", "unauthenticated_denied": True,
+             "secret_bearing_payload": False, "secret_free_logs": True},
+            {"type": "verification", "event_latency_measured": True,
+             "traffic_freshness_measured": True, "counter_reset_tested": True,
+             "event_integrity_tested": True, "binary_rest_parity_tested": True,
+             "secret_scan_complete": True},
+        )
+        code, result = evaluate(lines, limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("reconnect_outside_observation_window", result["failed_gates"])
+
+    def test_attestation_without_timestamp_fails_closed(self) -> None:
+        attestations = [
+            {"type": "reconnect", "recovery_seconds": 1,
+             "snapshot_recovered": True, "api_interruption_tested": True,
+             "rest_fallback_available": True},
+            {"type": "comparison", "binary_matches_rest": True},
+            {"type": "security", "unauthenticated_denied": True,
+             "secret_bearing_payload": False, "secret_free_logs": True},
+            {"type": "verification", "event_latency_measured": True,
+             "traffic_freshness_measured": True, "counter_reset_tested": True,
+             "event_integrity_tested": True, "binary_rest_parity_tested": True,
+             "secret_scan_complete": True},
+        ]
+        for attestation in attestations:
+            with self.subTest(record_type=attestation["type"]):
+                code, result = evaluate(
+                    [
+                        json.dumps({"type": "sample", "observed_at": 1_728_000_000}),
+                        json.dumps(attestation),
+                    ],
+                    limits=LIMITS,
+                )
+                self.assertEqual(code, 1)
+                self.assertIn(f"{attestation['type']}_timestamp_missing", result["failed_gates"])
 
     def test_sparse_or_short_window_cannot_pass_sustained_slo(self) -> None:
         code, result = evaluate(acceptance_window({

@@ -55,12 +55,16 @@ gate names only; it never echoes source samples.
 For the complete acceptance report, combine resource samples with reconnect,
 ordering, counter-reset, and security checks:
 
+The example assumes periodic sample records span the full 30-minute interval
+from `1728000000` through `1728001800`; intermediate sample lines are omitted.
+Every attestation timestamp below falls inside that same interval.
+
 ```json
 {"type":"sample","observed_at":1728000000,"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
-{"type":"reconnect","recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
-{"type":"comparison","binary_matches_rest":true}
-{"type":"security","unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
-{"type":"verification","event_latency_measured":true,"traffic_freshness_measured":true,"counter_reset_tested":true,"event_integrity_tested":true,"binary_rest_parity_tested":true,"secret_scan_complete":true}
+{"type":"reconnect","observed_at":1728000600,"recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
+{"type":"comparison","observed_at":1728000900,"binary_matches_rest":true}
+{"type":"security","observed_at":1728001200,"unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
+{"type":"verification","observed_at":1728001740,"event_latency_measured":true,"traffic_freshness_measured":true,"counter_reset_tested":true,"event_integrity_tested":true,"binary_rest_parity_tested":true,"secret_scan_complete":true}
 ```
 
 ```text
@@ -68,6 +72,11 @@ python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
 ```
 
 Every sample requires `observed_at`, a non-negative Unix timestamp in seconds.
+Reconnect, comparison, security, and verification records also require
+`observed_at`. Each such attestation must fall within the inclusive interval
+between the first and last valid sample timestamps; missing, stale, or future
+attestations fail closed. This prevents an old reconnect or security check from
+being reused to pass a new soak window.
 The evaluator requires a timestamped 30-minute observation window, at least
 30 samples, a boolean container-health observation on every sample, no gap
 between adjacent samples over 120 seconds, and at least 30

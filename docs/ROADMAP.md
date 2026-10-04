@@ -454,6 +454,14 @@ reported live/operational with both session counts at zero. This was an elapsed
 time checkpoint with spot checks, not a continuous sampled soak; #199 remains
 open.
 
+**Acceptance evidence integrity (in progress):** the local telemetry-acceptance
+evaluator now requires reconnect, comparison, security, and verification
+attestations to carry timestamps within the same strictly increasing sample
+window. Missing timestamps, stale/out-of-window attestations, or an unverifiable
+sample interval fail closed. This prevents old standalone attestations from
+being reused to satisfy a later soak; it does not create or substitute for the
+still-pending router-side measurements and recovery drills.
+
 **Latest read-only RouterOS observation (2026-10-04 23:41 Europe/Sofia):**
 WebFig showed PR #448's immutable ARM64 image tag configured on both canary
 and production, both with healthy (`H`) status; Redis was running (`R`). A
