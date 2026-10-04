@@ -48,6 +48,20 @@ METRIC_NAMES = {
     "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
     "vpn_dashboard_telemetry_traffic_samples_total",
 }
+REQUIRED_ACCEPTANCE_METRICS = {
+    "vpn_dashboard_redis_configured",
+    "vpn_dashboard_redis_last_observed_available",
+    "vpn_dashboard_redis_publish_total_success",
+    "vpn_dashboard_redis_publish_total_failure",
+    "vpn_dashboard_redis_last_publish_success_timestamp_seconds",
+    "vpn_dashboard_integration_outbox_pending",
+    "vpn_dashboard_integration_outbox_dead_lettered",
+    "vpn_dashboard_integration_outbox_oldest_age_seconds",
+    "vpn_dashboard_telemetry_session_event_age_seconds",
+    "vpn_dashboard_telemetry_session_event_timestamp_seconds",
+    "vpn_dashboard_telemetry_traffic_sample_age_seconds",
+    "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
+}
 METRIC_LINE = re.compile(
     r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+'
     r'(?P<value>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|NaN|[+-]?Inf)(?:\s+\d+)?$'
@@ -273,12 +287,16 @@ def collect(
             ready_payload = _json_status(ready_body) if ready_code == 200 else {}
             revision = ready_payload.get("revision") if isinstance(ready_payload.get("revision"), str) else ""
             metrics: dict[str, float] = {}
+            metrics_valid = False
             if environment in metrics_urls:
                 metrics_code, metrics_body = probe(
                     _probe_url(metrics_urls[environment], "/metrics"), cookie=cookie, timeout=timeout_seconds
                 )
                 if metrics_code == 200:
                     metrics = _parse_metrics(metrics_body)
+                    metrics_valid = REQUIRED_ACCEPTANCE_METRICS.issubset(metrics)
+                if not metrics_valid:
+                    metrics = {}
             metric_health = metrics.get("vpn_dashboard_health")
             revision_matches = (
                 ready_code == 200
@@ -291,6 +309,7 @@ def collect(
                 "ready": ready,
                 "revision_matches": revision_matches,
                 "healthy": health_code == 200 and ready and metric_health in (None, 1),
+                "metrics_valid": metrics_valid,
                 "metrics": metrics,
             })
         now = clock()
@@ -306,6 +325,11 @@ def collect(
         sample_times = [sample["at"].timestamp() for sample in samples]
         gaps = [right - left for left, right in zip(sample_times, sample_times[1:])]
         health_failures = sum(not sample["healthy"] for sample in samples)
+        metrics_samples = [sample for sample in samples if sample["metrics_valid"]]
+        metrics_sample_times = [sample["at"].timestamp() for sample in metrics_samples]
+        metrics_gaps = [right - left for left, right in zip(metrics_sample_times, metrics_sample_times[1:])]
+        metrics_failures = len(samples) - len(metrics_samples)
+        max_metrics_gap = max(metrics_gaps, default=0)
         observed_window_seconds = max(0.0, (ended - begun).total_seconds())
         max_gap = max(gaps, default=0)
         if health_failures:
@@ -316,6 +340,10 @@ def collect(
             failed_gates.append(f"{environment}_health_samples_insufficient")
         if max_gap > MAX_SAMPLE_GAP_SECONDS:
             failed_gates.append(f"{environment}_sample_gap_exceeded")
+        if len(metrics_samples) < minimum_health_samples:
+            failed_gates.append(f"{environment}_metrics_samples_insufficient")
+        if metrics_failures or max_metrics_gap > MAX_SAMPLE_GAP_SECONDS:
+            failed_gates.append(f"{environment}_metrics_observation_gap")
         record = safe_records[environment]
         record.update({
             "container_healthy": health_failures == 0,
@@ -326,12 +354,21 @@ def collect(
             "max_sample_gap_seconds": max(gaps, default=0),
             "health_failures": int(record.get("health_failures", 0)) + health_failures,
         })
-        metric_summary = _metric_window(samples, began_epoch, ended.timestamp())
+        metric_summary = _metric_window(metrics_samples, began_epoch, ended.timestamp())
+        # Never carry an operator-supplied Redis success claim through a
+        # window that did not independently observe complete aggregate metrics.
+        record["redis_configured"] = False
+        record["redis_publish_verified"] = False
         if metric_summary["available"]:
             # A passing Redis publish requires configuration, observed availability,
             # and a successful publish in this observation window.
-            record["redis_configured"] = metric_summary["redis_configured"] == 1
-            record["redis_publish_verified"] = (
+            metrics_window_complete = (
+                len(metrics_samples) >= minimum_health_samples
+                and metrics_failures == 0
+                and max_metrics_gap <= MAX_SAMPLE_GAP_SECONDS
+            )
+            record["redis_configured"] = metrics_window_complete and metric_summary["redis_configured"] == 1
+            record["redis_publish_verified"] = metrics_window_complete and (
                 record["redis_configured"]
                 and metric_summary["redis_last_observed_available"] == 1
                 and metric_summary["redis_publish_success_observed_in_window"]
@@ -344,6 +381,9 @@ def collect(
         summary["deployments"].append({
             "environment": environment,
             "sample_count": len(samples),
+            "metrics_sample_count": len(metrics_samples),
+            "metrics_observation_failures": metrics_failures,
+            "max_metrics_sample_gap_seconds": round(max_metrics_gap, 3),
             "healthy_sample_count": len(samples) - health_failures,
             "unhealthy_sample_count": health_failures,
             "max_sample_gap_seconds": round(max(gaps, default=0), 3),
@@ -363,7 +403,7 @@ def collect(
             "ended_at": ended.isoformat(),
             "duration_seconds": max(0.0, (ended - begun).total_seconds()),
             "interval_seconds": interval_seconds,
-            "read_only_get_probes": ["/healthz", "/readyz", "/metrics (optional)"],
+            "read_only_get_probes": ["/healthz", "/readyz", "/metrics"],
             "image_digest_source": "operator-supplied; registry digest is not fetched by this tool",
         },
     }
@@ -379,8 +419,8 @@ def main() -> int:
     parser.add_argument("--output", required=True, help="output path for collected evidence JSON")
     parser.add_argument("--canary-url", required=True, help="private app origin, without path")
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
-    parser.add_argument("--canary-metrics-url", help="optional app origin for authenticated /metrics")
-    parser.add_argument("--production-metrics-url", help="optional app origin for authenticated /metrics")
+    parser.add_argument("--canary-metrics-url", required=True, help="canary app origin for authenticated /metrics")
+    parser.add_argument("--production-metrics-url", required=True, help="production app origin for authenticated /metrics")
     parser.add_argument("--cookie-env", help="environment variable containing a short-lived session Cookie header value")
     parser.add_argument("--duration-seconds", type=float, default=1800)
     parser.add_argument("--interval-seconds", type=float, default=60)
