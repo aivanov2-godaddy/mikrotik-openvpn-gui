@@ -205,10 +205,9 @@ class TelemetrySupervisor:
             username, password = self._credentials_provider()
             connection.connect(username, password)
             with self._lock:
-                self._status = "healthy"
+                self._status = "connecting" if self._snapshot_reader is not None else "healthy"
                 self._last_connected_at = int(self._clock())
                 self._reconnects = max(0, self._attempts - 1)
-                self._backoff_seconds = self._config.initial_backoff
 
             if self._snapshot_reader is not None:
                 started = self._clock()
@@ -217,6 +216,11 @@ class TelemetrySupervisor:
                 if elapsed > self._config.snapshot_timeout:
                     raise TelemetrySupervisorError("snapshot_timeout")
                 self._publish(self._broker.reconcile(records, now=int(self._clock())), snapshot=True)
+                with self._lock:
+                    self._status = "healthy"
+
+            with self._lock:
+                self._backoff_seconds = self._config.initial_backoff
 
             for reply in connection.listen(self.LISTEN_PATH):
                 if self._stop_event.is_set():
