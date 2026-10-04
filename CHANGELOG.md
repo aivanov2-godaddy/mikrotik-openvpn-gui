@@ -6,6 +6,20 @@ semantic-version style release tags.
 
 ## Unreleased
 
+## 2.6.4 - 2026-10-04
+
+### Fixed
+
+- Revalidate the authenticated RouterOS session and `sessions.read`
+  authorization after the blocking RouterOS session fetch and before saving
+  observations or emitting telemetry, preventing data delivery after mid-fetch
+  revocation.
+
+### Tests
+
+- Add a regression that revokes a session during the RouterOS fetch and verifies
+  no SSE frame is emitted and no fetched observation is persisted.
+
 ## 2.6.3 - 2026-10-04
 
 ### Fixed
