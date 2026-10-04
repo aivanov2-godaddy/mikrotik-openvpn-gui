@@ -292,18 +292,19 @@ are verified partial milestones, not issue completions:
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
 Latest stable registry publication (2026-10-04): the public `routeros-stable`
-manifest points to commit `d28ac1ce3264a988ba27fada4a5bec30ae1d6ce0`, published
-by [run 37173593889](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37173593889)
-after PR #395 merged. ARM64 digest:
-`sha256:f120d689f04e588bee8dd6dfa921cef176825a3315f52c3c9e2a17f1827bad1e`.
+manifest points to commit `7eacb9fdbd42ca1e3e9b67005d2f2eea4a5a262a`, published
+by [run 37175496014](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37175496014).
+ARM64 digest:
+`sha256:0614da1d2eb1c029312c13ecb951adea6ff09ff387149472ca712a070de2d4f3`.
 AMD64 digest:
-`sha256:427d6a88e8784e7fa63518e0880ac5cbcd5ed284b770897d7eb1c1df7e548e9e`.
+`sha256:9ffde399b83fe07f0417a3d53f41a8df62af6e3bce6fc5973c88382cf2e8e53e`.
 Both architectures, runtime smoke tests, and exact-digest provenance/SBOM
-verification passed. The last RouterOS read-back confirmed canary and production
-on the previous `297d960` immutable ARM64 tag and healthy, with Redis running;
-deployment and health for `d28ac1c` are not verified. Registry publication is
-not deployment or acceptance evidence, and does not establish sustained SLOs
-or an independent digest comparison on the router. See
+verification passed. A subsequent read-only RouterOS WebFig read-back showed
+canary and production both on the immutable `sha-7eacb9f...-arm64` tag and
+healthy, with Redis running. This is point-in-time tag/health evidence only:
+there was no independent router-side digest comparison or sustained acceptance
+window, and it does not establish event-latency/freshness percentiles,
+API-restart recovery, event-integrity, or rollback results. See
 [LIVE_TELEMETRY_ACCEPTANCE_REPORT.md](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
 for the current acceptance limits.
 

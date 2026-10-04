@@ -34,24 +34,24 @@ deployment model.
 
 ### Latest stable registry publication
 
-Runtime commit `34a880970ecc6ce622c257e3307c9b7cc2885b96` is the current
+Runtime commit `7eacb9fdbd42ca1e3e9b67005d2f2eea4a5a262a` is the current
 `routeros-stable` manifest target. Publication run
-[#37149717625](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37149717625)
+[#37175496014](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37175496014)
 passed both architecture builds, published-runtime smoke tests, stable-manifest
 publication, and exact-digest provenance/SBOM verification. The immutable tags
 and registry digests are:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-34a880970ecc6ce622c257e3307c9b7cc2885b96-arm64` | `sha256:8c2346ea7971b5e26a47af34cb07bc27a39516e15c9860dd2f9bee76f1e0f184` |
-| CHR/x86 AMD64 (evaluation) | `sha-34a880970ecc6ce622c257e3307c9b7cc2885b96-amd64` | `sha256:aad9d850feba0b72c7db4660858cef6e747b8855f200d1d75957e3db3f9394fd` |
+| RouterOS ARM64 | `sha-7eacb9fdbd42ca1e3e9b67005d2f2eea4a5a262a-arm64` | `sha256:0614da1d2eb1c029312c13ecb951adea6ff09ff387149472ca712a070de2d4f3` |
+| CHR/x86 AMD64 (evaluation) | `sha-7eacb9fdbd42ca1e3e9b67005d2f2eea4a5a262a-amd64` | `sha256:9ffde399b83fe07f0417a3d53f41a8df62af6e3bce6fc5973c88382cf2e8e53e` |
 
-This is a registry publication, not a RouterOS deployment claim. The most
-recent canary readiness response observed before this publication reported
-revision `68fbaaae5ec50b42992f3678c8042e48f987bc8c`; subsequent private
-readiness probes timed out. Current canary/production revision and health have
-not been confirmed. The latest authenticated RouterOS tag read-back below is
-historical and must not be mistaken for this publication being deployed.
+This publication was subsequently observed on RouterOS: a read-only WebFig
+read-back showed canary and production both running the immutable ARM64 tag
+above with healthy status, and Redis running. This is a point-in-time tag and
+health observation, not a registry-digest comparison or the formal sustained
+acceptance window. Event latency/freshness percentiles, restart/recovery,
+counter-reset/event-integrity, and rollback drills remain outstanding.
 
 ### Latest recorded RouterOS tag read-back (historical)
 
