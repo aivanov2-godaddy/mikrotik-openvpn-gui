@@ -12,6 +12,33 @@ have not been recorded as complete.
 
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
+### Current stable main-line image (not a versioned release)
+
+After PR #421 merged, container publication run
+[#37194198196](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37194198196)
+published commit `324f02c07d2f396da4ae5a5c8f4e827a45cd9b06` and updated the
+`routeros-stable` manifest. Both architecture builds, published-runtime health
+smokes, and exact-digest provenance/SBOM verification passed. This is the
+latest rolling stable image, not a formal v2.6.3 release tag.
+
+| Check | Result |
+| --- | --- |
+| RouterOS ARM64 image | `sha-324f02c07d2f396da4ae5a5c8f4e827a45cd9b06-arm64`, `sha256:08dc148f87191de095515d463d5b1769c43792c42626227402e1375c5ecbcbbe` |
+| AMD64 image (evaluation only) | `sha-324f02c07d2f396da4ae5a5c8f4e827a45cd9b06-amd64`, `sha256:b214bd34b7c772a329136d8402d5701780cd4981cd609a08d5a5e1e1116d80d4` |
+| RouterOS read-back (2026-10-04 10:19 UTC / 13:19 Europe/Sofia) | Canary and production configured with the matching immutable ARM64 tag; both healthy; Redis running |
+| Resource baseline | Not collected during this read-back |
+| Digest comparison on router | Not available; RouterOS exposes configured image tag, not registry content digest |
+| Formal sustained acceptance | Pending; this is point-in-time deployment/health evidence only |
+
+The user-authorized updater log recorded canary test and production promotion
+before this read-back. No RouterOS policy, CA, certificates, VPN user data,
+credentials, or persistent application data were changed. Do not infer latency
+percentiles, event integrity, restart recovery, or rollback acceptance from this
+observation.
+
+The latest formal versioned release remains v2.6.2 pending publication of the
+prepared v2.6.3 release.
+
 Release **v2.6.1**, commit `0aa90ab1deb9bffd44a1c78797f3b599dd9208b2`, was
 published after PR #406. Release-notes run
 [37184131881](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131881)
@@ -48,10 +75,10 @@ acceptance window.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest authenticated production observation | Read-only RouterOS WebFig at 2026-10-04 08:17 UTC confirmed the v2.6.1 ARM64 tag on production and healthy status; this is not authenticated dashboard behavior |
-| Latest verified canary observation | Read-only RouterOS WebFig at 2026-10-04 08:17 UTC confirmed the v2.6.1 ARM64 tag and healthy status |
-| Latest published candidate | v2.6.1, commit `0aa90ab1deb9bffd44a1c78797f3b599dd9208b2`, publication run [37184131858](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37184131858); rollout confirmed by tag/health read-back |
-| Latest published ARM64 / AMD64 digests | `sha256:979c8a4e34858e1188b3314f12b28ab5e0d09571ea0722f42c05532f0f9cc92b` / `sha256:db71b92af8d259ff995a9ab55345038ad4b78ceaa93289d5f06e3c5731f2d2f9` |
+| Latest authenticated production observation | Read-only RouterOS WebFig at 2026-10-04 10:19 UTC confirmed the current stable main-line ARM64 tag on production and healthy status; this is not authenticated dashboard behavior |
+| Latest verified canary observation | Read-only RouterOS WebFig at 2026-10-04 10:19 UTC confirmed the current stable main-line ARM64 tag and healthy status |
+| Latest published candidate | Stable main-line commit `324f02c07d2f396da4ae5a5c8f4e827a45cd9b06`, publication run [37194198196](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37194198196); rollout confirmed by tag/health read-back; not a formal versioned release |
+| Latest published ARM64 / AMD64 digests | `sha256:08dc148f87191de095515d463d5b1769c43792c42626227402e1375c5ecbcbbe` / `sha256:b214bd34b7c772a329136d8402d5701780cd4981cd609a08d5a5e1e1116d80d4` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
