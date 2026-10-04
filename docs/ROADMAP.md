@@ -411,10 +411,12 @@ browser check is still outstanding.
 
 **Latest read-only RouterOS observation (2026-10-04 23:41 Europe/Sofia):**
 WebFig showed PR #448's immutable ARM64 image tag configured on both canary
-and production, both with healthy (`H`) status; Redis was running (`R`). The
-container table exposed point-in-time per-container CPU/memory readings, but
-they are not a sustained baseline or a RouterOS-wide resource sample and are
-not reproduced here. The dashboard browser was at its RouterOS-authenticated
+and production, both with healthy (`H`) status; Redis was running (`R`). A
+separate read-only System > Resources snapshot at approximately 23:56 showed
+RouterOS CPU, memory, and storage below the current acceptance cutoffs; exact
+values are kept in an operator-local private record. The container table also
+exposed point-in-time per-container CPU/memory readings. Neither sample is a
+sustained baseline and exact readings are not reproduced here. The dashboard browser was at its RouterOS-authenticated
 sign-in page; no authenticated app, freshness, or recovery check was performed.
 This read-back supersedes the earlier v2.7.0-only container status above, but
 does not satisfy #198/#199 acceptance or independently verify the registry

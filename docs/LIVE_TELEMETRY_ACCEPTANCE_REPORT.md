@@ -49,9 +49,11 @@ from the verified publication record above; RouterOS exposes the tag, not an
 independent registry digest, so this is not an on-device digest verification.
 
 The container table showed point-in-time CPU and memory readings for both
-dashboard instances and Redis. Those readings are retained as operational
-observations, not reproduced here, and are not RouterOS-wide resource samples,
-peaks, or a sustained baseline. The production site rendered its RouterOS
+dashboard instances and Redis. A separate read-only System > Resources view at
+approximately 23:56 showed RouterOS CPU, memory, and storage below the current
+acceptance cutoffs. Exact readings are retained in an operator-local private
+record and are not reproduced here. These are point-in-time observations, not
+peaks, a pre-deployment comparison, or a sustained baseline. The production site rendered its RouterOS
 dashboard sign-in page; no dashboard credentials were entered, so authenticated
 application state, telemetry freshness, and post-release UI behavior remain
 unverified. No router configuration or running container was changed during
@@ -178,13 +180,13 @@ acceptance window.
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Last authenticated production application observation | At 2026-10-04 15:02 Europe/Sofia, before v2.7.0 deployment, an authenticated Owner browser session loaded the protected Dashboard and Connections views; both displayed the live Socket.IO transport. Read-only UI verification; no live VPN session was active for session-event correlation. The current browser is at the RouterOS-authenticated dashboard sign-in page; no post-PR #448 authenticated rendering or new live-session event was verified. |
-| Latest RouterOS container read-back | On 2026-10-04 23:41 Europe/Sofia, WebFig showed PR #448's immutable ARM64 tag `sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64` on canary and production, both healthy (`H`), with Redis running (`R`). Point-in-time container CPU/memory readings were observed; they are not a sustained baseline. No `/readyz` or authenticated app check was made. |
+| Latest RouterOS read-back | On 2026-10-04 23:41 Europe/Sofia, WebFig showed PR #448's immutable ARM64 tag `sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64` on canary and production, both healthy (`H`), with Redis running (`R`). A separate System > Resources view at approximately 23:56 showed router CPU, memory, and storage below current cutoffs; exact values remain in a private local record. Both are point-in-time only. No `/readyz` or authenticated app check was made. |
 | Latest numbered release | v2.7.0, commit `2e01f111e1445c79b1753477a41efbaec27a1a2d`, publication run [37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038); exact-digest provenance/SBOM and runtime smoke passed |
 | Latest published runtime image | PR #448 main commit `72c4c255b92b9c5ffb9af509fea5b6306da65657`, publication run [37230021532](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37230021532); ARM64 digest `sha256:55f2735691f53950d65ed681fa8d47f6861972544e002e40349ac849e4dda185`; AMD64 digest `sha256:bbb9aaf2e0d943397d7968a7a4c452408c2ba37e9990dd936495c3721fc87198` |
 | Formal v2.7.0 ARM64 / AMD64 digests | `sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a` / `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f` |
 | Latest main runtime patch | PR #448, commit `72c4c255b92b9c5ffb9af509fea5b6306da65657`, container workflow [37230021532](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37230021532); this is a main-branch image patch, not a new semantic release. |
 | Previous main runtime patch | PR #443, commit `9045057e155b97408e9364bf759e329d60f81b69`, container workflow [37223686260](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37223686260); it removed only the dashboard CRL/revocation status display and its status-only RouterOS read. |
-| RouterOS read-back after PR #448 | WebFig showed the exact immutable ARM64 tag `sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64` configured and healthy (`H`) on canary and production; Redis was running (`R`). This configured-tag read-back does not independently verify the registry digest. |
+| RouterOS read-back after PR #448 | WebFig showed the exact immutable ARM64 tag `sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64` configured and healthy (`H`) on canary and production; Redis was running (`R`). A separate point-in-time router CPU/memory/storage snapshot was below the current cutoffs. This does not independently verify the registry digest or establish sustained resource acceptance. |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
@@ -448,9 +450,11 @@ gates.**
 Current runtime result: **PR #448 IMAGE TAG DEPLOYED / CONTAINER HEALTH
 OBSERVED; FORMAL ACCEPTANCE PENDING —** on 2026-10-04 23:41 Europe/Sofia,
 WebFig showed PR #448's immutable ARM64 tag on canary and production, each
-healthy (`H`), and Redis running (`R`). Point-in-time per-container CPU/memory
-readings were visible; they are not a RouterOS-wide resource sample or a
-sustained baseline. RouterOS exposes the configured tag rather than an
+healthy (`H`), and Redis running (`R`). A separate read-only router resource
+snapshot at approximately 23:56 was below the current CPU/memory/storage
+cutoffs; exact values are kept in an operator-local private record. These
+point-in-time samples are not a sustained baseline. RouterOS exposes the
+configured tag rather than an
 independent registry digest. The dashboard browser was at its RouterOS-auth
 sign-in page; there was no authenticated application check. The 30-minute
 Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
