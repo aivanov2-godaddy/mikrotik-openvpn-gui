@@ -12,8 +12,7 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The latest formal versioned release is **v2.6.2**. The next patch release,
-**v2.6.3**, is being prepared for the merged changes described below. It includes the v2.1
+The latest formal versioned release is **v2.6.3**. It includes the v2.1
 mobile administrator workflows, v2.2 administrator roles and authentication
 audit, v2.3 enterprise operations foundations, v2.4 bulk operations and saved
 views, and v2.5 Binary API live telemetry with the Socket.IO gateway and
@@ -23,10 +22,10 @@ redacted acceptance tooling. Patch v2.6.1 gives scoped API tokens a deliberate
 403 response when they request the RouterOS-session-only telemetry status.
 Patch v2.6.2 fixes timeline date filtering before bounded event correlation,
 expires abandoned Socket.IO polling sessions, and completes exhaustive
-route/token scope-subset coverage. The subsequent v2.6.3 patch adds origin
-validation for legacy Socket.IO polling requests and an explicit VPN Users
-no-results state, with rendered-browser regression coverage. Neither image
-publication nor a point-in-time tag read-back is
+route/token scope-subset coverage. Patch v2.6.3 adds origin validation for
+legacy Socket.IO polling requests and an explicit VPN Users no-results state,
+with rendered-browser regression coverage. Neither image publication nor a
+point-in-time tag read-back is
 the formal sustained acceptance. The first
 controlled acceptance window verified container health, REST fallback during a
 temporary API-SSL interruption, automatic Binary API recovery, authentication
@@ -43,28 +42,28 @@ deployment model.
 
 ### Latest stable registry publication
 
-The latest stable main-line image is commit
-`324f02c07d2f396da4ae5a5c8f4e827a45cd9b06` (PR #421), published by container
-workflow run [#37194198196](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37194198196)
+The latest stable image is formal release **v2.6.3**, commit
+`b46612b2d24ad45385b0de7d36525829fb57d84b`, published by container workflow
+run [#37195689253](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37195689253)
 on 2026-10-04. Both architecture builds, published-runtime smoke tests,
 stable-manifest publication, and exact-digest provenance/SBOM verification
-passed. This is a rolling stable image, not itself the formal v2.6.3 tag. The
-immutable tags and registry digests are:
+passed. The immutable tags and registry digests are:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-324f02c07d2f396da4ae5a5c8f4e827a45cd9b06-arm64` | `sha256:08dc148f87191de095515d463d5b1769c43792c42626227402e1375c5ecbcbbe` |
-| CHR/x86 AMD64 (evaluation) | `sha-324f02c07d2f396da4ae5a5c8f4e827a45cd9b06-amd64` | `sha256:b214bd34b7c772a329136d8402d5701780cd4981cd609a08d5a5e1e1116d80d4` |
+| RouterOS ARM64 | `sha-b46612b2d24ad45385b0de7d36525829fb57d84b-arm64` | `sha256:ac8a3c23c629a39bb637c02f7b181ab8cec1620d1ed8c7cd25b8a99b84ac95a1` |
+| CHR/x86 AMD64 (evaluation) | `sha-b46612b2d24ad45385b0de7d36525829fb57d84b-amd64` | `sha256:1ff7a7a59348f507a954d6673c7a2f52021bb5e6c757f89c1d8daa72498cd65f` |
 
-Read-only RouterOS read-back at 2026-10-04 10:19 UTC (13:19 Europe/Sofia)
-confirmed canary and production configured with the matching immutable ARM64
-tag and both healthy; Redis was running. This confirms configured tag and
-health, not an independent on-router registry digest comparison. No resource
-baseline was collected in this read-back. It is point-in-time deployment
-evidence, not the formal sustained acceptance window; latency/freshness
+RouterOS read-back on 2026-10-04 showed the guarded updater tested the canary
+from 13:41:26, observed it healthy through the 60-second validation window,
+promoted production at 13:43:50, and logged promotion complete at 13:44:01
+(Europe/Sofia). Subsequent readiness probes returned HTTP 200 and RouterOS
+reported production healthy. Redis remained running. This confirms the
+configured immutable tag and point-in-time health, not an independent on-router
+registry digest comparison. No resource baseline was collected during this
+rollout. It is not the formal sustained acceptance window; latency/freshness
 percentiles, restart/recovery, counter-reset/event-integrity, and rollback
-drills remain outstanding. v2.6.2 remains the latest formal versioned release
-until the v2.6.3 release tag is published.
+drills remain outstanding.
 
 ### Latest recorded RouterOS tag read-back (historical)
 
