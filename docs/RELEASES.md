@@ -12,7 +12,7 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The latest formal versioned release is **v2.6.3**. It includes the v2.1
+The latest formal versioned release is **v2.6.4**. It includes the v2.1
 mobile administrator workflows, v2.2 administrator roles and authentication
 audit, v2.3 enterprise operations foundations, v2.4 bulk operations and saved
 views, and v2.5 Binary API live telemetry with the Socket.IO gateway and
@@ -24,7 +24,10 @@ Patch v2.6.2 fixes timeline date filtering before bounded event correlation,
 expires abandoned Socket.IO polling sessions, and completes exhaustive
 route/token scope-subset coverage. Patch v2.6.3 adds origin validation for
 legacy Socket.IO polling requests and an explicit VPN Users no-results state,
-with rendered-browser regression coverage. Neither image publication nor a
+with rendered-browser regression coverage. Patch v2.6.4 closes an SSE
+revocation-during-RouterOS-fetch race by revalidating the session and
+`sessions.read` authorization after the blocking fetch and before observation
+persistence or telemetry delivery. Neither image publication nor a
 point-in-time tag read-back is
 the formal sustained acceptance. The first
 controlled acceptance window verified container health, REST fallback during a
@@ -42,23 +45,23 @@ deployment model.
 
 ### Latest stable registry publication
 
-The latest stable image is formal release **v2.6.3**, commit
-`b46612b2d24ad45385b0de7d36525829fb57d84b`, published by container workflow
-run [#37195689253](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37195689253)
-on 2026-10-04. Both architecture builds, published-runtime smoke tests,
-stable-manifest publication, and exact-digest provenance/SBOM verification
-passed. The immutable tags and registry digests are:
+The latest stable image is formal release **v2.6.4**, commit
+`9671f27db9e5bad61323378fcdab51fca3d39a8b`, published by container workflow
+run [#37199225501](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37199225501)
+on 2026-10-04. Both architecture builds, rendered-browser verification,
+published-runtime smoke tests, stable-manifest publication, and exact-digest
+provenance/SBOM verification passed. The immutable tags and registry digests are:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-b46612b2d24ad45385b0de7d36525829fb57d84b-arm64` | `sha256:ac8a3c23c629a39bb637c02f7b181ab8cec1620d1ed8c7cd25b8a99b84ac95a1` |
-| CHR/x86 AMD64 (evaluation) | `sha-b46612b2d24ad45385b0de7d36525829fb57d84b-amd64` | `sha256:1ff7a7a59348f507a954d6673c7a2f52021bb5e6c757f89c1d8daa72498cd65f` |
+| RouterOS ARM64 | `sha-9671f27db9e5bad61323378fcdab51fca3d39a8b-arm64` | `sha256:89b0b0d5a7f6b5d417d134fcaa04e442fbe88c4dfc11b49a8192bf152a404bd4` |
+| CHR/x86 AMD64 (evaluation) | `sha-9671f27db9e5bad61323378fcdab51fca3d39a8b-amd64` | `sha256:0c39c558a3c293e59b836bb4601a41060d298048627804bc2559b65b1e0c5c95` |
 
-RouterOS read-back on 2026-10-04 showed the guarded updater tested the canary
-from 13:41:26, observed it healthy through the 60-second validation window,
-promoted production at 13:43:50, and logged promotion complete at 13:44:01
-(Europe/Sofia). Subsequent readiness probes returned HTTP 200 and RouterOS
-reported production healthy. Redis remained running. This confirms the
+RouterOS read-back on 2026-10-04 showed the guarded updater started the canary
+at 14:46:26, observed it healthy at 14:47:44 through its configured stability
+window, promoted production at 14:48:50, and logged promotion complete at
+14:49:01 (Europe/Sofia). Production readiness returned HTTP 200 and the
+container reported healthy. Redis remained running. This confirms the
 configured immutable tag and point-in-time health, not an independent on-router
 registry digest comparison. No resource baseline was collected during this
 rollout. It is not the formal sustained acceptance window; latency/freshness
