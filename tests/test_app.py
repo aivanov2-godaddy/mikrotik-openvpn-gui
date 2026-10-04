@@ -3299,6 +3299,34 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("bulk.tag", [item["action"] for item in self.server.context.store.recent_audit(20)])
         self.assertIn("bulk.view.save", [item["action"] for item in self.server.context.store.recent_audit(20)])
 
+    def test_saved_view_mutations_require_sessions_read(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        session.capabilities = frozenset({"health.read"})
+        headers = {
+            "Cookie": self.cookie,
+            "Content-Type": "application/json",
+            "X-CSRF-Token": self.csrf,
+        }
+
+        status, _, payload = self.json_request(
+            "POST", "/api/bulk/views",
+            {"name": "unauthorized view", "filters": {"status": "online"}},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(json.loads(payload)["required_capability"], "sessions.read")
+        self.assertEqual(self.server.context.store.saved_views(), [])
+
+        existing = self.server.context.store.save_view(name="protected view", filters={"status": "offline"})
+        status, _, payload = self.request(
+            "DELETE", f"/api/bulk/views/{existing['id']}", headers=headers,
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(json.loads(payload)["required_capability"], "sessions.read")
+        self.assertEqual(self.server.context.store.saved_views(), [existing])
+
     def test_bulk_suspend_previews_and_disconnects_selected_users(self) -> None:
         self.login()
         users = {

@@ -41,6 +41,9 @@ blanket pass for ASVS, OWASP, or production security.
   that model needs a RouterOS-supported alternative and is not solved here.
 - Browser sessions are process-local and reference-token based. Restarting the
   app invalidates them. Multi-instance session sharing is not in scope.
+- Creating or deleting shared saved views requires both a valid CSRF token and
+  `sessions.read`; regression coverage verifies denied writes leave the saved
+  view store unchanged.
 - The 15-second role revalidation interval bounds how long an existing
   dashboard session can retain a role after a RouterOS account/group change,
   provided RouterOS returns the current `/user` state. A failed role lookup

@@ -4448,7 +4448,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _save_bulk_view(self) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session):
+        if (
+            not session
+            or not self._require_csrf(session)
+            or not self._require_capability(session, "sessions.read")
+        ):
             return
         try:
             data = self._read_json()
@@ -4468,7 +4472,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _delete_bulk_view(self, view_id: str) -> None:
         session = self._require_session(api=True)
-        if not session or not self._require_csrf(session):
+        if (
+            not session
+            or not self._require_csrf(session)
+            or not self._require_capability(session, "sessions.read")
+        ):
             return
         if self.server.context.store.delete_view(view_id):
             self.server.context.store.audit(actor=session.username, action="bulk.view.delete", target="saved-view", status="success")
