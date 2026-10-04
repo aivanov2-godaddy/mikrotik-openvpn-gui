@@ -317,6 +317,76 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(match)
         self.csrf = match.group(1).decode("ascii")
 
+    def test_socketio_polling_rejects_foreign_origin_before_handshake(self) -> None:
+        self.login()
+        calls: list[str] = []
+
+        class Bridge:
+            def handshake(self, session_id: str) -> tuple[str, str]:
+                calls.append(session_id)
+                return "test-sid", "0{}"
+
+        self.server.socketio_bridge = Bridge()
+        status, _, _ = self.request(
+            "GET",
+            "/socket.io/?EIO=4&transport=polling",
+            headers={"Origin": "https://attacker.example"},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(calls, [])
+
+    def test_socketio_polling_accepts_configured_origin_and_default_port(self) -> None:
+        self.login()
+        calls: list[str] = []
+
+        class Bridge:
+            def handshake(self, session_id: str) -> tuple[str, str]:
+                calls.append(session_id)
+                return "test-sid", "0{}"
+
+        self.server.socketio_bridge = Bridge()
+        status, _, body = self.request(
+            "GET",
+            "/socket.io/?EIO=4&transport=polling",
+            headers={"Origin": "https://DASHBOARD.example.test:443"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"0{}")
+        self.assertEqual(len(calls), 1)
+
+    def test_socketio_polling_rejects_foreign_origin_before_post_dispatch(self) -> None:
+        self.login()
+        calls: list[tuple[str, str, bytes]] = []
+
+        class Bridge:
+            def post(self, sid: str, session_id: str, body: bytes) -> bool:
+                calls.append((sid, session_id, body))
+                return True
+
+        self.server.socketio_bridge = Bridge()
+        status, _, _ = self.request(
+            "POST",
+            "/socket.io/?EIO=4&transport=polling&sid=test-sid",
+            body=b"40/telemetry,",
+            headers={
+                "Content-Type": "text/plain; charset=UTF-8",
+                "Origin": "https://attacker.example",
+            },
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(calls, [])
+
+    def test_socketio_polling_requires_origin_on_post(self) -> None:
+        self.login()
+        self.server.socketio_bridge = object()
+        status, _, _ = self.request(
+            "POST",
+            "/socket.io/?EIO=4&transport=polling&sid=test-sid",
+            body=b"40/telemetry,",
+            headers={"Content-Type": "text/plain; charset=UTF-8"},
+        )
+        self.assertEqual(status, 403)
+
     def json_request(
         self,
         method: str,
