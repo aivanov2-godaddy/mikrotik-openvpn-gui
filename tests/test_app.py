@@ -1026,6 +1026,42 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+    def test_role_capability_denials_precede_every_guarded_route_family(self) -> None:
+        """Exercise each high-impact capability guard for every role denied it."""
+        guarded_routes = {
+            "audit.read": ("GET", "/api/audit.json", {"read"}),
+            "security.manage": ("GET", "/api/admin/api-tokens", {"operator", "audit", "read"}),
+            "backup.manage": ("GET", "/api/backups/metadata.zip", {"security-operator", "audit", "read"}),
+            "users.manage": ("POST", "/api/users/preview", {"security-operator", "audit", "read"}),
+            "profiles.manage": ("POST", "/api/users/test-user/profiles/preview", {"audit", "read"}),
+            "policies.manage": ("POST", "/api/policy-templates/test/preview", {"security-operator", "audit", "read"}),
+            "session.manage": ("DELETE", "/api/admin/sessions/session-999999", {"audit", "read"}),
+            "device.manage": ("POST", "/api/devices/test-device/revoke/preview", {"operator", "audit", "read"}),
+            "alert.manage": ("POST", "/api/alerts/999999/ack", {"security-operator", "audit", "read"}),
+        }
+        body = b"{}"
+        before_mutations = list(self.mock.state.mutation_requests)
+        denied_count = 0
+
+        for group in ("security-operator", "operator", "audit", "read"):
+            self.mock.state.admin_group = group
+            self.cookie = ""
+            self.csrf = ""
+            self.login()
+            headers = {"Content-Type": "application/json", "X-CSRF-Token": self.csrf}
+            for capability, (method, path, denied_groups) in guarded_routes.items():
+                if group not in denied_groups:
+                    continue
+                with self.subTest(group=group, capability=capability, path=path):
+                    status, _, payload = self.request(method, path, body=body, headers=headers)
+                    self.assertEqual(status, 403)
+                    self.assertIn(capability.encode(), payload)
+                    self.assertNotIn(b"routerpass", payload)
+                    denied_count += 1
+
+        self.assertEqual(denied_count, 23)
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
         self.login()
         status, _, payload = self.request("GET", "/api/admin/sessions")
