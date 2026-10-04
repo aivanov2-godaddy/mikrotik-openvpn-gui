@@ -315,7 +315,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .simple-steps li > strong { display: grid; width: 25px; height: 25px; place-items: center; color: #dff2fc; border: 1px solid #31779f; border-radius: 50%; background: #194c70; }
 .simple-steps li > span { display: grid; }
 .simple-steps b { color: #dce4e8; font-size: 14px; }
-.simple-steps small { color: #84929b; font-size: 12px; }
+.simple-steps small { color: #b5c1c7; font-size: 12px; }
 .update-bullets { display: grid; gap: 8px; margin: 0; padding: 10px 13px 9px 31px; }
 .update-bullets li { padding-left: 3px; color: #c4cdd2; }
 .update-bullets li::marker { color: var(--green); }
@@ -507,7 +507,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .device-name > .wb-icon { width: 21px; height: 21px; color: #35a9e8; }
 .device-name > span { display: grid; }
 .device-name strong, .certificate-name { color: #e8eef1; font-size: 14px; }
-.device-name small, .fingerprint { display: block; color: #7f8d96; font: 11px/1.45 Consolas, monospace; }
+.device-name small, .fingerprint { display: block; color: #b5c1c7; font: 11px/1.45 Consolas, monospace; }
 .device-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; color: #bcead4; }
 .device-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 .device-status.revoked { color: #f1a3a7; }
@@ -532,7 +532,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .checks li.warning { grid-column: 1 / -1; border: 1px solid #765f36; background: #3c3423; }
 .checks li.warning > span { color: var(--amber); }
 .checks li.warning strong { color: #efd28d; }
-.checks li.warning small { color: #b9a778; }
+.checks li.warning small { color: #e1d39f; }
 .history-notice { border-color: #31546a; background: #20313c; }
 .history-notice > .wb-icon { width: 24px; height: 24px; color: #46aee4; }
 .backup-safety-note { margin: 0; padding: 10px 12px; color: #9eb0b9; font-size: 12px; }
@@ -588,7 +588,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .checks li > span .wb-icon { width: 15px; }
 .checks li div, .audit-list li > div { display: grid; }
 .checks strong, .audit-list strong { color: #cbd4d8; font-size: 13px; font-weight: 600; }
-.checks small, .audit-list small { color: #7d8a93; font-size: 11px; }
+.checks small, .audit-list small { color: #b5c1c7; font-size: 11px; }
 .audit-list li { display: grid; min-height: 38px; grid-template-columns: 10px 1fr auto; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid #2c3841; }
 .audit-icon { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 .audit-icon.failed { background: var(--red); }
@@ -611,7 +611,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .policy-template p { min-height: 34px; margin: 0; color: #9ba9b1; font-size: 12px; line-height: 1.5; }
 .policy-template dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0; background: #172027; }
 .policy-template dl > div { min-width: 0; padding: 5px; background: #25323a; }
-.policy-template dt { color: #7f8e97; font-size: 10px; text-transform: uppercase; }
+.policy-template dt { color: #b5c1c7; font-size: 10px; text-transform: uppercase; }
 .policy-template dd { margin: 2px 0 0; overflow: hidden; color: #c8d2d7; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .policy-template .quiet { justify-self: start; }
 .template-custom { padding: 2px 6px; color: #b4d9ed; border: 1px solid #3a6980; border-radius: 2px; background: #213f4d; font-size: 9px; }
@@ -625,7 +625,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .template-user-list input { width: 14px; height: 14px; accent-color: var(--blue); }
 .template-user-list span { display: grid; min-width: 0; gap: 1px; }
 .template-user-list strong { overflow: hidden; color: #d7e0e4; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.template-user-list small { overflow: hidden; color: #7793a2; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.template-user-list small { overflow: hidden; color: #b5c1c7; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .template-preview { padding: 8px; border: 1px solid #406176; background: #20323d; }
 .template-preview > strong, .template-preview > small { display: block; }
 .template-preview > strong { color: #d6e3e9; font-size: 11px; }
