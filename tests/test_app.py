@@ -94,7 +94,7 @@ class OperationsTimelineTests(unittest.TestCase):
         page = dashboard_page(
             actor="operator", csrf="csrf", users=[], sessions=[], admin_sessions=[], devices=[],
             connections=[], connection_summaries={}, certificates=[], profile_migrations={},
-            current_ca="", ovpn_server={}, certificate_settings={}, warnings=[], audit=[], alerts=[],
+            current_ca="", ovpn_server={}, warnings=[], audit=[], alerts=[],
             policy_templates=[], admin_role="owner", router={}, health={},
             observability={"operations_timeline": result},
         )
@@ -162,7 +162,7 @@ class OperationsTimelineTests(unittest.TestCase):
         page = dashboard_page(
             actor="operator", csrf="csrf", users=[], sessions=[], admin_sessions=[], devices=[],
             connections=[], connection_summaries={}, certificates=[], profile_migrations={},
-            current_ca="", ovpn_server={}, certificate_settings={}, warnings=[], audit=[], alerts=[],
+            current_ca="", ovpn_server={}, warnings=[], audit=[], alerts=[],
             policy_templates=[], admin_role="owner", router={}, health={},
             observability={"operations_timeline": result},
         )
@@ -725,7 +725,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Read-only certificate checks for every managed profile", page)
         self.assertIn(b"Inventory match", page)
         self.assertIn(b"does not prove CRL enforcement", page)
-        self.assertIn(b"Per-device revocation needs CA migration", page)
+        self.assertNotIn(b"Certificate revocation checks", page)
+        self.assertNotIn(b"Per-device revocation needs CA migration", page)
 
         self.assertIn(b"ovpn-user-one-device-a", page)
         self.assertIn(b"What happens under the hood", page)
@@ -775,10 +776,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.request("GET", "/api/service-health")
         self.assertEqual(status, 200)
         health = json.loads(payload)
-        self.assertEqual(health["overall"], "warning")
+        self.assertEqual(health["overall"], "healthy")
         self.assertEqual(
             {item["id"] for item in health["checks"]},
-            {"routeros-rest", "dashboard-storage", "openvpn-service", "profile-issuing", "certificate-revocation", "certificate-inventory", "router-capacity"},
+            {"routeros-rest", "dashboard-storage", "openvpn-service", "profile-issuing", "certificate-inventory", "router-capacity"},
         )
 
         status, _, payload = self.request("GET", "/api/setup-preflight")
@@ -1799,7 +1800,6 @@ class DashboardIntegrationTests(unittest.TestCase):
         health = service_health_snapshot(
             router=None,
             ovpn_server=None,
-            certificate_settings=None,
             certificates=None,
             config=self.config,
             database_ready=False,
