@@ -12,6 +12,30 @@ have not been recorded as complete.
 
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
+### Formal v2.7.0 release and latest RouterOS image read-back
+
+Formal release **v2.7.0** points to commit
+`2e01f111e1445c79b1753477a41efbaec27a1a2d`. Release-notes workflow
+[#37212204043](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204043)
+and container publication workflow
+[#37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038)
+passed. Both architecture builds passed runtime smoke and exact-digest
+provenance/SBOM verification; the stable manifest points to this commit.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-2e01f111e1445c79b1753477a41efbaec27a1a2d-arm64` | `sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a` |
+| AMD64 (evaluation only) | `sha-2e01f111e1445c79b1753477a41efbaec27a1a2d-amd64` | `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f` |
+
+Sanitized RouterOS WebFig read-back on 2026-10-04 confirmed the v2.7.0 ARM64
+immutable tag on both canary and production, each with the RouterOS healthy
+(`H`) marker. This proves configured-tag deployment and container health only;
+it is not a `/readyz` observation, independent registry-digest comparison,
+application/browser check after this release, or formal VPN/telemetry
+acceptance. No resource sample or sustained soak was collected in this
+read-back. The release is based on the PR #434 application code; v2.7.0
+primarily records the staged migration/profile-recovery release state.
+
 ### Post-release security fix deployment (main build)
 
 PR [#424](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/424)
@@ -38,7 +62,7 @@ baseline, authenticated browser review, digest read-back, or formal sustained
 acceptance. RouterOS policy, CA, certificates, VPN user data, credentials, and
 persistent application data were not changed.
 
-### Current formal release and RouterOS rollout
+### Historical formal v2.6.4 release and RouterOS rollout
 
 Formal release **v2.6.4** points to commit
 `9671f27db9e5bad61323378fcdab51fca3d39a8b`. Container publication run
@@ -116,10 +140,10 @@ acceptance window.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest authenticated production observation | At 2026-10-04 15:02 Europe/Sofia, an authenticated Owner browser session loaded the protected Dashboard and Connections views; both displayed the live Socket.IO transport. Read-only UI verification; no live VPN session was active for session-event correlation. |
-| Latest verified canary observation | Read-only RouterOS log/readiness read-back at 2026-10-04 14:48 Europe/Sofia confirmed v2.6.4 canary healthy after its validation window |
-| Latest published release | v2.6.4, commit `9671f27db9e5bad61323378fcdab51fca3d39a8b`, publication run [37199225501](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37199225501); rollout confirmed by updater and health logs |
-| Latest published ARM64 / AMD64 digests | `sha256:89b0b0d5a7f6b5d417d134fcaa04e442fbe88c4dfc11b49a8192bf152a404bd4` / `sha256:0c39c558a3c293e59b836bb4601a41060d298048627804bc2559b65b1e0c5c95` |
+| Last authenticated production application observation | At 2026-10-04 15:02 Europe/Sofia, before v2.7.0 deployment, an authenticated Owner browser session loaded the protected Dashboard and Connections views; both displayed the live Socket.IO transport. Read-only UI verification; no live VPN session was active for session-event correlation. A post-v2.7.0 application check has not been recorded. |
+| Latest RouterOS container read-back | On 2026-10-04, WebFig showed the v2.7.0 ARM64 immutable tag on canary and production, both with healthy (`H`) status. This is configured-tag/container-health evidence only; no `/readyz` check was made. |
+| Latest published release | v2.7.0, commit `2e01f111e1445c79b1753477a41efbaec27a1a2d`, publication run [37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038); exact-digest provenance/SBOM and runtime smoke passed |
+| Latest published ARM64 / AMD64 digests | `sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a` / `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
@@ -380,13 +404,12 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current runtime result: **DEPLOYMENT VERIFIED; FORMAL ACCEPTANCE PENDING —
-v2.6.4 was promoted to canary and production with readiness/health evidence at
-14:46–14:49 Europe/Sofia on 2026-10-04; Redis remained running. An authenticated
-Owner browser session subsequently loaded Dashboard and Connections through the
-protected route and showed the live Socket.IO transport. The published ARM64
-registry digest is known, but RouterOS exposes only the configured tag, so no
-independent on-router digest comparison is available. The 30-minute
+Current runtime result: **v2.7.0 IMAGE DEPLOYED / CONTAINER HEALTH OBSERVED;
+FORMAL ACCEPTANCE PENDING —** on 2026-10-04 WebFig read-back showed the v2.7.0
+ARM64 tag on canary and production, each with healthy (`H`) status. This is not
+a readiness endpoint or post-release authenticated browser check. The published
+ARM64 registry digest is known, but RouterOS exposes only the configured tag,
+so no independent on-router digest comparison is available. The 30-minute
 Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
 session expiry/revocation exercise, and rollback drill remain pending.**
 
