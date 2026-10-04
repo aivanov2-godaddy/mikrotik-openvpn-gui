@@ -33,6 +33,19 @@ Run focused evidence locally:
 python -m unittest tests.test_security tests.test_asgi_contract tests.test_app
 ```
 
+## Repository revalidation — 2026-10-04
+
+The authorization and live-session paths were re-read at repository HEAD
+`9fb89ec1609c4a706c9065355939bffeb0f9ca07`. The review covered the route
+dispatch inventory, token scope matrix, metrics and export guards, SSE
+write-boundary revalidation, Socket.IO origin/session handling, and ASGI live
+delivery checks. No new concrete authorization defect was demonstrated in
+those paths. The focused command above passed all 172 tests locally on this
+revision. This is internal repository evidence only; it does not establish
+deployed proxy behavior, physical-router revocation latency, or an independent
+external ASVS/penetration-test result. Those live and independent-review
+items remain open below.
+
 CI remains the authoritative repository test result for a proposed commit. A
 passing suite only establishes the assertions in those tests; it is not a
 blanket pass for ASVS, OWASP, or production security.
