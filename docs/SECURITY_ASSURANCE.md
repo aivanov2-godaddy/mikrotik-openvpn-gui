@@ -68,6 +68,13 @@ blanket pass for ASVS, OWASP, or production security.
   deployed proxy, or revocation timing on a physical router. The application
   leaves python-engineio origin handling enabled; an empty allowed-origin list
   would disable that check and is intentionally not used.
+- The legacy Socket.IO polling bridge also compares a supplied `Origin` with
+  the configured `PUBLIC_ORIGIN` on handshake/poll requests and requires an
+  exact configured origin on POST. GET without `Origin` remains supported for
+  clients that omit it; such requests still require the session-bound bridge
+  identity. HTTP-dispatch regression tests verify foreign-origin GET/POST
+  requests are denied before bridge methods run. This repository evidence does
+  not establish behavior at the deployed reverse proxy.
 - The SSE endpoint has a bounded response loop and requires an authenticated
   RouterOS session with `sessions.read` at entry. It checks the same server-side
   session and capability before each telemetry write without extending idle

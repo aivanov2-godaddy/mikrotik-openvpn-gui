@@ -71,6 +71,33 @@ API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "pol
 API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 
 
+def _same_origin(left: str, right: str) -> bool:
+    """Compare serialized HTTP origins, normalizing host case and default ports."""
+    def normalized(value: str) -> tuple[str, str, int] | None:
+        try:
+            parsed = urllib.parse.urlsplit(value)
+            if (
+                parsed.scheme.casefold() not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+            ):
+                return None
+            port = parsed.port
+        except ValueError:
+            return None
+        scheme = parsed.scheme.casefold()
+        if port is None:
+            port = 443 if scheme == "https" else 80
+        return scheme, parsed.hostname.rstrip(".").casefold(), port
+
+    parsed_left = normalized(left)
+    return parsed_left is not None and parsed_left == normalized(right)
+
+
 def operations_timeline(
     audit: list[dict[str, Any]],
     deployments: list[dict[str, Any]],
@@ -1950,6 +1977,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
     def _socketio_get(self, parsed_url: urllib.parse.SplitResult) -> None:
+        if self._reject_socketio_origin(require_origin=False):
+            return
         bridge = self.server.socketio_bridge
         if bridge is None:
             self._json({"error": "Socket.IO telemetry is disabled"}, status=HTTPStatus.NOT_FOUND)
@@ -1974,6 +2003,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._bytes(packet.encode("utf-8"), content_type="text/plain; charset=UTF-8", extra={"Cache-Control": "no-store"})
 
     def _socketio_post(self) -> None:
+        if self._reject_socketio_origin(require_origin=True):
+            return
         bridge = self.server.socketio_bridge
         if bridge is None:
             self._json({"error": "Socket.IO telemetry is disabled"}, status=HTTPStatus.NOT_FOUND)
@@ -1987,6 +2018,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"error": "Socket.IO session is no longer valid"}, status=HTTPStatus.UNAUTHORIZED)
             return
         self._bytes(b"ok", content_type="text/plain; charset=UTF-8", extra={"Cache-Control": "no-store"})
+
+    def _reject_socketio_origin(self, *, require_origin: bool) -> bool:
+        origin = self.headers.get("Origin")
+        if origin is None and not require_origin:
+            return False
+        if origin is not None and _same_origin(origin, self.server.context.public_origin):
+            return False
+        self._json(
+            {"error": "Socket.IO polling origin is not allowed"},
+            status=HTTPStatus.FORBIDDEN,
+        )
+        return True
 
     def _create_api_token(self) -> None:
         session = self._require_session(api=True)
