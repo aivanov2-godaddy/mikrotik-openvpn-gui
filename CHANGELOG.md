@@ -6,6 +6,8 @@ semantic-version style release tags.
 
 ## Unreleased
 
+## 2.6.0 - 2026-10-04
+
 ### Added
 
 - Rate-limit actionable alerts to ten per action per minute while preserving
