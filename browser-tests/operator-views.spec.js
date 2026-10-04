@@ -329,6 +329,34 @@ test('add-user dialog has accessible controls, stays keyboard-modal, validates, 
   await expect(openButton).toBeFocused();
 });
 
+test('reduced-motion preference suppresses dialog animation and smooth scrolling', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  await page.getByRole('button', { name: 'Add VPN user' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Add a person and phone' });
+  await expect(dialog).toBeVisible();
+  const motion = await dialog.evaluate((element) => {
+    const milliseconds = (value) => value.split(',').map((part) => {
+      const duration = Number.parseFloat(part);
+      return part.trim().endsWith('ms') ? duration : duration * 1000;
+    });
+    const dialogStyle = getComputedStyle(element);
+    const controlStyle = getComputedStyle(element.querySelector('input'));
+    return {
+      reducedMotionMatches: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior,
+      transitionDurations: [...milliseconds(dialogStyle.transitionDuration), ...milliseconds(controlStyle.transitionDuration)],
+      animationDurations: [...milliseconds(dialogStyle.animationDuration), ...milliseconds(controlStyle.animationDuration)],
+    };
+  });
+
+  expect(motion.reducedMotionMatches).toBe(true);
+  expect(motion.scrollBehavior).toBe('auto');
+  expect(motion.transitionDurations.every((duration) => duration <= 0.01)).toBe(true);
+  expect(motion.animationDurations.every((duration) => duration <= 0.01)).toBe(true);
+});
+
 test('diagnostic ZIP can be previewed and downloaded only on explicit keyboard activation', async ({ page }) => {
   await page.getByRole('link', { name: 'Change History', exact: true }).click();
   const preview = page.getByText('Preview what the ZIP contains', { exact: true });
