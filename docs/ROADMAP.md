@@ -421,15 +421,23 @@ that restart; the later live-update observation is recorded above.
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
-**Canary rollback follow-up (2026-10-05):** PR #455 is merged and its
-immutable ARM64 image is published, but read-only RouterOS inspection showed
-the candidate stopped during canary and both containers restored to the prior
-healthy image. No production promotion occurred. The exact readiness failure
-is unknown. The repository updater example is being improved to report
-bounded, secret-free readiness result classes; this does not change the script
-already installed on the router. See
-[the acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md) for observed
-details and current deployment status.
+**Current deployment correction (2026-10-05; supersedes the earlier #198/#199
+table snapshot below):** PR #455's first canary attempt
+rolled back after about five seconds; the exact rejection cause is unknown.
+The scheduled immutable updater later recovered and promoted the candidate.
+After PR #457's successful publication, RouterOS also promoted
+`sha-0f41d723b9431fd73b0fa97f113c4f764d2f7034-arm64` through canary to
+production. Registry digest:
+`sha256:2ed6842ab0493f772f3fdfd7cf3d08ce5f1bc8db31939e6d97aac29623684a4c`.
+Read-only WebFig showed both containers healthy on that tag, container logs
+showed `/readyz` HTTP 200 after production start, and the authenticated
+Dashboard reported live updates with matching zero counts in its main card and
+footer. This does not demonstrate a nonzero session transition or satisfy the
+long-window telemetry/Redis acceptance gates. PR #457's bounded, secret-free
+readiness diagnostics are in the repository updater example but have not been
+installed into the separate router-local script. See
+[the acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md) for detailed
+publication, digest, and health evidence.
 
 **Latest read-only RouterOS observation (2026-10-04 23:41 Europe/Sofia):**
 WebFig showed PR #448's immutable ARM64 image tag configured on both canary
