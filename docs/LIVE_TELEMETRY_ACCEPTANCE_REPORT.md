@@ -20,10 +20,10 @@ have not been recorded as complete.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest authenticated production observation | On 2026-10-04, RouterOS read-back confirmed `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7` configured on both containers and healthy; the signed-in dashboard also loaded, but current event freshness was not measured |
-| Latest verified canary observation | RouterOS read-back on 2026-10-04 confirmed the canary on `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7` and healthy at that point in time |
-| Latest published candidate | `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7` (publication run [37164717750](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37164717750)); both RouterOS configured image tags read back as this revision |
-| Latest published ARM64 / AMD64 digests | `sha256:c9b69b4acf70bf2fe7930d6e0fc196305bb94d8a302d8ebd5781bec1431e0ece` / `sha256:aecb7c33316d4828582a9a86581d2480e93affe4f61a2084c0e05f22c2f7c57f` |
+| Latest authenticated production observation | After the 2026-10-04 rollout, RouterOS read-back confirmed `297d9607a070dfe71a2b8c15075ef739127eb8ce` configured on both containers and healthy; authenticated browser verification is pending operator sign-in after the restart |
+| Latest verified canary observation | RouterOS read-back on 2026-10-04 confirmed the canary on `297d9607a070dfe71a2b8c15075ef739127eb8ce` and healthy at that point in time |
+| Latest published candidate | `297d9607a070dfe71a2b8c15075ef739127eb8ce` (publication run [37166529360](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37166529360)); both RouterOS configured image tags read back as this revision |
+| Latest published ARM64 / AMD64 digests | `sha256:ddcf57b91b9daa31c962c9e63fbbff2db5adea3ce4f18c349396a04f4d2699fd` / `sha256:2a50bcfd6bbdbfca68b6af1c95df196d5fde7495d3ab3e52183b5703cf9802a9` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
@@ -38,8 +38,8 @@ Access.
 
 ## Latest deployed release read-back — 2026-10-04
 
-PR #385 merged as `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7`. Publication run
-[37164717750](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37164717750)
+PR #387 merged as `297d9607a070dfe71a2b8c15075ef739127eb8ce`. Publication run
+[37166529360](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37166529360)
 passed source and rendered-browser verification, ARM64/AMD64 image publication,
 runtime smoke tests, and exact-digest SBOM/provenance verification. RouterOS
 read-only console inspection confirmed both canary and production configured
@@ -49,18 +49,17 @@ revision or canary state was unknown.
 
 | Check | Result |
 | --- | --- |
-| ARM64 tag / registry digest | `sha-79ab0e2a808c6d078c0b224f4d22e8805d68f8c7-arm64` / `sha256:c9b69b4acf70bf2fe7930d6e0fc196305bb94d8a302d8ebd5781bec1431e0ece` |
-| AMD64 registry digest | `sha256:aecb7c33316d4828582a9a86581d2480e93affe4f61a2084c0e05f22c2f7c57f` (not deployed on this ARM64 router) |
-| Canary / production configured tag | Both read back as `sha-79ab0e2a808c6d078c0b224f4d22e8805d68f8c7-arm64` |
-| Container health / resources | Both healthy; point-in-time reads approximately 33 MiB RAM and under 1% container CPU each; Redis running at approximately 10 MiB |
-| Router resources | Point-in-time CPU load 3%; free memory 762,732,544 of 1,073,741,824 bytes; not a sustained baseline or peak |
-| Application access | Signed-in Connections page loaded through Cloudflare Access and showed no active connections; no live event/freshness measurement was made |
+| ARM64 tag / registry digest | `sha-297d9607a070dfe71a2b8c15075ef739127eb8ce-arm64` / `sha256:ddcf57b91b9daa31c962c9e63fbbff2db5adea3ce4f18c349396a04f4d2699fd` |
+| AMD64 registry digest | `sha256:2a50bcfd6bbdbfca68b6af1c95df196d5fde7495d3ab3e52183b5703cf9802a9` (not deployed on this ARM64 router) |
+| Canary / production configured tag | Both read back as `sha-297d9607a070dfe71a2b8c15075ef739127eb8ce-arm64` |
+| Container health / resources | Both healthy; point-in-time reads approximately 33 MiB RAM and under 1% container CPU each; Redis running (resource values are from the preceding sample, not remeasured after promotion) |
+| Router resources | No new post-promotion sample recorded; earlier point-in-time sample is not a sustained baseline or peak |
+| Application access | Browser session returned to Cloudflare Access sign-in after the container restart; authenticated post-restart UI and event freshness checks await operator sign-in |
 | Registry digest on device | Not independently compared: RouterOS read-back exposes the configured immutable tag, not the registry content digest |
 | Formal runtime soak / rollback | Not completed for this release; no API interruption, counter-reset, Redis failure, or rollback test was performed |
 
-The dashboard is usable after authentication, but a browser-side direct
-readiness tab was blocked locally and no authenticated readiness/metrics
-collection was completed. The RouterOS container health flag reflects its
+No authenticated readiness/metrics collection was completed after this
+restart. The RouterOS container health flag reflects its
 configured local health check; it is not a substitute for the formal
 30-minute telemetry/Redis acceptance window. No RouterOS configuration,
 policy, CA, certificates, VPN user data, or persistent data was changed in
@@ -240,8 +239,9 @@ gates.**
 
 Current runtime result: **DEPLOYMENT VERIFIED; FORMAL ACCEPTANCE PENDING —
 RouterOS read-back on 2026-10-04 showed canary and production configured with
-`79ab0e2` and healthy, with Redis running. The published ARM64 registry digest
-is known, but no digest comparison was performed on the router. The 30-minute
+`297d960` and healthy, with Redis running. The published ARM64 registry digest
+is known, but no digest comparison was performed on the router. Post-restart
+authenticated browser verification is pending operator sign-in. The 30-minute
 Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
 and rollback drill remain pending.**
 
