@@ -1489,9 +1489,16 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/backups/metadata.zip": "backup.manage",
         }
         all_scopes = {"health.read", "audit.read", "sessions.read", "policies.read"}
+        scope_names = sorted(all_scopes)
         scope_sets = [
-            {scope} for scope in sorted(all_scopes)
-        ] + [all_scopes]
+            {
+                scope_names[index]
+                for index in range(len(scope_names))
+                if mask & (1 << index)
+            }
+            for mask in range(1, 1 << len(scope_names))
+        ]
+        self.assertEqual(len(scope_sets), (1 << len(scope_names)) - 1)
         before_mutations = list(self.mock.state.mutation_requests)
 
         for index, scopes in enumerate(scope_sets):
