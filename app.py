@@ -393,7 +393,6 @@ def service_health_snapshot(
     *,
     router: dict[str, Any] | None,
     ovpn_server: dict[str, Any] | None,
-    certificate_settings: dict[str, Any] | None,
     certificates: list[dict[str, Any]] | None,
     config: RuntimeConfig,
     database_ready: bool,
@@ -419,7 +418,6 @@ def service_health_snapshot(
 
     router = router or {}
     ovpn_server = ovpn_server or {}
-    certificate_settings = certificate_settings or {}
     certificates = certificates or []
     checks: list[dict[str, str]] = []
 
@@ -449,13 +447,6 @@ def service_health_snapshot(
         add("profile-issuing", "Profile issuing prerequisites", "warning", "The dashboard may be unable to generate a complete phone profile.", "Set the required OVPN topology values in the container environment, then restart the dashboard.")
     else:
         add("profile-issuing", "Profile issuing prerequisites", "healthy", "New device profiles can be generated from the configured topology.", "No action needed.")
-
-    if certificate_settings.get("crl_ready"):
-        add("certificate-revocation", "Certificate revocation checks", "healthy", "RouterOS is enforcing revocation using an active CRL for the configured OpenVPN CA.", "No action needed.")
-    elif certificate_settings.get("crl_use"):
-        add("certificate-revocation", "Certificate revocation checks", "warning", "CRL enforcement is enabled but no usable CRL is available for the configured OpenVPN CA.", "Restore the CA's CRL publication path before relying on certificate revocation.")
-    else:
-        add("certificate-revocation", "Certificate revocation checks", "warning", "Revoked client certificates may not be rejected automatically.", "Review Certificate Settings in WinBox and enable CRL use when your CA publishes a revocation list.")
 
     if certificates:
         now = int(time.time())
@@ -1095,7 +1086,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             health = service_health_snapshot(
                 router=None,
                 ovpn_server=None,
-                certificate_settings=None,
                 certificates=None,
                 config=self.server.context.config,
                 database_ready=False,
@@ -1116,10 +1106,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except RouterOSError:
             ovpn_server = {}
         try:
-            certificate_settings = self.server.context.router.get_certificate_settings(credentials)
-        except RouterOSError:
-            certificate_settings = {}
-        try:
             certificates = self.server.context.router.list_ovpn_client_certificates(credentials)
         except RouterOSError:
             certificates = []
@@ -1127,7 +1113,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         health = service_health_snapshot(
             router=router,
             ovpn_server=ovpn_server,
-            certificate_settings=certificate_settings,
             certificates=certificates,
             config=self.server.context.config,
             database_ready=database_ready,
@@ -1759,11 +1744,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             {},
             lambda: self.server.context.router.get_ovpn_server_status(credentials),
         )
-        certificate_settings = optional_router_data(
-            "Certificate revocation status is temporarily unavailable.",
-            {},
-            lambda: self.server.context.router.get_certificate_settings(credentials),
-        )
         certificates = optional_router_data(
             "Certificate inventory is temporarily unavailable.",
             [],
@@ -1806,7 +1786,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         health = service_health_snapshot(
             router=router,
             ovpn_server=ovpn_server,
-            certificate_settings=certificate_settings,
             certificates=certificates,
             config=self.server.context.config,
             database_ready=database_ready,
@@ -1829,7 +1808,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 profile_migrations=self.server.context.store.profile_migrations(),
                 current_ca=str(self.server.context.router.ovpn_ca or ""),
                 ovpn_server=ovpn_server,
-                certificate_settings=certificate_settings,
                 warnings=warnings,
                 audit=(
                     self.server.context.store.recent_audit(100)
