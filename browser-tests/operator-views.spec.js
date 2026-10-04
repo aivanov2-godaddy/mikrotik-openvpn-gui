@@ -64,20 +64,20 @@ test('Dashboard warning alert state renders consistently', async ({ page }, test
   // Exercise the same REST-backed renderer used by status refreshes, but invoke
   // it directly with a fixed alert fixture. EventSource remains disabled by
   // beforeEach, and no stream or timing behavior is part of this screenshot.
-  await page.route('**/api/status', async (route) => {
-    const response = await route.fetch();
-    const payload = await response.json();
-    payload.alerts = [{
-      id: 9201,
-      severity: 'warning',
-      title: 'VPN capacity needs review',
-      details: 'The configured session limit is close to its current usage.',
-      created_at: 1791028800,
-      last_seen_at: 1791028800,
-      occurrence_count: 1,
-    }];
-    await route.fulfill({ response, body: JSON.stringify(payload) });
+  const payload = await page.evaluate(async () => {
+    const response = await fetch('/api/status');
+    return response.json();
   });
+  payload.alerts = [{
+    id: 9201,
+    severity: 'warning',
+    title: 'VPN capacity needs review',
+    details: 'The configured session limit is close to its current usage.',
+    created_at: 1791028800,
+    last_seen_at: 1791028800,
+    occurrence_count: 1,
+  }];
+  await page.route('**/api/status', (route) => route.fulfill({ json: payload }));
   await page.evaluate(async () => {
     const response = await fetch('/api/status');
     updateDashboard(await response.json());
