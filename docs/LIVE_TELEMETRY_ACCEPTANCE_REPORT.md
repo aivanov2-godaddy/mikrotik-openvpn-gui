@@ -20,10 +20,10 @@ have not been recorded as complete.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest authenticated production observation | Authenticated production dashboard on 2026-10-04 reported running revision `6ae554ed226107e8639f345ff02bd0ae4269c5fc`, RouterOS 7.24.5, and healthy router connectivity; see the observation below |
-| Latest verified canary readiness observation | `1a6bf3e35a1b785e1d7797cf9dfd50ab8ea2fe5e`, ready at that observation; not a current-state claim |
-| Latest published candidate | `6ae554ed226107e8639f345ff02bd0ae4269c5fc` (publication run [37159106219](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37159106219)); subsequently reported running by the authenticated production dashboard |
-| Latest published ARM64 / AMD64 digests | `sha256:1f01b92a7da0d11d0013e2fa208ad8e843ae699580b2f4ca1a319ec22238e8cd` / `sha256:6c03325292a51acb08265feb15ca4a5e3d253522e8b6237aa7e1443717b11a5a` |
+| Latest authenticated production observation | On 2026-10-04, RouterOS read-back confirmed `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7` configured on both containers and healthy; the signed-in dashboard also loaded, but current event freshness was not measured |
+| Latest verified canary observation | RouterOS read-back on 2026-10-04 confirmed the canary on `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7` and healthy at that point in time |
+| Latest published candidate | `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7` (publication run [37164717750](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37164717750)); both RouterOS configured image tags read back as this revision |
+| Latest published ARM64 / AMD64 digests | `sha256:c9b69b4acf70bf2fe7930d6e0fc196305bb94d8a302d8ebd5781bec1431e0ece` / `sha256:aecb7c33316d4828582a9a86581d2480e93affe4f61a2084c0e05f22c2f7c57f` |
 | Acceptance window | 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
 
@@ -35,6 +35,36 @@ from the signed publication workflow; RouterOS reports its configured tag, not
 the image content digest. These are point-in-time records, not the later
 runtime's sustained acceptance. The public endpoint remains behind Cloudflare
 Access.
+
+## Latest deployed release read-back — 2026-10-04
+
+PR #385 merged as `79ab0e2a808c6d078c0b224f4d22e8805d68f8c7`. Publication run
+[37164717750](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37164717750)
+passed source and rendered-browser verification, ARM64/AMD64 image publication,
+runtime smoke tests, and exact-digest SBOM/provenance verification. RouterOS
+read-only console inspection confirmed both canary and production configured
+with the immutable ARM64 tag and showed both containers healthy; Redis remained
+running. This supersedes earlier statements below that the current deployed
+revision or canary state was unknown.
+
+| Check | Result |
+| --- | --- |
+| ARM64 tag / registry digest | `sha-79ab0e2a808c6d078c0b224f4d22e8805d68f8c7-arm64` / `sha256:c9b69b4acf70bf2fe7930d6e0fc196305bb94d8a302d8ebd5781bec1431e0ece` |
+| AMD64 registry digest | `sha256:aecb7c33316d4828582a9a86581d2480e93affe4f61a2084c0e05f22c2f7c57f` (not deployed on this ARM64 router) |
+| Canary / production configured tag | Both read back as `sha-79ab0e2a808c6d078c0b224f4d22e8805d68f8c7-arm64` |
+| Container health / resources | Both healthy; point-in-time reads approximately 33 MiB RAM and under 1% container CPU each; Redis running at approximately 10 MiB |
+| Router resources | Point-in-time CPU load 3%; free memory 762,732,544 of 1,073,741,824 bytes; not a sustained baseline or peak |
+| Application access | Signed-in Connections page loaded through Cloudflare Access and showed no active connections; no live event/freshness measurement was made |
+| Registry digest on device | Not independently compared: RouterOS read-back exposes the configured immutable tag, not the registry content digest |
+| Formal runtime soak / rollback | Not completed for this release; no API interruption, counter-reset, Redis failure, or rollback test was performed |
+
+The dashboard is usable after authentication, but a browser-side direct
+readiness tab was blocked locally and no authenticated readiness/metrics
+collection was completed. The RouterOS container health flag reflects its
+configured local health check; it is not a substitute for the formal
+30-minute telemetry/Redis acceptance window. No RouterOS configuration,
+policy, CA, certificates, VPN user data, or persistent data was changed in
+this observation.
 
 ## Previously published candidate and canary observation — 2026-10-04
 
@@ -208,10 +238,12 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current runtime result: **PARTIALLY VERIFIED — the authenticated production
-dashboard reported `6ae554e` running and the router connection healthy on
-2026-10-04; the canary revision, exact runtime digest, 30-minute Redis/
-telemetry acceptance window, and rollback drill remain unverified/pending.**
+Current runtime result: **DEPLOYMENT VERIFIED; FORMAL ACCEPTANCE PENDING —
+RouterOS read-back on 2026-10-04 showed canary and production configured with
+`79ab0e2` and healthy, with Redis running. The published ARM64 registry digest
+is known, but no digest comparison was performed on the router. The 30-minute
+Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
+and rollback drill remain pending.**
 
 The acceptance evaluator remains available for future regression windows. New
 evidence must remain outside the repository and should be redacted before any
