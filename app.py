@@ -1950,6 +1950,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if match:
             self._revoke_device(urllib.parse.unquote(match.group(1)))
             return
+        match = re.fullmatch(r"/api/profile-migrations/([^/]+)/revoke/preview", path)
+        if match:
+            self._revoke_device(urllib.parse.unquote(match.group(1)), preview=True)
+            return
+        match = re.fullmatch(r"/api/profile-migrations/([^/]+)/revoke", path)
+        if match:
+            self._revoke_device(urllib.parse.unquote(match.group(1)))
+            return
         match = re.fullmatch(r"/api/users/([^/]+)/duplicate", path)
         if match:
             self._duplicate_user(urllib.parse.unquote(match.group(1)))
@@ -5124,13 +5132,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             data = self._read_json()
             device = self.server.context.store.device_by_id(device_id)
-            if not device:
+            migration = None
+            if device:
+                if device.get("revoked_at"):
+                    raise ValueError("This device profile is already revoked")
+                device_name = str(device.get("device_name") or "Unnamed device")
+                certificate_id = str(device.get("certificate_id") or "")
+                certificate_name = str(device.get("certificate_name") or "")
+                vpn_user = str(device.get("vpn_user", ""))
+            else:
+                migration = self.server.context.store.profile_migrations().get(device_id)
+                if not migration or migration.get("tested_at") is None:
+                    raise ValueError("Only a tested profile migration can retire an unmanaged legacy certificate")
+                device_name = str(migration.get("legacy_certificate_name") or "")
+                certificate_id = ""
+                certificate_name = device_id
+                vpn_user = str(migration.get("vpn_user", ""))
+            if not device and not migration:
                 raise ValueError("Device profile was not found")
-            if device.get("revoked_at"):
-                raise ValueError("This device profile is already revoked")
-            device_name = str(device.get("device_name") or "Unnamed device")
-            certificate_id = str(device.get("certificate_id") or "")
-            if not certificate_id:
+            if device and not certificate_id:
                 raise ValueError("This device has no revocable certificate identity")
             confirmation = str(data.get("confirmation", "")).strip()
             reason = str(data.get("reason", "")).strip()
@@ -5142,25 +5162,54 @@ class DashboardHandler(BaseHTTPRequestHandler):
             certificates = self.server.context.router.list_ovpn_client_certificates(
                 credentials, include_legacy=True
             )
-            certificate = next(
-                (item for item in certificates if str(item.get("id", "")) == certificate_id),
-                None,
-            )
+            certificate = next((item for item in certificates if (
+                str(item.get("id", "")) == certificate_id if device
+                else str(item.get("name", "")) == certificate_name
+            )), None)
             if not certificate or bool(certificate.get("revoked")):
                 raise ValueError("RouterOS does not currently show this certificate as active; refresh Device Profiles before continuing")
+            certificate_id = str(certificate.get("id", ""))
+            if not certificate_id:
+                raise ValueError("RouterOS did not provide a revocable certificate identity")
+            replacement = None
+            if migration:
+                replacement = next((item for item in certificates if
+                    str(item.get("name", "")) == str(migration.get("replacement_certificate_name", ""))), None)
+                current_ca = str(getattr(self.server.context.router, "ovpn_ca", ""))
+                if (
+                    not current_ca
+                    or not str(certificate.get("certificate_authority", ""))
+                    or str(certificate.get("certificate_authority", "")) == current_ca
+                    or not str(certificate.get("common_name", "")).casefold().startswith(f"{vpn_user.casefold()}-")
+                    or not replacement
+                    or bool(replacement.get("revoked"))
+                    or str(replacement.get("certificate_authority", "")) != current_ca
+                ):
+                    raise ValueError("The legacy certificate and active replacement under the current CA could not both be verified")
             receipt = {
                 "intent": {
                     "device_id": device_id,
                     "device_name": device_name,
-                    "vpn_user": str(device.get("vpn_user", "")),
-                    "certificate_id": certificate_id,
+                    "vpn_user": vpn_user,
+                    "certificate_id": str(certificate.get("id", "")),
+                    "migration_replacement": str(migration.get("replacement_certificate_name", "")) if migration else "",
+                    "migration_tested_at": migration.get("tested_at") if migration else None,
                     "confirmation": confirmation,
                     "reason": reason,
                 },
                 "router_state": {
+                    "certificate_id": str(certificate.get("id", "")),
                     "certificate_name": str(certificate.get("name", "")),
+                    "certificate_fingerprint": str(certificate.get("fingerprint", "")),
                     "certificate_authority": str(certificate.get("certificate_authority", "")),
                     "revoked": bool(certificate.get("revoked")),
+                    "replacement": ({
+                        "id": str(replacement.get("id", "")),
+                        "name": str(replacement.get("name", "")),
+                        "fingerprint": str(replacement.get("fingerprint", "")),
+                        "authority": str(replacement.get("certificate_authority", "")),
+                        "revoked": bool(replacement.get("revoked")),
+                    } if replacement else None),
                 },
             }
             intent_digest = hashlib.sha256(
@@ -5171,13 +5220,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 try:
                     active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
                     active_for_user: int | None = sum(
-                        1 for item in active_sessions if str(item.get("name", "")) == str(device.get("vpn_user", ""))
+                        1 for item in active_sessions if str(item.get("name", "")) == vpn_user
                     )
                 except RouterOSError:
                     active_for_user = None
                 self._json({
                     "device": device_name,
-                    "vpn_user": str(device.get("vpn_user", "")),
+                    "vpn_user": vpn_user,
                     "certificate": str(certificate.get("name", "")),
                     "certificate_state": "active_on_routeros",
                     "active_sessions_for_user": active_for_user,
@@ -5235,7 +5284,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             certificate = next(
-                (item for item in certificates if str(item.get("id", "")) == certificate_id),
+                (item for item in certificates if str(item.get("id", "")) == str(certificate.get("id", ""))),
                 None,
             )
             if not certificate or not certificate.get("revoked"):
@@ -5262,7 +5311,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     status=HTTPStatus.BAD_GATEWAY,
                 )
                 return
-            self.server.context.store.mark_revoked(device_id)
+            if device:
+                self.server.context.store.mark_revoked(device_id)
             self.server.context.store.audit(
                 actor=session.username,
                 action="device.revoke",
@@ -5270,8 +5320,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status="success",
                 details={
                     "reason_provided": True,
-                    "vpn_user": str(device.get("vpn_user", "")),
-                    "certificate": str(device.get("certificate_name", "")),
+                    "vpn_user": vpn_user,
+                    "certificate": certificate_name,
                     "verification": "routeros_revoked",
                     "mutation_response": "error" if mutation_error else "ok",
                     "active_session_termination_verified": False,
