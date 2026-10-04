@@ -392,26 +392,43 @@ test('diagnostic ZIP can be previewed and downloaded only on explicit keyboard a
 });
 
 test('operations timeline filters bounded observations and labels its coverage', async ({ page }) => {
+  const frozenObservability = await page.evaluate(async () => {
+    const response = await fetch('/api/observability');
+    return response.json();
+  });
+  await page.route('**/api/observability', (route) => route.fulfill({ json: frozenObservability }));
+  await page.evaluate((observability) => renderObservability({ observability }), frozenObservability);
   await page.getByRole('link', { name: 'Change History', exact: true }).click();
   const panel = page.locator('.operations-timeline-panel');
   await expect(panel.getByText('Operations timeline', { exact: true })).toBeVisible();
   await expect(panel.locator('.history-coverage-note')).toContainText('gaps are possible');
-  const relatedLink = panel.getByRole('link', { name: /^View related event:/ }).first();
+  const relatedLink = panel.locator('[data-operation-row][data-operation-type="integration"] [data-operation-related-link]').first();
   await expect(relatedLink).toBeVisible();
+  const relatedLabel = await relatedLink.getAttribute('aria-label');
   const relatedHref = await relatedLink.getAttribute('href');
   expect(relatedHref).toMatch(/^#operation-event-\d+$/);
-  const relatedRow = panel.locator(relatedHref);
   await relatedLink.focus();
-  await page.keyboard.press('Enter');
-  await expect(relatedRow).toBeFocused();
-  await expect(relatedRow).toBeInViewport();
   await page.evaluate(async () => {
     const response = await fetch('/api/observability');
     const observability = await response.json();
     observability.operations_timeline.events[0].age_seconds += 1;
     renderObservability({ observability });
   });
-  await expect(panel.locator(relatedHref)).toBeFocused();
+  const refreshedRelatedLink = panel.getByRole('link', { name: relatedLabel, exact: true }).first();
+  await expect(refreshedRelatedLink).toBeFocused();
+  const refreshedHref = await refreshedRelatedLink.getAttribute('href');
+  const refreshedRow = panel.locator(refreshedHref);
+  await refreshedRelatedLink.press('Enter');
+  await expect(refreshedRow).toBeFocused();
+  await expect(refreshedRow).toBeInViewport();
+
+  await page.evaluate(async () => {
+    const response = await fetch('/api/observability');
+    const observability = await response.json();
+    observability.operations_timeline.events[0].age_seconds += 1;
+    renderObservability({ observability });
+  });
+  await expect(panel.locator(refreshedHref)).toBeFocused();
   await expect(panel).not.toContainText('192.0.2.8');
 
   const type = panel.getByLabel('Filter timeline by event type');
