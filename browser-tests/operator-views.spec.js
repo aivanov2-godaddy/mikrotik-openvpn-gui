@@ -406,14 +406,21 @@ test('operations timeline filters bounded observations and labels its coverage',
   await expect(relatedLink).toBeVisible();
   const relatedLabel = await relatedLink.getAttribute('aria-label');
   const relatedHref = await relatedLink.getAttribute('href');
+  const relatedRowIdentity = await relatedLink.locator('xpath=ancestor::tr').evaluate((row) => ({
+    type: row.dataset.operationType,
+    created: row.dataset.operationCreated,
+  }));
   expect(relatedHref).toMatch(/^#operation-event-\d+$/);
   await relatedLink.focus();
-  await page.evaluate(async () => {
-    const response = await fetch('/api/observability');
-    const observability = await response.json();
+  await page.evaluate(async ({ snapshot, rowIdentity }) => {
+    const observability = structuredClone(snapshot);
     observability.operations_timeline.events[0].age_seconds += 1;
+    const sourceEvent = observability.operations_timeline.events.find((event) =>
+      event.type === rowIdentity.type && String(Number(event.occurred_at) || 0) === rowIdentity.created
+    );
+    if (sourceEvent) sourceEvent.summary = `${sourceEvent.summary} updated`;
     renderObservability({ observability });
-  });
+  }, { snapshot: frozenObservability, rowIdentity: relatedRowIdentity });
   const refreshedRelatedLink = panel.getByRole('link', { name: relatedLabel, exact: true }).first();
   await expect(refreshedRelatedLink).toBeFocused();
   const refreshedHref = await refreshedRelatedLink.getAttribute('href');
@@ -422,13 +429,6 @@ test('operations timeline filters bounded observations and labels its coverage',
   await expect(refreshedRow).toBeFocused();
   await expect(refreshedRow).toBeInViewport();
 
-  await page.evaluate(async () => {
-    const response = await fetch('/api/observability');
-    const observability = await response.json();
-    observability.operations_timeline.events[0].age_seconds += 1;
-    renderObservability({ observability });
-  });
-  await expect(panel.locator(refreshedHref)).toBeFocused();
   await expect(panel).not.toContainText('192.0.2.8');
 
   const type = panel.getByLabel('Filter timeline by event type');

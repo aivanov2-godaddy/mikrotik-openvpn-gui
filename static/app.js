@@ -1047,10 +1047,12 @@ function renderObservability(payload) {
       const currentRows = Array.from(operationBody.querySelectorAll('[data-operation-row]'));
       const rowForFocusKey = (key) => key ? currentRows.find((row) => rowFocusKey(row) === key) : null;
       if (focusedRelatedLabel) {
-        const replacementLink = $$('[data-operation-related-link]').find((link) =>
+        const matchingRelatedLinks = $$('[data-operation-related-link]').filter((link) =>
           link.getAttribute('aria-label') === focusedRelatedLabel
-          && rowFocusKey(link.closest('[data-operation-row]')) === focusedRelatedSourceKey
         );
+        const replacementLink = matchingRelatedLinks.find((link) =>
+          rowFocusKey(link.closest('[data-operation-row]')) === focusedRelatedSourceKey
+        ) || matchingRelatedLinks[Math.min(Math.max(0, focusedTimelineRowIndex), matchingRelatedLinks.length - 1)];
         if (replacementLink) replacementLink.focus({ preventScroll: true });
         else (rowForFocusKey(focusedTimelineRowKey) || currentRows[Math.min(Math.max(0, focusedTimelineRowIndex), currentRows.length - 1)])
           ?.focus({ preventScroll: true });
