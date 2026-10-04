@@ -1062,6 +1062,86 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(denied_count, 23)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+    def test_sensitive_management_route_matrix_denies_all_disallowed_role_variants(self) -> None:
+        """Cover preview/apply/delete variants and action-selected bulk gates."""
+        denied = {
+            "audit.read": {"read"},
+            "security.manage": {"operator", "audit", "read"},
+            "backup.manage": {"security-operator", "audit", "read"},
+            "users.manage": {"security-operator", "audit", "read"},
+            "profiles.manage": {"audit", "read"},
+            "policies.manage": {"security-operator", "audit", "read"},
+            "session.manage": {"audit", "read"},
+            "device.manage": {"operator", "audit", "read"},
+            "alert.manage": {"security-operator", "audit", "read"},
+        }
+        route_cases = [
+            ("audit.read", "GET", "/api/audit.csv", {}),
+            ("audit.read", "GET", "/api/audit.json", {}),
+            ("audit.read", "GET", "/api/operations-timeline.json", {}),
+            ("audit.read", "GET", "/api/reports/compliance.zip", {}),
+            ("security.manage", "GET", "/api/admin/api-tokens", {}),
+            ("security.manage", "POST", "/api/admin/api-tokens", {}),
+            ("security.manage", "DELETE", "/api/admin/api-tokens/token-12345678", {}),
+            ("security.manage", "POST", "/api/admin/break-glass/plan", {}),
+            ("security.manage", "POST", "/api/openvpn-foundation-plan", {}),
+            ("backup.manage", "GET", "/api/backups/metadata.zip", {}),
+            ("backup.manage", "POST", "/api/backups/preflight", {}),
+            ("backup.manage", "POST", "/api/backups/validate", {}),
+            ("backup.manage", "POST", "/api/backups/restore-plan", {}),
+            ("users.manage", "POST", "/api/users", {}),
+            ("users.manage", "POST", "/api/users/preview", {}),
+            ("users.manage", "POST", "/api/users/test-user/preview", {}),
+            ("users.manage", "POST", "/api/users/test-user/suspend", {}),
+            ("users.manage", "POST", "/api/users/test-user/suspend/preview", {}),
+            ("users.manage", "POST", "/api/users/test-user/restore", {}),
+            ("users.manage", "POST", "/api/users/test-user/restore/preview", {}),
+            ("users.manage", "POST", "/api/users/test-user/duplicate", {}),
+            ("users.manage", "POST", "/api/users/test-user/duplicate/preview", {}),
+            ("users.manage", "POST", "/api/users/test-user/delete/preview", {}),
+            ("users.manage", "PATCH", "/api/users/test-user", {}),
+            ("users.manage", "DELETE", "/api/users/test-user", {}),
+            ("profiles.manage", "POST", "/api/users/test-user/profiles", {}),
+            ("profiles.manage", "POST", "/api/users/test-user/profiles/preview", {}),
+            ("policies.manage", "POST", "/api/policy-templates/test/preview", {}),
+            ("policies.manage", "POST", "/api/policy-templates/test/apply", {}),
+            ("policies.manage", "PATCH", "/api/policy-templates/test", {}),
+            ("policies.manage", "POST", "/api/network/segment-plan", {}),
+            ("session.manage", "POST", "/api/sessions/session-1/preview", {}),
+            ("session.manage", "DELETE", "/api/admin/sessions/session-1", {}),
+            ("session.manage", "DELETE", "/api/sessions/session-1", {}),
+            ("device.manage", "POST", "/api/devices/device-1/revoke/preview", {}),
+            ("device.manage", "POST", "/api/devices/device-1/revoke", {}),
+            ("alert.manage", "POST", "/api/alerts/999999/ack", {}),
+            ("users.manage", "POST", "/api/bulk/preview", {"action": "suspend", "user_ids": ["*1"]}),
+            ("users.manage", "POST", "/api/bulk/apply", {"action": "tag", "user_ids": ["*1"], "tag": "review"}),
+            ("device.manage", "POST", "/api/bulk/preview", {"action": "revoke", "user_ids": ["*1"]}),
+            ("device.manage", "POST", "/api/bulk/apply", {"action": "revoke", "user_ids": ["*1"]}),
+        ]
+        before_mutations = list(self.mock.state.mutation_requests)
+        denied_cases = 0
+
+        for group in ("security-operator", "operator", "audit", "read"):
+            self.mock.state.admin_group = group
+            self.cookie = ""
+            self.csrf = ""
+            self.login()
+            headers = {"Content-Type": "application/json", "X-CSRF-Token": self.csrf}
+            for capability, method, path, body in route_cases:
+                if group not in denied[capability]:
+                    continue
+                with self.subTest(group=group, capability=capability, method=method, path=path):
+                    status, _, payload = self.request(
+                        method, path, body=json.dumps(body).encode(), headers=headers,
+                    )
+                    self.assertEqual(status, 403)
+                    self.assertIn(capability.encode(), payload)
+                    self.assertNotIn(b"routerpass", payload)
+                    denied_cases += 1
+
+        self.assertEqual(denied_cases, 110)
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
         self.login()
         status, _, payload = self.request("GET", "/api/admin/sessions")
