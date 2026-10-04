@@ -122,16 +122,31 @@
     :local transport $2
     :local expectedCommit $3
     :local result
-    :if ($transport = "https") do={
-        :set result [/tool/fetch url=$endpoint mode=https check-certificate=yes output=user as-value]
-    } else={
-        :set result [/tool/fetch url=$endpoint mode=http output=user as-value]
+    :local fetchFailed false
+    :local fetchAttributes
+    :local fetchErrorCode
+    :onerror fetchError,fetchAttributes in={
+        :if ($transport = "https") do={
+            :set result [/tool/fetch url=$endpoint mode=https check-certificate=yes output=user as-value]
+        } else={
+            :set result [/tool/fetch url=$endpoint mode=http output=user as-value]
+        }
+    } do={
+        :set fetchFailed true
+        :set fetchErrorCode ($fetchAttributes->"code")
     }
+    :if ($fetchFailed) do={
+        :if ($fetchErrorCode != nil) do={ :return ("http-error-" . $fetchErrorCode) }
+        :return "fetch-error"
+    }
+    :if (($result->"status") != "finished") do={ :return "fetch-incomplete" }
+    :if (($result->"code") != 200) do={ :return ("http-status-" . ($result->"code")) }
+    :local body ($result->"data")
+    :if ([:typeof $body] != "str") do={ :return "empty-response" }
+    :if ([:find $body "\"status\":\"ready\""] = nil) do={ :return "not-ready" }
     :local expectedRevision ("\"revision\":\"" . $expectedCommit . "\"")
-    :if ((($result->"status") = "finished") && (($result->"code") = 200) && ([:find ($result->"data") "\"status\":\"ready\""] != nil) && ([:find ($result->"data") $expectedRevision] != nil)) do={
-        :return true
-    }
-    :return false
+    :if ([:find $body $expectedRevision] = nil) do={ :return "revision-mismatch" }
+    :return "ready"
 }
 
 # RouterOS job state is authoritative for overlap detection. The legacy global
@@ -275,11 +290,16 @@
     :local canaryHealthy false
     :for attempt from=1 to=$pollAttempts do={
         :delay $pollDelay
+        :local readinessResult "check-error"
         :do {
-            :if ([$fetchReady $canaryReadyUrl $canaryReadyTransport $commit]) do={
+            :set readinessResult [$fetchReady $canaryReadyUrl $canaryReadyTransport $commit]
+            :if ($readinessResult = "ready") do={
                 :set canaryHealthy true
             }
-        } on-error={ :log warning ("vpn-gui immutable updater: canary readiness attempt " . $attempt . " failed") }
+        } on-error={ :set readinessResult "check-error" }
+        :if (!$canaryHealthy) do={
+            :log warning ("vpn-gui immutable updater: canary readiness attempt " . $attempt . " result=" . $readinessResult)
+        }
         :if ($canaryHealthy) do={ :break }
     }
     :if (!$canaryHealthy) do={
@@ -299,8 +319,10 @@
     # probe it again immediately before changing production.
     :if ($canaryValidationSeconds < 0) do={ :error "canary validation window cannot be negative" }
     :if ($canaryValidationSeconds > 0) do={ :delay ($canaryValidationSeconds . "s") }
-    :if (![$fetchReady $canaryReadyUrl $canaryReadyTransport $commit]) do={
-        :log error ("vpn-gui immutable updater: canary lost readiness during validation window; restoring " . $canaryCurrent)
+    :local canaryStabilityResult "check-error"
+    :do { :set canaryStabilityResult [$fetchReady $canaryReadyUrl $canaryReadyTransport $commit] } on-error={ :set canaryStabilityResult "check-error" }
+    :if ($canaryStabilityResult != "ready") do={
+        :log error ("vpn-gui immutable updater: canary stability check result=" . $canaryStabilityResult . "; restoring " . $canaryCurrent)
         $recordFailure $image
         :do {
             /container/stop $canaryId
@@ -332,11 +354,16 @@
     :local productionHealthy false
     :for attempt from=1 to=$pollAttempts do={
         :delay $pollDelay
+        :local readinessResult "check-error"
         :do {
-            :if ([$fetchReady $productionReadyUrl $productionReadyTransport $commit]) do={
+            :set readinessResult [$fetchReady $productionReadyUrl $productionReadyTransport $commit]
+            :if ($readinessResult = "ready") do={
                 :set productionHealthy true
             }
-        } on-error={ :log warning ("vpn-gui immutable updater: production readiness attempt " . $attempt . " failed") }
+        } on-error={ :set readinessResult "check-error" }
+        :if (!$productionHealthy) do={
+            :log warning ("vpn-gui immutable updater: production readiness attempt " . $attempt . " result=" . $readinessResult)
+        }
         :if ($productionHealthy) do={ :break }
     }
 
@@ -348,8 +375,10 @@
             /container/set $productionId remote-image=$productionCurrent
             /container/update $productionId
             /container/start $productionId
-            :if (![$fetchReady $productionReadyUrl $productionReadyTransport $productionCurrentCommit]) do={
-                :error "previous production image did not pass its readiness check"
+            :local rollbackReadinessResult "check-error"
+            :do { :set rollbackReadinessResult [$fetchReady $productionReadyUrl $productionReadyTransport $productionCurrentCommit] } on-error={ :set rollbackReadinessResult "check-error" }
+            :if ($rollbackReadinessResult != "ready") do={
+                :error ("previous production image readiness failed: " . $rollbackReadinessResult)
             }
         } on-error={ :log error "vpn-gui immutable updater: production rollback failed readiness; operator action required" }
         :error "production readiness gate failed; previous immutable image restored"

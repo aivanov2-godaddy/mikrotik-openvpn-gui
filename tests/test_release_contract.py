@@ -117,6 +117,23 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn(':local canaryContainer "vpn-dashboard-canary"', updater)
         self.assertIn(':local productionContainer "vpn-dashboard-production"', updater)
         self.assertIn('"\\\"revision\\\":\\\""', updater)
+        self.assertIn(":onerror fetchError,fetchAttributes in={", executable)
+        for reason in (
+            "fetch-error",
+            "http-error-",
+            "fetch-incomplete",
+            "http-status-",
+            "empty-response",
+            "not-ready",
+            "revision-mismatch",
+            "check-error",
+        ):
+            self.assertIn(reason, executable)
+        self.assertIn('result=" . $readinessResult', executable)
+        self.assertIn('result=" . $canaryStabilityResult', executable)
+        self.assertNotIn(":log warning $fetchError", executable)
+        self.assertNotIn(":log warning $fetchAttributes", executable)
+        self.assertNotIn(":log warning $body", executable)
         self.assertIn("productionCurrentCommit", executable)
         self.assertIn("historyFile", executable)
         self.assertIn('event=" . $event', executable)
