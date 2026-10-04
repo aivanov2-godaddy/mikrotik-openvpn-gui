@@ -1348,6 +1348,89 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
 
+    def test_scoped_api_tokens_follow_the_route_scope_matrix(self) -> None:
+        """Verify every token-readable route against each standalone scope and all scopes."""
+        self.login()
+        revision = "0123456789abcdef0123456789abcdef01234567"
+        release_verify = (
+            "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-"
+            f"{revision}&revision={revision}"
+        )
+        scoped_routes = {
+            "/metrics": {"health.read"},
+            "/api/service-health": {"health.read"},
+            "/api/observability": {"health.read"},
+            "/api/setup-preflight": {"health.read"},
+            release_verify: {"health.read"},
+            "/api/reports/diagnostics.zip": {"health.read"},
+            "/api/audit.csv": {"audit.read"},
+            "/api/audit.json": {"audit.read"},
+            "/api/connections.csv": {"sessions.read"},
+            "/api/usage.csv": {"sessions.read"},
+            "/api/admin/sessions": {"sessions.read"},
+            "/api/bulk/views": {"sessions.read"},
+            "/api/policy-templates": {"policies.read"},
+            "/api/operations-timeline.json": {"audit.read", "sessions.read"},
+            "/api/reports/compliance.zip": {"audit.read", "sessions.read"},
+        }
+        routeros_session_routes = {
+            "/api/events": b"Live router events require an authenticated RouterOS session",
+            "/api/status": b"authenticated RouterOS dashboard session",
+            "/api/users": b"authenticated RouterOS dashboard session",
+            "/api/telemetry": b"authenticated RouterOS dashboard session",
+        }
+        ungrantable_routes = {
+            "/api/admin/api-tokens": "security.manage",
+            "/api/backups/metadata.zip": "backup.manage",
+        }
+        all_scopes = {"health.read", "audit.read", "sessions.read", "policies.read"}
+        scope_sets = [
+            {scope} for scope in sorted(all_scopes)
+        ] + [all_scopes]
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        for index, scopes in enumerate(scope_sets):
+            status, _, payload = self.json_request(
+                "POST", "/api/admin/api-tokens",
+                {"label": f"route matrix {index}", "scopes": sorted(scopes), "expires_in": "1h"},
+            )
+            self.assertEqual(status, 201)
+            token = json.loads(payload)["token"]
+            headers = {"Authorization": f"Bearer {token}", "Cookie": ""}
+
+            for path, required in scoped_routes.items():
+                with self.subTest(scopes=sorted(scopes), path=path):
+                    status, _, response = self.request("GET", path, headers=headers)
+                    if required <= scopes:
+                        self.assertIn(status, {200, 502}, path)
+                        self.assertNotEqual(status, 403, path)
+                        self.assertNotIn(b"routerpass", response)
+                    else:
+                        self.assertEqual(status, 403, path)
+                        self.assertTrue(
+                            any(scope.encode() in response for scope in required - scopes),
+                            f"denial should name a missing scope for {path}",
+                        )
+
+            with mock.patch.object(
+                self.server.context.router, "_request",
+                side_effect=AssertionError("scoped API token reached RouterOS-only route"),
+            ) as router_request:
+                for path, denial in routeros_session_routes.items():
+                    with self.subTest(scopes=sorted(scopes), path=path):
+                        status, _, response = self.request("GET", path, headers=headers)
+                        self.assertEqual(status, 403, path)
+                        self.assertIn(denial, response)
+                router_request.assert_not_called()
+
+            for path, required in ungrantable_routes.items():
+                with self.subTest(scopes=sorted(scopes), path=path):
+                    status, _, response = self.request("GET", path, headers=headers)
+                    self.assertEqual(status, 403, path)
+                    self.assertIn(required.encode(), response)
+
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
     def test_routeros_group_downgrade_takes_effect_on_existing_dashboard_session(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
