@@ -159,7 +159,11 @@ class MetadataStore:
                     legacy_certificate_name TEXT PRIMARY KEY,
                     vpn_user TEXT NOT NULL,
                     replacement_certificate_name TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
+                    created_at INTEGER NOT NULL,
+                    imported_at INTEGER,
+                    imported_by TEXT NOT NULL DEFAULT '',
+                    tested_at INTEGER,
+                    tested_by TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS deployment_events (
@@ -248,6 +252,19 @@ class MetadataStore:
                 try:
                     connection.execute(
                         f"ALTER TABLE user_controls ADD COLUMN {column} {definition}"
+                    )
+                except sqlite3.OperationalError as error:
+                    if "duplicate column name" not in str(error).lower():
+                        raise
+            for column, definition in {
+                "imported_at": "INTEGER",
+                "imported_by": "TEXT NOT NULL DEFAULT ''",
+                "tested_at": "INTEGER",
+                "tested_by": "TEXT NOT NULL DEFAULT ''",
+            }.items():
+                try:
+                    connection.execute(
+                        f"ALTER TABLE profile_migrations ADD COLUMN {column} {definition}"
                     )
                 except sqlite3.OperationalError as error:
                     if "duplicate column name" not in str(error).lower():
@@ -1055,10 +1072,46 @@ class MetadataStore:
                 ON CONFLICT(legacy_certificate_name) DO UPDATE SET
                     vpn_user=excluded.vpn_user,
                     replacement_certificate_name=excluded.replacement_certificate_name,
-                    created_at=excluded.created_at
+                    created_at=excluded.created_at,
+                    imported_at=NULL,
+                    imported_by='',
+                    tested_at=NULL,
+                    tested_by=''
                 """,
                 (legacy_certificate_name, vpn_user, replacement_certificate_name, int(time.time())),
             )
+
+    def record_profile_migration_step(
+        self, *, legacy_certificate_name: str, step: str, actor: str
+    ) -> dict[str, Any]:
+        """Record an operator-attested migration step, never a RouterOS claim."""
+        now = int(time.time())
+        if step not in {"imported", "tested"}:
+            raise ValueError("Unsupported profile migration step")
+        with self._lock, self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
+                (legacy_certificate_name,),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Profile migration not found")
+            if step == "tested" and row["imported_at"] is None:
+                raise ValueError("Confirm the replacement import before recording its test")
+            if step == "imported":
+                connection.execute(
+                    "UPDATE profile_migrations SET imported_at=COALESCE(imported_at, ?), imported_by=CASE WHEN imported_at IS NULL THEN ? ELSE imported_by END WHERE legacy_certificate_name=?",
+                    (now, str(actor)[:128], legacy_certificate_name),
+                )
+            else:
+                connection.execute(
+                    "UPDATE profile_migrations SET tested_at=COALESCE(tested_at, ?), tested_by=CASE WHEN tested_at IS NULL THEN ? ELSE tested_by END WHERE legacy_certificate_name=?",
+                    (now, str(actor)[:128], legacy_certificate_name),
+                )
+            updated = connection.execute(
+                "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
+                (legacy_certificate_name,),
+            ).fetchone()
+            return dict(updated)
 
     def profile_migrations(self) -> dict[str, dict[str, Any]]:
         with self._connection() as connection:
