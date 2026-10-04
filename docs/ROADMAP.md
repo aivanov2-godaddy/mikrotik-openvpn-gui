@@ -280,6 +280,17 @@ acceptance still requiring human, physical-router, or external review evidence.
 The entries below are not claims that every listed issue remains open or that
 point-in-time/device-independent checks complete live acceptance:
 
+**Production acceptance update (2026-10-04, 15:02 Europe/Sofia):** the
+operator-authenticated Owner session loaded the protected production Dashboard
+and Connections views; both showed the live Socket.IO transport. This verifies
+ordinary authenticated browser/proxy access only and supersedes the table's
+earlier pending item for that basic check under #199/#200. There were no active
+VPN clients, so this did not validate a live session-event timeline correlation
+for #195, session expiry/revocation for #200, or the sleep/wake soak for #199.
+No operator-initiated RouterOS configuration, VPN-user, or active-session
+mutation was performed. The remaining device and independent-review gates
+below still apply.
+
 | Issue | Merged evidence | Still required |
 | --- | --- | --- |
 | [#192](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/192) | CI checks focus visibility, reduced motion, forced colors, and responsive CSS (#220); rendered Chromium screenshot baselines cover Dashboard, VPN Users, and Connections at desktop/tablet/mobile sizes; visually reviewed desktop-state snapshots additionally cover a dashboard warning, a filtered no-results users list, the add-user dialog, and the connection termination prompt; the test gate forbids re-baselining serious contrast regressions; forced-colors rendering verifies keyboard focus, navigation, and primary action visibility at all three viewports; browser checks verify keyboard-only activation/current-view indication across the primary views plus 720 CSS-pixel zoom-equivalent reflow without page-level horizontal overflow; PR #348 adds light-theme axe checks and fixes 127 serious contrast findings plus Add-user dialog keyboard/focus/validation/Escape coverage; PR #384 expands axe scans to ten operator views at desktop/tablet/mobile and fixes low-contrast secondary text and inaccessible scroll regions in Device Profiles, Service Health, Policy Templates, and Change History; PR #389 verifies reduced-motion animation/transition suppression and non-smooth scrolling in the rendered Add VPN user dialog at all three viewports. A five-task usability protocol with success/error criteria and before/after measurement guidance is documented in [ACCESSIBILITY.md](ACCESSIBILITY.md). | Run and record the human task study; assistive-technology review; manual actual-200%-browser-zoom inspection. Automated checks are not an accessibility-conformance claim. |

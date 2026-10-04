@@ -66,6 +66,18 @@ observation.
 This is point-in-time rollout evidence, not the formal sustained acceptance
 window or an independent on-router registry digest comparison.
 
+### Authenticated production browser check — 2026-10-04
+
+After the v2.6.4 rollout, the operator-authenticated browser loaded the protected
+production Dashboard as the Owner role and then opened Connections. The views
+reported the live Socket.IO transport and loaded without a manual refresh. This
+confirms the normal authenticated application/reverse-proxy path for this session;
+it is not a test of unauthenticated API denial, role changes, session expiry or
+revocation, or a sustained live-event latency window. No VPN clients were
+connected during the observation, so no new session event could be correlated
+with RouterOS history. No operator-initiated RouterOS configuration, VPN-user,
+or active-session mutation was performed.
+
 ### Historical v2.6.1 publication and read-back
 
 Release **v2.6.1**, commit `0aa90ab1deb9bffd44a1c78797f3b599dd9208b2`, was
@@ -104,7 +116,7 @@ acceptance window.
 | Acceptance canary image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
-| Latest authenticated production observation | Read-only RouterOS log/readiness read-back at 2026-10-04 14:49 Europe/Sofia confirmed v2.6.4 production promotion complete and healthy; this is not authenticated dashboard behavior |
+| Latest authenticated production observation | At 2026-10-04 15:02 Europe/Sofia, an authenticated Owner browser session loaded the protected Dashboard and Connections views; both displayed the live Socket.IO transport. Read-only UI verification; no live VPN session was active for session-event correlation. |
 | Latest verified canary observation | Read-only RouterOS log/readiness read-back at 2026-10-04 14:48 Europe/Sofia confirmed v2.6.4 canary healthy after its validation window |
 | Latest published release | v2.6.4, commit `9671f27db9e5bad61323378fcdab51fca3d39a8b`, publication run [37199225501](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37199225501); rollout confirmed by updater and health logs |
 | Latest published ARM64 / AMD64 digests | `sha256:89b0b0d5a7f6b5d417d134fcaa04e442fbe88c4dfc11b49a8192bf152a404bd4` / `sha256:0c39c558a3c293e59b836bb4601a41060d298048627804bc2559b65b1e0c5c95` |
@@ -369,12 +381,14 @@ freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
 Current runtime result: **DEPLOYMENT VERIFIED; FORMAL ACCEPTANCE PENDING —
-RouterOS read-back on 2026-10-04 showed canary and production configured with
-`7eacb9f` and healthy, with Redis running. The published ARM64 registry digest
-is known, but no digest comparison was performed on the router. Authenticated
-browser verification is pending operator sign-in. The 30-minute Redis/telemetry
-window, measured freshness/latency, reconnect/failure tests, and rollback drill
-remain pending.**
+v2.6.4 was promoted to canary and production with readiness/health evidence at
+14:46–14:49 Europe/Sofia on 2026-10-04; Redis remained running. An authenticated
+Owner browser session subsequently loaded Dashboard and Connections through the
+protected route and showed the live Socket.IO transport. The published ARM64
+registry digest is known, but RouterOS exposes only the configured tag, so no
+independent on-router digest comparison is available. The 30-minute
+Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
+session expiry/revocation exercise, and rollback drill remain pending.**
 
 The acceptance evaluator remains available for future regression windows. New
 evidence must remain outside the repository and should be redacted before any
