@@ -81,8 +81,10 @@ ARM64 immutable tag above; both were marked healthy. RouterOS reports the
 configured image tag, not the local registry content digest, so digest
 identity on the router is not independently verified. This point-in-time
 read-back is not a sustained latency/freshness, resource, event-integrity, or
-rollback acceptance result. The v2.5.0 feature release remains the latest
-versioned release until a separate release decision is made.
+rollback acceptance result. v2.5.0 is the latest published versioned release;
+v2.6.0 is being prepared from the current unreleased changelog entries. A
+version bump does not itself mean the release has been published or accepted
+on the router.
 
 The public `Publish container` workflow verifies a `main` change, then publishes
 single-platform images to GHCR using the repository's current owner and name.
@@ -210,7 +212,7 @@ repository.
 8. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
 
 The repository's next release version is kept in [`VERSION`](../VERSION). Run
-`python scripts/validate_release.py --tag v2.5.0` before creating a tag. The
+`python scripts/validate_release.py --tag v2.6.0` before creating a tag. The
 `Release notes` workflow previews GitHub-generated notes without changing a
 release when run manually with `dry_run=true`; a pushed, matching `v*` tag is
 the only event that publishes a release. Notes contain commit and pull-request
