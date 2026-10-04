@@ -10,7 +10,7 @@ copied into this repository. The later runtime image listed below is a newer
 build; its full 30-minute Redis/telemetry acceptance window and rollback drill
 have not been recorded as complete.
 
-## PR #455 publication and RouterOS rollback — 2026-10-05
+## PR #455 and subsequent RouterOS rollout — 2026-10-05
 
 PR [#455](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/455)
 was merged as `2fd42b651dfc01ef4dbdf03679e937627858ebbb`. Publication workflow
@@ -19,22 +19,51 @@ completed successfully, including the rendered-browser checks and ARM64 runtime
 smoke. The `routeros-stable` manifest now names the immutable ARM64 candidate
 tag `sha-2fd42b651dfc01ef4dbdf03679e937627858ebbb-arm64`.
 
-Read-only RouterOS WebFig inspection on 2026-10-05 showed the updater starting
-that candidate as canary, then stopping it about five seconds later. The
-container log recorded termination followed by exit with signal 9; the updater
-re-pulled the prior canary image. A subsequent status read showed both canary
-and production healthy on the previous tag
-`sha-72c4c255b92b9c5ffb9af509fea5b6306da65657-arm64`. Production was not
-promoted, and no router policy, CA, VPN-user data, or production database was
-changed.
+The first observed RouterOS attempt started that candidate as canary, then
+stopped it about five seconds later. The container log recorded termination
+followed by exit with signal 9, and the updater re-pulled the prior canary
+image. The available log did not establish whether the rejection was caused by
+readiness timeout, revision mismatch, or another startup condition. No manual
+promotion or router policy, CA, VPN-user data, or database change was made.
 
-The available RouterOS log does not establish whether the rejection was caused
-by readiness timeout, revision mismatch, or another startup condition. The
-router-private readiness address was also unreachable from the VPN workstation,
-so no direct candidate response was available. Do not retry by manually
-promoting the candidate. Deployment and live verification of the footer-count
-fix remain pending; this is a successful publication followed by a canary
-rollback, not a production rollout or acceptance result.
+A later read-only observation showed both canary and production healthy on
+`sha-2fd42b651dfc01ef4dbdf03679e937627858ebbb-arm64`. The registry's immutable
+ARM64 manifest digest for that tag is
+`sha256:18c8ebf15dce8ee2d936fe97457d8172cc2c685ee040019374bae9fa741629d8`.
+RouterOS WebFig exposes the configured tag and health marker, not a local
+content digest. Container logs subsequently recorded repeated `/readyz` HTTP
+200 responses for both services. The initial rollback's exact cause remains
+unknown; the later success followed the existing scheduled canary path.
+
+### Latest stable image promotion and authenticated Dashboard check
+
+After PR [#457](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/457)
+merged, publication workflow
+[#37240953988](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37240953988)
+passed source/unit checks, rendered-browser verification, ARM64 and AMD64
+builds, exact-digest SBOM/provenance verification, and published runtime smoke.
+The stable manifest names commit
+`0f41d723b9431fd73b0fa97f113c4f764d2f7034`, with ARM64 tag
+`sha-0f41d723b9431fd73b0fa97f113c4f764d2f7034-arm64`; the registry manifest
+digest is `sha256:2ed6842ab0493f772f3fdfd7cf3d08ce5f1bc8db31939e6d97aac29623684a4c`.
+
+Read-only RouterOS logs recorded the candidate canary starting at 01:52:40
+Europe/Sofia, returning `/readyz` HTTP 200, and production promotion beginning
+at 01:53:54. Production started on the same immutable tag at 01:53:57 and
+returned `/readyz` HTTP 200 at 01:54:07. WebFig subsequently showed canary and
+production healthy (`H`) on that tag. The authenticated Dashboard remained
+available after restart, reported `Live · updated now`, and showed zero
+connected users in both its main card and lower status strip. This verifies
+the deployed live-count display is consistent at zero; no nonzero session
+transition was available to verify on this image. RouterOS reports the
+configured immutable tag and health, not an independent local content digest.
+
+PR #457 improves readiness failure logging in the repository's updater
+example. The router-local script itself was not replaced by this image update;
+it remains a separate manual/router-local artifact. This deployment is a
+point-in-time rollout and authenticated UI check, not the outstanding 30-minute
+telemetry/Redis soak, RouterOS API-restart recovery, event-integrity exercise,
+or controlled rollback rehearsal.
 
 ## Latest release publication and RouterOS read-back — 2026-10-04
 
