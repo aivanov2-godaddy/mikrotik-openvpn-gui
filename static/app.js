@@ -1011,6 +1011,11 @@ function renderObservability(payload) {
           link.href = `#${targetId}`;
           link.dataset.operationRelatedLink = '';
           link.setAttribute('aria-label', `View related event: ${relationLabel} — ${targetSummary}`);
+          link.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || !focusRelatedOperationEvent(link)) return;
+            event.preventDefault();
+            event.stopPropagation();
+          });
           item.append(link);
           return [item];
         });
@@ -1085,13 +1090,10 @@ function applyOperationsFilters() {
     control?.addEventListener(control.matches('input[type="search"]') ? 'input' : 'change', applyOperationsFilters);
   });
 
-document.addEventListener('click', (event) => {
-  const link = event.target.closest('[data-operation-related-link]');
-  if (!link) return;
+function focusRelatedOperationEvent(link) {
   const targetId = (link.getAttribute('href') || '').slice(1);
   const target = targetId ? document.getElementById(targetId) : null;
-  if (!target) return;
-  event.preventDefault();
+  if (!target) return false;
   if (target.classList.contains('is-filtered-out')) {
     target.classList.remove('is-filtered-out');
     const rows = $$('[data-operation-row]');
@@ -1101,6 +1103,20 @@ document.addEventListener('click', (event) => {
   }
   target.focus({ preventScroll: true });
   target.scrollIntoView({ block: 'center', behavior: 'auto' });
+  return true;
+}
+
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('[data-operation-related-link]');
+  if (!link) return;
+  if (focusRelatedOperationEvent(link)) event.preventDefault();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  const link = event.target.closest('[data-operation-related-link]');
+  if (!link || !focusRelatedOperationEvent(link)) return;
+  event.preventDefault();
 });
 
 async function refreshServiceHealth() {
