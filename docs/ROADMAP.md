@@ -448,7 +448,11 @@ remained zero, so this is live health-update evidence only—not proof of
 session-event delivery or nonzero count synchronization. Resource samples were
 below documented cutoffs; exact values remain private. The 30-minute soak,
 latency/freshness percentiles, Redis delivery, RouterOS API restart/snapshot
-recovery, event-integrity verification, and rollback drill remain open.
+recovery, event-integrity verification, and rollback drill remain open. At
+02:23:57, 30 minutes had elapsed since production start and the dashboard still
+reported live/operational with both session counts at zero. This was an elapsed
+time checkpoint with spot checks, not a continuous sampled soak; #199 remains
+open.
 
 **Latest read-only RouterOS observation (2026-10-04 23:41 Europe/Sofia):**
 WebFig showed PR #448's immutable ARM64 image tag configured on both canary
