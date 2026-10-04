@@ -2516,7 +2516,21 @@ document.addEventListener('click', (event) => {
   if (!event.target.closest('.action-menu')) $$('.action-menu[open]').forEach((item) => item.removeAttribute('open'));
   if (!event.target.closest('.theme-menu')) $$('.theme-menu[open]').forEach((item) => item.removeAttribute('open'));
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) pollStatus(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (realtimeReconnectTimer) {
+      clearTimeout(realtimeReconnectTimer);
+      realtimeReconnectTimer = null;
+    }
+    realtimeSource?.close();
+    realtimeSource = null;
+    socketIoSource?.close();
+    socketIoSource = null;
+    return;
+  }
+  pollStatus();
+  connectRealtime();
+});
 
 showView(viewFromHash(), false);
 seedCounters();
