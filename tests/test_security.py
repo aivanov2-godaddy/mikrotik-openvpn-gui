@@ -16,6 +16,7 @@ from security import (
     has_capability,
     normalize_role,
     role_label,
+    role_capabilities,
 )
 from store import MetadataStore
 from templates import _certificate_expiry, _router_uptime
@@ -38,6 +39,47 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(has_capability("read_only", "policies.manage"))
         self.assertFalse(has_capability("auditor", "users.manage"))
         self.assertFalse(has_capability("read_only", "audit.read"))
+
+    def test_every_role_matches_the_complete_declared_capability_matrix(self) -> None:
+        """Require explicit review when a role gains or loses any capability."""
+        capabilities = {
+            "health.read", "users.read", "profiles.read", "sessions.read",
+            "audit.read", "policies.read", "security.manage", "device.manage",
+            "profiles.manage", "session.manage", "users.manage", "policies.manage",
+            "backup.manage", "alert.manage",
+        }
+        expected = {
+            "owner": capabilities,
+            "security_operator": {
+                "health.read", "users.read", "profiles.read", "sessions.read",
+                "audit.read", "policies.read", "security.manage", "device.manage",
+                "profiles.manage", "session.manage",
+            },
+            "administrator": {
+                "health.read", "users.read", "profiles.read", "sessions.read",
+                "audit.read", "policies.read", "users.manage", "profiles.manage",
+                "policies.manage", "backup.manage", "session.manage", "alert.manage",
+            },
+            "auditor": {
+                "health.read", "users.read", "profiles.read", "sessions.read",
+                "audit.read", "policies.read",
+            },
+            "read_only": {
+                "health.read", "users.read", "profiles.read", "sessions.read",
+                "policies.read",
+            },
+        }
+
+        for role, granted in expected.items():
+            self.assertEqual(
+                role_capabilities(role), {"*"} if role == "owner" else granted,
+            )
+            for capability in capabilities | {"security.new-unreviewed"}:
+                with self.subTest(role=role, capability=capability):
+                    self.assertEqual(
+                        has_capability(role, capability),
+                        role == "owner" or capability in granted,
+                    )
 
     def test_session_store_normalizes_legacy_roles(self) -> None:
         session = SessionStore().create("admin", "secret", role="operator")
