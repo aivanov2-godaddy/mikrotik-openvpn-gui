@@ -500,6 +500,36 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertEqual(body.count(b"event: status"), 1)
 
+    def test_sse_does_not_emit_snapshot_if_session_is_revoked_during_router_fetch(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        private_marker = "snapshot-fetched-before-revocation"
+        active = [{"id": "*revoked-during-fetch", "name": private_marker, "uptime": "1m"}]
+
+        def revoke_during_fetch(_credentials: Any) -> list[dict[str, Any]]:
+            self.server.context.sessions.destroy(session_id)
+            return active
+
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        with (
+            mock.patch.object(
+                self.server.context.router,
+                "list_active_ovpn_sessions",
+                side_effect=revoke_during_fetch,
+            ),
+            mock.patch.object(self.server.context.store, "observe_sessions") as observe_sessions,
+        ):
+            connection.request("GET", "/api/events", headers={"Cookie": self.cookie})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertNotIn(b"event: status", body)
+        self.assertNotIn(private_marker.encode(), body)
+        observe_sessions.assert_not_called()
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
     def test_sse_stops_emitting_when_idle_session_expires(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]

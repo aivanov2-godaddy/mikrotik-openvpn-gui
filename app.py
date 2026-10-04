@@ -2504,6 +2504,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 ):
                     return
                 active = self.server.context.router.list_active_ovpn_sessions(credentials)
+                # RouterOS reads can block long enough for logout, expiry, or
+                # capability revocation to happen while the snapshot is being
+                # fetched. Revalidate at the write boundary as well, before
+                # persisting or emitting data obtained under the old session.
+                current_session = self.server.telemetry_runtime.revalidate_session(session_id)
+                if (
+                    current_session is None
+                    or current_session.auth_method != "routeros"
+                    or not self._capability_allowed(current_session, "sessions.read")
+                ):
+                    return
                 self.server.context.store.observe_sessions(active)
                 telemetry_state = self.server.context.telemetry_state
                 if telemetry_state is None:
