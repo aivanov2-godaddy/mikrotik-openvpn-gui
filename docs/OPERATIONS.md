@@ -38,6 +38,8 @@ backlog/age, retries, last successful delivery, and Redis publish outcomes. A
 Redis availability value of `-1` means no publish has yet tested the connection;
 the metrics endpoint never probes Redis or emits stream keys, event IDs, or
 payloads.
+For overlap rotation of the RouterOS Redis ACL and the canary/production
+publisher URLs, follow the [Redis credential rotation runbook](REDIS_ROTATION.md).
 Malformed outbox payloads and events that exhaust ten durable delivery attempts
 are retained as dead-letter rows and excluded from automatic retries. The
 `vpn_dashboard_integration_outbox_dead_lettered` metric reports only their
