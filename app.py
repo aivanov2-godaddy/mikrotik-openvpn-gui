@@ -26,6 +26,7 @@ from typing import Any
 
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from config import ConfigurationError, RuntimeConfig
+from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from connection_doctor import connection_doctor_snapshot
 from diagnostic_bundle import build_diagnostic_bundle
 from error_guidance import routeros_error_payload
@@ -378,15 +379,30 @@ def _used_percent(free: Any, total: Any) -> int:
     return max(0, min(100, round((total_value - free_value) * 100 / total_value)))
 
 
-def _certificate_expiry_epoch(value: Any) -> int | None:
-    """Parse the ISO-like expiry values returned by RouterOS certificates."""
-    raw = str(value or "").strip()
-    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return int(time.mktime(time.strptime(raw[:19 if " " in pattern else 10], pattern)))
-        except (TypeError, ValueError, OverflowError):
-            continue
-    return None
+def _migration_replacement_problem(
+    certificate: dict[str, Any] | None,
+    *,
+    vpn_user: str,
+    current_ca: str,
+    require_unexpired: bool,
+) -> str:
+    """Return a safe reason when a migration replacement is not usable."""
+    if not certificate or certificate.get("revoked"):
+        return "missing or revoked"
+    if not current_ca or str(certificate.get("certificate_authority", "")) != current_ca:
+        return "not issued by the configured CA"
+    if not str(certificate.get("id", "")) or not str(certificate.get("fingerprint", "")):
+        return "identity could not be verified"
+    expected_prefix = f"{vpn_user.casefold()}-"
+    if not vpn_user or not str(certificate.get("common_name", "")).casefold().startswith(expected_prefix):
+        return "not associated with the VPN user"
+    if require_unexpired:
+        remaining = _certificate_remaining_seconds(certificate.get("expires_after"))
+        if remaining is None:
+            return "expiry is unknown"
+        if remaining <= 0:
+            return "expired"
+    return ""
 
 
 def service_health_snapshot(
@@ -449,24 +465,26 @@ def service_health_snapshot(
         add("profile-issuing", "Profile issuing prerequisites", "healthy", "New device profiles can be generated from the configured topology.", "No action needed.")
 
     if certificates:
-        now = int(time.time())
         expiring = []
         expired = []
+        unknown_expiry = []
         for certificate in certificates:
             if certificate.get("revoked"):
                 continue
-            expiry = _certificate_expiry_epoch(certificate.get("invalid_after") or certificate.get("expires_after"))
-            if expiry is None:
+            remaining = _certificate_remaining_seconds(certificate.get("expires_after"))
+            if remaining is None:
+                unknown_expiry.append(str(certificate.get("name", "certificate")))
                 continue
-            days = (expiry - now) // 86400
-            if days < 0:
+            if remaining <= 0:
                 expired.append(str(certificate.get("name", "certificate")))
-            elif days <= 30:
+            elif remaining <= 30 * 86400:
                 expiring.append(str(certificate.get("name", "certificate")))
         if expired:
             add("certificate-inventory", "Client certificate inventory", "warning", f"{len(expired)} active client certificate(s) have expired.", "Open Device Profiles and use Add another device to issue a replacement profile, then revoke the expired device.")
         elif expiring:
             add("certificate-inventory", "Client certificate inventory", "warning", f"{len(expiring)} active client certificate(s) expire within 30 days.", "Open Device Profiles and use Add another device to issue a replacement profile before expiry.")
+        elif unknown_expiry:
+            add("certificate-inventory", "Client certificate inventory", "warning", f"Expiry could not be confirmed for {len(unknown_expiry)} active client certificate(s).", "Refresh the RouterOS certificate inventory and verify its remaining-validity value before relying on expiry status.")
         else:
             add("certificate-inventory", "Client certificate inventory", "healthy", f"{len(certificates)} OpenVPN client certificate(s) are visible to the dashboard.", "No action needed.")
     else:
@@ -1188,34 +1206,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
         to turn RouterOS inventory data into a durable alert.  The metadata
         store deduplicates an alert for an hour; repeated live polls therefore
         remain cheap while an operator still sees the warning after a refresh.
-        Only the certificate name and expiry date are recorded.
+        Only the certificate name and RouterOS-reported remaining validity are recorded.
         """
         now = int(time.time())
         for certificate in certificates or []:
-            expiry = _certificate_expiry_epoch(
-                certificate.get("invalid_after") or certificate.get("expires_after")
-            )
-            if expiry is None:
+            remaining = _certificate_remaining_seconds(certificate.get("expires_after"))
+            if remaining is None:
                 continue
             name = str(certificate.get("name") or "unnamed certificate")
-            expiry_text = time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(expiry))
-            days = (expiry - now) // 86400
-            if expiry <= now:
+            days = (remaining + 86399) // 86400
+            if remaining <= 0:
                 self.server.context.store.add_alert(
                     severity="critical",
                     action="certificate.expired",
                     target=name,
                     title="OpenVPN certificate expired",
-                    details=f"{name} expired on {expiry_text}. Issue a replacement profile and revoke the expired device.",
+                    details=f"RouterOS reports no remaining validity for {name}. Issue a replacement profile and revoke the expired device.",
                     now=now,
                 )
-            elif days <= 30:
+            elif remaining <= 30 * 86400:
                 self.server.context.store.add_alert(
                     severity="warning",
                     action="certificate.expiring",
                     target=name,
                     title="OpenVPN certificate expires soon",
-                    details=f"{name} expires on {expiry_text} ({max(0, days)} days remaining). Issue a replacement profile before expiry.",
+                    details=f"RouterOS reports about {days} days of remaining validity for {name}. Issue a replacement profile before expiry.",
                     now=now,
                 )
 
@@ -3701,16 +3716,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
         old_certificate = by_name.get(legacy_certificate_name)
         replacement_name = str(migration.get("replacement_certificate_name", ""))
         replacement = by_name.get(replacement_name)
+        current_ca = str(getattr(self.server.context.router, "ovpn_ca", ""))
+        replacement_problem = _migration_replacement_problem(
+            replacement,
+            vpn_user=str(migration.get("vpn_user", "")),
+            current_ca=current_ca,
+            require_unexpired=step == "tested",
+        )
         if (
             old_certificate is None
             or bool(old_certificate.get("revoked"))
-            or replacement is None
-            or bool(replacement.get("revoked"))
-            or str(replacement.get("certificate_authority", ""))
-            != str(getattr(self.server.context.router, "ovpn_ca", ""))
+            or replacement_problem
         ):
             self._json(
-                {"error": "RouterOS no longer shows the legacy identity and replacement as active, or the replacement is not under the configured CA; no progress was recorded"},
+                {"error": "RouterOS no longer shows the legacy identity and a matching active replacement under the configured CA, or replacement validity could not be confirmed; no progress was recorded."},
                 status=HTTPStatus.CONFLICT,
             )
             return
@@ -5272,21 +5291,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 old_certificate_owned = str(certificate.get("common_name", "")).casefold().startswith(
                     f"{vpn_user.casefold()}-"
                 )
-                replacement_owned = bool(replacement) and str(
-                    replacement.get("common_name", "")
-                ).casefold().startswith(f"{vpn_user.casefold()}-")
+                replacement_problem = _migration_replacement_problem(
+                    replacement,
+                    vpn_user=vpn_user,
+                    current_ca=current_ca,
+                    require_unexpired=True,
+                )
                 if (
                     not current_ca
                     or not str(certificate.get("certificate_authority", ""))
                     or (not device and str(certificate.get("certificate_authority", "")) == current_ca)
                     or not old_certificate_owned
                     or str(migration.get("vpn_user", "")) != vpn_user
-                    or not replacement
-                    or bool(replacement.get("revoked"))
-                    or str(replacement.get("certificate_authority", "")) != current_ca
-                    or not replacement_owned
+                    or replacement_problem
                 ):
-                    raise ValueError("The source certificate and active replacement under the current CA could not both be verified")
+                    raise ValueError(
+                        "The source certificate and a matching, unexpired active replacement under the current CA could not both be verified"
+                    )
             receipt = {
                 "intent": {
                     "device_id": device_id,
@@ -5307,8 +5328,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "replacement": ({
                         "id": str(replacement.get("id", "")),
                         "name": str(replacement.get("name", "")),
+                        "common_name": str(replacement.get("common_name", "")),
                         "fingerprint": str(replacement.get("fingerprint", "")),
                         "authority": str(replacement.get("certificate_authority", "")),
+                        "invalid_after": str(replacement.get("invalid_after", "")),
                         "revoked": bool(replacement.get("revoked")),
                     } if replacement else None),
                 },
@@ -5412,8 +5435,77 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     status=HTTPStatus.BAD_GATEWAY,
                 )
                 return
+            if migration:
+                verified_replacement = next(
+                    (
+                        item for item in certificates
+                        if str(item.get("name", ""))
+                        == str(migration.get("replacement_certificate_name", ""))
+                    ),
+                    None,
+                )
+                replacement_problem = _migration_replacement_problem(
+                    verified_replacement,
+                    vpn_user=vpn_user,
+                    current_ca=str(getattr(self.server.context.router, "ovpn_ca", "")),
+                    require_unexpired=True,
+                )
+                replacement_matches_review = bool(
+                    replacement
+                    and verified_replacement
+                    and str(verified_replacement.get("id", "")) == str(replacement.get("id", ""))
+                    and str(verified_replacement.get("fingerprint", ""))
+                    == str(replacement.get("fingerprint", ""))
+                    and str(verified_replacement.get("common_name", ""))
+                    == str(replacement.get("common_name", ""))
+                    and str(verified_replacement.get("certificate_authority", ""))
+                    == str(replacement.get("certificate_authority", ""))
+                    and str(verified_replacement.get("invalid_after", ""))
+                    == str(replacement.get("invalid_after", ""))
+                )
+                if replacement_problem or not replacement_matches_review:
+                    # The old identity is confirmed revoked, so keep local
+                    # state truthful even when replacement verification fails.
+                    if device:
+                        self.server.context.store.mark_revoked(device_id)
+                    self.server.context.store.record_profile_migration_retirement(
+                        legacy_certificate_name=certificate_name,
+                        state="partial",
+                    )
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="device.revoke",
+                        target=device_name,
+                        status="partial",
+                        details={
+                            "verification": "source_revoked_replacement_unverified",
+                            "reason": replacement_problem or "replacement_changed_after_review",
+                            "mutation_response": "error" if mutation_error else "ok",
+                        },
+                    )
+                    self._json(
+                        {
+                            "code": "routeros.replacement_verification_failed",
+                            "error": (
+                                "RouterOS confirmed the old certificate is revoked, but the reviewed replacement "
+                                "could not be confirmed unchanged, active, and unexpired. The old identity remains "
+                                "retired; inspect Device Profiles and verify the replacement before reconnecting."
+                            ),
+                            "verified": False,
+                            "verification": "partial",
+                            "old_certificate_revoked": True,
+                            "replacement_verified": False,
+                        },
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
             if device:
                 self.server.context.store.mark_revoked(device_id)
+            if migration:
+                self.server.context.store.record_profile_migration_retirement(
+                    legacy_certificate_name=certificate_name,
+                    state="verified",
+                )
             self.server.context.store.audit(
                 actor=session.username,
                 action="device.revoke",

@@ -103,10 +103,10 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(_router_uptime("unknown"), "unknown")
 
     def test_certificate_lifecycle_display(self) -> None:
-        expiry = int(time.mktime(time.strptime("2030-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")))
-        self.assertEqual(_certificate_expiry("2030-01-01 00:00:00", expiry - 10 * 86400), ("Expires in 10 days", "warning"))
-        self.assertEqual(_certificate_expiry("2030-01-01 00:00:00", expiry + 86400), ("Expired", "expired"))
-        self.assertEqual(_certificate_expiry("not-a-date", expiry), ("Expiry unknown", "warning"))
+        self.assertEqual(_certificate_expiry("2w"), ("Expires in 14 days", "warning"))
+        self.assertEqual(_certificate_expiry("-1s"), ("Expired", "expired"))
+        self.assertEqual(_certificate_expiry("40w"), ("Valid · 280 days remaining", ""))
+        self.assertEqual(_certificate_expiry("not-a-date"), ("Expiry unknown", "warning"))
 
     def test_simultaneous_source_detection_is_grouped_and_non_destructive(self) -> None:
         sessions = [

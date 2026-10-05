@@ -14,6 +14,35 @@ from store import MetadataStore
 
 
 class SQLiteRecoveryTests(unittest.TestCase):
+    def test_profile_migration_retirement_state_adds_safely_to_existing_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """
+                CREATE TABLE profile_migrations (
+                    legacy_certificate_name TEXT PRIMARY KEY,
+                    vpn_user TEXT NOT NULL,
+                    replacement_certificate_name TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO profile_migrations VALUES (?, ?, ?, ?)",
+                ("legacy-device", "vpn-user", "replacement-device", 123),
+            )
+            connection.commit()
+            connection.close()
+
+            store = MetadataStore(str(database))
+            migration = store.profile_migrations()["legacy-device"]
+            self.assertEqual(migration["retirement_state"], "")
+            store.record_profile_migration_retirement(
+                legacy_certificate_name="legacy-device", state="partial",
+            )
+            self.assertEqual(store.profile_migrations()["legacy-device"]["retirement_state"], "partial")
+
     def test_write_lock_contention_times_out_and_store_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"

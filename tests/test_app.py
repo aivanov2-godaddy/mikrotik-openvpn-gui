@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, _certificate_remaining_seconds, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from security import LoginRateLimiter, SessionStore
@@ -54,6 +54,17 @@ class ContainerImageTargetTests(unittest.TestCase):
         self.assertFalse(result["supported"])
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["image_suffix"])
+
+
+class CertificateExpiryParsingTests(unittest.TestCase):
+    def test_routeros_relative_expiry_time_is_parsed_strictly(self) -> None:
+        self.assertEqual(
+            _certificate_remaining_seconds("2w3d4h5m6s"),
+            (2 * 7 * 86400) + (3 * 86400) + (4 * 3600) + (5 * 60) + 6,
+        )
+        self.assertEqual(_certificate_remaining_seconds("0s"), 0)
+        self.assertEqual(_certificate_remaining_seconds("-1s"), -1)
+        self.assertIsNone(_certificate_remaining_seconds("2h3d"))
 
 
 class OperationsTimelineTests(unittest.TestCase):
@@ -198,7 +209,7 @@ class DevicePostureTests(unittest.TestCase):
             {"id": "unknown-issuer", "certificate_name": "client-unknown"},
         ]
         certificates = [
-            {"name": "client-current", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2035-08-03 00:00:00"},
+            {"name": "client-current", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "260w"},
             {"name": "client-revoked", "certificate_authority": "vpn-ca", "revoked": True},
             {"name": "client-legacy", "certificate_authority": "old-ca", "revoked": False},
             {"name": "client-unknown", "revoked": False},
@@ -222,10 +233,10 @@ class DevicePostureTests(unittest.TestCase):
             {"id": "valid", "certificate_name": "valid-cert"},
         ]
         certificates = [
-            {"name": "expired-cert", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2029-12-31 23:59:59"},
-            {"name": "soon-cert", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2030-01-15 00:00:00"},
+            {"name": "expired-cert", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "0s"},
+            {"name": "soon-cert", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "2w"},
             {"name": "unknown-cert", "certificate_authority": "vpn-ca", "revoked": False},
-            {"name": "valid-cert", "certificate_authority": "vpn-ca", "revoked": False, "invalid_after": "2031-01-01 00:00:00"},
+            {"name": "valid-cert", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "40w"},
         ]
 
         result = evaluate_device_posture(devices, certificates, "vpn-ca", now=now)
@@ -1848,13 +1859,28 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(health["checks"][0]["id"], "routeros-rest")
         self.assertNotIn("routerpass", json.dumps(health))
 
+    def test_certificate_health_does_not_interpret_router_local_absolute_dates(self) -> None:
+        health = service_health_snapshot(
+            router={},
+            ovpn_server={"name": "vpn-server", "enabled": True},
+            certificates=[{
+                "name": "client-without-relative-expiry",
+                "invalid_after": "Dec/04/2030 14:19:51",
+                "revoked": False,
+            }],
+            config=self.config,
+            database_ready=True,
+        )
+
+        inventory = next(check for check in health["checks"] if check["id"] == "certificate-inventory")
+        self.assertEqual(inventory["status"], "warning")
+        self.assertIn("Expiry could not be confirmed", inventory["impact"])
+
     def test_service_health_persists_certificate_expiry_alerts(self) -> None:
         """A soon-to-expire RouterOS certificate becomes a durable dashboard alert."""
         self.login()
         # Keep the fixture in the warning window regardless of when CI runs.
-        self.mock.state.certificates["*CL1"]["invalid-after"] = time.strftime(
-            "%Y-%m-%d %H:%M:%S", time.localtime(time.time() + (7 * 86400))
-        )
+        self.mock.state.certificates["*CL1"]["expires-after"] = "1w"
         status, _, payload = self.request("GET", "/api/service-health")
         self.assertEqual(status, 200)
         self.assertIn("certificate-inventory", {item["id"] for item in json.loads(payload)["checks"]})
@@ -2852,6 +2878,45 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(payload)["active_user_session_observed"])
 
+    def test_profile_migration_test_rejects_expired_replacement(self) -> None:
+        self.mock.state.certificates["*OLD"] = {
+            ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.mock.state.certificates["*EXPIRED-REPLACEMENT"] = {
+            ".id": "*EXPIRED-REPLACEMENT", "name": "user-one-phone-current",
+            "common-name": "user-one-phone-current", "fingerprint": "EXPIRED:FAKE",
+            "issuer": "vpn-ca", "ca": "vpn-ca", "trusted": "yes", "revoked": "no",
+            "key-usage": "tls-client", "invalid-after": "2030-08-03 00:00:00",
+            "expires-after": "0s",
+        }
+        store = self.server.context.store
+        store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-current",
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name="legacy-user-one-phone", step="imported", actor="operator",
+        )
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2", "name": "user-one", "service": "ovpn",
+            "caller-id": "198.51.100.41", "address": "198.18.0.49",
+            "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
+        }
+        self.login()
+
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+        )
+
+        self.assertEqual(status, 409)
+        self.assertIn("replacement validity could not be confirmed", json.loads(payload)["error"])
+        self.assertIsNone(
+            store.profile_migrations()["legacy-user-one-phone"]["tested_at"]
+        )
+
     def test_reissuing_a_replacement_clears_prior_live_test_attestation(self) -> None:
         store = self.server.context.store
         store.record_profile_migration(
@@ -2865,6 +2930,9 @@ class DashboardIntegrationTests(unittest.TestCase):
             legacy_certificate_name="legacy-user-one-phone", step="tested", actor="operator",
             active_session_observed=True,
         )
+        store.record_profile_migration_retirement(
+            legacy_certificate_name="legacy-user-one-phone", state="partial",
+        )
         store.record_profile_migration(
             legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
             replacement_certificate_name="user-one-phone-new",
@@ -2873,6 +2941,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(migration["replacement_certificate_name"], "user-one-phone-new")
         self.assertIsNone(migration["tested_at"])
         self.assertFalse(migration["tested_with_active_session"])
+        self.assertEqual(migration["retirement_state"], "")
 
     def test_profile_migration_progress_requires_live_active_certificates_and_profile_capability(self) -> None:
         self.mock.state.certificates["*OLD"] = {
@@ -3338,7 +3407,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.certificates["*REPLACEMENT"]["revoked"], "no")
         status, _, page = self.request("GET", "/dashboard")
         self.assertEqual(status, 200)
-        self.assertIn(b"Old identity revoked on RouterOS", page)
+        self.assertIn(b"Old identity revoked; replacement verified at retirement", page)
         self.assertNotIn(b"No managed device record to revoke here", page)
 
     def test_unmanaged_legacy_revoke_rejects_changed_replacement_after_review(self) -> None:
@@ -3411,6 +3480,41 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
         self.assertIsNone(store.device_by_id(device_id)["revoked_at"])
 
+    def test_managed_certificate_retirement_rejects_expired_replacement(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        old_certificate_name = "ovpn-user-one-device-a"
+        replacement_name = "user-one-managed-replacement"
+        self.mock.state.certificates["*MANAGED-REPLACEMENT"] = {
+            ".id": "*MANAGED-REPLACEMENT", "name": replacement_name,
+            "common-name": "user-one-managed-replacement", "fingerprint": "NEW:MANAGED",
+            "issuer": "vpn-ca", "ca": "vpn-ca", "trusted": "yes", "revoked": "no",
+            "key-usage": "tls-client", "invalid-after": "2030-08-03 00:00:00",
+            "expires-after": "0s",
+        }
+        store = self.server.context.store
+        store.record_profile_migration(
+            legacy_certificate_name=old_certificate_name, vpn_user="user-one",
+            replacement_certificate_name=replacement_name,
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name=old_certificate_name, step="imported", actor="operator",
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name=old_certificate_name, step="tested", actor="operator",
+            active_session_observed=True,
+        )
+
+        status, _, payload = self.json_request(
+            "POST", f"{path}/preview",
+            {"confirmation": "Managed test phone", "reason": "Replace this phone certificate after renewal."},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("unexpired active replacement", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, [])
+        self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
+        self.assertIsNone(store.device_by_id(device_id)["revoked_at"])
+
     def test_managed_certificate_retires_only_after_verified_replacement_test(self) -> None:
         path, device_id = self._managed_device_revoke_request()
         old_certificate_name = "ovpn-user-one-device-a"
@@ -3454,6 +3558,45 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
         self.assertEqual(self.mock.state.certificates["*MANAGED-REPLACEMENT"]["revoked"], "no")
         self.assertIsNotNone(store.device_by_id(device_id)["revoked_at"])
+
+    def test_device_revoke_reports_partial_when_replacement_changes_during_retirement(self) -> None:
+        path, legacy_name = self._legacy_migration_revoke_request()
+        store = self.server.context.store
+        request = {
+            "confirmation": legacy_name,
+            "reason": "Replacement imported and tested; retire old identity.",
+        }
+        status, _, payload = self.json_request("POST", f"{path}/preview", request)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        reviewed = {**request, "review_token": json.loads(payload)["review_token"]}
+        revoke = self.server.context.router.revoke_certificate
+
+        def revoke_old_and_change_replacement(credentials: Any, *, certificate_id: str) -> None:
+            revoke(credentials, certificate_id=certificate_id)
+            self.mock.state.certificates["*REPLACEMENT"]["revoked"] = "yes"
+
+        with mock.patch.object(
+            self.server.context.router,
+            "revoke_certificate",
+            side_effect=revoke_old_and_change_replacement,
+        ):
+            status, _, payload = self.json_request("POST", path, reviewed)
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertFalse(response["verified"])
+        self.assertEqual(response["verification"], "partial")
+        self.assertTrue(response["old_certificate_revoked"])
+        self.assertFalse(response["replacement_verified"])
+        self.assertTrue(self.mock.state.certificates["*OLD"]["revoked"])
+        self.assertEqual(
+            store.profile_migrations()[legacy_name]["retirement_state"], "partial",
+        )
+        self.assertEqual(store.recent_audit(1)[0]["status"], "partial")
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Old identity revoked; replacement needs review", page)
+        self.assertIn("Partial \u00b7 review required".encode("utf-8"), page)
 
     def test_device_revoke_preview_is_read_only_and_stale_review_is_rejected(self) -> None:
         path, device_id = self._managed_device_revoke_request()
