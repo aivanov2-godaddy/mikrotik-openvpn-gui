@@ -56,13 +56,17 @@ class FakeTime:
     def __init__(self) -> None:
         self.current = datetime(2026, 10, 2, tzinfo=timezone.utc)
         self.elapsed = 0.0
+        self.wall_clock_adjustment_seconds = 0.0
+        self.jumped = False
 
     def clock(self) -> datetime:
         return self.current
 
     def sleep(self, seconds: float) -> None:
         self.elapsed += seconds
-        self.current += timedelta(seconds=seconds)
+        jump = self.wall_clock_adjustment_seconds if not self.jumped else 0
+        self.current += timedelta(seconds=seconds + jump)
+        self.jumped = self.jumped or jump > 0
 
     def monotonic(self) -> float:
         return self.elapsed
@@ -101,8 +105,10 @@ class ReleaseCollectionTests(unittest.TestCase):
         outbox_dead_lettered: int = 0,
         outbox_oldest_age: float = 0,
         unknown_metric_sample: int | None = None,
+        wall_clock_adjustment_seconds: float = 0,
     ) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
         time = FakeTime()
+        time.wall_clock_adjustment_seconds = wall_clock_adjustment_seconds
         seen: list[tuple[str, str | None]] = []
         metrics_observations = 0
         source = evidence()
@@ -394,6 +400,15 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertFalse(deployment["container_healthy"])
         self.assertFalse(deployment["app_ready"])
         self.assertGreater(deployment["health_failures"], 0)
+
+    def test_wall_clock_jump_cannot_shorten_or_falsely_pass_soak(self) -> None:
+        for adjustment in (10, -10):
+            with self.subTest(adjustment=adjustment):
+                code, report, _ = self.run_collection(wall_clock_adjustment_seconds=adjustment)
+                self.assertEqual(code, 1)
+                self.assertIn("collection_clock_anomaly", report["failed_gates"])
+                self.assertIn("canary_sample_clock_anomaly", report["failed_gates"])
+                self.assertGreaterEqual(report["evidence"]["collection"]["duration_seconds"], 0)
 
     def test_rejects_publicly_embedded_credentials_in_probe_url(self) -> None:
         source = evidence()

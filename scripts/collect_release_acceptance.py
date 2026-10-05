@@ -36,6 +36,7 @@ MAX_TRAFFIC_SAMPLE_AGE_SECONDS = 2.0
 MAX_GATEWAY_DELIVERY_P95_SECONDS = 1.0
 MAX_OUTBOX_PENDING_AT_WINDOW_END = 0
 MAX_OUTBOX_DEAD_LETTERED = 0
+MAX_CLOCK_DRIFT_SECONDS = 5.0
 METRIC_NAMES = {
     "vpn_dashboard_health",
     "vpn_dashboard_redis_configured",
@@ -433,9 +434,11 @@ def collect(
     deployment_samples: dict[str, list[dict[str, Any]]] = {name: [] for name in ENVIRONMENTS}
     begun = clock()
     began_epoch = begun.timestamp()
-    deadline = monotonic() + duration_seconds
+    began_monotonic = monotonic()
+    deadline = began_monotonic + duration_seconds
     while True:
         observed = clock()
+        observed_monotonic = monotonic()
         for environment in ENVIRONMENTS:
             base = readyz_urls[environment]
             health_code, _ = probe(_probe_url(base, "/healthz"), cookie=cookie, timeout=timeout_seconds)
@@ -462,31 +465,51 @@ def collect(
             ready = revision_matches
             deployment_samples[environment].append({
                 "at": observed,
+                "monotonic": observed_monotonic,
                 "ready": ready,
                 "revision_matches": revision_matches,
                 "healthy": health_code == 200 and ready and metric_health in (None, 1),
                 "metrics_valid": metrics_valid,
                 "metrics": metrics,
             })
-        now = clock()
-        if now.timestamp() - began_epoch >= duration_seconds or monotonic() >= deadline:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
             break
-        sleep(min(interval_seconds, max(0.0, duration_seconds - (now.timestamp() - began_epoch))))
+        sleep(min(interval_seconds, remaining))
 
     ended = clock()
+    ended_monotonic = monotonic()
+    wall_duration = (ended - begun).total_seconds()
+    monotonic_duration = max(0.0, ended_monotonic - began_monotonic)
     failed_gates: list[str] = []
+    if wall_duration < 0 or abs(wall_duration - monotonic_duration) > MAX_CLOCK_DRIFT_SECONDS:
+        failed_gates.append("collection_clock_anomaly")
     summary: dict[str, Any] = {"format": "vpn-dashboard-release-collection-v1", "deployments": []}
     for environment in ENVIRONMENTS:
         samples = deployment_samples[environment]
         sample_times = [sample["at"].timestamp() for sample in samples]
-        gaps = [right - left for left, right in zip(sample_times, sample_times[1:])]
+        sample_monotonic_times = [sample["monotonic"] for sample in samples]
+        wall_gaps = [right - left for left, right in zip(sample_times, sample_times[1:])]
+        gaps = [right - left for left, right in zip(sample_monotonic_times, sample_monotonic_times[1:])]
+        if any(
+            wall_gap <= 0 or abs(wall_gap - monotonic_gap) > MAX_CLOCK_DRIFT_SECONDS
+            for wall_gap, monotonic_gap in zip(wall_gaps, gaps)
+        ):
+            failed_gates.append(f"{environment}_sample_clock_anomaly")
         health_failures = sum(not sample["healthy"] for sample in samples)
         metrics_samples = [sample for sample in samples if sample["metrics_valid"]]
         metrics_sample_times = [sample["at"].timestamp() for sample in metrics_samples]
-        metrics_gaps = [right - left for left, right in zip(metrics_sample_times, metrics_sample_times[1:])]
+        metrics_monotonic_times = [sample["monotonic"] for sample in metrics_samples]
+        metrics_wall_gaps = [right - left for left, right in zip(metrics_sample_times, metrics_sample_times[1:])]
+        metrics_gaps = [right - left for left, right in zip(metrics_monotonic_times, metrics_monotonic_times[1:])]
+        if any(
+            wall_gap <= 0 or abs(wall_gap - monotonic_gap) > MAX_CLOCK_DRIFT_SECONDS
+            for wall_gap, monotonic_gap in zip(metrics_wall_gaps, metrics_gaps)
+        ):
+            failed_gates.append(f"{environment}_metrics_clock_anomaly")
         metrics_failures = len(samples) - len(metrics_samples)
         max_metrics_gap = max(metrics_gaps, default=0)
-        observed_window_seconds = max(0.0, (ended - begun).total_seconds())
+        observed_window_seconds = monotonic_duration
         max_gap = max(gaps, default=0)
         if health_failures:
             failed_gates.append(f"{environment}_health_or_revision_failure")
@@ -591,7 +614,7 @@ def collect(
             "failed_gates": sorted(set(failed_gates)),
             "started_at": begun.isoformat(),
             "ended_at": ended.isoformat(),
-            "duration_seconds": max(0.0, (ended - begun).total_seconds()),
+            "duration_seconds": max(0.0, wall_duration),
             "interval_seconds": interval_seconds,
             "read_only_get_probes": ["/healthz", "/readyz", "/metrics"],
             "image_digest_source": "operator-supplied; registry digest is not fetched by this tool",
