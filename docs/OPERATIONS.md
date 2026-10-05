@@ -29,6 +29,9 @@ breaker, so a slow or unavailable receiver cannot block VPN administration.
 
 The published container image includes the optional Redis client; Redis itself
 remains a separate service and is enabled only when `REDIS_STREAM_URL` is set.
+After completing the migration in [REDIS_ROTATION.md](REDIS_ROTATION.md), the
+publisher URL must use the dedicated `vpn-dashboard` ACL identity, restricted
+to its stream key and publish commands; do not use the shared `default` user.
 The Redis Streams sink currently forwards sanitized audit/outbox events (not
 the dashboard's live RouterOS telemetry). Delivery is at-least-once and bounded
 by `REDIS_STREAM_MAXLEN`; consumers must deduplicate by `event_id`. Keep Redis
