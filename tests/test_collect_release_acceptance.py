@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from contextlib import redirect_stdout
+from io import StringIO
 import json
+import sys
 import unittest
+from unittest.mock import Mock, patch
 
 from scripts.collect_release_acceptance import collect
 
@@ -73,6 +77,175 @@ class FakeTime:
 
 
 class ReleaseCollectionTests(unittest.TestCase):
+    def test_production_metrics_origin_is_optional_for_pre_promotion_cli(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        output = StringIO()
+        with patch.object(sys, "argv", ["collect_release_acceptance.py", "--help"]):
+            with redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+                collector.main()
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("[--production-metrics-url PRODUCTION_METRICS_URL]", output.getvalue())
+
+    def test_registry_digest_uses_bounded_ghcr_token_and_manifest_head(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        digest = "sha256:" + "b" * 64
+
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.timeouts: list[float] = []
+
+            def settimeout(self, timeout: float) -> None:
+                self.timeouts.append(timeout)
+
+            def fileno(self) -> int:
+                return 1
+
+        class Response:
+            def __init__(self, payload: bytes, *, status: int = 200, digest_header: str = "") -> None:
+                self.payload = payload
+                self.status = status
+                self.headers = {"Docker-Content-Digest": digest_header} if digest_header else {}
+                self.socket = FakeSocket()
+                self.fp = type("FilePointer", (), {
+                    "raw": type("RawSocket", (), {"_sock": self.socket})(),
+                })()
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                del args
+
+            def read1(self, limit: int) -> bytes:
+                chunk = self.payload[:limit]
+                self.payload = self.payload[len(chunk):]
+                return chunk
+
+            def close(self) -> None:
+                return None
+
+        token_response = Response(b'{"token":"short-lived-test-token"}')
+        manifest_response = Response(b"", digest_header=digest)
+
+        class Opener:
+            def __init__(self) -> None:
+                self.requests: list[object] = []
+
+            def open(self, request: object, *, timeout: float) -> Response:
+                self.requests.append(request)
+                self.asserted_timeout = timeout
+                return token_response if len(self.requests) == 1 else manifest_response
+
+        opener = Opener()
+        build_opener = Mock(return_value=opener)
+        with patch.object(collector, "build_opener", build_opener):
+            observed = collector._registry_digest_request(IMAGE, timeout=3)
+
+        self.assertEqual(observed, digest)
+        token_request, manifest_request = opener.requests
+        self.assertEqual(token_request.get_method(), "GET")
+        self.assertTrue(token_request.full_url.startswith("https://ghcr.io/token?scope=repository%3Aexample%2Fvpn%3Apull"))
+        self.assertEqual(manifest_request.get_method(), "HEAD")
+        self.assertEqual(manifest_request.full_url, f"https://ghcr.io/v2/example/vpn/manifests/sha-{REVISION}-arm64")
+        self.assertEqual(manifest_request.get_header("Authorization"), "Bearer short-lived-test-token")
+        self.assertTrue(any(isinstance(handler, collector._NoRedirect) for handler in build_opener.call_args.args))
+        self.assertTrue(token_response.socket.timeouts)
+        self.assertTrue(all(0 < timeout <= 3 for timeout in token_response.socket.timeouts))
+
+    def test_registry_digest_parent_enforces_total_deadline(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        timeout_error = collector.subprocess.TimeoutExpired("ghcr worker", 3.5)
+        with patch.object(collector.subprocess, "run", side_effect=timeout_error) as run:
+            self.assertIsNone(collector._registry_digest(IMAGE, timeout=3))
+
+        self.assertEqual(run.call_args.kwargs["timeout"], 3.5)
+
+    def test_registry_digest_does_not_follow_redirects(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        class RedirectResponse:
+            status = 302
+            headers: dict[str, str] = {}
+
+            def __enter__(self) -> "RedirectResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                del args
+
+        class Opener:
+            requests: list[object] = []
+
+            def open(self, request: object, *, timeout: float) -> RedirectResponse:
+                del timeout
+                self.requests.append(request)
+                return RedirectResponse()
+
+        opener = Opener()
+        build_opener = Mock(return_value=opener)
+        with patch.object(collector, "build_opener", build_opener):
+            self.assertIsNone(collector._registry_digest_request(IMAGE, timeout=3))
+        self.assertEqual(len(opener.requests), 1)
+        self.assertTrue(any(isinstance(handler, collector._NoRedirect) for handler in build_opener.call_args.args))
+
+    def test_registry_response_body_stops_at_total_read_deadline(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.timeouts: list[float] = []
+
+            def fileno(self) -> int:
+                return 1
+
+            def settimeout(self, timeout: float) -> None:
+                self.timeouts.append(timeout)
+
+        class Response:
+            status = 200
+            headers: dict[str, str] = {}
+
+            def __init__(self) -> None:
+                self.socket = FakeSocket()
+                self.read_calls = 0
+                self.fp = type("FilePointer", (), {
+                    "raw": type("RawSocket", (), {"_sock": self.socket})(),
+                })()
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                del args
+
+            def read1(self, limit: int) -> bytes:
+                del limit
+                self.read_calls += 1
+                return b"x"
+
+        response = Response()
+
+        class Opener:
+            def open(self, request: object, *, timeout: float) -> Response:
+                del request, timeout
+                return response
+
+        with (
+            patch.object(collector, "build_opener", return_value=Opener()),
+            patch.object(collector.time, "monotonic", side_effect=[0.0, 0.0, 0.5, 2.0]),
+        ):
+            result = collector._ghcr_request(
+                "GET", "/token", timeout=1, max_body_bytes=32, headers={"Accept": "application/json"}
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual(response.read_calls, 1)
+        self.assertEqual(response.socket.timeouts, [0.5])
+
     def test_metric_parser_ignores_unexpected_and_high_cardinality_labels(self) -> None:
         from scripts.collect_release_acceptance import _parse_metrics
 
@@ -95,6 +268,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         *,
         ready: bool = True,
         include_metrics: bool = True,
+        include_production_metrics: bool = True,
         preclaim_redis: bool = False,
         traffic_sample_age: float = 0.75,
         gateway_delivery_p95: float = 0.5,
@@ -106,12 +280,42 @@ class ReleaseCollectionTests(unittest.TestCase):
         outbox_oldest_age: float = 0,
         unknown_metric_sample: int | None = None,
         wall_clock_adjustment_seconds: float = 0,
+        phase: str = "postpromotion",
+        production_revision: str | None = None,
+        production_observed_revision: str | None = None,
+        registry_digests: dict[str, str | None] | None = None,
+        clear_prior_production_runtime_evidence: bool = False,
+        omit_prior_production_digest: bool = False,
     ) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
         time = FakeTime()
         time.wall_clock_adjustment_seconds = wall_clock_adjustment_seconds
         seen: list[tuple[str, str | None]] = []
         metrics_observations = 0
         source = evidence()
+        if production_revision is not None:
+            production = source["deployments"][1]
+            production["image"] = f"ghcr.io/example/vpn:sha-{production_revision}-arm64"
+            production["digest"] = "sha256:" + "c" * 64
+        if phase == "canary-prepromotion":
+            production = source["deployments"][1]
+            production["transport"] = "socketio"
+            if omit_prior_production_digest:
+                production["digest"] = None
+            if clear_prior_production_runtime_evidence:
+                for field in (
+                    "transport", "rest_fallback", "redis_configured", "redis_publish_verified",
+                    "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
+                    "session_event_p95_ms", "traffic_sample_age_seconds", "stale_sample_count",
+                    "lost_event_count", "duplicate_event_count", "out_of_order_event_count",
+                    "redis_delivery_failure_count", "router_cpu_peak_percent",
+                    "router_memory_peak_percent", "router_storage_peak_percent",
+                    "rollback_drill_passed", "production_untouched_on_canary_failure",
+                ):
+                    production.pop(field, None)
+        resolved_registry_digests = registry_digests or {
+            source["deployments"][0]["image"]: source["deployments"][0]["digest"],
+            source["deployments"][1]["image"]: source["deployments"][1]["digest"],
+        }
         if preclaim_redis:
             for deployment in source["deployments"]:
                 deployment["redis_publish_verified"] = True
@@ -122,7 +326,14 @@ class ReleaseCollectionTests(unittest.TestCase):
             if url.endswith("/healthz"):
                 return (200 if ready else 503), b'{"status":"ok"}'
             if url.endswith("/readyz"):
-                payload = {"status": "ready", "revision": REVISION if ready else "f" * 40}
+                expected_revision = (
+                    production_revision
+                    if "private.example" in url and production_revision is not None
+                    else REVISION
+                )
+                if "private.example" in url and production_observed_revision is not None:
+                    expected_revision = production_observed_revision
+                payload = {"status": "ready", "revision": expected_revision if ready else "f" * 40}
                 return 200, json.dumps(payload).encode()
             nonlocal metrics_observations
             metrics_observations += 1
@@ -175,18 +386,23 @@ class ReleaseCollectionTests(unittest.TestCase):
             source,
             readyz_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
             metrics_urls=(
-                {"canary": "https://192.168.1.2", "production": "https://private.example"}
+                {
+                    **{"canary": "https://192.168.1.2"},
+                    **({"production": "https://private.example"} if include_production_metrics else {}),
+                }
                 if include_metrics else None
             ),
             cookie="session=secret-cookie",
             duration_seconds=1,
             interval_seconds=0.5,
             probe=probe,
+            registry_probe=lambda image, *, timeout: resolved_registry_digests.get(image),
             clock=time.clock,
             sleep=time.sleep,
             monotonic=time.monotonic,
             minimum_soak_seconds=1,
             minimum_health_samples=2,
+            phase=phase,
         )
         return code, report, seen
 
@@ -195,6 +411,11 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(code, 0)
         collected = report["evidence"]
         self.assertEqual(collected["collection"]["format"], "vpn-dashboard-release-collection-v1")
+        self.assertEqual(collected["collection"]["phase"], "postpromotion")
+        self.assertEqual(
+            [entry["verified"] for entry in collected["collection"]["registry_digest_verification"]],
+            [True, True],
+        )
         self.assertEqual(len(collected["deployments"]), 2)
         self.assertGreaterEqual(collected["deployments"][0]["health_sample_count"], 2)
         self.assertEqual(report["deployments"][0]["metrics_sample_count"], 3)
@@ -400,6 +621,93 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertFalse(deployment["container_healthy"])
         self.assertFalse(deployment["app_ready"])
         self.assertGreater(deployment["health_failures"], 0)
+
+    def test_pre_promotion_soak_accepts_candidate_with_old_healthy_production(self) -> None:
+        code, report, _ = self.run_collection(
+            phase="canary-prepromotion",
+            production_revision="c" * 40,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["evidence"]["collection"]["phase"], "canary-prepromotion")
+        production = report["evidence"]["deployments"][1]
+        self.assertEqual(production["image"], f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64")
+        self.assertTrue(production["app_ready"])
+
+    def test_pre_promotion_candidate_does_not_require_old_production_metrics(self) -> None:
+        for include_production_metrics in (False, True):
+            with self.subTest(include_production_metrics=include_production_metrics):
+                code, report, seen = self.run_collection(
+                    phase="canary-prepromotion",
+                    production_revision="c" * 40,
+                    include_production_metrics=include_production_metrics,
+                    clear_prior_production_runtime_evidence=True,
+                    omit_prior_production_digest=True,
+                )
+
+                self.assertEqual(code, 0)
+                self.assertEqual(report["evidence"]["deployments"][1]["redis_publish_verified"], False)
+                self.assertIsNone(report["evidence"]["deployments"][1]["digest"])
+                self.assertEqual(report["deployments"][1]["metrics_sample_count"], 0)
+                self.assertFalse(any(url == "https://private.example/metrics" for url, _ in seen))
+                self.assertEqual(
+                    report["evidence"]["collection"]["registry_digest_verification_scope"],
+                    "candidate-canary-only",
+                )
+                self.assertEqual(
+                    [item["environment"] for item in report["evidence"]["collection"]["registry_digest_verification"]],
+                    ["canary"],
+                )
+                from scripts.release_acceptance import evaluate
+
+                collected_evidence = report["evidence"]
+                started = "2026-10-02T10:25:00+00:00"
+                ended = "2026-10-02T10:55:00+00:00"
+                collected_evidence["collection"].update({
+                    "started_at": started,
+                    "ended_at": ended,
+                    "duration_seconds": 1800,
+                })
+                for deployment in collected_evidence["deployments"]:
+                    deployment.update({
+                        "observation_started_at": started,
+                        "observation_ended_at": ended,
+                        "health_sample_count": 30,
+                        "max_sample_gap_seconds": 60,
+                    })
+                accepted, final_report = evaluate(
+                    collected_evidence,
+                    now=datetime(2026, 10, 2, 11, tzinfo=timezone.utc),
+                )
+                self.assertEqual(accepted, 0, final_report["failed_gates"])
+                self.assertFalse(final_report["production_accepted"])
+                self.assertIsNone(final_report["deployments"][1]["digest"])
+                self.assertIsNone(final_report["deployments"][1]["transport"])
+
+    def test_pre_promotion_soak_fails_if_production_revision_changes(self) -> None:
+        code, report, _ = self.run_collection(
+            phase="canary-prepromotion",
+            production_revision="c" * 40,
+            production_observed_revision="d" * 40,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("production_health_or_revision_failure", report["failed_gates"])
+
+    def test_registry_digest_mismatch_or_unavailability_fails_closed(self) -> None:
+        mismatch, mismatch_report, _ = self.run_collection(
+            registry_digests={IMAGE: "sha256:" + "c" * 64},
+        )
+        self.assertEqual(mismatch, 1)
+        self.assertIn("canary_registry_digest_mismatch", mismatch_report["failed_gates"])
+        self.assertIn("production_registry_digest_mismatch", mismatch_report["failed_gates"])
+
+        unavailable, unavailable_report, _ = self.run_collection(
+            registry_digests={IMAGE: None},
+        )
+        self.assertEqual(unavailable, 1)
+        self.assertIn("canary_registry_digest_unavailable", unavailable_report["failed_gates"])
 
     def test_wall_clock_jump_cannot_shorten_or_falsely_pass_soak(self) -> None:
         for adjustment in (10, -10):

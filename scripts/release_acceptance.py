@@ -70,7 +70,30 @@ def _count(record: dict[str, Any], field: str) -> int:
     return int(value)
 
 
-def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[str, Any]]:
+def _optional_boolean(record: dict[str, Any], field: str, *, optional: bool) -> bool | None:
+    if optional and record.get(field) is None:
+        return None
+    return _boolean(record, field)
+
+
+def _optional_number(record: dict[str, Any], field: str, *, optional: bool) -> float | None:
+    if optional and record.get(field) is None:
+        return None
+    return _number(record, field)
+
+
+def _optional_count(record: dict[str, Any], field: str, *, optional: bool) -> int | None:
+    if optional and record.get(field) is None:
+        return None
+    return _count(record, field)
+
+
+def evaluate(
+    document: Any,
+    *,
+    now: datetime | None = None,
+    phase: str | None = None,
+) -> tuple[int, dict[str, Any]]:
     if not isinstance(document, dict) or document.get("format") != "vpn-dashboard-release-evidence-v2":
         raise ValueError("format must be vpn-dashboard-release-evidence-v2")
     deployments = document.get("deployments")
@@ -81,11 +104,26 @@ def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[s
     collection = document.get("collection")
     collection_started: datetime | None = None
     collection_ended: datetime | None = None
+    collection_phase: str | None = None
+    registry_verification: Any = None
+    registry_digests_verified = False
+    if phase is not None and phase not in {"canary-prepromotion", "postpromotion"}:
+        raise ValueError("phase must be canary-prepromotion or postpromotion")
     if collection is None:
         failures.append("live_collection_missing")
+        collection_phase = phase
     else:
         if not isinstance(collection, dict) or collection.get("format") != "vpn-dashboard-release-collection-v1":
             raise ValueError("collection must use vpn-dashboard-release-collection-v1")
+        collection_phase = collection.get("phase")
+        if collection_phase not in {"canary-prepromotion", "postpromotion"}:
+            raise ValueError("collection phase must be canary-prepromotion or postpromotion")
+        if phase is not None and phase != collection_phase:
+            raise ValueError("requested phase must match collection phase")
+        registry_verification = collection.get("registry_digest_verification")
+        expected_registry_count = 1 if collection_phase == "canary-prepromotion" else len(ENVIRONMENTS)
+        if not isinstance(registry_verification, list) or len(registry_verification) != expected_registry_count:
+            raise ValueError("collection registry digest verification does not match its phase")
         collection_passed = collection.get("passed")
         collection_failures = collection.get("failed_gates")
         if not isinstance(collection_passed, bool):
@@ -124,32 +162,45 @@ def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[s
         image_match = IMAGE.fullmatch(image)
         if not image_match:
             raise ValueError(f"{expected_environment} image must use a full immutable sha-commit tag")
-        digest = str(record.get("digest", ""))
-        if not DIGEST.fullmatch(digest):
+        prior_production_baseline = (
+            collection_phase == "canary-prepromotion" and expected_environment == "production"
+        )
+        raw_digest = record.get("digest")
+        digest = raw_digest if isinstance(raw_digest, str) and DIGEST.fullmatch(raw_digest) else None
+        if digest is None and not prior_production_baseline:
             raise ValueError(f"{expected_environment} digest must be a sha256 OCI digest")
         transport = record.get("transport")
-        if not isinstance(transport, str) or transport not in {"asgi-websocket", "sse-fallback"}:
+        allowed_transports = (
+            {"rest", "binary", "socketio", "sse", "asgi-websocket", "sse-fallback"}
+            if prior_production_baseline
+            else {"asgi-websocket", "sse-fallback"}
+        )
+        if prior_production_baseline and transport is None:
+            pass
+        elif not isinstance(transport, str) or transport not in allowed_transports:
             raise ValueError(f"{expected_environment} transport must identify the observed runtime")
 
         healthy = _boolean(record, "container_healthy")
         ready = _boolean(record, "app_ready")
-        fallback = _boolean(record, "rest_fallback")
-        redis_configured = _boolean(record, "redis_configured")
-        redis_available = _boolean(record, "redis_publish_verified")
-        reconnect = _boolean(record, "reconnect_recovered")
-        snapshot = _boolean(record, "snapshot_recovered")
-        backup_restore = _boolean(record, "sqlite_restore_verified")
-        rollback = _boolean(record, "rollback_drill_passed")
-        production_protected = _boolean(record, "production_untouched_on_canary_failure")
-        latency = _number(record, "session_event_p95_ms")
-        sample_age = _number(record, "traffic_sample_age_seconds")
+        fallback = _optional_boolean(record, "rest_fallback", optional=prior_production_baseline)
+        redis_configured = _optional_boolean(record, "redis_configured", optional=prior_production_baseline)
+        redis_available = _optional_boolean(record, "redis_publish_verified", optional=prior_production_baseline)
+        reconnect = _optional_boolean(record, "reconnect_recovered", optional=prior_production_baseline)
+        snapshot = _optional_boolean(record, "snapshot_recovered", optional=prior_production_baseline)
+        backup_restore = _optional_boolean(record, "sqlite_restore_verified", optional=prior_production_baseline)
+        rollback = _optional_boolean(record, "rollback_drill_passed", optional=prior_production_baseline)
+        production_protected = _optional_boolean(
+            record, "production_untouched_on_canary_failure", optional=prior_production_baseline
+        )
+        latency = _optional_number(record, "session_event_p95_ms", optional=prior_production_baseline)
+        sample_age = _optional_number(record, "traffic_sample_age_seconds", optional=prior_production_baseline)
         started = _timestamp(record, "observation_started_at")
         ended = _timestamp(record, "observation_ended_at")
         soak_seconds = (ended - started).total_seconds()
         health_samples = _count(record, "health_sample_count")
         max_sample_gap = _number(record, "max_sample_gap_seconds")
         failure_counts = {
-            name: _count(record, name)
+            name: _optional_count(record, name, optional=prior_production_baseline and name != "health_failures")
             for name in (
                 "health_failures", "stale_sample_count", "lost_event_count",
                 "duplicate_event_count", "out_of_order_event_count",
@@ -157,7 +208,7 @@ def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[s
             )
         }
         resource_peaks = {
-            name: _number(record, name)
+            name: _optional_number(record, name, optional=prior_production_baseline)
             for name in (
                 "router_cpu_peak_percent", "router_memory_peak_percent",
                 "router_storage_peak_percent",
@@ -168,17 +219,17 @@ def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[s
             failures.append(f"{expected_environment}_container_unhealthy")
         if not ready:
             failures.append(f"{expected_environment}_app_not_ready")
-        if not fallback:
+        if not prior_production_baseline and not fallback:
             failures.append(f"{expected_environment}_rest_fallback_unavailable")
-        if not redis_configured or not redis_available:
+        if not prior_production_baseline and (not redis_configured or not redis_available):
             failures.append(f"{expected_environment}_redis_publish_unverified")
-        if not reconnect or not snapshot:
+        if not prior_production_baseline and (not reconnect or not snapshot):
             failures.append(f"{expected_environment}_reconnect_recovery_failed")
-        if not backup_restore:
+        if not prior_production_baseline and not backup_restore:
             failures.append(f"{expected_environment}_sqlite_restore_unverified")
-        if latency > 1000:
+        if not prior_production_baseline and latency is not None and latency > 1000:
             failures.append(f"{expected_environment}_session_event_latency_exceeded")
-        if sample_age > 2:
+        if not prior_production_baseline and sample_age is not None and sample_age > 2:
             failures.append(f"{expected_environment}_traffic_sample_stale")
         if soak_seconds < MIN_SOAK_SECONDS:
             failures.append(f"{expected_environment}_soak_window_too_short")
@@ -188,11 +239,17 @@ def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[s
             failures.append(f"{expected_environment}_health_sample_gap_exceeded")
         if soak_seconds <= 0:
             failures.append(f"{expected_environment}_observation_window_invalid")
-        if any(value > 0 for value in failure_counts.values()):
+        relevant_failures = (
+            (failure_counts["health_failures"],)
+            if prior_production_baseline
+            else tuple(failure_counts.values())
+        )
+        if any(value is not None and value > 0 for value in relevant_failures):
             failures.append(f"{expected_environment}_soak_failures_observed")
-        for resource, limit in zip(resource_peaks, (80, 90, 90)):
-            if resource_peaks[resource] > limit:
-                failures.append(f"{expected_environment}_{resource}_exceeded")
+        if not prior_production_baseline:
+            for resource, limit in zip(resource_peaks, (80, 90, 90)):
+                if resource_peaks[resource] is not None and resource_peaks[resource] > limit:
+                    failures.append(f"{expected_environment}_{resource}_exceeded")
         if expected_environment == "canary" and not rollback:
             failures.append("canary_rollback_drill_failed")
         if expected_environment == "canary" and not production_protected:
@@ -205,24 +262,31 @@ def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[s
             "digest": digest,
             "container_healthy": healthy,
             "app_ready": ready,
-            "transport": transport,
-            "rest_fallback": fallback,
-            "redis_configured": redis_configured,
-            "redis_publish_verified": redis_available,
-            "reconnect_recovered": reconnect,
-            "snapshot_recovered": snapshot,
-            "sqlite_restore_verified": backup_restore,
-            "session_event_p95_ms": latency,
-            "traffic_sample_age_seconds": sample_age,
+            "transport": None if prior_production_baseline else transport,
+            "runtime_metrics_scope": "not-collected-prior-production-image" if prior_production_baseline else "collected",
+            "rest_fallback": None if prior_production_baseline else fallback,
+            "redis_configured": None if prior_production_baseline else redis_configured,
+            "redis_publish_verified": None if prior_production_baseline else redis_available,
+            "reconnect_recovered": None if prior_production_baseline else reconnect,
+            "snapshot_recovered": None if prior_production_baseline else snapshot,
+            "sqlite_restore_verified": None if prior_production_baseline else backup_restore,
+            "session_event_p95_ms": None if prior_production_baseline else latency,
+            "traffic_sample_age_seconds": None if prior_production_baseline else sample_age,
             "observation_started_at": started.isoformat(),
             "observation_ended_at": ended.isoformat(),
             "observation_window_seconds": soak_seconds,
             "health_sample_count": health_samples,
             "max_sample_gap_seconds": max_sample_gap,
-            **failure_counts,
-            **resource_peaks,
-            "rollback_drill_passed": rollback,
-            "production_untouched_on_canary_failure": production_protected,
+            **{
+                name: None if prior_production_baseline and name != "health_failures" else value
+                for name, value in failure_counts.items()
+            },
+            **{
+                name: None if prior_production_baseline else value
+                for name, value in resource_peaks.items()
+            },
+            "rollback_drill_passed": None if prior_production_baseline else rollback,
+            "production_untouched_on_canary_failure": None if prior_production_baseline else production_protected,
         })
 
         if collection_started is not None and collection_ended is not None:
@@ -231,13 +295,54 @@ def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[s
             ) > 1:
                 failures.append(f"{expected_environment}_collection_window_mismatch")
 
-    if safe_records[0]["image"] != safe_records[1]["image"]:
-        failures.append("canary_production_image_mismatch")
-    if safe_records[0]["digest"] != safe_records[1]["digest"]:
-        failures.append("canary_production_digest_mismatch")
+    registry_environments = (
+        ("canary",) if collection_phase == "canary-prepromotion" else ENVIRONMENTS
+    )
+    if collection is not None:
+        registry_digests_verified = True
+        if not isinstance(registry_verification, list) or len(registry_verification) != len(registry_environments):
+            raise ValueError("collection registry digest verification does not match its phase")
+        for verification, expected_environment in zip(registry_verification, registry_environments):
+            deployment = safe_records[ENVIRONMENTS.index(expected_environment)]
+            if not isinstance(verification, dict):
+                raise ValueError("registry digest verification entries must be objects")
+            verified = (
+                verification.get("environment") == expected_environment
+                and verification.get("image") == deployment["image"]
+                and verification.get("expected_digest") == deployment["digest"]
+                and verification.get("observed_digest") == deployment["digest"]
+                and verification.get("verified") is True
+            )
+            if not verified:
+                failures.append(f"{expected_environment}_registry_digest_unverified")
+                registry_digests_verified = False
+
+    if collection_phase == "postpromotion":
+        if safe_records[0]["image"] != safe_records[1]["image"]:
+            failures.append("canary_production_image_mismatch")
+        if safe_records[0]["digest"] != safe_records[1]["digest"]:
+            failures.append("canary_production_digest_mismatch")
+    elif collection_phase == "canary-prepromotion":
+        if (
+            safe_records[0]["image"] == safe_records[1]["image"]
+            or (
+                safe_records[0]["digest"] is not None
+                and safe_records[1]["digest"] is not None
+                and safe_records[0]["digest"] == safe_records[1]["digest"]
+            )
+        ):
+            failures.append("prepromotion_production_not_on_prior_image")
     report = {
         "format": "vpn-dashboard-release-acceptance-report-v2",
+        "phase": collection_phase,
         "passed": not failures,
+        "promotion_eligible": collection_phase == "canary-prepromotion" and not failures,
+        "production_accepted": collection_phase == "postpromotion" and not failures,
+        "registry_tag_digests_verified": registry_digests_verified,
+        "registry_digest_verification_scope": (
+            "candidate-canary-only" if collection_phase == "canary-prepromotion" else "canary-and-production"
+        ),
+        "router_runtime_digest_verified": False,
         "failed_gates": sorted(set(failures)),
         "deployments": safe_records,
     }

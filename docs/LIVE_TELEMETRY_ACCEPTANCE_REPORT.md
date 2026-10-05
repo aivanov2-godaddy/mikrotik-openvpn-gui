@@ -10,7 +10,24 @@ copied into this repository. The later runtime image listed below is a newer
 build; its full 30-minute Redis/telemetry acceptance window and rollback drill
 have not been recorded as complete.
 
-## Newest published candidate — PR #492 — 2026-10-05
+## Latest published mainline image — PR #494 — 2026-10-05
+
+PR [#494](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/494)
+merged to main as `03d08a2e6a08554c68cf74930049ac29ac0b3219`. Publication
+workflow [37328242084](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37328242084)
+and hosted CI passed, including source checks, unit/mock integration and
+rendered browser/accessibility tests, ARM64/AMD64 image builds, exact-digest
+provenance/SBOM verification, and runtime smoke. The immutable ARM64 image is
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64`
+with registry digest
+`sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`.
+
+This is published and CI-verified, not RouterOS-deployed or device-accepted.
+The latest timestamped RouterOS tag/health read-back remains PR #484 below;
+there is no read-back confirming PR #494 on canary or production. The full
+30-minute telemetry/Redis soak and rollback drill remain pending.
+
+## Previously published mainline image — PR #492 — 2026-10-05
 
 PR [#492](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/492)
 merged to main as `a4f2cce829c8453a7b982307677d2d3173b94a90`. Publication
@@ -110,9 +127,10 @@ the configured image tag, not an independent registry digest. This is
 point-in-time deployment/health evidence only; it does not prove a sustained
 telemetry soak or rollback.
 
-PR #492 is newer as a published artifact, but no timestamped RouterOS
-read-back confirms that artifact on-device. Its updater example also remains
-repository-only and has not been installed on the router.
+At the time of this read-back, PR #492 was a newer published artifact, but no
+timestamped RouterOS read-back confirmed it on-device. It has since been
+superseded as the latest published artifact by PR #494 above. PR #492's updater
+example remains repository-only and has not been installed on the router.
 
 ## PR #455 and subsequent RouterOS rollout — 2026-10-05
 
@@ -383,13 +401,13 @@ acceptance window.
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Last authenticated production application observation | On 2026-10-05 at approximately 05:08 Europe/Sofia, the freshly loaded authenticated Owner Dashboard showed `Live · updated now` and `Operational`; its baked revision matched the configured immutable ARM64 image tag. No VPN client was connected. This is a point-in-time health/live-state observation, not a session-event latency, traffic-freshness, or sustained acceptance measurement. No session identity or address is included. |
 | Latest RouterOS container read-back | The latest timestamped WebFig read-back on 2026-10-05 showed canary and production configured with PR #484's `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` tag, both healthy (`H`), with Redis running (`R`). This is point-in-time tag/health evidence; RouterOS does not report an independent registry digest. |
-| Latest published runtime image | PR #492 main commit `a4f2cce829c8453a7b982307677d2d3173b94a90`, publication run [37317035616](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37317035616); ARM64 tag `sha-a4f2cce829c8453a7b982307677d2d3173b94a90-arm64`, digest `sha256:682a6dc61aeb47cc0e0979ab03d3c4f30d8497f8f0fbb44282bef84267f7f373`. Published and smoke-tested; not verified on RouterOS. |
+| Latest published mainline image | PR #494 main commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, publication run [37328242084](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37328242084); ARM64 tag `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64`, digest `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`. Published and CI-verified; not verified on RouterOS. |
 | Latest RouterOS System Resources observation | On 2026-10-05 at approximately 05:08 Europe/Sofia, router CPU, memory, and storage were below current cutoffs; exact values remain in private local evidence. This is one point-in-time sample, not a sustained resource baseline. |
 | Latest numbered release | v2.7.0, commit `2e01f111e1445c79b1753477a41efbaec27a1a2d`, publication run [37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038); exact-digest provenance/SBOM and runtime smoke passed |
-| Latest main runtime patch | PR #490, commit `8d189f82dca62ee112729c7fdfb2a96a35588ce5`, is the latest application-runtime change. PR #492 is a repository updater-template/docs/test change; its build republishes the current application code. |
+| Latest main runtime patch | PR #494, commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, is the latest application-runtime change. |
 | Formal v2.7.0 ARM64 / AMD64 digests | `sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a` / `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f` |
-| Previous main runtime patch | PR #484, commit `93627bca38312ad1845249c6df1c0fcecf12122e`, preceding runtime patch and latest RouterOS-confirmed image; publication workflow [37302952543](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37302952543). |
-| RouterOS read-back after latest image publication | No RouterOS read-back of PR #492's newer artifact is recorded. The latest timestamped on-router tag/health observation remains PR #484 on both canary and production; this does not establish the new updater gate is installed or complete telemetry acceptance. |
+| Previous main runtime patch | PR #490, commit `8d189f82dca62ee112729c7fdfb2a96a35588ce5`, preceding PR #494 in the application-runtime history. |
+| RouterOS read-back after latest image publication | No RouterOS read-back of PR #494 is recorded. The latest timestamped on-router tag/health observation remains PR #484 on both canary and production. This does not establish PR #492's updater example is installed or complete telemetry acceptance. |
 | Dashboard state at PR #484 RouterOS read-back | The Dashboard browser tab showed its sign-in page during that read-back. An undated screenshot shows an authenticated dashboard with `Live · SOCKETIO`, but it has no legible immutable image tag/digest and cannot establish sustained event/freshness evidence. |
 | Acceptance window | Earlier 2026-10-02 post-publication verification of the accepted telemetry image, health, ASGI transport, and Binary API configuration; separate brief authenticated live-update observation on 2026-10-05, not a formal acceptance window |
 | RouterOS version | 7.24.4 stable during baseline acceptance; 7.24.5 stable in the authenticated production dashboard observation on 2026-10-04 |
@@ -651,16 +669,17 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current deployment result: **PR #484 IS THE LATEST TIMESTAMPED ROUTEROS-
-CONFIRMED IMAGE; PR #492 IS PUBLISHED BUT NOT ON-DEVICE VERIFIED; FORMAL
-ACCEPTANCE PENDING —** WebFig read-back on 2026-10-05 showed PR #484's
+Current deployment result: **PR #494 IS PUBLISHED AND CI-VERIFIED, NOT
+CONFIRMED ON ROUTEROS; PR #484 REMAINS THE LATEST TIMESTAMPED ROUTEROS-
+OBSERVED IMAGE; FORMAL ACCEPTANCE PENDING —** WebFig read-back on 2026-10-05
+showed PR #484's
 `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` tag on canary and
 production, both healthy (`H`), with Redis running (`R`). Its published ARM64
 registry digest is
 `sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73`;
-RouterOS reports the configured tag, not an independent digest. PR #492's
-newer ARM64 artifact passed publication/smoke checks, but no RouterOS read-back
-confirms it deployed; its updater example was not installed by this work.
+RouterOS reports the configured tag, not an independent digest. PR #494's
+newer ARM64 artifact passed publication/CI checks, but no RouterOS read-back
+confirms it deployed. PR #492's updater example was not installed by this work.
 These point-in-time observations are not a sustained baseline. The 30-minute
 Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
 session expiry/revocation exercise, and rollback drill remain pending.**
