@@ -797,10 +797,14 @@ bounded registry lookup. It is acceptance tooling, not a runtime image change.
 Read-only WebFig now confirms PR #494's immutable ARM64 tag on both canary and
 production with healthy container states; the registry digest is recorded in
 the acceptance report, but RouterOS does not independently expose or verify
-that digest. The currently open browser session showed `Connection data
-delayed` and then required Cloudflare Access reauthentication, so this is not
-a successful authenticated telemetry sample. See
-[the current acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+that digest. An older rendered dashboard tab showed `Connection data delayed`
+and an Access challenge; a fresh Dashboard tab then loaded authenticated from
+the existing browser session and showed `Live · SOCKETIO` with changing health
+samples over 75 seconds and no manual refresh. The Connections view also
+reported the Socket.IO transport live and its five-second graph cadence. This
+verifies live health updates and transport indication in that session only,
+not VPN-session events or traffic freshness under load. See [the current
+acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
 Issue #199 remains open: no nonzero VPN-client transition or continuous
 30-minute telemetry/Redis sample series has been collected in this window;

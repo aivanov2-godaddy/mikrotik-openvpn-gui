@@ -717,11 +717,23 @@ Dashboard and Connections view showed `Connection data delayed`; the Service
 Health view simultaneously reported six healthy checks and `Operational`.
 Subsequent browser-state inspection found the dashboard tab on the Cloudflare
 Access reauthentication page. No code was entered and no authenticated
-`/api/status` response or transport-level event was captured. This is
-consistent with an expired Access session but does not prove the precise
-failure layer, and it is not evidence of a RouterOS or Redis fault. Treat the
-current authenticated live-data check as **blocked/unverified**, not passed.
-No VPN-client transition was exercised, and no RouterOS configuration,
+`/api/status` response or VPN-session transition was captured at that time.
+This was consistent with a stale/expired Access session but did not prove the
+precise failure layer, and was not evidence of a RouterOS or Redis fault.
+
+A later fresh Dashboard tab in the same browser loaded authenticated using the
+existing session, without entering a code or manually refreshing the old
+page. It first showed `Live · updated now`; about 30 seconds later it showed
+`Live · SOCKETIO`, with the RouterOS CPU sample changed and uptime advanced.
+At a further observation 45 seconds later, the live status remained and the
+CPU/uptime samples had advanced again. The Connections view also reported
+`Live · SOCKETIO` and stated that its traffic graphs update automatically
+every five seconds. The connected-session count remained zero. This confirms
+live health updates and an active transport indicator for that authenticated
+browser session and resolves the immediate access gate for the fresh tab. It
+does not demonstrate a VPN connect/disconnect event, traffic-sample freshness
+under load, event latency, Redis delivery, or sustained operation. No
+VPN-client transition was exercised, and no RouterOS configuration,
 container, policy, certificate, or user data was changed. The soak, event
 latency/freshness, Redis delivery/recovery, API-restart/snapshot, integrity,
 and rollback gates remain open.
