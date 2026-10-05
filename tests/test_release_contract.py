@@ -65,7 +65,7 @@ class ReleaseContractTests(unittest.TestCase):
 
         self.assertIn("sbom: false", publish)
         self.assertIn("provenance: false", publish)
-        self.assertIn("anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610", publish)
+        self.assertIn("anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3", publish)
         self.assertIn("actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2", publish)
         self.assertIn("subject-digest: ${{ steps.build.outputs.digest }}", publish)
         self.assertIn("image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}", publish)
