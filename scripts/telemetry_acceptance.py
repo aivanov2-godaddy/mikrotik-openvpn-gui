@@ -20,6 +20,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from pathlib import Path
 from typing import Any, Iterable, TextIO
 
@@ -31,6 +32,8 @@ except ModuleNotFoundError:  # Imported as ``scripts.telemetry_acceptance`` in t
 MIN_OBSERVATION_SECONDS = 1800
 MIN_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
+MAX_OBSERVATION_AGE_SECONDS = 900
+MAX_FUTURE_SKEW_SECONDS = 300
 
 
 def _source(path: str) -> TextIO:
@@ -57,7 +60,9 @@ def _number(value: Any, name: str) -> float:
     return result
 
 
-def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, dict[str, Any]]:
+def evaluate(
+    lines: Iterable[str], *, limits: dict[str, float], now: float | None = None
+) -> tuple[int, dict[str, Any]]:
     samples: list[str] = []
     reconnects: list[dict[str, Any]] = []
     comparisons: list[dict[str, Any]] = []
@@ -238,6 +243,13 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
         failures.append("sample_count")
     if len(sample_timestamps) != len(samples):
         failures.append("sample_timestamp_coverage")
+    if sample_timestamps:
+        current_epoch = time.time() if now is None else _number(now, "now")
+        observation_age = current_epoch - sample_timestamps[-1]
+        if observation_age > MAX_OBSERVATION_AGE_SECONDS:
+            failures.append("observation_window_stale")
+        if observation_age < -MAX_FUTURE_SKEW_SECONDS:
+            failures.append("observation_window_future_dated")
     if any(delta <= 0 for delta in timestamp_deltas):
         failures.append("sample_timestamps_not_increasing")
     if observation_window < MIN_OBSERVATION_SECONDS:
