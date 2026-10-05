@@ -641,7 +641,12 @@ class DashboardIntegrationTests(unittest.TestCase):
             replacement_certificate_name="user-one-phone-current",
         )
         store.record_profile_migration_step(legacy_certificate_name=legacy_name, step="imported", actor="operator")
-        store.record_profile_migration_step(legacy_certificate_name=legacy_name, step="tested", actor="operator")
+        store.record_profile_migration_step(
+            legacy_certificate_name=legacy_name,
+            step="tested",
+            actor="operator",
+            active_session_observed=True,
+        )
         return f"/api/profile-migrations/{legacy_name}/revoke", legacy_name
 
     def _policy_template_review(self) -> tuple[str, str, dict[str, Any]]:
@@ -2713,15 +2718,104 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(migration["imported_at"])
         self.assertIsNone(migration["tested_at"])
 
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2", "name": "user-one", "service": "ovpn",
+            "caller-id": "198.51.100.41", "address": "198.18.0.49",
+            "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
+        }
+
         status, _, payload = self.json_request(
             "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload)["step"], "tested")
+        self.assertTrue(json.loads(payload)["active_user_session_observed"])
+        self.assertFalse(json.loads(payload)["certificate_attribution_verified"])
+        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
+        self.assertTrue(migration["tested_with_active_session"])
         status, _, page = self.request("GET", "/dashboard")
         self.assertEqual(status, 200)
         self.assertIn(b"Replacement test confirmed by operator", page)
         self.assertIn(b"RouterOS cannot identify which client certificate", page)
+
+    def test_profile_migration_test_requires_a_live_user_session_and_fails_closed(self) -> None:
+        self.mock.state.certificates["*OLD"] = {
+            ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.mock.state.certificates["*REPLACEMENT"] = {
+            ".id": "*REPLACEMENT", "name": "user-one-phone-current", "common-name": "user-one-phone-current",
+            "fingerprint": "NEW:FAKE", "issuer": "vpn-ca", "ca": "vpn-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.server.context.store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-current",
+        )
+        self.login()
+        status, _, _ = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/imported", {},
+        )
+        self.assertEqual(status, 200)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("active session for this VPN user", json.loads(payload)["error"])
+        self.assertIsNone(
+            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["tested_at"]
+        )
+
+        with mock.patch.object(
+            self.server.context.router,
+            "list_active_ovpn_sessions",
+            side_effect=RouterOSError("private session detail", 503),
+        ):
+            status, _, payload = self.json_request(
+                "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+            )
+        self.assertEqual(status, 502)
+        self.assertIn("live-session state is unavailable", json.loads(payload)["error"])
+        self.assertIsNone(
+            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["tested_at"]
+        )
+
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2", "name": "user-one", "service": "ovpn",
+            "caller-id": "198.51.100.41", "address": "198.18.0.49",
+            "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
+        }
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["active_user_session_observed"])
+
+    def test_reissuing_a_replacement_clears_prior_live_test_attestation(self) -> None:
+        store = self.server.context.store
+        store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-old",
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name="legacy-user-one-phone", step="imported", actor="operator",
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name="legacy-user-one-phone", step="tested", actor="operator",
+            active_session_observed=True,
+        )
+        store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-new",
+        )
+        migration = store.profile_migrations()["legacy-user-one-phone"]
+        self.assertEqual(migration["replacement_certificate_name"], "user-one-phone-new")
+        self.assertIsNone(migration["tested_at"])
+        self.assertFalse(migration["tested_with_active_session"])
 
     def test_profile_migration_progress_requires_live_active_certificates_and_profile_capability(self) -> None:
         self.mock.state.certificates["*OLD"] = {
@@ -3224,7 +3318,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             {"confirmation": "legacy-user-one-phone", "reason": "Retire after replacement test."},
         )
         self.assertEqual(status, 400)
-        self.assertIn("tested profile migration", json.loads(payload)["error"])
+        self.assertIn("active VPN-user session", json.loads(payload)["error"])
         self.assertEqual(self.mock.state.mutation_requests, before)
 
     def test_device_revoke_preview_is_read_only_and_stale_review_is_rejected(self) -> None:

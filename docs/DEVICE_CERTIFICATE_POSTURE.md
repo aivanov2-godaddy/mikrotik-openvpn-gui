@@ -37,6 +37,14 @@ test it before revoking the legacy certificate. “Replacement issued” records
 only that issuance completed; it is not evidence that the profile was imported,
 tested, or connected successfully.
 
+To record the connection-test step, the dashboard requires both an explicit
+operator confirmation and a read-only RouterOS observation of an active session
+for the matching VPN user at that moment. This raises the evidence bar but does
+not identify the session's client certificate, so the UI continues to label the
+test as operator-confirmed and does not claim cryptographic attribution. Older
+migration records without this live-session observation must be re-confirmed
+before the legacy certificate can be retired.
+
 ## Validation
 
 Run the focused checks with:

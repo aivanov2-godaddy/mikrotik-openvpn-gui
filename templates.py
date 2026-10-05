@@ -727,12 +727,12 @@ def dashboard_page(
                     migration_status = "Old identity revoked on RouterOS"
                     migration_action = '<span class="muted-label">Completed</span>'
                     migration_detail = f'<small class="table-secondary">Replacement: {replacement_name}. RouterOS reports this legacy certificate revoked.</small>'
-                elif migration.get("tested_at"):
+                elif migration.get("tested_at") and migration.get("tested_with_active_session"):
                     migration_status = "Replacement test confirmed by operator"
                     migration_detail = (
                         f'<small class="table-secondary">Replacement: {replacement_name}. '
-                        f'Connection test marked by {html.escape(str(migration.get("tested_by") or "operator"))}; '
-                        "RouterOS cannot identify which client certificate a session used.</small>"
+                        f'Test marked by {html.escape(str(migration.get("tested_by") or "operator"))} while RouterOS showed this VPN user connected. '
+                        "RouterOS cannot identify which client certificate that session used.</small>"
                     )
                     device_id = str(metadata.get("id", ""))
                     migration_action = (
@@ -749,16 +749,16 @@ def dashboard_page(
                         )
                     )
                 elif migration.get("imported_at"):
-                    migration_status = "Replacement imported; test pending"
+                    migration_status = "Replacement imported; test pending" if not migration.get("tested_at") else "Replacement test needs a live-session check"
                     migration_detail = (
                         f'<small class="table-secondary">Replacement: {replacement_name}. '
                         f'Import marked by {html.escape(str(migration.get("imported_by") or "operator"))}. '
-                        "Test a connection with the replacement before reviewing revocation.</small>"
+                        "Connect with the replacement profile, then confirm while RouterOS shows this VPN user online. The session certificate remains unverified.</small>"
                     )
                     migration_action = (
                         f'<button type="button" class="table-action" data-migration-step="tested" '
                         f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}">'
-                        "Confirm replacement connection test</button>"
+                        "Confirm live replacement test</button>"
                         if can_manage_profiles else '<span class="muted-label">Read-only</span>'
                     )
                 else:

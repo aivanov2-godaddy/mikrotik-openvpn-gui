@@ -1707,7 +1707,7 @@ document.addEventListener('click', async (event) => {
   } else if (button.matches('[data-migration-step]')) {
     const step = button.dataset.migrationStep;
     const stepDescription = step === 'tested'
-      ? 'Only confirm after you have connected the VPN device using the replacement profile. RouterOS cannot prove which client certificate an active session used.'
+      ? 'Only confirm after connecting with the replacement profile. The app will require RouterOS to show an active session for this VPN user, but RouterOS cannot prove which client certificate that session used.'
       : 'Only confirm after you have imported the replacement profile on the VPN device. The old profile remains active.';
     if (!window.confirm(stepDescription)) return;
     button.disabled = true;

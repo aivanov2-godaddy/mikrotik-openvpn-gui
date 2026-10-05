@@ -163,7 +163,8 @@ class MetadataStore:
                     imported_at INTEGER,
                     imported_by TEXT NOT NULL DEFAULT '',
                     tested_at INTEGER,
-                    tested_by TEXT NOT NULL DEFAULT ''
+                    tested_by TEXT NOT NULL DEFAULT '',
+                    tested_with_active_session INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS deployment_events (
@@ -261,6 +262,7 @@ class MetadataStore:
                 "imported_by": "TEXT NOT NULL DEFAULT ''",
                 "tested_at": "INTEGER",
                 "tested_by": "TEXT NOT NULL DEFAULT ''",
+                "tested_with_active_session": "INTEGER NOT NULL DEFAULT 0",
             }.items():
                 try:
                     connection.execute(
@@ -1076,18 +1078,22 @@ class MetadataStore:
                     imported_at=NULL,
                     imported_by='',
                     tested_at=NULL,
-                    tested_by=''
+                    tested_by='',
+                    tested_with_active_session=0
                 """,
                 (legacy_certificate_name, vpn_user, replacement_certificate_name, int(time.time())),
             )
 
     def record_profile_migration_step(
-        self, *, legacy_certificate_name: str, step: str, actor: str
+        self, *, legacy_certificate_name: str, step: str, actor: str,
+        active_session_observed: bool = False,
     ) -> dict[str, Any]:
         """Record an operator-attested migration step, never a RouterOS claim."""
         now = int(time.time())
         if step not in {"imported", "tested"}:
             raise ValueError("Unsupported profile migration step")
+        if step == "tested" and active_session_observed is not True:
+            raise ValueError("Observe an active VPN-user session before recording the replacement test")
         with self._lock, self._connection() as connection:
             row = connection.execute(
                 "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
@@ -1104,7 +1110,7 @@ class MetadataStore:
                 )
             else:
                 connection.execute(
-                    "UPDATE profile_migrations SET tested_at=COALESCE(tested_at, ?), tested_by=CASE WHEN tested_at IS NULL THEN ? ELSE tested_by END WHERE legacy_certificate_name=?",
+                    "UPDATE profile_migrations SET tested_at=?, tested_by=?, tested_with_active_session=1 WHERE legacy_certificate_name=?",
                     (now, str(actor)[:128], legacy_certificate_name),
                 )
             updated = connection.execute(
