@@ -585,6 +585,15 @@ for the complete authorization review and controlled live-session security
 acceptance. See [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md) and
 [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md).
 
+The scoped ASVS 5.0.0 matrix now assigns TESTED, PARTIAL, GAP, N/A, or
+EXTERNAL status to each V7, V8, and V4.4 control considered for this review;
+it records explicit gaps for concurrent-session limits and step-up
+authentication rather than implying broad compliance. A new route-level
+regression verifies that administrator-session revocation is CSRF-protected,
+cannot revoke the current session, removes only the reviewed target session,
+and writes a hashed audit reference. The repository test is not live-proxy or
+independent-review evidence.
+
 **Certificate lifecycle hardening:** the staged migration's connection-test
 attestation now also requires a read-only observation that RouterOS currently
 shows an active session for the matching VPN user. This is user-level evidence,

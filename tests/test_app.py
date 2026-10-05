@@ -1437,6 +1437,36 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(denied_cases, 118)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+    def test_admin_session_revocation_is_csrf_protected_scoped_and_audited(self) -> None:
+        self.login()
+        current_session_id = self.cookie.split("=", 1)[1]
+        other_session = self.server.context.sessions.create(
+            "admin", "routerpass", role="owner",
+        )
+        unrelated_session = self.server.context.sessions.create(
+            "admin", "routerpass", role="owner",
+        )
+        path = f"/api/admin/sessions/{urllib.parse.quote(other_session.session_id, safe='')}"
+
+        status, _, _ = self.json_request("DELETE", path, csrf=False)
+        self.assertEqual(status, 403)
+        self.assertIsNotNone(self.server.context.sessions.get(other_session.session_id, touch=False))
+
+        current_path = f"/api/admin/sessions/{urllib.parse.quote(current_session_id, safe='')}"
+        status, _, payload = self.json_request("DELETE", current_path)
+        self.assertEqual(status, 400)
+        self.assertIn(b"current session cannot be revoked", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
+
+        status, _, payload = self.json_request("DELETE", path)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertIsNone(self.server.context.sessions.get(other_session.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(unrelated_session.session_id, touch=False))
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["action"], "admin-session.revoke")
+        self.assertNotIn(other_session.session_id, audit["details"])
+
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
         self.login()
         status, _, payload = self.request("GET", "/api/admin/sessions")
