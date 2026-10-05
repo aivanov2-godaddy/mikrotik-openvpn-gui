@@ -5,7 +5,7 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
-## Current release status — 2026-10-04
+## Current release status — 2026-10-05
 
 Formal release **v2.7.0** is published from commit
 `2e01f111e1445c79b1753477a41efbaec27a1a2d`. Release workflow
@@ -25,6 +25,22 @@ on both canary and production containers, each with the RouterOS healthy
 (`H`) marker. This verifies image deployment and container health only; it is
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
+
+### Latest deployed runtime image — 2026-10-05
+
+The latest numbered release remains **v2.7.0**; subsequent changes are
+main-branch patches. RouterOS WebFig read-back on 2026-10-05 showed canary and
+production configured with
+`sha-dd4a1fa34b6ff33092e4e2afc9ce334c8931a8b0-arm64`, both healthy (`H`). The
+authenticated Dashboard's freshly loaded baked revision matched that tag's
+commit, and its recorded previous release matched
+`73e6dd44c53f96504f6a505c0e9667976ef0a7db`. The registry currently reports
+manifest digest
+`sha256:ee6823913f9aa95699c15509c88885c872818b890835bff8b6a316a87f0bdd89`
+for the ARM64 tag. RouterOS exposes the configured immutable tag, not an
+independent registry digest read-back. This confirms point-in-time image
+identity and health, not the sustained acceptance window; no VPN client was
+connected during the application check. No new numbered release was created.
 
 ### Post-v2.7.0 runtime patch — PR #443
 
@@ -345,11 +361,11 @@ The next roadmap is tracked as [epic #205](https://github.com/aivanov2-godaddy/m
 - [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202) Standardize preview, apply, verify, and recovery for mutations.
 - [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) Publish verifiable SBOM/provenance and a tested RouterOS compatibility policy.
 
-### Execution status — 2026-10-04
+### Execution status — 2026-10-05
 
 This table retains the delivery evidence for roadmap issues #188–#204, including
 issues already closed for their repository implementation. Issues #192, #194,
-#195, and #200 remain open as standalone issues; the epic #205 tracks
+#199, and #200 remain open as standalone issues; the epic #205 tracks
 cross-cutting acceptance still requiring human, physical-router, or external
 review evidence.
 The entries below are not claims that every listed issue remains open or that
@@ -493,6 +509,19 @@ nonzero VPN session, event latency, traffic freshness, Redis delivery,
 reconnect/recovery, or a sustained acceptance window; #198/#199 remain open.
 See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
+**Fresh authenticated deployment check (2026-10-05, about 05:08
+Europe/Sofia):** the prior dashboard tab had expired at Cloudflare Access and
+was showing stale status/release data. After re-authenticating and loading a
+fresh page, the Dashboard reported `Live · updated now` and `Operational`; the
+dashboard's baked running revision matched the RouterOS container's immutable
+ARM64 tag `sha-dd4a1fa34b6ff33092e4e2afc9ce334c8931a8b0-arm64`, and the locally
+recorded previous release matched `73e6dd44c53f96504f6a505c0e9667976ef0a7db`.
+Both canary and production were healthy on that tag. No VPN client was
+connected. This resolves the apparent revision mismatch as stale browser state;
+it remains a point-in-time check and does not satisfy the sustained telemetry,
+live-session, reconnect, or rollback acceptance window. No RouterOS/VPN
+configuration or data was changed.
+
 **Acceptance evidence integrity:** merged PR #461 requires reconnect,
 comparison, security, and verification attestations to carry timestamps within
 the same strictly increasing sample window; missing timestamps,
@@ -502,6 +531,15 @@ closed. The current follow-up also validates `counter_reset` and
 values. These evaluator safeguards prevent malformed or stale evidence from
 passing; they do not create or substitute for the still-pending router-side
 measurements and recovery drills.
+
+Merged PR [#473](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/473)
+(commit `82ede5bdaa2c632eaa674af2075e2dbfecdfea60`) makes the final release
+acceptance validator honor the live collector's `passed` result and failed
+gates; malformed collection status is rejected. Python 3.13/3.14,
+pre-commit, browser/accessibility, Redis, security, secret-scan, and ARM64
+runtime-smoke checks passed. This is tooling and acceptance-integrity work, not
+a runtime image change and not completion of the open #199 canary/production
+evidence requirements.
 
 **Acceptance collector gateway-stage metrics:** the collector now requires and
 reports the existing aggregate gateway client/buffer gauges, published and
