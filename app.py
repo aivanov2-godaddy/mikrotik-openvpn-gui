@@ -1302,7 +1302,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     login_page(
                         dashboard_name=self.server.context.config.dashboard_name,
                         router_display_name=self.server.context.config.router_display_name,
-                    )
+                    ),
+                    # Chromium may serialize a same-origin native form POST as
+                    # Origin: null when the page's policy suppresses Referer.
+                    # Permit only a same-origin Referer on this page so the
+                    # origin guard can still validate the browser submission.
+                    extra={"Referrer-Policy": "same-origin"},
                 )
             return
         if path == "/dashboard":
@@ -2068,7 +2073,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _login_origin_allowed(self) -> bool:
         """Require same-origin browser evidence before accepting credentials."""
         origin = self.headers.get("Origin")
-        if origin is not None:
+        if origin is not None and origin.strip().casefold() != "null":
             return _same_origin(origin, self.server.context.public_origin)
         referer = self.headers.get("Referer")
         if not referer:

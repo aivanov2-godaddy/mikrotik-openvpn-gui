@@ -363,6 +363,24 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 303)
         self.assertIn("vpn_session=", headers["set-cookie"])
 
+    def test_login_accepts_null_origin_only_with_same_origin_referer(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
+        status, headers, _ = self.request(
+            "POST", "/login", body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "null",
+                "Referer": f"{self.config.public_origin}/login",
+            },
+        )
+        self.assertEqual(status, 303)
+        self.assertIn("vpn_session=", headers["set-cookie"])
+
+    def test_login_page_uses_same_origin_referrer_policy_for_form_submission(self) -> None:
+        status, headers, _ = self.request("GET", "/login")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["referrer-policy"], "same-origin")
+
     def test_access_logs_omit_bearer_share_tokens_and_peer_addresses(self) -> None:
         token = "x" * 40
         captured = io.StringIO()

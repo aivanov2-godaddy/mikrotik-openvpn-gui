@@ -140,11 +140,14 @@ blanket pass for ASVS, OWASP, or production security.
 
 ## Repository hardening and export privacy — 2026-10-05
 
-- `POST /login` now requires an exact same-origin `Origin`; if that header is
-  absent, an exact same-origin `Referer` origin is required. Foreign or absent
-  origin evidence returns `403` before RouterOS credential verification.
-  Regressions cover foreign Origin taking precedence over a same-origin
-  Referer, missing origin evidence, and the same-origin Referer fallback.
+- `POST /login` requires an exact same-origin `Origin`, or an exact same-origin
+  `Referer` when Origin is absent or serialized as the opaque value `null`.
+  The login page alone uses `Referrer-Policy: same-origin` so native form
+  submissions can provide this evidence without disclosing referrers cross-site.
+  Foreign or absent origin evidence returns `403` before RouterOS credential
+  verification. Regressions cover foreign Origin precedence, missing evidence,
+  same-origin fallback, the opaque-Origin browser case, and the login response
+  policy.
 - Application access logs now contain only an allowlisted HTTP method and
   parsed response status. They no longer include request paths, short-lived
   profile-share bearer tokens, query values, or peer addresses. This is a

@@ -22,7 +22,7 @@ RouterOS mutation.
 | Route | Access boundary | Data and limits |
 | --- | --- | --- |
 | `GET /healthz`, `/readyz` | Public, no dashboard session | Minimal health state; `/readyz` also reports the application version/revision. These endpoints do not return RouterOS or VPN records. |
-| `POST /login` | No pre-existing session; requires a same-origin `Origin`, or when absent a same-origin `Referer`, before RouterOS credential verification | Requests with foreign or absent origin evidence are rejected before contacting RouterOS. |
+| `POST /login` | No pre-existing session; requires a same-origin `Origin`, or a same-origin `Referer` when Origin is absent/opaque (`null`), before RouterOS credential verification | The login page permits same-origin referrers only; requests with foreign or absent origin evidence are rejected before contacting RouterOS. |
 | `GET /share/{token}` | Bearer-link capability; token is the authorization | Profile ZIP download link expires after 10 minutes and allows at most three downloads. Anyone possessing the link can use it during that window; access logs intentionally omit request paths/tokens and peer addresses. |
 
 Treat profile-share links as secrets despite their short lifetime. Do not paste
