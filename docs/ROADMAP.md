@@ -536,6 +536,18 @@ Missing, null, or blank group now maps to read-only, with regression coverage.
 This does not close #200: live privilege-change/expiry/revocation acceptance
 and a full independent external security review remain open.
 
+**#200 follow-up audit (2026-10-05):** a separate read-only review found the
+repository has tests for SSE/Socket.IO authorization stop, same-origin and
+foreign-origin behavior, token scopes, idle/absolute expiry, and RouterOS role
+revalidation. It found no new bypass, but the route inventory explicitly is
+not an exhaustive independent handler-by-handler review. Production behavior
+through the proxy for logout, revocation, expiry, role downgrade, and account
+disable has not been observed; RouterOS permissions and production
+logs/exports/crash artifacts also have not been independently inspected.
+Issue #200 remains open for the complete authorization review and controlled
+live-session security acceptance. See [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md)
+and [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md).
+
 **Certificate lifecycle hardening:** the staged migration's connection-test
 attestation now also requires a read-only observation that RouterOS currently
 shows an active session for the matching VPN user. This is user-level evidence,
@@ -777,3 +789,21 @@ stable manifest when the browser suite is red. That process hardening remains
 in review until the PR and its CI finish.
 
 Each issue is delivered as a focused PR with CI and acceptance evidence. Dependency order may pull security or reliability work forward when required to make a feature safe. Core live telemetry, REST/SSE fallback, RouterOS as source of truth, redaction, and review-first destructive actions remain product invariants.
+
+**Current release acceptance update (2026-10-05):** PR #495 merged the
+read-only acceptance collector's explicit canary-prepromotion and
+postpromotion phases, candidate-only prepromotion registry verification, and
+bounded registry lookup. It is acceptance tooling, not a runtime image change.
+Read-only WebFig now confirms PR #494's immutable ARM64 tag on both canary and
+production with healthy container states; the registry digest is recorded in
+the acceptance report, but RouterOS does not independently expose or verify
+that digest. The currently open browser session showed `Connection data
+delayed` and then required Cloudflare Access reauthentication, so this is not
+a successful authenticated telemetry sample. See
+[the current acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
+Issue #199 remains open: no nonzero VPN-client transition or continuous
+30-minute telemetry/Redis sample series has been collected in this window;
+event latency/freshness, reconnect and full-snapshot recovery, event
+integrity, and a canary rollback/restore drill are still unproven. Do not
+promote a candidate or mark acceptance complete on container health alone.
