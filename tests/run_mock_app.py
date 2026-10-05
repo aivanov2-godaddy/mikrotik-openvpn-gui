@@ -19,7 +19,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary, MockRouterOS() as mock:
         config = RuntimeConfig.from_environ(
             {
-                "PUBLIC_ORIGIN": "http://localhost",
+                "PUBLIC_ORIGIN": f"http://127.0.0.1:{arguments.port}",
                 "ROUTEROS_REST_URL": "https://router.example.test:8443/rest",
                 "OVPN_PPP_PROFILE": "vpn-full-tunnel",
                 "OVPN_SERVER_NAME": "vpn-server",

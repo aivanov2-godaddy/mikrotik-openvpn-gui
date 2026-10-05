@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import http.client
+import base64
+import contextlib
 import hashlib
+import http.client
 import io
 import inspect
 import json
@@ -12,7 +14,6 @@ import time
 import unittest
 import urllib.parse
 import zipfile
-import base64
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -310,7 +311,10 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST",
             "/login",
             body=body,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
         )
         self.assertEqual(status, 303)
         self.assertEqual(headers["location"], "/dashboard")
@@ -327,6 +331,119 @@ class DashboardIntegrationTests(unittest.TestCase):
         match = re.search(rb'<meta name="csrf-token" content="([^"]+)">', page)
         self.assertIsNotNone(match)
         self.csrf = match.group(1).decode("ascii")
+
+    def test_login_rejects_foreign_or_missing_origin_before_routeros_authentication(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
+        cases = (
+            {"Origin": "https://attacker.example", "Referer": f"{self.config.public_origin}/login"},
+            {},
+        )
+        for headers in cases:
+            with self.subTest(headers=headers), mock.patch.object(
+                self.server.context.router, "verify_credentials",
+            ) as verify_credentials:
+                status, response_headers, page = self.request(
+                    "POST", "/login", body=body,
+                    headers={"Content-Type": "application/x-www-form-urlencoded", **headers},
+                )
+                self.assertEqual(status, 403)
+                self.assertNotIn("set-cookie", response_headers)
+                self.assertIn(b"origin could not be verified", page)
+                verify_credentials.assert_not_called()
+
+    def test_login_accepts_same_origin_referer_when_origin_is_absent(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
+        status, headers, _ = self.request(
+            "POST", "/login", body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": f"{self.config.public_origin}/login",
+            },
+        )
+        self.assertEqual(status, 303)
+        self.assertIn("vpn_session=", headers["set-cookie"])
+
+    def test_login_accepts_null_origin_only_with_same_origin_referer(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
+        status, headers, _ = self.request(
+            "POST", "/login", body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "null",
+                "Referer": f"{self.config.public_origin}/login",
+            },
+        )
+        self.assertEqual(status, 303)
+        self.assertIn("vpn_session=", headers["set-cookie"])
+
+    def test_login_page_uses_same_origin_referrer_policy_for_form_submission(self) -> None:
+        status, headers, _ = self.request("GET", "/login")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["referrer-policy"], "same-origin")
+
+    def test_access_logs_omit_bearer_share_tokens_and_peer_addresses(self) -> None:
+        token = "x" * 40
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            status, _, _ = self.request("GET", f"/share/{token}")
+        self.assertEqual(status, 410)
+        output = captured.getvalue()
+        self.assertIn("http method=GET status=410", output)
+        self.assertNotIn(token, output)
+        self.assertNotIn("127.0.0.1", output)
+
+    def test_sensitive_exports_disclose_their_real_data_scope(self) -> None:
+        self.login()
+        self.server.context.store.observe_sessions([{
+            "id": "synthetic-router-session-id",
+            "name": "synthetic-export-user",
+            "source_address": "203.0.113.77",
+            "vpn_address": "10.8.0.77",
+            "encoding": "AES-256-GCM/test-only",
+            "uptime": "0s",
+            "rx_bytes": 123,
+            "tx_bytes": 456,
+            "rx_packets": 2,
+            "tx_packets": 3,
+        }])
+        self.server.context.store.audit(
+            actor="synthetic-operator", action="synthetic.audit.export-test",
+            target="synthetic-export-user", status="success",
+            details={"source": "203.0.113.88"},
+        )
+
+        status, _, connection_csv = self.request("GET", "/api/connections.csv")
+        self.assertEqual(status, 200)
+        self.assertIn(b"source_ip,vpn_ip", connection_csv)
+        self.assertIn(b"203.0.113.77", connection_csv)
+        self.assertIn(b"10.8.0.77", connection_csv)
+        self.assertNotIn(b"synthetic-router-session-id", connection_csv)
+
+        status, _, compliance = self.request("GET", "/api/reports/compliance.zip")
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(compliance)) as archive:
+            compliance_summary = json.loads(archive.read("summary.json"))
+            compliance_audit = archive.read("audit.csv")
+            compliance_csv = archive.read("connections.csv")
+        self.assertIn("source_ip", compliance_csv.decode("utf-8"))
+        self.assertIn(b"203.0.113.77", compliance_csv)
+        self.assertIn(b"10.8.0.77", compliance_csv)
+        self.assertIn("operator/client/VPN IP addresses", compliance_summary["redaction"])
+        self.assertIn(b"203.0.113.88", compliance_audit)
+
+        status, _, backup = self.request("GET", "/api/backups/metadata.zip")
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(backup)) as archive:
+            backup_manifest = json.loads(archive.read("manifest.json"))
+            metadata = json.loads(archive.read("metadata.json"))
+        history = metadata["tables"]["connection_history"]
+        row = next(item for item in history if item["session_id"] == "synthetic-router-session-id")
+        self.assertEqual(row["source_address"], "203.0.113.77")
+        self.assertEqual(row["vpn_address"], "10.8.0.77")
+        self.assertIn("session identifiers", backup_manifest["contains"])
+        self.assertIn("203.0.113.88", json.dumps(metadata))
+        self.assertNotIn("routerpass", json.dumps(metadata))
+        self.assertNotIn("PRIVATE KEY", json.dumps(metadata))
 
     def test_socketio_polling_rejects_foreign_origin_before_handshake(self) -> None:
         self.login()
@@ -706,7 +823,10 @@ class DashboardIntegrationTests(unittest.TestCase):
             "POST",
             "/login",
             body=bad_login,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
         )
         self.assertEqual(status, 401)
         self.assertIn(b"MikroTik authentication failed", page)
@@ -1755,7 +1875,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         bad_login = urllib.parse.urlencode({"username": "admin", "password": "wrong"}).encode()
         self.request(
             "POST", "/login", body=bad_login,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
         )
         failed = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(failed["action"], "login.failure")

@@ -542,11 +542,15 @@ foreign-origin behavior, token scopes, idle/absolute expiry, and RouterOS role
 revalidation. It found no new bypass, but the route inventory explicitly is
 not an exhaustive independent handler-by-handler review. Production behavior
 through the proxy for logout, revocation, expiry, role downgrade, and account
-disable has not been observed; RouterOS permissions and production
-logs/exports/crash artifacts also have not been independently inspected.
-Issue #200 remains open for the complete authorization review and controlled
-live-session security acceptance. See [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md)
-and [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md).
+disable has not been observed. PR [#497](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/497)
+adds same-origin login checks before RouterOS authentication, path/IP-free
+application access logs, an explicit `users.read` guard, and accurate
+disclosures/tests for sensitive authorized exports. It does not change the
+production image or claim assurance about reverse-proxy/host logs, physical
+RouterOS permissions, or production export handling. Issue #200 remains open
+for the complete authorization review and controlled live-session security
+acceptance. See [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md) and
+[ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md).
 
 **Certificate lifecycle hardening:** the staged migration's connection-test
 attestation now also requires a read-only observation that RouterOS currently

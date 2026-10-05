@@ -714,8 +714,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, message: str, *args: Any) -> None:
-        safe_path = self.path.split("?", 1)[0]
-        print(f"http method={self.command} path={safe_path} peer={self._client_ip()}")
+        try:
+            rendered = message % args
+        except (TypeError, ValueError):
+            rendered = ""
+        status_match = re.search(r'"\s+(\d{3})(?:\s|$)', rendered)
+        method = self.command if self.command in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} else "OTHER"
+        status = status_match.group(1) if status_match else "unknown"
+        # Request paths may contain short-lived bearer profile-share tokens;
+        # peer addresses are private operational data. Neither belongs in logs.
+        print(f"http method={method} status={status}")
 
     def _client_ip(self) -> str:
         peer = self.client_address[0]
@@ -1294,7 +1302,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     login_page(
                         dashboard_name=self.server.context.config.dashboard_name,
                         router_display_name=self.server.context.config.router_display_name,
-                    )
+                    ),
+                    # Chromium may serialize a same-origin native form POST as
+                    # Origin: null when the page's policy suppresses Referer.
+                    # Permit only a same-origin Referer on this page so the
+                    # origin guard can still validate the browser submission.
+                    extra={"Referrer-Policy": "same-origin"},
                 )
             return
         if path == "/dashboard":
@@ -1358,7 +1371,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/users":
             session = self._require_session(api=True)
-            if not session or not self._require_routeros_session(session):
+            if (
+                not session
+                or not self._require_routeros_session(session)
+                or not self._require_capability(session, "users.read")
+            ):
                 return
             try:
                 users = self._users_with_metadata(self._credentials(session))
@@ -1675,7 +1692,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "version": 1,
             "created_at": created_at,
             "files": {"metadata.json": hashlib.sha256(metadata).hexdigest()},
-            "contains": "dashboard metadata only; no RouterOS configuration, passwords, keys, or profiles",
+            "contains": (
+                "dashboard operational metadata only; may include VPN usernames/emails, device and "
+                "certificate identifiers, policy/control settings, alerts, audit/deployment/health "
+                "records, operator/client/VPN addresses, and RouterOS session identifiers; no RouterOS "
+                "configuration, credentials, private keys, or client profile files"
+            ),
         }, separators=(",", ":"), sort_keys=True).encode("utf-8")
         stream = io.BytesIO()
         with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -1853,6 +1875,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._socketio_post()
             return
         if path == "/login":
+            if not self._login_origin_allowed():
+                self._html(
+                    login_page(
+                        "Login request origin could not be verified.",
+                        dashboard_name=self.server.context.config.dashboard_name,
+                        router_display_name=self.server.context.config.router_display_name,
+                    ),
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return
             self._login()
             return
         if path == "/logout":
@@ -2037,6 +2069,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
             status=HTTPStatus.FORBIDDEN,
         )
         return True
+
+    def _login_origin_allowed(self) -> bool:
+        """Require same-origin browser evidence before accepting credentials."""
+        origin = self.headers.get("Origin")
+        if origin is not None and origin.strip().casefold() != "null":
+            return _same_origin(origin, self.server.context.public_origin)
+        referer = self.headers.get("Referer")
+        if not referer:
+            return False
+        try:
+            parsed = urllib.parse.urlsplit(referer)
+        except ValueError:
+            return False
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        return _same_origin(
+            f"{parsed.scheme}://{parsed.netloc}",
+            self.server.context.public_origin,
+        )
 
     def _create_api_token(self) -> None:
         session = self._require_session(api=True)
@@ -2615,7 +2666,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "connection_entries": len(connections),
                 "failed_audit_entries": sum(1 for item in audit if item.get("status") in {"failed", "denied"}),
             },
-            "redaction": "Passwords, tokens, private keys, profiles, and RouterOS credentials are excluded.",
+            "redaction": (
+                "Passwords, tokens, private keys, profiles, and RouterOS credentials are excluded; "
+                "the audit and connection CSVs may include operator/client/VPN IP addresses, "
+                "VPN usernames, timestamps, encryption labels, and traffic totals."
+            ),
         }
         audit_stream = io.StringIO(newline="")
         writer = csv.writer(audit_stream)

@@ -138,6 +138,41 @@ blanket pass for ASVS, OWASP, or production security.
   session and capability before each telemetry write without extending idle
   lifetime. Real-browser and reverse-proxy revocation timing remain untested.
 
+## Repository hardening and export privacy — 2026-10-05
+
+- `POST /login` requires an exact same-origin `Origin`, or an exact same-origin
+  `Referer` when Origin is absent or serialized as the opaque value `null`.
+  The login page alone uses `Referrer-Policy: same-origin` so native form
+  submissions can provide this evidence without disclosing referrers cross-site.
+  Foreign or absent origin evidence returns `403` before RouterOS credential
+  verification. Regressions cover foreign Origin precedence, missing evidence,
+  same-origin fallback, the opaque-Origin browser case, and the login response
+  policy.
+- Application access logs now contain only an allowlisted HTTP method and
+  parsed response status. They no longer include request paths, short-lived
+  profile-share bearer tokens, query values, or peer addresses. This is a
+  code-level logger guarantee; reverse-proxy and host logging remain separate.
+- `GET /api/users` explicitly requires `users.read` as well as a
+  RouterOS-authenticated dashboard session. API tokens remain rejected before
+  contacting RouterOS.
+- Authorized exports are intentionally not described as fully redacted.
+  Connection CSV and the compliance ZIP include VPN usernames, client/VPN
+  addresses, timestamps, encryption labels, and traffic totals; compliance
+  audit rows may include the operator source address. The
+  `backup.manage` metadata archive also includes connection-history session
+  identifiers and operator/client/VPN addresses, plus VPN-user emails,
+  device/certificate identifiers, policy/control settings, and
+  alert/audit/deployment/health records. Its manifest now discloses this scope.
+  These files exclude RouterOS credentials/configuration, private keys, and
+  client profile files, but are sensitive data and must be handled accordingly.
+  The compliance ZIP requires both `audit.read` and `sessions.read`; metadata
+  backup requires `backup.manage`; connection CSV
+  requires `sessions.read`.
+- Synthetic-data regressions assert the expected IP/session-identifier
+  inclusions and credential/private-key exclusions in those exports, plus
+  verify that the access log does not reveal a synthetic share token or peer
+  address.
+
 ## Explicitly unverified live-router / deployment evidence
 
 No RouterOS or production state was changed for this assurance work. On
@@ -161,9 +196,14 @@ test window:
 - Review RouterOS user permissions and credential-memory exposure on the
   physical host; this code-only change cannot inspect host process memory or
   router policy.
-- Verify no credentials, cookies, session identifiers, private addresses,
-  router names, or raw records appear in deployed logs, exports, crash dumps,
-  or telemetry payloads.
+- Verify deployed application, reverse-proxy, and host logs do not expose
+  credentials, session cookies, or profile-share bearer URLs. Repository tests
+  cover only the application's sanitized access logger, not external log
+  layers.
+- Verify crash-dump and live telemetry behavior on the deployed image. In
+  particular, do not treat authorized exports as data-free: they intentionally
+  contain the fields documented above. Production backup storage, access, and
+  retention handling still require operational evidence.
 - Complete an independent, requirement-by-requirement ASVS review and any
   required penetration testing before making a compliance claim.
 
