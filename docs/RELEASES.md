@@ -129,17 +129,18 @@ passed for both architectures:
 | RouterOS ARM64 | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` | `sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73` |
 | CHR/x86 AMD64 (evaluation) | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-amd64` | `sha256:6c6c2babc30e499f35b62877cc8e2450ea17cb0aad9e32b3f296cfd5199fce78` |
 
-This is a published mainline image, not a new numbered release. It is also the
-latest image with a timestamped RouterOS read-back: on 2026-10-05 WebFig showed
-both canary and production configured with the ARM64 immutable tag above and
-healthy (`H`), with Redis running (`R`). RouterOS reports the configured tag,
-not an independently verified registry digest. This confirms deployment
-configuration and container health, not sustained acceptance. The active
-dashboard browser tab was at sign-in during inspection, so authenticated
-post-deployment streaming and UI behavior remain unverified. The later PR #494
-publication does not itself update any router. The `routeros-stable` manifest
-was refreshed by the PR #484 publication workflow; that manifest update does
-not itself update any router.
+This is a published mainline image, not a new numbered release. At that time it
+was the latest image with a timestamped RouterOS read-back: on 2026-10-05 WebFig
+showed both canary and production configured with the ARM64 immutable tag above
+and healthy (`H`), with Redis running (`R`). RouterOS reports the configured
+tag, not an independently verified registry digest. This confirms deployment
+configuration and container health, not sustained acceptance. The dashboard
+tab was at sign-in during that particular inspection; a later authenticated
+observation is recorded above. The PR #497 read-back subsequently superseded
+this observation, and the 2026-10-06 PR #501 canary candidate is recorded in the
+latest section. The `routeros-stable` manifest was refreshed by the PR #484
+publication workflow and later advanced to PR #501; a manifest update does not
+itself update any router.
 
 ### Latest numbered release and earlier RouterOS-observed runtime patch — PR #478
 
