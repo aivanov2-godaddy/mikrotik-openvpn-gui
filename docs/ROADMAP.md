@@ -404,6 +404,16 @@ review evidence.
 The entries below are not claims that every listed issue remains open or that
 point-in-time/device-independent checks complete live acceptance:
 
+**Redis ACL migration runbook (2026-10-05):** PR [#488](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/488)
+merged as `974a929d26128acf2e496f18112789892d6eec07`. It documents moving the
+publisher from the shared Redis `default` identity to a dedicated,
+least-privilege `vpn-dashboard` identity, including canary-first switching,
+verification, rollback, and subsequent password rotation. This is an
+operator procedure only: the PR did not change RouterOS ACL files, container
+environment lists, credentials, Redis state, or either dashboard container.
+Do not treat the merged runbook as proof that the device-side migration has
+been performed.
+
 **Certificate lifecycle status:** #194 was reopened on 2026-10-04 because the
 tracking issue for PR #255 explicitly said it did not close #194, although the
 parent had been closed. The repository has a basic migration path that issues a
