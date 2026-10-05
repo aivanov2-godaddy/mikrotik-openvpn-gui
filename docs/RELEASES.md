@@ -39,23 +39,47 @@ denial, and the deployed resource snapshot. A connected-client window also
 verified live connect/disconnect rendering, snapshot recovery, changing
 traffic samples, and two simultaneous dashboard clients. Exact event-age,
 counter-reset, and Binary/REST parity evidence remains an operational
-follow-up. The
-previous published feature release was **v2.0.0**, which added read-only device
-posture checks while preserving the router-local data and immutable-image
-deployment model.
+follow-up. Release **v2.0.0** originally introduced read-only device posture
+checks while preserving the router-local data and immutable-image deployment
+model.
+
+At the maintainer's request, the superseded GitHub Release entries v2.6.3 and
+v2.6.4 were removed on 2026-10-05; their Git tags remain available for
+historical/rollback reference. v2.7.0 remains the latest numbered release.
 
 ## Published images
 
-### Latest stable registry publication and deployment read-back
+### Latest post-release mainline image publication (not yet read back on RouterOS)
+
+Main-branch runtime commit
+`93627bca38312ad1845249c6df1c0fcecf12122e` was published by workflow
+[#37302952543](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37302952543).
+The build, runtime smoke test, detached provenance, and SBOM attestations
+passed for both architectures:
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` | `sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73` |
+| CHR/x86 AMD64 (evaluation) | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-amd64` | `sha256:6c6c2babc30e499f35b62877cc8e2450ea17cb0aad9e32b3f296cfd5199fce78` |
+
+This is a published mainline image, not a new numbered release and not a
+RouterOS-confirmed deployment. The last verified canary/production read-back
+below predates this image; the dashboard browser was at sign-in during the
+subsequent inspection. Do not describe this candidate as deployed or accepted
+until RouterOS read-back and the required canary evidence are recorded.
+The `routeros-stable` manifest was refreshed by the same publication workflow
+to this candidate; that manifest update does not itself update any router.
+
+### Latest numbered release and last RouterOS deployment read-back
 
 The latest formal release is **v2.7.0**, commit
 `2e01f111e1445c79b1753477a41efbaec27a1a2d`. Subsequent main-branch runtime
 patches are published as immutable commit tags without creating a numbered
 release. PR [#478](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/478)
-is the latest runtime patch, merged as `d5f8f4418d6ec972aa51ea4634b56c7fd89093f4`;
+is the last RouterOS-confirmed runtime patch, merged as `d5f8f4418d6ec972aa51ea4634b56c7fd89093f4`;
 publication workflow
 [#37294618814](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37294618814)
-passed. The `routeros-stable` manifest and published immutable tags/digests are:
+passed. The published immutable tags/digests for this on-router revision were:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
@@ -64,7 +88,8 @@ passed. The `routeros-stable` manifest and published immutable tags/digests are:
 
 RouterOS WebFig read-back on 2026-10-05 showed canary and production configured
 with the ARM64 immutable tag above, both healthy (`H`), and Redis running (`R`).
-RouterOS reports the configured tag, not an independent registry digest. The
+This is the last verified on-router revision, not the latest published
+mainline image above. RouterOS reports the configured tag, not an independent registry digest. The
 dashboard browser was at sign-in during this read-back, so authenticated
 post-deployment rendering/live behavior was not verified. This is point-in-time
 deployment and container-health evidence—not the formal sustained acceptance
@@ -229,8 +254,9 @@ repository.
    router update.
 8. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
 
-The repository's next release version is kept in [`VERSION`](../VERSION). Run
-`python scripts/validate_release.py --tag v2.6.3` before creating a tag. The
+The repository's next release version is kept in [`VERSION`](../VERSION) (currently
+`2.7.0`). Run `python scripts/validate_release.py --tag v2.7.0` before creating
+that tag. The
 `Release notes` workflow previews GitHub-generated notes without changing a
 release when run manually with `dry_run=true`; a pushed, matching `v*` tag is
 the only event that publishes a release. Notes contain commit and pull-request
