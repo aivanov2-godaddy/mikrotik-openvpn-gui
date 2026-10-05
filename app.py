@@ -3846,6 +3846,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     profile=profile,
                     rationale=reason,
                 )
+                if legacy_certificate_name:
+                    self.server.context.store.record_profile_migration(
+                        legacy_certificate_name=legacy_certificate_name,
+                        vpn_user=str(user["name"]),
+                        replacement_certificate_name=profile.certificate_name,
+                    )
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="profile.migrate",
+                        target=legacy_certificate_name,
+                        status="success",
+                        details={"replacement_certificate": profile.certificate_name, "rationale": reason},
+                    )
             except Exception as storage_error:  # noqa: BLE001 - reconcile router state after local commit failure
                 router_verified = False
                 local_reconciled = False
@@ -3901,28 +3914,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(
                     {
                         "error": (
-                            "Dashboard storage could not record this device. RouterOS confirms the new certificate was revoked; no profile was delivered. Retry after storage recovers."
+                            "Dashboard storage could not finalize this device. RouterOS confirms the new certificate was revoked; no profile was delivered. Retry after storage recovers."
                             if reconciliation == "verified" else
-                            "Dashboard storage could not record this device, and recovery is not fully verified. No profile was delivered; check Device Profiles and the RouterOS certificate inventory before retrying."
+                            "Dashboard storage could not finalize this device, and recovery is not fully verified. No profile was delivered; check Device Profiles and the RouterOS certificate inventory before retrying."
                         ),
                         "recovery": reconciliation,
                     },
                     status=HTTPStatus.BAD_GATEWAY,
                 )
                 return
-            if legacy_certificate_name:
-                self.server.context.store.record_profile_migration(
-                    legacy_certificate_name=legacy_certificate_name,
-                    vpn_user=str(user["name"]),
-                    replacement_certificate_name=profile.certificate_name,
-                )
-                self.server.context.store.audit(
-                    actor=session.username,
-                    action="profile.migrate",
-                    target=legacy_certificate_name,
-                    status="success",
-                    details={"replacement_certificate": profile.certificate_name, "rationale": reason},
-                )
             self._deliver_profile(profile, f"{user['name']}-{device_name}.ovpn", delivery)
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
