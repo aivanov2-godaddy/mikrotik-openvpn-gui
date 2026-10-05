@@ -538,14 +538,23 @@ class RouterOSClient:
         }
         if self.ovpn_ca and not include_legacy:
             query["ca"] = self.ovpn_ca
-        records = _records(
-            self._request(
-                "GET",
-                "/certificate",
-                credentials,
-                query=query,
+        try:
+            records = _records(
+                self._request(
+                    "GET",
+                    "/certificate",
+                    credentials,
+                    query=query,
+                )
             )
-        )
+        except RouterOSError as error:
+            # RouterOS error details are server-controlled and may echo
+            # sensitive input. Keep only the safe status classification.
+            raise RouterOSError(
+                "RouterOS certificate inventory could not be read",
+                error.status,
+                failure_kind=error.failure_kind,
+            ) from None
         clients: list[dict[str, Any]] = []
         for item in records:
             key_usage = str(item.get("key-usage", ""))
