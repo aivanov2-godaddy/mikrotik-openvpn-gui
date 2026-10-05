@@ -424,6 +424,16 @@ same-identity re-download. The complete guided staging/import/test/retire
 experience and live RouterOS CRL, active-session, reconnect, and rollback
 acceptance remain incomplete.
 
+PR [#490](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/490)
+closes a managed-device bypass in this workflow: once a replacement is staged
+for a managed certificate, retirement now requires the import and operator
+test attestations, then re-reads the source and replacement certificates before
+review/apply and verifies that the active replacement belongs to the same VPN
+user under the configured CA. RouterOS's user-wide active-session observation
+still cannot attribute that session to a specific certificate. The PR passed
+repository CI but did not exercise or change router/client state; deployment,
+CRL enforcement, reconnect rejection, and rollback remain outstanding.
+
 **Production acceptance update (2026-10-04, 15:02 Europe/Sofia):** the
 operator-authenticated Owner session loaded the protected production Dashboard
 and Connections views; both showed the live Socket.IO transport. This verifies
