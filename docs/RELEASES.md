@@ -49,7 +49,32 @@ historical/rollback reference. v2.7.0 remains the latest numbered release.
 
 ## Published images
 
-### Latest published mainline candidate — PR #501 — 2026-10-06
+### Latest published mainline candidate — PR #504 — 2026-10-06
+
+PR [#504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/504)
+merged to main as
+`a62724c94261b00866fa3d55416a7b540305d40b`. Publication workflow
+[#37384368900](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37384368900)
+passed source and rendered-browser checks, ARM64/AMD64 publication,
+exact-digest provenance/SBOM verification, and published-runtime smoke tests.
+Independent SLSA verification matched both published image digests to this
+commit and the repository's `Publish container` workflow. The
+`routeros-stable` manifest asset was read back and names this commit and both
+immutable tags.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64` | `sha256:2b1d249c4219302305ce54e73b856dc22f5b884ff786b083ea18de2868e454af` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-amd64` | `sha256:81a7e06a1904b36ccd2ba6208a46f93006ac0ab059e7eeb91a220e94c77594fe` |
+
+No RouterOS read-back was performed for PR #504. The latest recorded router
+state remains canary PR #501 and production PR #497; those configured tags do
+not establish that PR #504 is installed. The telemetry/Redis acceptance and
+candidate-specific rollback rehearsal remain pending. Production has not been
+promoted to this candidate. No new numbered release was created; v2.7.0
+remains the latest formal version.
+
+### Previously published mainline candidate — PR #501 — 2026-10-06
 
 PR [#501](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/501)
 merged to main as
@@ -113,7 +138,7 @@ checks. The immutable ARM64 image is:
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64` | `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4` |
 
 This was a published, CI-verified mainline image, not a new numbered release.
-It has since been superseded by PR #497 above. Its publication history is
+It has since been superseded by PR #504 above. Its publication history is
 retained here; the full telemetry/Redis acceptance remains pending.
 
 ### Earlier post-release mainline image publication — PR #484 — 2026-10-05

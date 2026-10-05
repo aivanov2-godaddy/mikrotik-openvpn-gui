@@ -20,14 +20,38 @@ AMD64 image tag/digest:
 `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f`.
 Both image builds passed runtime smoke tests and detached provenance/SBOM
 verification. At the v2.7.0 publication on 2026-10-04, the `routeros-stable`
-manifest pointed to this commit; as of 2026-10-06 it names the PR #501 candidate
+manifest pointed to this commit; as of 2026-10-06 it names the PR #504 candidate
 recorded below. The 2026-10-04 RouterOS WebFig read-back confirmed the v2.7.0 ARM64 immutable tag
 on both canary and production containers, each with the RouterOS healthy
 (`H`) marker. This verifies image deployment and container health only; it is
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
-### Latest mainline candidate and RouterOS read-back — PR #501 — 2026-10-06
+### Latest published mainline candidate — PR #504 — 2026-10-06
+
+PR [#504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/504)
+merged as `a62724c94261b00866fa3d55416a7b540305d40b`. Publication workflow
+[#37384368900](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37384368900)
+passed source/browser validation, ARM64/AMD64 builds, runtime smokes, and
+exact-digest provenance/SBOM verification. Independent SLSA verification
+matched both platform image digests to this mainline commit and the repository's
+`Publish container` workflow; the stable manifest was read back and names this
+commit and both immutable tags.
+
+| Platform | Immutable tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64` | `sha256:2b1d249c4219302305ce54e73b856dc22f5b884ff786b083ea18de2868e454af` |
+| CHR/x86 AMD64 (evaluation) | `sha-a62724c94261b00866fa3d55416a7b540305d40b-amd64` | `sha256:81a7e06a1904b36ccd2ba6208a46f93006ac0ab059e7eeb91a220e94c77594fe` |
+
+No router read-back was performed for PR #504. The latest recorded state
+remains canary PR #501 and production PR #497; this does not establish that
+either is now running PR #504. The candidate-specific canary readiness and
+rollback rehearsal, sustained telemetry/Redis acceptance, session-event and
+traffic freshness measurements, reconnect/recovery, counter-reset, parity and
+ordering, SQLite restore, and live security checks remain open. Production has
+not been promoted to PR #504. The latest formal release remains v2.7.0.
+
+### Previously published mainline candidate and RouterOS read-back — PR #501 — 2026-10-06
 
 PR [#501](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/501)
 merged as `0ab71339f8884e3b8e185d55bfbcdc69cd088c22`. Publication workflow
@@ -53,11 +77,9 @@ point-in-time observation. No configuration was changed. This does not prove
 the canary `/readyz` revision, a sustained resource baseline, or formal
 acceptance.
 
-The production promotion is intentionally outstanding. The PR #501 candidate
-still needs the 30-minute telemetry/Redis window and candidate-specific rollback
-rehearsal; session-event latency, traffic freshness, recovery, counter-reset,
-parity/order, SQLite restore, and live security evidence remain open. The latest
-formal version remains v2.7.0; no new numbered release was created.
+PR #501 was not promoted to production; the last recorded production read-back
+remained on PR #497. The latest formal version remains v2.7.0; no new numbered
+release was created.
 
 ### Previously published mainline image and RouterOS read-back — PR #497 — 2026-10-05
 
