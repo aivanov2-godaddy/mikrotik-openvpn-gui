@@ -47,32 +47,31 @@ session-event delivery, traffic freshness, Redis delivery, end-to-end latency,
 or sustained acceptance. No VPN client was active, so the event/reconnect
 acceptance gates remain open. Exact resource and network values are omitted.
 
-## Latest published runtime patch — PR #476 and dependency updates — 2026-10-05
+## Latest published and RouterOS-confirmed image — PR #478 — 2026-10-05
 
-PR [#476](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/476)
-and dependency PRs [#468](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/468),
-[#469](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/469), and
-[#471](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/471)
-are included in main commit `c9bbdfd9cf84ed9caf93895a8e1f7d934d8da770`.
-Publication workflow
-[37280538708](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37280538708)
+PR [#478](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/478)
+merged as `d5f8f4418d6ec972aa51ea4634b56c7fd89093f4`. Publication workflow
+[37294618814](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37294618814)
 passed source verification, rendered browser/accessibility checks, both
 architecture builds, detached provenance/SBOM verification, and runtime smoke
-tests. The immutable ARM64 image tag is
-`sha-c9bbdfd9cf84ed9caf93895a8e1f7d934d8da770-arm64`, registry digest
-`sha256:13affedf18a017ea1e6a49aafda9ed40381c12db1698516f4b3a36ec0885dc0c`.
-PR #476 requires an active RouterOS session for the matching VPN user before
-recording a replacement-profile test; it explicitly does not claim certificate
-attribution. PRs #468, #469, and #471 update `upload-artifact`, `setup-node`,
-and Redis.
+tests. The immutable ARM64 tag/digest is
+`sha-d5f8f4418d6ec972aa51ea4634b56c7fd89093f4-arm64` /
+`sha256:1ec08a3a0c5d4741a701270ba30249aba62e215649170aa3a6b69c150fc41209`;
+the AMD64 digest is
+`sha256:fad6a49eb253f52c5407369700833c7733f26972f49ae37fa012dd43e0a6f787`.
+PR #478 tightens fail-closed acceptance evidence and adds rendered axe checks
+for desktop no-results and review-dialog states, including a low-contrast fix.
 
-This image has not been confirmed on RouterOS. `dd4a1fa` remains the latest
-confirmed canary/production deployment. The prior PR #474 image
-(`sha-aa48c90a6a5fbba5763a96390f10210efe34131c-arm64`, digest
-`sha256:870324122035e4ca0414bc6ecf0102698f33e10ece81e1645fbed29bb6dc167d`)
-is now superseded in the registry, but is not evidence of deployment either.
-No RouterOS policy, VPN user, certificate, or persistent application data was
-changed for these publications.
+Read-only RouterOS WebFig read-back on 2026-10-05 showed both canary and
+production configured with that ARM64 immutable tag and marked healthy (`H`);
+the Redis container was running (`R`). RouterOS reports the configured image
+tag, not an independent local registry digest. The current dashboard browser
+tab was at sign-in, so authenticated post-deployment rendering and live
+telemetry behavior were not checked. This is deployment/container-health
+evidence only. The 30-minute sampled telemetry/Redis soak, latency/freshness
+percentiles, reconnect/snapshot recovery, event-integrity checks, and rollback
+drill remain pending. No numbered release or RouterOS policy/data change was
+made for PR #478.
 
 ## PR #455 and subsequent RouterOS rollout — 2026-10-05
 
