@@ -92,6 +92,11 @@ class ReleaseCollectionTests(unittest.TestCase):
         ready: bool = True,
         include_metrics: bool = True,
         preclaim_redis: bool = False,
+        traffic_sample_age: float = 0.75,
+        gateway_delivery_p95: float = 0.5,
+        gateway_delivery_observations: int = 8,
+        supervisor_status: str = "healthy",
+        supervisor_enabled: int = 1,
     ) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
         time = FakeTime()
         seen: list[tuple[str, str | None]] = []
@@ -121,8 +126,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_telemetry_session_event_age_seconds 0.25\n"
                 f"vpn_dashboard_telemetry_session_event_timestamp_seconds {now - 0.25}\n"
                 "vpn_dashboard_telemetry_session_events_total 4\n"
-                "vpn_dashboard_telemetry_traffic_sample_age_seconds 0.75\n"
-                f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {now - 0.75}\n"
+                f"vpn_dashboard_telemetry_traffic_sample_age_seconds {traffic_sample_age}\n"
+                f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {now - traffic_sample_age}\n"
                 "vpn_dashboard_telemetry_traffic_samples_total 12\n"
                 "vpn_dashboard_telemetry_gateway_clients 1\n"
                 "vpn_dashboard_telemetry_gateway_buffered_events 2\n"
@@ -131,15 +136,15 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_telemetry_gateway_events_total{outcome=\"snapshot_recovery\"} 1\n"
                 "vpn_dashboard_telemetry_gateway_rejected_clients_total 0\n"
                 "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds 0.2\n"
-                "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds 0.5\n"
-                "vpn_dashboard_telemetry_gateway_delivery_observations 8\n"
-                "vpn_dashboard_telemetry_supervisor_enabled 1\n"
-                "vpn_dashboard_telemetry_supervisor_status{state=\"healthy\"} 1\n"
-                "vpn_dashboard_telemetry_supervisor_status{state=\"disabled\"} 0\n"
-                "vpn_dashboard_telemetry_supervisor_status{state=\"connecting\"} 0\n"
-                "vpn_dashboard_telemetry_supervisor_status{state=\"degraded\"} 0\n"
-                "vpn_dashboard_telemetry_supervisor_status{state=\"stopped\"} 0\n"
-                "vpn_dashboard_telemetry_supervisor_status{state=\"unknown\"} 0\n"
+                f"vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds {gateway_delivery_p95}\n"
+                f"vpn_dashboard_telemetry_gateway_delivery_observations {gateway_delivery_observations}\n"
+                f"vpn_dashboard_telemetry_supervisor_enabled {supervisor_enabled}\n"
+                f"vpn_dashboard_telemetry_supervisor_status{{state=\"healthy\"}} {int(supervisor_status == 'healthy')}\n"
+                f"vpn_dashboard_telemetry_supervisor_status{{state=\"disabled\"}} {int(supervisor_status == 'disabled')}\n"
+                f"vpn_dashboard_telemetry_supervisor_status{{state=\"connecting\"}} {int(supervisor_status == 'connecting')}\n"
+                f"vpn_dashboard_telemetry_supervisor_status{{state=\"degraded\"}} {int(supervisor_status == 'degraded')}\n"
+                f"vpn_dashboard_telemetry_supervisor_status{{state=\"stopped\"}} {int(supervisor_status == 'stopped')}\n"
+                f"vpn_dashboard_telemetry_supervisor_status{{state=\"unknown\"}} {int(supervisor_status == 'unknown')}\n"
                 "vpn_dashboard_telemetry_supervisor_attempts_total 3\n"
                 "vpn_dashboard_telemetry_supervisor_reconnects_total 2\n"
                 "vpn_dashboard_telemetry_supervisor_failures_total 1\n"
@@ -191,6 +196,11 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(gateway["snapshot_recoveries"]["delta"], 0)
         self.assertEqual(gateway["delivery_queue_age_p95_seconds"]["max"], 0.5)
         self.assertIn("excludes RouterOS observation and browser rendering", gateway["meaning"])
+        telemetry_slo = report["deployments"][0]["metrics"]["telemetry_slo"]
+        self.assertEqual(telemetry_slo["traffic_sample_max_age_seconds"], 0.75)
+        self.assertEqual(telemetry_slo["gateway_delivery_p95_max_seconds"], 0.5)
+        self.assertEqual(telemetry_slo["supervisor_non_healthy_samples"], 0)
+        self.assertIn("does not measure RouterOS-to-browser session-change latency", telemetry_slo["meaning"])
         supervisor = report["deployments"][0]["metrics"]["telemetry_supervisor"]
         self.assertEqual(supervisor["status_last"], "healthy")
         self.assertEqual(supervisor["reconnects"]["delta"], 0)
@@ -202,6 +212,48 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertNotIn("private-label", serialized)
         self.assertNotIn("session=secret-cookie", serialized)
         self.assertNotIn("192.168.1.2", serialized)
+
+    def test_measured_telemetry_slo_violations_fail_closed(self) -> None:
+        code, report, _ = self.run_collection(
+            traffic_sample_age=2.1,
+            gateway_delivery_p95=1.1,
+            supervisor_status="degraded",
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("canary_traffic_sample_stale", report["failed_gates"])
+        self.assertIn("production_traffic_sample_stale", report["failed_gates"])
+        self.assertIn("canary_gateway_delivery_latency_exceeded", report["failed_gates"])
+        self.assertIn("production_gateway_delivery_latency_exceeded", report["failed_gates"])
+        self.assertIn("canary_telemetry_supervisor_not_healthy", report["failed_gates"])
+        self.assertIn("production_telemetry_supervisor_not_healthy", report["failed_gates"])
+
+    def test_unobserved_telemetry_slo_fails_closed(self) -> None:
+        code, report, _ = self.run_collection(
+            traffic_sample_age=-1,
+            gateway_delivery_p95=-1,
+            gateway_delivery_observations=0,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("canary_traffic_freshness_unobserved", report["failed_gates"])
+        self.assertIn("production_traffic_freshness_unobserved", report["failed_gates"])
+        self.assertIn("canary_gateway_delivery_latency_unobserved", report["failed_gates"])
+        self.assertIn("production_gateway_delivery_latency_unobserved", report["failed_gates"])
+
+        from scripts.collect_release_acceptance import _metric_window
+
+        summary = _metric_window([{"metrics": {
+            "vpn_dashboard_telemetry_traffic_sample_age_seconds": -1,
+            "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds": -1,
+            "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds": -1,
+            "vpn_dashboard_telemetry_gateway_delivery_observations": 0,
+            "vpn_dashboard_telemetry_supervisor_enabled": 0,
+            "vpn_dashboard_telemetry_supervisor_status_healthy": 0,
+        }}], 0, 1)
+
+        telemetry_slo = summary["telemetry_slo"]
+        self.assertIsNone(telemetry_slo["traffic_sample_max_age_seconds"])
+        self.assertIsNone(telemetry_slo["gateway_delivery_p95_max_seconds"])
+        self.assertEqual(telemetry_slo["supervisor_non_healthy_samples"], 1)
 
     def test_missing_metrics_fail_closed_and_clear_supplied_redis_claims(self) -> None:
         code, report, _ = self.run_collection(include_metrics=False, preclaim_redis=True)
