@@ -857,3 +857,21 @@ Issue #199 remains open: no nonzero VPN-client transition or continuous
 event latency/freshness, reconnect and full-snapshot recovery, event
 integrity, and a canary rollback/restore drill are still unproven. Do not
 promote a candidate or mark acceptance complete on container health alone.
+
+**Read-only browser/device check (2026-10-05):** the already-open production
+dashboard tab was stale (`Connection data delayed`), and its status-poll path
+logged repeated `Failed to fetch` errors (19:40:04–19:42:29 UTC). A separate
+read-only `/metrics` request reached the Cloudflare Access sign-in gate. In a
+different tab using the browser's existing authenticated session, the
+dashboard later showed the Socket.IO live indicator and Operational health;
+health values changed and router uptime advanced across observations about 20
+seconds apart without a page refresh. No connected VPN user was present, so
+session transitions and traffic freshness were not verified. RouterOS WebFig
+showed the recorded PR #497 production image healthy with a good healthcheck;
+a single resource sample was captured without copying exact private values.
+These observations confirm a short live health update in one authenticated
+session, not global availability, a freshness bound, or a sustained resource
+baseline. They do not identify the old tab's polling failure cause or prove the
+Socket.IO transport is down. No sign-in code, page refresh, or router/container
+change was performed. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md);
+formal telemetry acceptance remains open.
