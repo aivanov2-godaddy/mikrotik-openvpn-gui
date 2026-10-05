@@ -50,6 +50,12 @@ scans also fail on any serious/critical finding and do not use the baseline.
 Removing or correcting a finding is allowed; do not broaden the baseline to
 silence a new one.
 
+At a separate 720×500 CSS-pixel viewport, the suite visits all ten views and
+checks that each view and heading remain reachable without document-level
+horizontal overflow. This approximates a 1440px desktop's content width at
+200% zoom, but it is viewport emulation only and is not an actual browser-zoom
+or manual usability result.
+
 This is automated coverage of ten views, not a whole-application conformance
 claim. Additional populated/error states beyond the selected screenshots,
 assistive technology, real browser zoom at 200%, and human task validation are
