@@ -9,7 +9,7 @@ complete, consistent, and within the project's live-data targets.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import math
 import re
@@ -26,6 +26,8 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 ENVIRONMENTS = ("canary", "production")
 MIN_SOAK_SECONDS = 1800
 MIN_HEALTH_SAMPLES = 30
+MAX_COLLECTION_AGE_SECONDS = 900
+MAX_FUTURE_SKEW_SECONDS = 300
 
 
 def _boolean(record: dict[str, Any], field: str) -> bool:
@@ -68,7 +70,7 @@ def _count(record: dict[str, Any], field: str) -> int:
     return int(value)
 
 
-def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
+def evaluate(document: Any, *, now: datetime | None = None) -> tuple[int, dict[str, Any]]:
     if not isinstance(document, dict) or document.get("format") != "vpn-dashboard-release-evidence-v2":
         raise ValueError("format must be vpn-dashboard-release-evidence-v2")
     deployments = document.get("deployments")
@@ -77,7 +79,11 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
 
     failures: list[str] = []
     collection = document.get("collection")
-    if collection is not None:
+    collection_started: datetime | None = None
+    collection_ended: datetime | None = None
+    if collection is None:
+        failures.append("live_collection_missing")
+    else:
         if not isinstance(collection, dict) or collection.get("format") != "vpn-dashboard-release-collection-v1":
             raise ValueError("collection must use vpn-dashboard-release-collection-v1")
         collection_passed = collection.get("passed")
@@ -93,6 +99,21 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
         # public report.
         if not collection_passed or collection_failures:
             failures.append("live_collection_failed")
+        collection_started = _timestamp(collection, "started_at")
+        collection_ended = _timestamp(collection, "ended_at")
+        collection_duration = (collection_ended - collection_started).total_seconds()
+        if collection_duration < MIN_SOAK_SECONDS:
+            failures.append("live_collection_window_too_short")
+        if collection_duration <= 0:
+            failures.append("live_collection_window_invalid")
+        current_time = now or datetime.now(timezone.utc)
+        if current_time.tzinfo is None or current_time.utcoffset() is None:
+            raise ValueError("now must include a timezone")
+        age_seconds = (current_time - collection_ended).total_seconds()
+        if age_seconds > MAX_COLLECTION_AGE_SECONDS:
+            failures.append("live_collection_stale")
+        if age_seconds < -MAX_FUTURE_SKEW_SECONDS:
+            failures.append("live_collection_future_dated")
     safe_records: list[dict[str, Any]] = []
     for record, expected_environment in zip(deployments, ENVIRONMENTS):
         if not isinstance(record, dict):
@@ -203,6 +224,12 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
             "rollback_drill_passed": rollback,
             "production_untouched_on_canary_failure": production_protected,
         })
+
+        if collection_started is not None and collection_ended is not None:
+            if abs((started - collection_started).total_seconds()) > 1 or abs(
+                (ended - collection_ended).total_seconds()
+            ) > 1:
+                failures.append(f"{expected_environment}_collection_window_mismatch")
 
     if safe_records[0]["image"] != safe_records[1]["image"]:
         failures.append("canary_production_image_mismatch")

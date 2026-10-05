@@ -2,15 +2,25 @@ from __future__ import annotations
 
 import unittest
 from copy import deepcopy
+from datetime import datetime, timezone
 
 from scripts.release_acceptance import evaluate
 
 
 class ReleaseAcceptanceTests(unittest.TestCase):
+    NOW = datetime(2026, 10, 2, 10, 31, tzinfo=timezone.utc)
+
     def setUp(self) -> None:
         revision = "a" * 40
         self.evidence = {
             "format": "vpn-dashboard-release-evidence-v2",
+            "collection": {
+                "format": "vpn-dashboard-release-collection-v1",
+                "passed": True,
+                "failed_gates": [],
+                "started_at": "2026-10-02T10:00:00Z",
+                "ended_at": "2026-10-02T10:30:00Z",
+            },
             "deployments": [
                 {
                     "environment": environment,
@@ -48,7 +58,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         }
 
     def test_matching_healthy_canary_and_production_pass(self) -> None:
-        code, report = evaluate(self.evidence)
+        code, report = evaluate(self.evidence, now=self.NOW)
         self.assertEqual(code, 0)
         self.assertTrue(report["passed"])
         self.assertEqual(report["deployments"][0]["digest"], "sha256:" + "b" * 64)
@@ -60,9 +70,11 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "format": "vpn-dashboard-release-collection-v1",
             "passed": False,
             "failed_gates": ["canary_traffic_sample_stale"],
+            "started_at": "2026-10-02T10:00:00Z",
+            "ended_at": "2026-10-02T10:30:00Z",
         }
 
-        code, report = evaluate(evidence)
+        code, report = evaluate(evidence, now=self.NOW)
 
         self.assertEqual(code, 1)
         self.assertFalse(report["passed"])
@@ -74,25 +86,52 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "format": "vpn-dashboard-release-collection-v1",
             "passed": True,
             "failed_gates": [],
+            "started_at": "2026-10-02T10:00:00Z",
+            "ended_at": "2026-10-02T10:30:00Z",
         }
-        code, report = evaluate(evidence)
+        code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 0)
         self.assertTrue(report["passed"])
 
         evidence["collection"]["passed"] = "true"
         with self.assertRaisesRegex(ValueError, "passed must be boolean"):
-            evaluate(evidence)
+            evaluate(evidence, now=self.NOW)
+
+    def test_missing_stale_and_future_collection_evidence_cannot_pass(self) -> None:
+        evidence = deepcopy(self.evidence)
+        del evidence["collection"]
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("live_collection_missing", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"].update({
+            "started_at": "2026-10-02T09:30:00Z",
+            "ended_at": "2026-10-02T10:00:00Z",
+        })
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("live_collection_stale", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"].update({
+            "started_at": "2026-10-02T10:30:00Z",
+            "ended_at": "2026-10-02T11:00:00Z",
+        })
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("live_collection_future_dated", report["failed_gates"])
 
     def test_mismatched_production_digest_fails_closed(self) -> None:
         self.evidence["deployments"][1]["digest"] = "sha256:" + "c" * 64
-        code, report = evaluate(self.evidence)
+        code, report = evaluate(self.evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_production_digest_mismatch", report["failed_gates"])
 
     def test_stale_data_and_redis_failure_are_reported_without_raw_input(self) -> None:
         self.evidence["deployments"][1]["traffic_sample_age_seconds"] = 2.1
         self.evidence["deployments"][1]["redis_publish_verified"] = False
-        code, report = evaluate(self.evidence)
+        code, report = evaluate(self.evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("production_traffic_sample_stale", report["failed_gates"])
         self.assertIn("production_redis_publish_unverified", report["failed_gates"])
@@ -100,13 +139,13 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_incorrect_deployment_order_is_rejected(self) -> None:
         self.evidence["deployments"].reverse()
         with self.assertRaisesRegex(ValueError, "ordered canary"):
-            evaluate(self.evidence)
+            evaluate(self.evidence, now=self.NOW)
 
     def test_short_or_interrupted_soak_fails_closed(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["deployments"][0]["observation_ended_at"] = "2026-10-02T10:10:00Z"
         evidence["deployments"][1]["lost_event_count"] = 1
-        code, report = evaluate(evidence)
+        code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_soak_window_too_short", report["failed_gates"])
         self.assertIn("production_soak_failures_observed", report["failed_gates"])
@@ -115,10 +154,10 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         evidence = deepcopy(self.evidence)
         del evidence["deployments"][0]["router_cpu_peak_percent"]
         with self.assertRaisesRegex(ValueError, "router_cpu_peak_percent"):
-            evaluate(evidence)
+            evaluate(evidence, now=self.NOW)
         evidence = deepcopy(self.evidence)
         evidence["deployments"][0]["rollback_drill_passed"] = False
-        code, report = evaluate(evidence)
+        code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_rollback_drill_failed", report["failed_gates"])
 
@@ -126,7 +165,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         evidence = deepcopy(self.evidence)
         evidence["deployments"][0]["observation_started_at"] = "2026-10-02T10:00:00"
         with self.assertRaisesRegex(ValueError, "include a timezone"):
-            evaluate(evidence)
+            evaluate(evidence, now=self.NOW)
 
 
 if __name__ == "__main__":

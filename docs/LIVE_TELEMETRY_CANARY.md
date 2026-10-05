@@ -110,6 +110,12 @@ timestamped evidence; idle periods cannot be interpreted as zero latency.
 When the collected v1 report is passed to `release_acceptance.py`, its
 `collection.passed` flag and empty `collection.failed_gates` are also required;
 optimistic deployment-record fields cannot override a failed live probe window.
+The final release evaluator also rejects a missing collector record, a window
+shorter than 30 minutes, mismatched deployment/collector timestamps, windows
+ending more than 15 minutes before evaluation, and timestamps more than five
+minutes in the future. The standalone telemetry evaluator applies the same
+freshness and future-skew bounds to its latest sample. Collect fresh evidence
+instead of changing recorded timestamps.
 
 `event_sequence` is checked within an `event_epoch` (a non-negative integer
 identifying one telemetry-process sequence lifetime); omitted epochs default

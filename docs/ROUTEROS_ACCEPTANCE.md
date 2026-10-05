@@ -121,6 +121,15 @@ ages for session events and traffic samples are not end-to-end
 RouterOS-to-browser latency. It does not call RouterOS APIs, restart
 containers, or modify state.
 
+The final release evaluator requires the collector's timestamped result; a
+deployment-only evidence file cannot pass. Its collection window must cover at
+least 30 minutes, match both deployment observation windows, and end no more
+than 15 minutes before evaluation. Timestamps more than five minutes in the
+future fail closed to tolerate only small clock skew. The standalone telemetry
+evaluator applies the same 15-minute freshness and five-minute future-skew
+limits to its latest sample. Rerun the read-only collector when evidence is
+stale; do not edit timestamps by hand.
+
 Start from the [evidence schema example](release-acceptance-evidence.example.json)
 and fill its RouterOS-only and exercise results locally. Keep that file private.
 The collector overwrites app health, readiness, timestamps, sample counts,

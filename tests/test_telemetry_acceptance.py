@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from scripts.telemetry_acceptance import evaluate
+from scripts.telemetry_acceptance import evaluate as _evaluate
 
 
 LIMITS = {
@@ -15,6 +15,11 @@ LIMITS = {
     "max_reconnects": 0.0,
     "recovery_seconds": 10.0,
 }
+
+
+def evaluate(lines, *, limits, now=1_728_001_860):
+    """Freeze acceptance time so fixture evidence stays deterministic."""
+    return _evaluate(lines, limits=limits, now=now)
 
 
 def records(*values: dict[str, object]) -> list[str]:
@@ -108,6 +113,29 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["failed_gates"], [])
         self.assertEqual(result["sample_count"], 31)
         self.assertEqual(result["observation_window_seconds"], 1800)
+
+    def test_stale_or_future_dated_sample_window_cannot_pass(self) -> None:
+        samples = [
+            {
+                "type": "sample", "observed_at": 1_728_000_000 + index * 60,
+                "latency_ms": 100, "event_age_seconds": 0.5,
+                "router_cpu_percent": 22, "router_memory_percent": 34,
+                "router_storage_percent": 12, "container_healthy": True,
+                "event_sequence": index,
+            }
+            for index in range(31)
+        ]
+        stale_code, stale_report = evaluate(
+            records(*samples), limits=LIMITS, now=1_728_000_000 + 1800 + 901
+        )
+        self.assertEqual(stale_code, 1)
+        self.assertIn("observation_window_stale", stale_report["failed_gates"])
+
+        future_code, future_report = evaluate(
+            records(*samples), limits=LIMITS, now=1_728_000_000 + 1800 - 301
+        )
+        self.assertEqual(future_code, 1)
+        self.assertIn("observation_window_future_dated", future_report["failed_gates"])
 
     def test_attestations_must_be_timestamped_inside_sample_window(self) -> None:
         samples = [
