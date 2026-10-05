@@ -12,16 +12,16 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest recorded 2026-10-03 production/canary
+prove RouterOS compatibility. The latest recorded 2026-10-05 production/canary
 read-back covers immutable revision
-`sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-arm64` on one physical RouterOS
-ARM64 installation running RouterOS 7.24.5 stable. Both containers reported
-healthy. RouterOS reported the configured immutable tag, not the registry image
-digest. This is a point-in-time deployment observation—not completion of the
-controlled latency/freshness, event-integrity, recovery, resource-soak, or
-rollback acceptance below. No resource minimum or cross-model/version
-certification is inferred. See the [installation compatibility
-matrix](INSTALLATION.md#compatibility-and-support-matrix) and [release record](RELEASES.md#latest-published-runtime-image-and-routeros-tag-read-back).
+`sha-d5f8f4418d6ec972aa51ea4634b56c7fd89093f4-arm64` on one physical RouterOS
+ARM64 installation running RouterOS 7.24.5 stable. Both dashboard containers
+reported healthy and Redis was running. RouterOS reported the configured
+immutable tag, not the registry image digest. This is a point-in-time deployment
+observation—not completion of the controlled latency/freshness, event-integrity,
+recovery, resource-soak, or rollback acceptance below. No resource minimum or
+cross-model/version certification is inferred. See the [installation compatibility
+matrix](INSTALLATION.md#compatibility-and-support-matrix) and [release record](RELEASES.md#latest-stable-registry-publication-and-deployment-read-back).
 
 - Use one immutable candidate such as
   `ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64`.
