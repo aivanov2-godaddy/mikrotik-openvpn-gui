@@ -10,6 +10,27 @@ copied into this repository. The later runtime image listed below is a newer
 build; its full 30-minute Redis/telemetry acceptance window and rollback drill
 have not been recorded as complete.
 
+## Browser/API access gate — 2026-10-05, about 03:17–03:19 Europe/Sofia
+
+The already-open production Dashboard showed `Connection data delayed` while
+its browser console repeatedly reported `TypeError: Failed to fetch` from the
+five-second `/api/status` poll. A separate direct navigation to `/api/status`
+was redirected to the Cloudflare Access login page before reaching the app.
+No HTTP response status or application error body was captured, so the exact
+failure layer is not proven; the evidence is consistent with an expired or
+unavailable Cloudflare Access session in that browser context and does not
+establish a RouterOS API or Redis fault. The already-rendered page must not be
+counted as a successful authenticated telemetry observation.
+
+RouterOS WebFig logs around the same interval showed local `/readyz` HTTP 200
+probes for canary and production. Readiness probes do not verify authenticated
+`/api/status`, live-stream delivery, or end-to-end telemetry freshness. No
+login code was submitted, the original dashboard tab was not reloaded, and no
+RouterOS configuration or container was changed. Resume live acceptance only
+after the operator restores Cloudflare Access authentication and an
+authenticated endpoint response is observed. This is a gate, not a passing
+acceptance sample.
+
 ## PR #455 and subsequent RouterOS rollout — 2026-10-05
 
 PR [#455](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/455)

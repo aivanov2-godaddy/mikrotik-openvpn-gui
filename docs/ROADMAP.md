@@ -464,6 +464,23 @@ does not measure a VPN-client event, Redis stream delivery/recovery, API
 restart/snapshot recovery, or formal soak. No router configuration or container
 was changed. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
+**Latest browser/API access gate (2026-10-05, about 03:17–03:19 Europe/Sofia):**
+the already-rendered production Dashboard showed `Connection data delayed`,
+and its console repeatedly recorded `TypeError: Failed to fetch` from the
+`/api/status` poll. A separate direct navigation to that endpoint was
+redirected to Cloudflare Access login. The response status/body was not
+captured, so the exact failure layer is unproven; this is consistent with an
+expired or unavailable Access session, not evidence of a RouterOS or Redis
+failure. RouterOS local `/readyz` checks still returned HTTP 200, which does
+not establish authenticated status or live-event delivery. The existing page
+was not reloaded, no login code was submitted, and RouterOS/containers were
+not changed. The older PR #455 “not deployed” note in the issue table is
+superseded by the later successful scheduled rollout and PR #457 image
+read-back above; this new Access-gated observation supersedes the earlier
+02:50–02:51 “Live · SOCKETIO” observation as the latest browser state. Do not
+resume or pass live acceptance until authenticated API access is restored.
+See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
 **Acceptance evidence integrity:** merged PR #461 requires reconnect,
 comparison, security, and verification attestations to carry timestamps within
 the same strictly increasing sample window; missing timestamps,
