@@ -62,15 +62,18 @@ passed for both architectures:
 | RouterOS ARM64 | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` | `sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73` |
 | CHR/x86 AMD64 (evaluation) | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-amd64` | `sha256:6c6c2babc30e499f35b62877cc8e2450ea17cb0aad9e32b3f296cfd5199fce78` |
 
-This is a published mainline image, not a new numbered release and not a
-RouterOS-confirmed deployment. The last verified canary/production read-back
-below predates this image; the dashboard browser was at sign-in during the
-subsequent inspection. Do not describe this candidate as deployed or accepted
-until RouterOS read-back and the required canary evidence are recorded.
+This is a published mainline image, not a new numbered release. RouterOS
+WebFig read-back on 2026-10-05 after publication showed both canary and
+production configured with the ARM64 immutable tag above and healthy (`H`);
+the Redis container was also running (`R`). RouterOS reports the configured
+tag, not an independently verified registry digest. This confirms deployment
+configuration and container health, not sustained acceptance. The active
+dashboard browser tab was at sign-in during inspection, so authenticated
+post-deployment streaming and UI behavior remain unverified.
 The `routeros-stable` manifest was refreshed by the same publication workflow
 to this candidate; that manifest update does not itself update any router.
 
-### Latest numbered release and last RouterOS deployment read-back
+### Latest numbered release and previous RouterOS-confirmed runtime patch
 
 The latest formal release is **v2.7.0**, commit
 `2e01f111e1445c79b1753477a41efbaec27a1a2d`. Subsequent main-branch runtime
@@ -86,14 +89,12 @@ passed. The published immutable tags/digests for this on-router revision were:
 | RouterOS ARM64 | `sha-d5f8f4418d6ec972aa51ea4634b56c7fd89093f4-arm64` | `sha256:1ec08a3a0c5d4741a701270ba30249aba62e215649170aa3a6b69c150fc41209` |
 | CHR/x86 AMD64 (evaluation) | `sha-d5f8f4418d6ec972aa51ea4634b56c7fd89093f4-amd64` | `sha256:fad6a49eb253f52c5407369700833c7733f26972f49ae37fa012dd43e0a6f787` |
 
-RouterOS WebFig read-back on 2026-10-05 showed canary and production configured
-with the ARM64 immutable tag above, both healthy (`H`), and Redis running (`R`).
-This is the last verified on-router revision, not the latest published
-mainline image above. RouterOS reports the configured tag, not an independent registry digest. The
-dashboard browser was at sign-in during this read-back, so authenticated
-post-deployment rendering/live behavior was not verified. This is point-in-time
-deployment and container-health evidence—not the formal sustained acceptance
-window. Latency/freshness percentiles, API restart/recovery, counter-reset and
+RouterOS WebFig read-back after the publication above showed canary and
+production configured with its ARM64 immutable tag, both healthy (`H`), and
+Redis running (`R`). RouterOS reports the configured tag, not an independent
+registry digest. This is point-in-time deployment and container-health
+evidence—not the formal sustained acceptance window. Latency/freshness
+percentiles, API restart/recovery, counter-reset and
 event-integrity checks, Redis delivery soak, and rollback drills remain
 outstanding.
 

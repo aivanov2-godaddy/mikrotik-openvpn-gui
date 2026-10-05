@@ -60,10 +60,14 @@ AMD64 tag/digest:
 `sha256:6c6c2babc30e499f35b62877cc8e2450ea17cb0aad9e32b3f296cfd5199fce78`.
 The `routeros-stable` manifest was refreshed to this candidate as part of the
 same workflow; it does not update routers automatically.
-This mainline image is not a numbered release and has not been verified on
-RouterOS. The last read-back still identifies the older `d5f8f441` image;
-deployment, post-deployment UI/live-stream verification, and canary acceptance
-remain outstanding. The latest numbered release remains v2.7.0.
+This mainline image is not a numbered release. RouterOS WebFig read-back on
+2026-10-05 after publication showed canary and production configured with the
+ARM64 immutable tag above, both healthy (`H`), with Redis running (`R`).
+RouterOS reports the configured tag, not an independently verified registry
+digest. This confirms deployment configuration and container health, but not
+sustained canary acceptance. The active dashboard browser tab was at sign-in
+during inspection, so authenticated post-deployment streaming and UI behavior
+remain unverified. The latest numbered release remains v2.7.0.
 
 PR #474's earlier published-but-unverified image was
 `sha-aa48c90a6a5fbba5763a96390f10210efe34131c-arm64` /
