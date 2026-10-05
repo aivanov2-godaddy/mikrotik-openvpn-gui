@@ -14,7 +14,10 @@ the add-user dialog, and the Connections termination-review prompt. The default
 mock RouterOS fixture provides the populated/connected state. These cases use
 the local mock app and fixed REST/UI fixtures; EventSource is disabled, and
 neither live-stream timing nor a real router is involved. This is a selected
-regression set, not an exhaustive combination of every view and state.
+regression set, not an exhaustive combination of every view and state. The
+no-results filter, add-user dialog, and termination-review dialog also receive
+axe-core WCAG 2.2 A/AA scans in their rendered states; these focused state scans
+run on desktop, while the ten primary-view scans run at all three viewports.
 
 ## Run locally
 
@@ -42,8 +45,10 @@ at desktop, tablet, and mobile viewports. The current committed
 original three views, and the expanded scans assert there are no serious or
 critical findings across all ten. Older descriptions of contrast and
 scroll-region findings are historical and must not be presented as current
-results. CI fails on new serious/critical findings. Removing or correcting a
-finding is allowed; do not broaden the baseline to silence a new one.
+results. CI fails on new serious/critical findings. The three focused state
+scans also fail on any serious/critical finding and do not use the baseline.
+Removing or correcting a finding is allowed; do not broaden the baseline to
+silence a new one.
 
 This is automated coverage of ten views, not a whole-application conformance
 claim. Additional populated/error states beyond the selected screenshots,

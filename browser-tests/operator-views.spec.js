@@ -18,6 +18,20 @@ const accessibilityViews = [
   { name: 'Setup Planner', heading: 'Installation planner', target: 'setup-planner' },
 ];
 
+async function expectNoSeriousAxeViolations(page, testInfo, stateName) {
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  const serious = results.violations
+    .filter(({ impact }) => ['critical', 'serious'].includes(impact))
+    .flatMap(({ id, impact, nodes }) => nodes.map((node) => ({ id, impact, target: node.target.join(' ') })));
+  await testInfo.attach(`axe-${stateName}-serious-findings.json`, {
+    body: Buffer.from(JSON.stringify({ state: stateName, findings: serious }, null, 2)),
+    contentType: 'application/json',
+  });
+  expect(serious, `${stateName}: no serious/critical WCAG 2.2 A/AA findings`).toEqual([]);
+}
+
 test.beforeEach(async ({ page }) => {
   // Freeze browser time and prevent a real-time transport from starting. The
   // mock app supplies deterministic REST fixtures; live-event timing is out of
@@ -98,6 +112,7 @@ test('VPN Users no-results state renders consistently', async ({ page }, testInf
   await search.blur();
   await expect(page.locator('[data-user-filter-empty]')).toBeVisible();
   await expect(page.locator('[data-user-filter-empty]')).toContainText('No users match your search');
+  await expectNoSeriousAxeViolations(page, testInfo, 'vpn-users-no-results');
   await expect(page).toHaveScreenshot('vpn-users-no-results.png', {
     fullPage: true,
     style: '#system-status time { visibility: hidden !important; }',
@@ -109,6 +124,7 @@ test('VPN Users add-user dialog renders consistently', async ({ page }, testInfo
   await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
   await page.getByRole('button', { name: 'Add VPN user' }).click();
   await expect(page.getByRole('dialog', { name: 'Add a person and phone' })).toBeVisible();
+  await expectNoSeriousAxeViolations(page, testInfo, 'vpn-users-add-dialog');
   await expect(page).toHaveScreenshot('vpn-users-add-dialog.png', {
     fullPage: true,
     style: '#system-status time { visibility: hidden !important; }',
@@ -121,6 +137,7 @@ test('Connections termination-review prompt renders consistently', async ({ page
   await expect(page.locator('.session-card')).toHaveCount(1);
   await page.locator('.session-card [data-terminate]').click();
   await expect(page.locator('#terminate-dialog')).toBeVisible();
+  await expectNoSeriousAxeViolations(page, testInfo, 'connections-terminate-dialog');
   await expect(page).toHaveScreenshot('connections-terminate-prompt.png', {
     fullPage: true,
     style: '#system-status time { visibility: hidden !important; }',

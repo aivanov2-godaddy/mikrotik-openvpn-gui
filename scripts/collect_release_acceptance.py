@@ -34,6 +34,8 @@ MIN_HEALTH_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
 MAX_TRAFFIC_SAMPLE_AGE_SECONDS = 2.0
 MAX_GATEWAY_DELIVERY_P95_SECONDS = 1.0
+MAX_OUTBOX_PENDING_AT_WINDOW_END = 0
+MAX_OUTBOX_DEAD_LETTERED = 0
 METRIC_NAMES = {
     "vpn_dashboard_health",
     "vpn_dashboard_redis_configured",
@@ -258,6 +260,21 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
             "unknown_samples": sum(value < 0 for value in values),
         }
 
+    session_event_age = observation_age(
+        "vpn_dashboard_telemetry_session_event_age_seconds",
+        "vpn_dashboard_telemetry_session_event_timestamp_seconds",
+    )
+    traffic_sample_age = observation_age(
+        "vpn_dashboard_telemetry_traffic_sample_age_seconds",
+        "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
+    )
+    gateway_delivery_age = gauge_window(
+        "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds"
+    )
+    outbox_pending = gauge_window("vpn_dashboard_integration_outbox_pending")
+    outbox_dead_lettered = gauge_window("vpn_dashboard_integration_outbox_dead_lettered")
+    outbox_oldest_age = gauge_window("vpn_dashboard_integration_outbox_oldest_age_seconds")
+
     redis_failure_window = counter_window("vpn_dashboard_redis_publish_total_failure")
     failure_delta = redis_failure_window["delta"]
     failure_counter_reset = redis_failure_window["counter_reset"]
@@ -272,6 +289,11 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         "outbox_pending_last": last.get("vpn_dashboard_integration_outbox_pending"),
         "outbox_dead_lettered_last": last.get("vpn_dashboard_integration_outbox_dead_lettered"),
         "outbox_oldest_age_seconds_last": last.get("vpn_dashboard_integration_outbox_oldest_age_seconds"),
+        "outbox_pending_unknown_samples": outbox_pending["unknown_samples"],
+        "outbox_dead_lettered_max": outbox_dead_lettered["max"],
+        "outbox_dead_lettered_unknown_samples": outbox_dead_lettered["unknown_samples"],
+        "outbox_oldest_age_max_seconds": outbox_oldest_age["max"],
+        "outbox_oldest_age_unknown_samples": outbox_oldest_age["unknown_samples"],
         "telemetry_gateway": {
             "authorized_clients_last": last.get("vpn_dashboard_telemetry_gateway_clients"),
             "buffered_events_last": last.get("vpn_dashboard_telemetry_gateway_buffered_events"),
@@ -293,14 +315,8 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
             ),
         },
         "telemetry_process_observation_age": {
-            "session_event": observation_age(
-                "vpn_dashboard_telemetry_session_event_age_seconds",
-                "vpn_dashboard_telemetry_session_event_timestamp_seconds",
-            ),
-            "traffic_sample": observation_age(
-                "vpn_dashboard_telemetry_traffic_sample_age_seconds",
-                "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
-            ),
+            "session_event": session_event_age,
+            "traffic_sample": traffic_sample_age,
             "meaning": "Age since this process observed telemetry; not RouterOS-to-browser delivery latency.",
         },
         "telemetry_supervisor": {
@@ -330,13 +346,11 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
             "meaning": "Aggregate process-local RouterOS Binary API supervisor state; counters may reset on process restart.",
         },
         "telemetry_slo": {
-            "traffic_sample_max_age_seconds": observation_age(
-                "vpn_dashboard_telemetry_traffic_sample_age_seconds",
-                "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
-            )["max_seconds"],
-            "gateway_delivery_p95_max_seconds": gauge_window(
-                "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds"
-            )["max"],
+            "session_event_unknown_samples": session_event_age["unknown_samples"],
+            "traffic_sample_max_age_seconds": traffic_sample_age["max_seconds"],
+            "traffic_sample_unknown_samples": traffic_sample_age["unknown_samples"],
+            "gateway_delivery_p95_max_seconds": gateway_delivery_age["max"],
+            "gateway_delivery_p95_unknown_samples": gateway_delivery_age["unknown_samples"],
             "gateway_delivery_observations_last": last.get(
                 "vpn_dashboard_telemetry_gateway_delivery_observations"
             ),
@@ -504,6 +518,10 @@ def collect(
         if metric_summary["available"]:
             telemetry_slo = metric_summary["telemetry_slo"]
             traffic_age = telemetry_slo["traffic_sample_max_age_seconds"]
+            if telemetry_slo["session_event_unknown_samples"]:
+                failed_gates.append(f"{environment}_session_event_freshness_incomplete")
+            if telemetry_slo["traffic_sample_unknown_samples"]:
+                failed_gates.append(f"{environment}_traffic_freshness_incomplete")
             if traffic_age is None:
                 failed_gates.append(f"{environment}_traffic_freshness_unobserved")
             elif traffic_age > MAX_TRAFFIC_SAMPLE_AGE_SECONDS:
@@ -514,8 +532,24 @@ def collect(
                 failed_gates.append(f"{environment}_gateway_delivery_latency_unobserved")
             elif gateway_p95 > MAX_GATEWAY_DELIVERY_P95_SECONDS:
                 failed_gates.append(f"{environment}_gateway_delivery_latency_exceeded")
+            if telemetry_slo["gateway_delivery_p95_unknown_samples"]:
+                failed_gates.append(f"{environment}_gateway_delivery_latency_incomplete")
             if telemetry_slo["supervisor_non_healthy_samples"]:
                 failed_gates.append(f"{environment}_telemetry_supervisor_not_healthy")
+            if metric_summary["outbox_dead_lettered_unknown_samples"]:
+                failed_gates.append(f"{environment}_outbox_dead_letter_count_unobserved")
+            elif metric_summary["outbox_dead_lettered_max"] is None:
+                failed_gates.append(f"{environment}_outbox_dead_letter_count_unobserved")
+            elif metric_summary["outbox_dead_lettered_max"] > MAX_OUTBOX_DEAD_LETTERED:
+                failed_gates.append(f"{environment}_outbox_dead_letters_present")
+            if metric_summary["outbox_pending_unknown_samples"]:
+                failed_gates.append(f"{environment}_outbox_pending_count_unobserved")
+            elif metric_summary["outbox_pending_last"] is None or metric_summary["outbox_pending_last"] < 0:
+                failed_gates.append(f"{environment}_outbox_pending_count_unobserved")
+            elif metric_summary["outbox_pending_last"] > MAX_OUTBOX_PENDING_AT_WINDOW_END:
+                failed_gates.append(f"{environment}_outbox_not_drained")
+            if metric_summary["outbox_oldest_age_unknown_samples"] or metric_summary["outbox_oldest_age_max_seconds"] is None:
+                failed_gates.append(f"{environment}_outbox_age_unobserved")
             # A passing Redis publish requires configuration, observed availability,
             # and a successful publish in this observation window.
             metrics_window_complete = (

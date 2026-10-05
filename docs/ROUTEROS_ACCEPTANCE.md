@@ -121,6 +121,14 @@ ages for session events and traffic samples are not end-to-end
 RouterOS-to-browser latency. It does not call RouterOS APIs, restart
 containers, or modify state.
 
+The sampled release gate fails if any session-event, traffic-freshness, or
+gateway-delivery latency sample is unknown, even if other samples in the window
+are valid. At the end of each environment's observation window, the Redis
+outbox must be drained and its dead-letter count must be zero; missing or
+unknown outbox metrics, pending events, or any dead-lettered event observed in
+the window fail acceptance. This prevents a single fresh sample or successful
+publish from masking gaps or a stuck delivery queue.
+
 The final release evaluator requires the collector's timestamped result; a
 deployment-only evidence file cannot pass. Its collection window must cover at
 least 30 minutes, match both deployment observation windows, and end no more
