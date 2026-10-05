@@ -652,9 +652,9 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 .dialog-card header p:not(.eyebrow) { margin: 2px 0 0; overflow: hidden; color: #c2d5df; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .dialog-fields { display: grid; gap: 7px; }
 .dialog-fields > label { display: grid; grid-template-columns: 145px minmax(0, 1fr); align-items: center; gap: 4px 10px; font-size: 11px; }
-.dialog-fields label small { grid-column: 2; color: #7e8b94; font-size: 9px; }
+.dialog-fields label small { grid-column: 2; color: var(--muted); font-size: 9px; }
 .dialog-fields label span { font-weight: 600; text-align: right; }
-.dialog-fields label span i { color: #81909a; font-size: 9px; font-style: normal; font-weight: 400; }
+.dialog-fields label span i { color: var(--muted); font-size: 9px; font-style: normal; font-weight: 400; }
 .selected-user { display: flex; justify-content: space-between; margin-top: 2px; padding: 6px 8px; color: #8e9ba4; border: 1px solid var(--line); background: #202b33; font-size: 10px; }
 .selected-user strong { color: #d4dce0; }
 .dialog-card > footer { display: flex; justify-content: flex-end; gap: 7px; padding-top: 2px; border-top: 1px solid var(--line); }

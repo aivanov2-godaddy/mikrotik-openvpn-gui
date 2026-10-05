@@ -97,9 +97,14 @@ class ReleaseCollectionTests(unittest.TestCase):
         gateway_delivery_observations: int = 8,
         supervisor_status: str = "healthy",
         supervisor_enabled: int = 1,
+        outbox_pending: int = 0,
+        outbox_dead_lettered: int = 0,
+        outbox_oldest_age: float = 0,
+        unknown_metric_sample: int | None = None,
     ) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
         time = FakeTime()
         seen: list[tuple[str, str | None]] = []
+        metrics_observations = 0
         source = evidence()
         if preclaim_redis:
             for deployment in source["deployments"]:
@@ -113,6 +118,9 @@ class ReleaseCollectionTests(unittest.TestCase):
             if url.endswith("/readyz"):
                 payload = {"status": "ready", "revision": REVISION if ready else "f" * 40}
                 return 200, json.dumps(payload).encode()
+            nonlocal metrics_observations
+            metrics_observations += 1
+            sample_is_unknown = metrics_observations == unknown_metric_sample
             now = time.clock().timestamp()
             payload = (
                 "vpn_dashboard_redis_configured 1\n"
@@ -120,14 +128,14 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_redis_publish_total{outcome=\"success\"} 7\n"
                 "vpn_dashboard_redis_publish_total{outcome=\"failure\"} 0\n"
                 f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {now}\n"
-                "vpn_dashboard_integration_outbox_pending 0\n"
-                "vpn_dashboard_integration_outbox_dead_lettered 0\n"
-                "vpn_dashboard_integration_outbox_oldest_age_seconds 0\n"
-                "vpn_dashboard_telemetry_session_event_age_seconds 0.25\n"
-                f"vpn_dashboard_telemetry_session_event_timestamp_seconds {now - 0.25}\n"
+                f"vpn_dashboard_integration_outbox_pending {-1 if sample_is_unknown else outbox_pending}\n"
+                f"vpn_dashboard_integration_outbox_dead_lettered {-1 if sample_is_unknown else outbox_dead_lettered}\n"
+                f"vpn_dashboard_integration_outbox_oldest_age_seconds {-1 if sample_is_unknown else outbox_oldest_age}\n"
+                f"vpn_dashboard_telemetry_session_event_age_seconds {-1 if sample_is_unknown else 0.25}\n"
+                f"vpn_dashboard_telemetry_session_event_timestamp_seconds {-1 if sample_is_unknown else now - 0.25}\n"
                 "vpn_dashboard_telemetry_session_events_total 4\n"
-                f"vpn_dashboard_telemetry_traffic_sample_age_seconds {traffic_sample_age}\n"
-                f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {now - traffic_sample_age}\n"
+                f"vpn_dashboard_telemetry_traffic_sample_age_seconds {-1 if sample_is_unknown else traffic_sample_age}\n"
+                f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {-1 if sample_is_unknown else now - traffic_sample_age}\n"
                 "vpn_dashboard_telemetry_traffic_samples_total 12\n"
                 "vpn_dashboard_telemetry_gateway_clients 1\n"
                 "vpn_dashboard_telemetry_gateway_buffered_events 2\n"
@@ -136,7 +144,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_telemetry_gateway_events_total{outcome=\"snapshot_recovery\"} 1\n"
                 "vpn_dashboard_telemetry_gateway_rejected_clients_total 0\n"
                 "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds 0.2\n"
-                f"vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds {gateway_delivery_p95}\n"
+                f"vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds {-1 if sample_is_unknown else gateway_delivery_p95}\n"
                 f"vpn_dashboard_telemetry_gateway_delivery_observations {gateway_delivery_observations}\n"
                 f"vpn_dashboard_telemetry_supervisor_enabled {supervisor_enabled}\n"
                 f"vpn_dashboard_telemetry_supervisor_status{{state=\"healthy\"}} {int(supervisor_status == 'healthy')}\n"
@@ -254,6 +262,34 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIsNone(telemetry_slo["traffic_sample_max_age_seconds"])
         self.assertIsNone(telemetry_slo["gateway_delivery_p95_max_seconds"])
         self.assertEqual(telemetry_slo["supervisor_non_healthy_samples"], 1)
+
+    def test_mixed_unknown_slo_sample_fails_even_when_other_samples_are_fresh(self) -> None:
+        code, report, _ = self.run_collection(unknown_metric_sample=2)
+        self.assertEqual(code, 1)
+        self.assertIn("production_session_event_freshness_incomplete", report["failed_gates"])
+        self.assertIn("production_traffic_freshness_incomplete", report["failed_gates"])
+        self.assertIn("production_gateway_delivery_latency_incomplete", report["failed_gates"])
+        production = next(item for item in report["deployments"] if item["environment"] == "production")
+        self.assertGreater(production["metrics"]["telemetry_process_observation_age"]["traffic_sample"]["max_seconds"], 0)
+        self.assertGreater(production["metrics"]["telemetry_process_observation_age"]["traffic_sample"]["unknown_samples"], 0)
+
+    def test_pending_or_dead_lettered_outbox_fails_acceptance(self) -> None:
+        code, report, _ = self.run_collection(
+            outbox_pending=2,
+            outbox_dead_lettered=1,
+            outbox_oldest_age=45,
+        )
+        self.assertEqual(code, 1)
+        for environment in ("canary", "production"):
+            self.assertIn(f"{environment}_outbox_not_drained", report["failed_gates"])
+            self.assertIn(f"{environment}_outbox_dead_letters_present", report["failed_gates"])
+
+    def test_unknown_outbox_sample_fails_even_when_final_sample_is_known(self) -> None:
+        code, report, _ = self.run_collection(unknown_metric_sample=2)
+        self.assertEqual(code, 1)
+        self.assertIn("production_outbox_pending_count_unobserved", report["failed_gates"])
+        self.assertIn("production_outbox_dead_letter_count_unobserved", report["failed_gates"])
+        self.assertIn("production_outbox_age_unobserved", report["failed_gates"])
 
     def test_missing_metrics_fail_closed_and_clear_supplied_redis_claims(self) -> None:
         code, report, _ = self.run_collection(include_metrics=False, preclaim_redis=True)
