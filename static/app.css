@@ -1121,6 +1121,14 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .form-status { font-size: 12px; line-height: 1.4; }
 }
 
+@media (max-width: 560px) {
+  /* At 200% zoom the brand host is redundant with the router status pill.
+     Let it yield space so the sign-out control keeps its full accessible label. */
+  .brand-host { display: none; }
+  .top-logout { flex: 0 0 max-content; }
+  .top-logout button { width: auto; min-width: 42px; flex: 0 0 max-content; white-space: nowrap; }
+}
+
 @media (max-width: 520px) {
   .winbox-menubar { min-height: 56px; }
   .winbox-sidebar { top: 56px; }

@@ -858,6 +858,15 @@ event latency/freshness, reconnect and full-snapshot recovery, event
 integrity, and a canary rollback/restore drill are still unproven. Do not
 promote a candidate or mark acceptance complete on container health alone.
 
+**#192 zoom-equivalent layout follow-up (2026-10-05):** A read-only dashboard
+spot-check at a 539 CSS-pixel viewport found the mobile header's sign-out label
+clipped by flex sizing. The responsive header now lets the redundant brand-host
+label yield space and keeps sign-out at its full width. A rendered-browser
+regression checks the label and document overflow at 539×700 across all three
+browser projects. This is viewport emulation, not physical 200% browser zoom.
+The human task study, assistive-technology review, and actual 200% zoom review
+remain open; this does not close #192.
+
 **Read-only browser/device check (2026-10-05):** the already-open production
 dashboard tab was stale (`Connection data delayed`), and its status-poll path
 logged repeated `Failed to fetch` errors (19:40:04–19:42:29 UTC). A separate
