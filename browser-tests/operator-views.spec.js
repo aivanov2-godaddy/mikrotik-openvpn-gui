@@ -361,6 +361,26 @@ test('720 CSS-pixel reflow keeps all operator views reachable', async ({ page })
   expect(navigationCanScroll, 'primary navigation remains horizontally scrollable').toBe(true);
 });
 
+test('539 CSS-pixel 200% zoom-equivalent viewport keeps sign-out label readable', async ({ page }) => {
+  // A 1078px desktop viewport at 200% browser zoom has roughly this CSS width.
+  // This checks the responsive layout equivalent, not the browser zoom setting.
+  await page.setViewportSize({ width: 539, height: 700 });
+  const signOutButton = page.getByRole('button', { name: /Sign out/ });
+  await expect(signOutButton).toBeVisible();
+
+  const buttonGeometry = await page.locator('.top-logout button').evaluate((button) => ({
+    clientWidth: button.clientWidth,
+    scrollWidth: button.scrollWidth,
+    labelVisible: getComputedStyle(button.querySelector('span')).display !== 'none',
+  }));
+  expect(buttonGeometry.labelVisible, 'the sign-out label remains present at this width').toBe(true);
+  expect(buttonGeometry.scrollWidth, 'the sign-out label must not be clipped by flex shrink')
+    .toBeLessThanOrEqual(buttonGeometry.clientWidth);
+
+  const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(pageWidth, 'the page must not overflow the zoom-equivalent viewport').toBeLessThanOrEqual(539);
+});
+
 test('forced-colors mode keeps Dashboard navigation and keyboard focus visible', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await expect.poll(() => page.evaluate(() => window.matchMedia('(forced-colors: active)').matches))
