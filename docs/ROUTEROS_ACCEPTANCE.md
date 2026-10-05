@@ -138,10 +138,13 @@ against its own recorded revision throughout the window and requires
 production to remain on a different prior immutable image from the canary
 candidate. The default `--phase postpromotion` is for verification after
 promotion and requires canary and production to report the same candidate
-image/revision. In either phase, each recorded immutable image digest is
-independently compared with its GHCR OCI manifest digest; an unavailable or
-mismatched registry digest fails closed. This verifies registry artifact
-identity, not the bytes cached on the router. The final evaluator reports
+image/revision. In `canary-prepromotion`, only the candidate canary tag/digest
+is checked against GHCR; the prior production digest and metrics endpoint are
+not required. In `postpromotion`, both canary and production tag/digest pairs
+are checked; any required candidate registry digest that is unavailable or
+mismatched fails closed. This verifies registry artifact identity, not the
+bytes cached on the router. The report declares the registry-check scope, and
+the final evaluator reports
 `promotion_eligible` for a passing pre-promotion candidate gate and
 `production_accepted` only for a passing post-promotion collection. A
 pre-promotion report does not assert production acceptance. After promotion,
@@ -213,10 +216,14 @@ that environment's health/readiness origin (scheme, hostname, and effective
 port). The acceptance
 window is at least 30 minutes, with at least 30 health samples
 per environment and no sample gap over 120 seconds. Duration is capped at 24
-hours, sampling at 10,000 observations, request timeout at 30 seconds, and
-redirects are not followed. The collector checks each recorded tag/digest pair
-against GHCR's current OCI manifest digest; unavailable or mismatched registry
-digests fail closed. This is not an independent read-back of RouterOS's cached
+hours, sampling at 10,000 observations, and app-probe socket timeout at 30
+seconds; redirects are not followed. Each GHCR digest lookup runs in a child
+process with a hard wall-clock cap of the configured timeout plus a 0.5-second
+cleanup margin, so a server trickling response headers cannot hold the
+collector indefinitely. The collector checks the candidate tag/digest in a
+pre-promotion run and both tag/digest pairs post-promotion against GHCR's
+current OCI manifest; required unavailable or mismatched registry digests fail
+closed. This is not an independent read-back of RouterOS's cached
 image bytes: the current RouterOS container status exposes the configured tag,
 not its local OCI digest. The report therefore explicitly records
 `router_runtime_digest_verified: false`. Keep the output local or redact it

@@ -158,35 +158,22 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_pre_promotion_collection_passes_gate_without_claiming_production_acceptance(self) -> None:
         self.evidence["collection"]["phase"] = "canary-prepromotion"
         previous_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
-        previous_digest = "sha256:" + "c" * 64
         production = self.evidence["deployments"][1]
         production["image"] = previous_image
-        production["digest"] = previous_digest
-        production["transport"] = "socketio"
-        production["rest_fallback"] = False
-        production["redis_configured"] = False
-        production["redis_publish_verified"] = False
-        production["reconnect_recovered"] = False
-        production["snapshot_recovered"] = False
-        production["sqlite_restore_verified"] = False
-        production["session_event_p95_ms"] = 5000
-        production["traffic_sample_age_seconds"] = 10
-        production["stale_sample_count"] = 1
-        production["lost_event_count"] = 1
-        production["duplicate_event_count"] = 1
-        production["out_of_order_event_count"] = 1
-        production["redis_delivery_failure_count"] = 1
-        production["router_cpu_peak_percent"] = 95
-        production["router_memory_peak_percent"] = 95
-        production["router_storage_peak_percent"] = 95
-        production["rollback_drill_passed"] = False
-        production["production_untouched_on_canary_failure"] = False
-        verification = self.evidence["collection"]["registry_digest_verification"][1]
-        verification.update({
-            "image": previous_image,
-            "expected_digest": previous_digest,
-            "observed_digest": previous_digest,
-        })
+        production["digest"] = None
+        for field in (
+            "transport", "rest_fallback", "redis_configured", "redis_publish_verified",
+            "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
+            "session_event_p95_ms", "traffic_sample_age_seconds", "stale_sample_count",
+            "lost_event_count", "duplicate_event_count", "out_of_order_event_count",
+            "redis_delivery_failure_count", "router_cpu_peak_percent",
+            "router_memory_peak_percent", "router_storage_peak_percent",
+            "rollback_drill_passed", "production_untouched_on_canary_failure",
+        ):
+            production.pop(field)
+        self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
+            "registry_digest_verification"
+        ][:1]
 
         code, report = evaluate(self.evidence, now=self.NOW)
 
@@ -194,15 +181,44 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertTrue(report["promotion_eligible"])
         self.assertFalse(report["production_accepted"])
         self.assertEqual(report["phase"], "canary-prepromotion")
+        self.assertEqual(report["registry_digest_verification_scope"], "candidate-canary-only")
         accepted_production = report["deployments"][1]
+        self.assertIsNone(accepted_production["digest"])
         self.assertIsNone(accepted_production["transport"])
         self.assertIsNone(accepted_production["session_event_p95_ms"])
         self.assertIsNone(accepted_production["router_cpu_peak_percent"])
         self.assertIsNone(accepted_production["stale_sample_count"])
         self.assertIsNone(accepted_production["rollback_drill_passed"])
 
+    def test_collected_pre_promotion_evidence_is_evaluable_with_socketio_baseline(self) -> None:
+        self.evidence["collection"]["phase"] = "canary-prepromotion"
+        previous_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+        previous_digest = "sha256:" + "c" * 64
+        production = self.evidence["deployments"][1]
+        production["image"] = previous_image
+        production["digest"] = previous_digest
+        production["transport"] = "socketio"
+        self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
+            "registry_digest_verification"
+        ][:1]
+
+        _, collected_projection = evaluate(self.evidence, now=self.NOW)
+        collected_evidence = {
+            **self.evidence,
+            "deployments": collected_projection["deployments"],
+        }
+
+        code, report = evaluate(collected_evidence, now=self.NOW)
+
+        self.assertEqual(code, 0)
+        self.assertFalse(report["production_accepted"])
+        self.assertIsNone(report["deployments"][1]["transport"])
+
     def test_pre_promotion_cannot_pass_when_production_already_uses_candidate(self) -> None:
         self.evidence["collection"]["phase"] = "canary-prepromotion"
+        self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
+            "registry_digest_verification"
+        ][:1]
 
         code, report = evaluate(self.evidence, now=self.NOW)
 

@@ -3,8 +3,8 @@
 RouterOS-specific measurements remain operator-supplied in the evidence file.
 The canary-prepromotion phase verifies the candidate while production stays on
 its recorded prior revision. The postpromotion phase requires both environments
-on the same candidate. Probes are read-only; each immutable digest is checked
-against GHCR before the soak.
+on the same candidate. Probes are read-only; the candidate digest (and, after
+promotion, the production digest) is checked against GHCR before the soak.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import math
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -152,8 +154,6 @@ def _get(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
         headers["Cookie"] = cookie
     request = Request(url, headers=headers, method="GET")
     opener = build_opener(_NoRedirect())
-    stage = "open"
-    response_socket = None
     try:
         with opener.open(request, timeout=timeout) as response:
             payload = response.read(MAX_RESPONSE_BYTES + 1)
@@ -171,7 +171,27 @@ def _get(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
 
 
 def _registry_digest(image: str, *, timeout: float) -> str | None:
-    """Return the published GHCR manifest digest for a validated immutable image.
+    """Return a GHCR digest, enforcing a total deadline with a worker process."""
+    if not IMAGE.fullmatch(image) or not math.isfinite(timeout) or timeout <= 0:
+        return None
+    try:
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--internal-ghcr-digest", image, str(timeout)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout + 0.5,
+            text=True,
+            encoding="utf-8",
+        )
+    except (OSError, subprocess.SubprocessError, TimeoutError):
+        return None
+    digest = result.stdout.strip() if result.returncode == 0 else ""
+    return digest if DIGEST.fullmatch(digest) else None
+
+
+def _registry_digest_request(image: str, *, timeout: float) -> str | None:
+    """Fetch the GHCR manifest digest; the parent enforces the wall deadline.
 
     Only GHCR is queried, redirects are disabled, response sizes are bounded,
     and the short-lived anonymous pull token is never returned or logged.
@@ -528,25 +548,31 @@ def collect(
         if not isinstance(record, dict) or record.get("environment") != environment:
             raise ValueError("evidence deployments must be ordered canary, then production")
         image = str(record.get("image", ""))
-        digest = str(record.get("digest", ""))
-        if not IMAGE.fullmatch(image) or not DIGEST.fullmatch(digest):
+        raw_digest = record.get("digest")
+        digest = raw_digest if isinstance(raw_digest, str) and DIGEST.fullmatch(raw_digest) else None
+        prior_production_baseline = phase == "canary-prepromotion" and environment == "production"
+        if not IMAGE.fullmatch(image) or (digest is None and not prior_production_baseline):
             raise ValueError(f"{environment} evidence needs an immutable image tag and digest")
-        safe_records[environment] = dict(record)
+        safe_records[environment] = {**record, "digest": digest}
 
     if phase == "postpromotion" and safe_records["canary"]["image"] != safe_records["production"]["image"]:
         raise ValueError("canary and production must use the same image")
     if phase == "canary-prepromotion" and (
         safe_records["canary"]["image"] == safe_records["production"]["image"]
-        or safe_records["canary"]["digest"] == safe_records["production"]["digest"]
+        or (
+            safe_records["production"]["digest"] is not None
+            and safe_records["canary"]["digest"] == safe_records["production"]["digest"]
+        )
     ):
-        raise ValueError("pre-promotion canary evidence requires production to remain on its prior image and digest")
+        raise ValueError("pre-promotion canary evidence requires production to remain on its prior immutable image")
     expected_revisions = {
         environment: REVISION_IN_IMAGE.search(safe_records[environment]["image"]).group("revision")  # type: ignore[union-attr]
         for environment in ENVIRONMENTS
     }
     registry_verification: list[dict[str, Any]] = []
     failed_gates: list[str] = []
-    for environment in ENVIRONMENTS:
+    registry_environments = ("canary",) if phase == "canary-prepromotion" else ENVIRONMENTS
+    for environment in registry_environments:
         image = safe_records[environment]["image"]
         expected_digest = safe_records[environment]["digest"]
         try:
@@ -754,6 +780,9 @@ def collect(
             "read_only_app_probe_paths": ["/healthz", "/readyz", "/metrics"],
             "registry_request_methods": ["GET token", "HEAD image manifest"],
             "image_digest_source": "GHCR Docker-Content-Digest response",
+            "registry_digest_verification_scope": (
+                "candidate-canary-only" if phase == "canary-prepromotion" else "canary-and-production"
+            ),
             "router_runtime_digest_verified": False,
             "registry_digest_verification": registry_verification,
         },
@@ -771,7 +800,7 @@ def main() -> int:
     parser.add_argument("--canary-url", required=True, help="private app origin, without path")
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
     parser.add_argument("--canary-metrics-url", required=True, help="canary app origin for authenticated /metrics")
-    parser.add_argument("--production-metrics-url", required=True, help="production app origin for authenticated /metrics")
+    parser.add_argument("--production-metrics-url", help="production app origin for authenticated /metrics (required for postpromotion acceptance)")
     parser.add_argument("--cookie-env", help="environment variable containing a short-lived session Cookie header value")
     parser.add_argument("--duration-seconds", type=float, default=1800)
     parser.add_argument("--interval-seconds", type=float, default=60)
@@ -818,4 +847,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 4 and sys.argv[1] == "--internal-ghcr-digest":
+        try:
+            worker_digest = _registry_digest_request(sys.argv[2], timeout=float(sys.argv[3]))
+        except (ValueError, OverflowError):
+            worker_digest = None
+        if worker_digest:
+            sys.stdout.write(worker_digest + "\n")
+            raise SystemExit(0)
+        raise SystemExit(1)
     raise SystemExit(main())

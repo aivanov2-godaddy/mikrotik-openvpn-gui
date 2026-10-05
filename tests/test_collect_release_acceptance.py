@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from contextlib import redirect_stdout
+from io import StringIO
 import json
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -74,6 +77,17 @@ class FakeTime:
 
 
 class ReleaseCollectionTests(unittest.TestCase):
+    def test_production_metrics_origin_is_optional_for_pre_promotion_cli(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        output = StringIO()
+        with patch.object(sys, "argv", ["collect_release_acceptance.py", "--help"]):
+            with redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+                collector.main()
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("[--production-metrics-url PRODUCTION_METRICS_URL]", output.getvalue())
+
     def test_registry_digest_uses_bounded_ghcr_token_and_manifest_head(self) -> None:
         from scripts import collect_release_acceptance as collector
 
@@ -128,7 +142,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         opener = Opener()
         build_opener = Mock(return_value=opener)
         with patch.object(collector, "build_opener", build_opener):
-            observed = collector._registry_digest(IMAGE, timeout=3)
+            observed = collector._registry_digest_request(IMAGE, timeout=3)
 
         self.assertEqual(observed, digest)
         token_request, manifest_request = opener.requests
@@ -140,6 +154,15 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertTrue(any(isinstance(handler, collector._NoRedirect) for handler in build_opener.call_args.args))
         self.assertTrue(token_response.socket.timeouts)
         self.assertTrue(all(0 < timeout <= 3 for timeout in token_response.socket.timeouts))
+
+    def test_registry_digest_parent_enforces_total_deadline(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        timeout_error = collector.subprocess.TimeoutExpired("ghcr worker", 3.5)
+        with patch.object(collector.subprocess, "run", side_effect=timeout_error) as run:
+            self.assertIsNone(collector._registry_digest(IMAGE, timeout=3))
+
+        self.assertEqual(run.call_args.kwargs["timeout"], 3.5)
 
     def test_registry_digest_does_not_follow_redirects(self) -> None:
         from scripts import collect_release_acceptance as collector
@@ -165,7 +188,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         opener = Opener()
         build_opener = Mock(return_value=opener)
         with patch.object(collector, "build_opener", build_opener):
-            self.assertIsNone(collector._registry_digest(IMAGE, timeout=3))
+            self.assertIsNone(collector._registry_digest_request(IMAGE, timeout=3))
         self.assertEqual(len(opener.requests), 1)
         self.assertTrue(any(isinstance(handler, collector._NoRedirect) for handler in build_opener.call_args.args))
 
@@ -261,6 +284,8 @@ class ReleaseCollectionTests(unittest.TestCase):
         production_revision: str | None = None,
         production_observed_revision: str | None = None,
         registry_digests: dict[str, str | None] | None = None,
+        clear_prior_production_runtime_evidence: bool = False,
+        omit_prior_production_digest: bool = False,
     ) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
         time = FakeTime()
         time.wall_clock_adjustment_seconds = wall_clock_adjustment_seconds
@@ -272,7 +297,21 @@ class ReleaseCollectionTests(unittest.TestCase):
             production["image"] = f"ghcr.io/example/vpn:sha-{production_revision}-arm64"
             production["digest"] = "sha256:" + "c" * 64
         if phase == "canary-prepromotion":
-            source["deployments"][1]["transport"] = "socketio"
+            production = source["deployments"][1]
+            production["transport"] = "socketio"
+            if omit_prior_production_digest:
+                production["digest"] = None
+            if clear_prior_production_runtime_evidence:
+                for field in (
+                    "transport", "rest_fallback", "redis_configured", "redis_publish_verified",
+                    "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
+                    "session_event_p95_ms", "traffic_sample_age_seconds", "stale_sample_count",
+                    "lost_event_count", "duplicate_event_count", "out_of_order_event_count",
+                    "redis_delivery_failure_count", "router_cpu_peak_percent",
+                    "router_memory_peak_percent", "router_storage_peak_percent",
+                    "rollback_drill_passed", "production_untouched_on_canary_failure",
+                ):
+                    production.pop(field, None)
         resolved_registry_digests = registry_digests or {
             source["deployments"][0]["image"]: source["deployments"][0]["digest"],
             source["deployments"][1]["image"]: source["deployments"][1]["digest"],
@@ -603,12 +642,48 @@ class ReleaseCollectionTests(unittest.TestCase):
                     phase="canary-prepromotion",
                     production_revision="c" * 40,
                     include_production_metrics=include_production_metrics,
+                    clear_prior_production_runtime_evidence=True,
+                    omit_prior_production_digest=True,
                 )
 
                 self.assertEqual(code, 0)
                 self.assertEqual(report["evidence"]["deployments"][1]["redis_publish_verified"], False)
+                self.assertIsNone(report["evidence"]["deployments"][1]["digest"])
                 self.assertEqual(report["deployments"][1]["metrics_sample_count"], 0)
                 self.assertFalse(any(url == "https://private.example/metrics" for url, _ in seen))
+                self.assertEqual(
+                    report["evidence"]["collection"]["registry_digest_verification_scope"],
+                    "candidate-canary-only",
+                )
+                self.assertEqual(
+                    [item["environment"] for item in report["evidence"]["collection"]["registry_digest_verification"]],
+                    ["canary"],
+                )
+                from scripts.release_acceptance import evaluate
+
+                collected_evidence = report["evidence"]
+                started = "2026-10-02T10:25:00+00:00"
+                ended = "2026-10-02T10:55:00+00:00"
+                collected_evidence["collection"].update({
+                    "started_at": started,
+                    "ended_at": ended,
+                    "duration_seconds": 1800,
+                })
+                for deployment in collected_evidence["deployments"]:
+                    deployment.update({
+                        "observation_started_at": started,
+                        "observation_ended_at": ended,
+                        "health_sample_count": 30,
+                        "max_sample_gap_seconds": 60,
+                    })
+                accepted, final_report = evaluate(
+                    collected_evidence,
+                    now=datetime(2026, 10, 2, 11, tzinfo=timezone.utc),
+                )
+                self.assertEqual(accepted, 0, final_report["failed_gates"])
+                self.assertFalse(final_report["production_accepted"])
+                self.assertIsNone(final_report["deployments"][1]["digest"])
+                self.assertIsNone(final_report["deployments"][1]["transport"])
 
     def test_pre_promotion_soak_fails_if_production_revision_changes(self) -> None:
         code, report, _ = self.run_collection(

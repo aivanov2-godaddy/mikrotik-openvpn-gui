@@ -70,6 +70,24 @@ def _count(record: dict[str, Any], field: str) -> int:
     return int(value)
 
 
+def _optional_boolean(record: dict[str, Any], field: str, *, optional: bool) -> bool | None:
+    if optional and record.get(field) is None:
+        return None
+    return _boolean(record, field)
+
+
+def _optional_number(record: dict[str, Any], field: str, *, optional: bool) -> float | None:
+    if optional and record.get(field) is None:
+        return None
+    return _number(record, field)
+
+
+def _optional_count(record: dict[str, Any], field: str, *, optional: bool) -> int | None:
+    if optional and record.get(field) is None:
+        return None
+    return _count(record, field)
+
+
 def evaluate(
     document: Any,
     *,
@@ -103,8 +121,9 @@ def evaluate(
         if phase is not None and phase != collection_phase:
             raise ValueError("requested phase must match collection phase")
         registry_verification = collection.get("registry_digest_verification")
-        if not isinstance(registry_verification, list) or len(registry_verification) != len(ENVIRONMENTS):
-            raise ValueError("collection must include registry digest verification for both environments")
+        expected_registry_count = 1 if collection_phase == "canary-prepromotion" else len(ENVIRONMENTS)
+        if not isinstance(registry_verification, list) or len(registry_verification) != expected_registry_count:
+            raise ValueError("collection registry digest verification does not match its phase")
         collection_passed = collection.get("passed")
         collection_failures = collection.get("failed_gates")
         if not isinstance(collection_passed, bool):
@@ -143,40 +162,45 @@ def evaluate(
         image_match = IMAGE.fullmatch(image)
         if not image_match:
             raise ValueError(f"{expected_environment} image must use a full immutable sha-commit tag")
-        digest = str(record.get("digest", ""))
-        if not DIGEST.fullmatch(digest):
-            raise ValueError(f"{expected_environment} digest must be a sha256 OCI digest")
-        transport = record.get("transport")
         prior_production_baseline = (
             collection_phase == "canary-prepromotion" and expected_environment == "production"
         )
+        raw_digest = record.get("digest")
+        digest = raw_digest if isinstance(raw_digest, str) and DIGEST.fullmatch(raw_digest) else None
+        if digest is None and not prior_production_baseline:
+            raise ValueError(f"{expected_environment} digest must be a sha256 OCI digest")
+        transport = record.get("transport")
         allowed_transports = (
             {"rest", "binary", "socketio", "sse", "asgi-websocket", "sse-fallback"}
             if prior_production_baseline
             else {"asgi-websocket", "sse-fallback"}
         )
-        if not isinstance(transport, str) or transport not in allowed_transports:
+        if prior_production_baseline and transport is None:
+            pass
+        elif not isinstance(transport, str) or transport not in allowed_transports:
             raise ValueError(f"{expected_environment} transport must identify the observed runtime")
 
         healthy = _boolean(record, "container_healthy")
         ready = _boolean(record, "app_ready")
-        fallback = _boolean(record, "rest_fallback")
-        redis_configured = _boolean(record, "redis_configured")
-        redis_available = _boolean(record, "redis_publish_verified")
-        reconnect = _boolean(record, "reconnect_recovered")
-        snapshot = _boolean(record, "snapshot_recovered")
-        backup_restore = _boolean(record, "sqlite_restore_verified")
-        rollback = _boolean(record, "rollback_drill_passed")
-        production_protected = _boolean(record, "production_untouched_on_canary_failure")
-        latency = _number(record, "session_event_p95_ms")
-        sample_age = _number(record, "traffic_sample_age_seconds")
+        fallback = _optional_boolean(record, "rest_fallback", optional=prior_production_baseline)
+        redis_configured = _optional_boolean(record, "redis_configured", optional=prior_production_baseline)
+        redis_available = _optional_boolean(record, "redis_publish_verified", optional=prior_production_baseline)
+        reconnect = _optional_boolean(record, "reconnect_recovered", optional=prior_production_baseline)
+        snapshot = _optional_boolean(record, "snapshot_recovered", optional=prior_production_baseline)
+        backup_restore = _optional_boolean(record, "sqlite_restore_verified", optional=prior_production_baseline)
+        rollback = _optional_boolean(record, "rollback_drill_passed", optional=prior_production_baseline)
+        production_protected = _optional_boolean(
+            record, "production_untouched_on_canary_failure", optional=prior_production_baseline
+        )
+        latency = _optional_number(record, "session_event_p95_ms", optional=prior_production_baseline)
+        sample_age = _optional_number(record, "traffic_sample_age_seconds", optional=prior_production_baseline)
         started = _timestamp(record, "observation_started_at")
         ended = _timestamp(record, "observation_ended_at")
         soak_seconds = (ended - started).total_seconds()
         health_samples = _count(record, "health_sample_count")
         max_sample_gap = _number(record, "max_sample_gap_seconds")
         failure_counts = {
-            name: _count(record, name)
+            name: _optional_count(record, name, optional=prior_production_baseline and name != "health_failures")
             for name in (
                 "health_failures", "stale_sample_count", "lost_event_count",
                 "duplicate_event_count", "out_of_order_event_count",
@@ -184,7 +208,7 @@ def evaluate(
             )
         }
         resource_peaks = {
-            name: _number(record, name)
+            name: _optional_number(record, name, optional=prior_production_baseline)
             for name in (
                 "router_cpu_peak_percent", "router_memory_peak_percent",
                 "router_storage_peak_percent",
@@ -203,9 +227,9 @@ def evaluate(
             failures.append(f"{expected_environment}_reconnect_recovery_failed")
         if not prior_production_baseline and not backup_restore:
             failures.append(f"{expected_environment}_sqlite_restore_unverified")
-        if not prior_production_baseline and latency > 1000:
+        if not prior_production_baseline and latency is not None and latency > 1000:
             failures.append(f"{expected_environment}_session_event_latency_exceeded")
-        if not prior_production_baseline and sample_age > 2:
+        if not prior_production_baseline and sample_age is not None and sample_age > 2:
             failures.append(f"{expected_environment}_traffic_sample_stale")
         if soak_seconds < MIN_SOAK_SECONDS:
             failures.append(f"{expected_environment}_soak_window_too_short")
@@ -220,11 +244,11 @@ def evaluate(
             if prior_production_baseline
             else tuple(failure_counts.values())
         )
-        if any(value > 0 for value in relevant_failures):
+        if any(value is not None and value > 0 for value in relevant_failures):
             failures.append(f"{expected_environment}_soak_failures_observed")
         if not prior_production_baseline:
             for resource, limit in zip(resource_peaks, (80, 90, 90)):
-                if resource_peaks[resource] > limit:
+                if resource_peaks[resource] is not None and resource_peaks[resource] > limit:
                     failures.append(f"{expected_environment}_{resource}_exceeded")
         if expected_environment == "canary" and not rollback:
             failures.append("canary_rollback_drill_failed")
@@ -271,11 +295,15 @@ def evaluate(
             ) > 1:
                 failures.append(f"{expected_environment}_collection_window_mismatch")
 
+    registry_environments = (
+        ("canary",) if collection_phase == "canary-prepromotion" else ENVIRONMENTS
+    )
     if collection is not None:
         registry_digests_verified = True
-        for verification, deployment, expected_environment in zip(
-            registry_verification, safe_records, ENVIRONMENTS
-        ):
+        if not isinstance(registry_verification, list) or len(registry_verification) != len(registry_environments):
+            raise ValueError("collection registry digest verification does not match its phase")
+        for verification, expected_environment in zip(registry_verification, registry_environments):
+            deployment = safe_records[ENVIRONMENTS.index(expected_environment)]
             if not isinstance(verification, dict):
                 raise ValueError("registry digest verification entries must be objects")
             verified = (
@@ -297,7 +325,11 @@ def evaluate(
     elif collection_phase == "canary-prepromotion":
         if (
             safe_records[0]["image"] == safe_records[1]["image"]
-            or safe_records[0]["digest"] == safe_records[1]["digest"]
+            or (
+                safe_records[0]["digest"] is not None
+                and safe_records[1]["digest"] is not None
+                and safe_records[0]["digest"] == safe_records[1]["digest"]
+            )
         ):
             failures.append("prepromotion_production_not_on_prior_image")
     report = {
@@ -307,6 +339,9 @@ def evaluate(
         "promotion_eligible": collection_phase == "canary-prepromotion" and not failures,
         "production_accepted": collection_phase == "postpromotion" and not failures,
         "registry_tag_digests_verified": registry_digests_verified,
+        "registry_digest_verification_scope": (
+            "candidate-canary-only" if collection_phase == "canary-prepromotion" else "canary-and-production"
+        ),
         "router_runtime_digest_verified": False,
         "failed_gates": sorted(set(failures)),
         "deployments": safe_records,
