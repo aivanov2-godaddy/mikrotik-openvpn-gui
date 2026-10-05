@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import io
+import json
 import unittest
+import urllib.error
+import urllib.request
 from unittest.mock import patch
 
 from config import OpenVPNTopology
@@ -225,6 +229,186 @@ class RouterOSClientTests(unittest.TestCase):
         by_name = {item["name"]: item for item in certificates}
         self.assertTrue(by_name["ovpn-user-one-device-a"]["revoked"])
         self.assertFalse(by_name["ovpn-user-two-device-b"]["revoked"])
+
+    def test_certificate_inventory_normalizes_revocation_forms_without_leaking_secrets(self) -> None:
+        missing = object()
+        cases = (
+            ("timestamp", "2026-09-15 12:34:56", True),
+            ("empty", "", False),
+            ("no", "no", False),
+            ("false string", "false", False),
+            ("false boolean", False, False),
+            ("null", None, False),
+            ("zero string", "0", False),
+            ("omitted", missing, False),
+        )
+        secret_markers = (
+            "SYNTHETIC-PASSWORD-DO-NOT-LEAK",
+            "SYNTHETIC-PRIVATE-KEY-DO-NOT-LEAK",
+            "SYNTHETIC-PROFILE-DO-NOT-LEAK",
+            "SYNTHETIC-TOKEN-DO-NOT-LEAK",
+        )
+
+        with MockRouterOS() as mock:
+            template = mock.state.certificates["*CL1"]
+            for index, (label, revoked, _) in enumerate(cases, start=1):
+                record = dict(template)
+                record[".id"] = f"*SYNTH{index}"
+                record["name"] = f"synthetic-{label.replace(' ', '-')}"
+                if revoked is missing:
+                    record.pop("revoked", None)
+                else:
+                    record["revoked"] = revoked
+                record.update({
+                    "password": secret_markers[0],
+                    "private-key": secret_markers[1],
+                    "profile": secret_markers[2],
+                    "token": secret_markers[3],
+                })
+                mock.state.certificates[record[".id"]] = record
+
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            inventory = client.list_ovpn_client_certificates(
+                RouterOSCredentials("admin", "routerpass")
+            )
+
+        by_name = {item["name"]: item for item in inventory}
+        for label, _, expected in cases:
+            with self.subTest(revoked_form=label):
+                self.assertEqual(by_name[f"synthetic-{label.replace(' ', '-')}"]["revoked"], expected)
+
+        serialized_inventory = json.dumps(inventory, sort_keys=True)
+        for marker in secret_markers:
+            self.assertNotIn(marker, serialized_inventory)
+        self.assertTrue(all(
+            set(item) == {
+                "id", "name", "common_name", "fingerprint", "issuer",
+                "certificate_authority", "invalid_after", "expires_after",
+                "revoked", "trusted",
+            }
+            for item in inventory
+        ))
+        self.assertEqual(mock.state.mutation_requests, [])
+        self.assertEqual(
+            mock.state.rest_reads,
+            [("/certificate", {
+                ".proplist": [
+                    ".id,name,common-name,fingerprint,issuer,invalid-after,"
+                    "expires-after,revoked,key-usage,trusted,ca"
+                ],
+                "ca": ["vpn-ca"],
+            })],
+        )
+
+    def test_certificate_inventory_handles_missing_identity_and_expiry_fields(self) -> None:
+        with MockRouterOS() as mock:
+            incomplete = dict(mock.state.certificates["*CL1"])
+            for field in (
+                ".id", "name", "common-name", "fingerprint", "issuer",
+                "invalid-after", "expires-after", "ca",
+            ):
+                incomplete.pop(field, None)
+            mock.state.certificates["*MISSING-FIELDS"] = incomplete
+
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            inventory = client.list_ovpn_client_certificates(
+                RouterOSCredentials("admin", "routerpass"), include_legacy=True
+            )
+
+        missing_fields = next(item for item in inventory if item["id"] == "")
+        self.assertEqual(missing_fields["name"], "")
+        self.assertEqual(missing_fields["common_name"], "")
+        self.assertEqual(missing_fields["fingerprint"], "")
+        self.assertEqual(missing_fields["issuer"], "")
+        self.assertEqual(missing_fields["certificate_authority"], "")
+        self.assertEqual(missing_fields["invalid_after"], "")
+        self.assertEqual(missing_fields["expires_after"], "")
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_certificate_inventory_filters_ca_and_excludes_non_client_certificates(self) -> None:
+        with MockRouterOS() as mock:
+            legacy = dict(mock.state.certificates["*CL1"])
+            legacy.update({".id": "*LEGACY", "name": "legacy-client", "ca": "old-ca"})
+            mock.state.certificates[legacy[".id"]] = legacy
+
+            server = dict(mock.state.certificates["*CL2"])
+            server.update({".id": "*SERVER", "name": "server-certificate", "key-usage": "tls-server"})
+            mock.state.certificates[server[".id"]] = server
+
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            current_only = client.list_ovpn_client_certificates(credentials)
+            include_legacy = client.list_ovpn_client_certificates(credentials, include_legacy=True)
+
+        self.assertEqual(
+            [item["name"] for item in current_only],
+            ["ovpn-user-one-device-a", "ovpn-user-two-device-b"],
+        )
+        self.assertEqual(
+            [item["name"] for item in include_legacy],
+            ["legacy-client", "ovpn-user-one-device-a", "ovpn-user-two-device-b"],
+        )
+        self.assertNotIn("server-certificate", {item["name"] for item in include_legacy})
+        self.assertEqual(mock.state.certificate_queries[0].get("ca"), ["vpn-ca"])
+        self.assertNotIn("ca", mock.state.certificate_queries[1])
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_certificate_inventory_errors_do_not_echo_routeros_error_details(self) -> None:
+        secret_marker = "SYNTHETIC-PRIVATE-KEY-ERROR-DO-NOT-LEAK"
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            response_body = json.dumps({"detail": f"RouterOS echoed {secret_marker}"}).encode()
+            http_error = urllib.error.HTTPError(
+                f"{mock.url}/rest/certificate",
+                500,
+                "Internal Server Error",
+                {},
+                io.BytesIO(response_body),
+            )
+            with patch.object(
+                urllib.request,
+                "urlopen",
+                side_effect=http_error,
+            ):
+                with self.assertRaises(RouterOSError) as raised:
+                    client.list_ovpn_client_certificates(
+                        RouterOSCredentials("admin", "routerpass")
+                    )
+
+        self.assertNotIn(secret_marker, str(raised.exception))
+        self.assertNotIn("PRIVATE KEY", str(raised.exception))
+        self.assertEqual(str(raised.exception), "RouterOS certificate inventory could not be read")
+        self.assertEqual(raised.exception.status, 500)
+        self.assertIsNone(raised.exception.failure_kind)
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_certificate_inventory_sanitization_preserves_safe_failure_metadata(self) -> None:
+        secret_marker = "SYNTHETIC-ERROR-DETAIL-DO-NOT-LEAK"
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            with patch.object(
+                client,
+                "_request",
+                side_effect=RouterOSError(
+                    f"RouterOS echoed {secret_marker}",
+                    503,
+                    failure_kind="timeout",
+                ),
+            ):
+                with self.assertRaises(RouterOSError) as raised:
+                    client.list_ovpn_client_certificates(
+                        RouterOSCredentials("admin", "routerpass")
+                    )
+
+        self.assertNotIn(secret_marker, str(raised.exception))
+        self.assertEqual(str(raised.exception), "RouterOS certificate inventory could not be read")
+        self.assertEqual(raised.exception.status, 503)
+        self.assertEqual(raised.exception.failure_kind, "timeout")
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(mock.state.mutation_requests, [])
 
     def test_authentication_and_crud(self) -> None:
         with MockRouterOS() as mock:
