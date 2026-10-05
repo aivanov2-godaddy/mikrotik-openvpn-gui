@@ -134,13 +134,19 @@ def evaluate(lines: Iterable[str], *, limits: dict[str, float]) -> tuple[int, di
                         out_of_order_flag = True
             duplicate_events += int(duplicate_flag or inferred_duplicate)
             out_of_order_events += int(out_of_order_flag or inferred_out_of_order)
-            if record.get("counter_reset"):
-                if not _boolean(record["counter_reset"], "counter_reset"):
-                    raise ValueError("counter_reset must be boolean")
+            counter_reset = (
+                _boolean(record["counter_reset"], "counter_reset")
+                if "counter_reset" in record
+                else False
+            )
+            counter_reset_recovered = (
+                _boolean(record["counter_reset_recovered"], "counter_reset_recovered")
+                if "counter_reset_recovered" in record
+                else False
+            )
+            if counter_reset:
                 counter_resets += 1
-                recovered = record.get("counter_reset_recovered", False)
-                _boolean(recovered, "counter_reset_recovered")
-                if not recovered:
+                if not counter_reset_recovered:
                     counter_reset_failures += 1
                 else:
                     counter_reset_evidence += 1

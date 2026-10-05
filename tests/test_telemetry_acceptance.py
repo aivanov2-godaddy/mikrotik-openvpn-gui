@@ -282,6 +282,19 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("counter_reset_recovery", result["failed_gates"])
 
+    def test_counter_reset_fields_must_be_boolean_when_present(self) -> None:
+        for field, invalid_value in (
+            ("counter_reset", 0),
+            ("counter_reset", None),
+            ("counter_reset", ""),
+            ("counter_reset_recovered", 0),
+            ("counter_reset_recovered", None),
+        ):
+            with self.subTest(field=field, value=invalid_value):
+                sample = {"type": "sample", field: invalid_value}
+                with self.assertRaisesRegex(ValueError, f"{field} must be boolean"):
+                    evaluate([json.dumps(sample)], limits=LIMITS)
+
     def test_cross_transport_and_restart_evidence_is_required(self) -> None:
         code, result = evaluate(
             records(

@@ -464,13 +464,15 @@ does not measure a VPN-client event, Redis stream delivery/recovery, API
 restart/snapshot recovery, or formal soak. No router configuration or container
 was changed. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-**Acceptance evidence integrity (in progress):** the local telemetry-acceptance
-evaluator now requires reconnect, comparison, security, and verification
-attestations to carry timestamps within the same strictly increasing sample
-window. Missing timestamps, stale/out-of-window attestations, or an unverifiable
-sample interval fail closed. This prevents old standalone attestations from
-being reused to satisfy a later soak; it does not create or substitute for the
-still-pending router-side measurements and recovery drills.
+**Acceptance evidence integrity:** merged PR #461 requires reconnect,
+comparison, security, and verification attestations to carry timestamps within
+the same strictly increasing sample window; missing timestamps,
+stale/out-of-window attestations, or an unverifiable sample interval fail
+closed. The current follow-up also validates `counter_reset` and
+`counter_reset_recovered` as booleans whenever supplied, including false-like
+values. These evaluator safeguards prevent malformed or stale evidence from
+passing; they do not create or substitute for the still-pending router-side
+measurements and recovery drills.
 
 **Latest read-only RouterOS observation (2026-10-04 23:41 Europe/Sofia):**
 WebFig showed PR #448's immutable ARM64 image tag configured on both canary
