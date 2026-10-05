@@ -11,6 +11,33 @@ build. Its full 30-minute Redis/telemetry acceptance window remains pending;
 the isolated canary rollback-and-recovery drill for the current candidate has
 passed, but does not substitute for that sustained acceptance.
 
+## Latest read-only browser check — 2026-10-05
+
+The already-open production Dashboard still rendered its previous page, but
+showed `Connection data delayed`; its displayed status generation time remained
+19:31 (the page's displayed time basis was not established). Browser-console
+observations from 19:40:04 through 19:42:29 UTC showed the status-poll path
+failing every five seconds with `TypeError: Failed to fetch`.
+A separate read-only request for `/metrics` was redirected to the Cloudflare
+Access sign-in page, so no application metrics body was received. This is
+consistent with an edge-authentication/session problem, but does not establish
+whether Cloudflare, the app session, or an upstream request caused the failed
+polls. It is evidence about the status-poll path, not proof that Socket.IO or
+the RouterOS telemetry process itself was down.
+
+At the same check, RouterOS WebFig still showed the production container on the
+recorded PR #497 immutable tag, with container state `HEALTHY` and healthcheck
+`good`. A separate read-only System > Resources view returned one host resource
+sample; exact CPU, memory, storage, and bad-block values are not copied here.
+These are point-in-time device observations only; they do not prove that
+authenticated application endpoints or live telemetry were reachable. The
+stale page's last displayed session count was zero and is not treated as a
+current observation. No session-event latency or traffic freshness under VPN
+load was measured. No page refresh, sign-in code, router configuration change,
+or container operation was performed. The formal #199 soak remains pending;
+treat the previously recorded authenticated live-health observation as
+historical rather than current browser availability.
+
 ## Latest published mainline image — PR #497 — 2026-10-05
 
 PR [#497](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/497)
