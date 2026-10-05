@@ -78,10 +78,13 @@ class ReleaseCollectionTests(unittest.TestCase):
             b'vpn_dashboard_telemetry_gateway_events_total{outcome="published"} 4\n'
             b'vpn_dashboard_redis_publish_total{outcome="success",token="private-token"} 99\n'
             b'vpn_dashboard_redis_publish_total{outcome="success"} 7\n'
+            b'vpn_dashboard_telemetry_supervisor_status{state="healthy",router="private-host"} 99\n'
+            b'vpn_dashboard_telemetry_supervisor_status{state="healthy"} 1\n'
         )
         self.assertNotIn("vpn_dashboard_telemetry_gateway_clients", parsed)
         self.assertEqual(parsed["vpn_dashboard_telemetry_gateway_events_total_published"], 4)
         self.assertEqual(parsed["vpn_dashboard_redis_publish_total_success"], 7)
+        self.assertEqual(parsed["vpn_dashboard_telemetry_supervisor_status_healthy"], 1)
 
     def run_collection(
         self,
@@ -130,6 +133,21 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds 0.2\n"
                 "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds 0.5\n"
                 "vpn_dashboard_telemetry_gateway_delivery_observations 8\n"
+                "vpn_dashboard_telemetry_supervisor_enabled 1\n"
+                "vpn_dashboard_telemetry_supervisor_status{state=\"healthy\"} 1\n"
+                "vpn_dashboard_telemetry_supervisor_status{state=\"disabled\"} 0\n"
+                "vpn_dashboard_telemetry_supervisor_status{state=\"connecting\"} 0\n"
+                "vpn_dashboard_telemetry_supervisor_status{state=\"degraded\"} 0\n"
+                "vpn_dashboard_telemetry_supervisor_status{state=\"stopped\"} 0\n"
+                "vpn_dashboard_telemetry_supervisor_status{state=\"unknown\"} 0\n"
+                "vpn_dashboard_telemetry_supervisor_attempts_total 3\n"
+                "vpn_dashboard_telemetry_supervisor_reconnects_total 2\n"
+                "vpn_dashboard_telemetry_supervisor_failures_total 1\n"
+                "vpn_dashboard_telemetry_supervisor_events_total 20\n"
+                f"vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds {now - 1}\n"
+                f"vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds {now - 0.25}\n"
+                f"vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds {now - 2}\n"
+                "vpn_dashboard_telemetry_supervisor_backoff_seconds 1\n"
                 "vpn_dashboard_info{revision=\"private-label\"} 1\n"
             )
             return 200, payload.encode()
@@ -173,6 +191,11 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(gateway["snapshot_recoveries"]["delta"], 0)
         self.assertEqual(gateway["delivery_queue_age_p95_seconds"]["max"], 0.5)
         self.assertIn("excludes RouterOS observation and browser rendering", gateway["meaning"])
+        supervisor = report["deployments"][0]["metrics"]["telemetry_supervisor"]
+        self.assertEqual(supervisor["status_last"], "healthy")
+        self.assertEqual(supervisor["reconnects"]["delta"], 0)
+        self.assertEqual(supervisor["failures"]["delta"], 0)
+        self.assertGreater(supervisor["last_snapshot_timestamp_seconds"], 0)
         self.assertTrue(all(cookie == "session=secret-cookie" for _, cookie in seen))
         serialized = json.dumps(report)
         self.assertNotIn("must-not-appear-in-output", serialized)
