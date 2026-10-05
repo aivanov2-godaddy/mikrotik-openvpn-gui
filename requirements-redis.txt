@@ -1,2 +1,2 @@
 # Optional Redis Streams support. Install only for multi-consumer deployments.
-redis==6.4.0
+redis==8.1.0
