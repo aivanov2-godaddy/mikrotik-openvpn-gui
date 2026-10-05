@@ -54,6 +54,16 @@ METRIC_NAMES = {
     "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds",
     "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds",
     "vpn_dashboard_telemetry_gateway_delivery_observations",
+    "vpn_dashboard_telemetry_supervisor_enabled",
+    "vpn_dashboard_telemetry_supervisor_status",
+    "vpn_dashboard_telemetry_supervisor_attempts_total",
+    "vpn_dashboard_telemetry_supervisor_reconnects_total",
+    "vpn_dashboard_telemetry_supervisor_failures_total",
+    "vpn_dashboard_telemetry_supervisor_events_total",
+    "vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds",
+    "vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds",
+    "vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds",
+    "vpn_dashboard_telemetry_supervisor_backoff_seconds",
 }
 REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_redis_configured",
@@ -77,6 +87,21 @@ REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds",
     "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds",
     "vpn_dashboard_telemetry_gateway_delivery_observations",
+    "vpn_dashboard_telemetry_supervisor_enabled",
+    "vpn_dashboard_telemetry_supervisor_status_disabled",
+    "vpn_dashboard_telemetry_supervisor_status_connecting",
+    "vpn_dashboard_telemetry_supervisor_status_healthy",
+    "vpn_dashboard_telemetry_supervisor_status_degraded",
+    "vpn_dashboard_telemetry_supervisor_status_stopped",
+    "vpn_dashboard_telemetry_supervisor_status_unknown",
+    "vpn_dashboard_telemetry_supervisor_attempts_total",
+    "vpn_dashboard_telemetry_supervisor_reconnects_total",
+    "vpn_dashboard_telemetry_supervisor_failures_total",
+    "vpn_dashboard_telemetry_supervisor_events_total",
+    "vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds",
+    "vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds",
+    "vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds",
+    "vpn_dashboard_telemetry_supervisor_backoff_seconds",
 }
 METRIC_LINE = re.compile(
     r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+'
@@ -160,6 +185,10 @@ def _parse_metrics(payload: bytes) -> dict[str, float]:
                 outcome = re.fullmatch(r'outcome="(published|replayed|snapshot_recovery)"', labels)
                 if outcome:
                     result[f"{name}_{outcome.group(1)}"] = value
+            elif name == "vpn_dashboard_telemetry_supervisor_status":
+                state = re.fullmatch(r'state="(disabled|connecting|healthy|degraded|stopped|unknown)"', labels)
+                if state:
+                    result[f"{name}_{state.group(1)}"] = value
             elif not labels:
                 result[name] = value
     return result
@@ -271,6 +300,32 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
                 "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
             ),
             "meaning": "Age since this process observed telemetry; not RouterOS-to-browser delivery latency.",
+        },
+        "telemetry_supervisor": {
+            "enabled_last": last.get("vpn_dashboard_telemetry_supervisor_enabled"),
+            "status_last": next(
+                (
+                    state
+                    for state in ("healthy", "connecting", "degraded", "stopped", "disabled", "unknown")
+                    if last.get(f"vpn_dashboard_telemetry_supervisor_status_{state}") == 1
+                ),
+                "unknown",
+            ),
+            "attempts": counter_window("vpn_dashboard_telemetry_supervisor_attempts_total"),
+            "reconnects": counter_window("vpn_dashboard_telemetry_supervisor_reconnects_total"),
+            "failures": counter_window("vpn_dashboard_telemetry_supervisor_failures_total"),
+            "events": counter_window("vpn_dashboard_telemetry_supervisor_events_total"),
+            "last_connected_timestamp_seconds": last.get(
+                "vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds"
+            ),
+            "last_event_timestamp_seconds": last.get(
+                "vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds"
+            ),
+            "last_snapshot_timestamp_seconds": last.get(
+                "vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds"
+            ),
+            "backoff_seconds_last": last.get("vpn_dashboard_telemetry_supervisor_backoff_seconds"),
+            "meaning": "Aggregate process-local RouterOS Binary API supervisor state; counters may reset on process restart.",
         },
     }
 

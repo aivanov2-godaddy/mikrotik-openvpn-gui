@@ -2397,6 +2397,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "delivery_queue_age_seconds": -1.0,
             "delivery_queue_age_p95_seconds": -1.0,
         }
+        supervisor = (
+            telemetry_runtime.supervisor.health()
+            if telemetry_runtime is not None and telemetry_runtime.supervisor is not None
+            else None
+        )
+        supervisor_status = (
+            supervisor.status
+            if supervisor is not None and supervisor.status in {"disabled", "connecting", "healthy", "degraded", "stopped"}
+            else "disabled" if supervisor is None else "unknown"
+        )
+        supervisor_metrics = {
+            "enabled": int(supervisor is not None and supervisor.enabled),
+            "attempts": max(0, int(supervisor.attempts)) if supervisor is not None else 0,
+            "reconnects": max(0, int(supervisor.reconnects)) if supervisor is not None else 0,
+            "failures": max(0, int(supervisor.failures)) if supervisor is not None else 0,
+            "events": max(0, int(supervisor.events)) if supervisor is not None else 0,
+            "last_connected_at": max(0, int(supervisor.last_connected_at)) if supervisor and supervisor.last_connected_at else -1,
+            "last_event_at": max(0, int(supervisor.last_event_at)) if supervisor and supervisor.last_event_at else -1,
+            "last_snapshot_at": max(0, int(supervisor.last_snapshot_at)) if supervisor and supervisor.last_snapshot_at else -1,
+            "backoff_seconds": max(0.0, float(supervisor.backoff_seconds)) if supervisor is not None else 0.0,
+        }
         lines.extend([
             "# HELP vpn_dashboard_telemetry_gateway_clients Current authorized telemetry subscriptions.",
             "# TYPE vpn_dashboard_telemetry_gateway_clients gauge",
@@ -2421,6 +2442,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_telemetry_gateway_delivery_observations Number of queue-delay samples in the bounded recent window.",
             "# TYPE vpn_dashboard_telemetry_gateway_delivery_observations gauge",
             f"vpn_dashboard_telemetry_gateway_delivery_observations {gateway['delivery_observations']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_enabled Whether the read-only RouterOS Binary API supervisor is enabled.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_enabled gauge",
+            f"vpn_dashboard_telemetry_supervisor_enabled {supervisor_metrics['enabled']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_status Current supervisor state, represented as a bounded one-hot gauge.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_status gauge",
+            *[
+                f'vpn_dashboard_telemetry_supervisor_status{{state="{state}"}} {int(state == supervisor_status)}'
+                for state in ("disabled", "connecting", "healthy", "degraded", "stopped", "unknown")
+            ],
+            "# HELP vpn_dashboard_telemetry_supervisor_attempts_total RouterOS telemetry connection attempts in this process.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_attempts_total counter",
+            f"vpn_dashboard_telemetry_supervisor_attempts_total {supervisor_metrics['attempts']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_reconnects_total RouterOS telemetry reconnects after the first connection.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_reconnects_total counter",
+            f"vpn_dashboard_telemetry_supervisor_reconnects_total {supervisor_metrics['reconnects']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_failures_total RouterOS telemetry listen or connection failures.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_failures_total counter",
+            f"vpn_dashboard_telemetry_supervisor_failures_total {supervisor_metrics['failures']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_events_total Redacted RouterOS telemetry events handled by the supervisor.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_events_total counter",
+            f"vpn_dashboard_telemetry_supervisor_events_total {supervisor_metrics['events']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds Unix timestamp of the last successful RouterOS API connection; -1 means none.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds gauge",
+            f"vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds {supervisor_metrics['last_connected_at']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds Unix timestamp of the last event handled by the supervisor; -1 means none.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds gauge",
+            f"vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds {supervisor_metrics['last_event_at']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds Unix timestamp of the last successful snapshot recovery; -1 means none.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds gauge",
+            f"vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds {supervisor_metrics['last_snapshot_at']}",
+            "# HELP vpn_dashboard_telemetry_supervisor_backoff_seconds Current bounded reconnect backoff delay.",
+            "# TYPE vpn_dashboard_telemetry_supervisor_backoff_seconds gauge",
+            f"vpn_dashboard_telemetry_supervisor_backoff_seconds {supervisor_metrics['backoff_seconds']}",
         ])
         socketio = getattr(self.server, "native_socketio", None)
         socketio_metrics = socketio.metrics() if socketio is not None else {

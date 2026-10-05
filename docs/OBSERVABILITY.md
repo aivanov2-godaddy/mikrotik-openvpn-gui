@@ -79,3 +79,15 @@ samples. These measures diagnose the gateway delivery stage only; they do not
 measure RouterOS-to-process event latency or browser rendering, and an unknown
 queue age (`-1`) is not treated as zero delay. Metrics remain aggregate and use
 no user, address, session, subscription, or event identifiers as labels.
+
+The same authenticated endpoint exports bounded RouterOS Binary API supervisor
+state: enabled/status, connection attempts, reconnects, failures, processed
+event count, last successful connection/event/snapshot timestamps, and current
+backoff. The `status` series is one-hot with a fixed state allowlist; exception
+text and error codes are intentionally excluded. The release collector requires
+these series and summarizes counter deltas/reset epochs and the last observed
+state for the soak window. Counters are process-local and reset when the
+container restarts; timestamps use `-1` when no matching observation has yet
+occurred. These signals help verify reconnection and snapshot recovery but do
+not substitute for deliberately interrupting the RouterOS API and confirming
+the browser-visible result.

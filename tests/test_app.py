@@ -1332,6 +1332,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"vpn_dashboard_telemetry_session_events_total", payload)
         self.assertIn(b"vpn_dashboard_telemetry_traffic_samples_total", payload)
         self.assertIn(b"vpn_dashboard_telemetry_traffic_sample_age_seconds -1", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_supervisor_status{state=\"disabled\"} 1", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_supervisor_reconnects_total 0", payload)
+        self.assertIn(b"vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds -1", payload)
         self.assertNotIn(b"routerpass", payload)
         self.assertNotIn(sensitive_target.encode(), payload)
 
