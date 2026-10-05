@@ -43,15 +43,27 @@ identity and health, not the sustained acceptance window; no VPN client was
 connected during the application check. No new numbered release was created.
 
 **Latest published but not yet verified on RouterOS (2026-10-05):** merged
-PR [#474](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/474)
-published commit `aa48c90a6a5fbba5763a96390f10210efe34131c` in workflow
-[37255380821](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37255380821).
-Its immutable ARM64 image is
-`sha-aa48c90a6a5fbba5763a96390f10210efe34131c-arm64`, registry digest
-`sha256:870324122035e4ca0414bc6ecf0102698f33e10ece81e1645fbed29bb6dc167d`.
-CI and publication succeeded, but RouterOS canary/production read-back has not
-been performed; the previous `dd4a1fa` image remains the latest confirmed
-deployment. No numbered release was created.
+PR [#476](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/476)
+and dependency PRs [#468](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/468),
+[#469](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/469), and
+[#471](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/471)
+published main commit `c9bbdfd9cf84ed9caf93895a8e1f7d934d8da770` in workflow
+[37280538708](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37280538708).
+The immutable ARM64 image is
+`sha-c9bbdfd9cf84ed9caf93895a8e1f7d934d8da770-arm64`, registry digest
+`sha256:13affedf18a017ea1e6a49aafda9ed40381c12db1698516f4b3a36ec0885dc0c`.
+Both architecture builds, source/browser checks, provenance/SBOM verification,
+and runtime smoke tests passed. PR #476 strengthens migration-test evidence;
+the dependency PRs update `upload-artifact`, `setup-node`, and Redis. This is
+publication only: no newer RouterOS canary/production read-back is available,
+so `dd4a1fa` remains the latest confirmed deployment. No new numbered release
+was created.
+
+PR #474's earlier published-but-unverified image was
+`sha-aa48c90a6a5fbba5763a96390f10210efe34131c-arm64` /
+`sha256:870324122035e4ca0414bc6ecf0102698f33e10ece81e1645fbed29bb6dc167d`;
+it is superseded as the latest registry candidate by `c9bbdfd` above, not as a
+RouterOS-confirmed deployment.
 
 ### Post-v2.7.0 runtime patch — PR #443
 
