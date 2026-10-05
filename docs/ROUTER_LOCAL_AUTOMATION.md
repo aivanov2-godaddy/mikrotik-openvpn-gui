@@ -94,13 +94,18 @@ production to the same SQLite file: one database must have one writer.
    failed attempts. It never writes the response body, fetch error text, or
    readiness URL to the log; `check-error` indicates an unexpected script-side
    failure while evaluating the probe.
-6. It keeps the canary healthy for the configured stability window (60 seconds
-   in the example script), then probes `/readyz` again immediately before
-   promotion. Set `canaryValidationSeconds` to the locally appropriate value;
-   use `0` only for an explicitly reviewed emergency rollout.
-7. It runs the configured non-destructive canary checks. On failure, it restores
-   the canary's last-known-good image, records the failure locally, and leaves
-   production untouched.
+6. It requires at least 30 successful `/readyz` samples spaced at least 60
+   seconds apart before promotion (a minimum 30-minute readiness soak). Each
+   response must identify the exact immutable candidate revision. Any failed,
+   incomplete, or mismatched response rejects the canary, restores its
+   last-known-good image, records the failure locally, and leaves production
+   untouched. The script rejects settings below the minimum sample count or
+   cadence before it changes even the canary.
+7. This readiness soak is a minimum promotion guard, not the complete release
+   acceptance report: it does not collect telemetry latency/freshness percentiles,
+   Redis delivery history, RouterOS resource samples, API reconnect/snapshot
+   evidence, or event-integrity evidence. Those remain separate required
+   acceptance checks; passing `/readyz` alone cannot establish them.
 8. On success, it updates production with that same immutable image, verifies
    production `/readyz`, and records it as last known good locally.
 9. If production cannot start or become ready, it restores the previously

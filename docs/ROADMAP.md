@@ -523,6 +523,12 @@ installed into the separate router-local script. See
 [the acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md) for detailed
 publication, digest, and health evidence.
 
+The repository updater template is now being strengthened to require 30
+successful `/readyz` samples at one-minute intervals before automatic
+promotion. This is only a repeated readiness guard; it does not replace the
+full telemetry/Redis/resource acceptance evidence above, and no router-local
+updater script was changed as part of this repository work.
+
 **Follow-up live-stream check (2026-10-05, approximately 02:03–02:04
 Europe/Sofia):** after the operator reconnected to the management VPN, two
 authenticated production Dashboard observations about 75 seconds apart, with

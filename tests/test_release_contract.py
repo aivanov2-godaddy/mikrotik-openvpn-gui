@@ -130,7 +130,7 @@ class ReleaseContractTests(unittest.TestCase):
         ):
             self.assertIn(reason, executable)
         self.assertIn('result=" . $readinessResult', executable)
-        self.assertIn('result=" . $canaryStabilityResult', executable)
+        self.assertIn('result=" . $canarySampleResult', executable)
         self.assertNotIn(":log warning $fetchError", executable)
         self.assertNotIn(":log warning $fetchAttributes", executable)
         self.assertNotIn(":log warning $body", executable)
@@ -138,14 +138,47 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("historyFile", executable)
         self.assertIn('event=" . $event', executable)
         self.assertIn('$recordHistory "promoted"', updater)
-        self.assertIn("canaryValidationSeconds", executable)
-        self.assertIn("canary stability gate failed", executable)
+        self.assertIn(":local canaryValidationInterval 1m", executable)
+        self.assertIn(":local canaryValidationSamples 30", executable)
+        self.assertIn(":if ($canaryValidationSamples < 30)", executable)
+        self.assertIn(":if ($canaryValidationInterval < 1m)", executable)
+        self.assertIn(":for sample from=1 to=$canaryValidationSamples do={", executable)
+        self.assertIn("canary readiness soak failed", executable)
+        self.assertIn("production unchanged", executable)
+        self.assertNotIn("canaryValidationSeconds", executable)
         self.assertIn("github.com/aivanov2-godaddy/mikrotik-openvpn-gui/releases/download/routeros-stable/routeros-release.json", updater)
         self.assertIn("ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-", updater)
         self.assertNotIn("github.com/CHANGE-ME/mikrotik-openvpn-gui", updater)
         self.assertNotIn("ghcr.io/CHANGE-ME/mikrotik-openvpn-gui", updater)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
+
+    def test_router_local_updater_requires_a_sampled_30_minute_canary_gate(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+
+        self.assertIn(":local canaryValidationInterval 1m", executable)
+        self.assertIn(":local canaryValidationSamples 30", executable)
+        self.assertIn(":if ($canaryValidationSamples < 30)", executable)
+        self.assertIn(":if ($canaryValidationInterval < 1m)", executable)
+        self.assertLess(
+            executable.index(":for sample from=1 to=$canaryValidationSamples do={"),
+            executable.index(':log info ("vpn-gui immutable updater: promoting validated canary'),
+        )
+        self.assertLess(
+            executable.index(":if ($canaryValidationSamples < 30)"),
+            executable.index("/container/stop $canaryId"),
+        )
+        self.assertLess(
+            executable.index(":if ($canaryValidationInterval < 1m)"),
+            executable.index("/container/stop $canaryId"),
+        )
+        self.assertIn('$recordFailure $image', executable)
+        self.assertIn('"canary readiness soak failed"', executable)
 
     def test_router_local_updater_noop_paths_do_not_use_top_level_return(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
