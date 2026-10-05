@@ -7,13 +7,37 @@ telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
 copied into this repository. The latest published runtime candidate is PR #504
-below. The latest recorded RouterOS read-back remains canary PR #501 and
-production PR #497; PR #504 has not been verified on the router. The full
-30-minute Redis/telemetry acceptance and a candidate-specific rollback drill
-remain pending. The earlier rollback rehearsal for PR #497 does not substitute
-for either check.
+below. A read-only RouterOS check now shows its immutable ARM64 tag configured
+and healthy on both canary and production, with Redis running. The router
+reports the configured tag, not its cached registry digest. This current
+observation is not the full 30-minute Redis/telemetry acceptance or a
+candidate-specific rollback rehearsal; the earlier PR #497 rollback drill does
+not substitute for either check.
 
-## Latest read-only browser check — 2026-10-05
+## Latest authenticated dashboard and RouterOS read-only check — 2026-10-06
+
+The existing authenticated production dashboard displayed `Live · SOCKETIO`
+and Operational service health. Across two read-only accessibility
+observations, the displayed RouterOS CPU health value changed and uptime
+advanced without a page reload. This confirms that health data continued to
+update in that browser session; it is not a measurement of sample-age bounds
+or end-to-end telemetry latency.
+
+In the already-open RouterOS WebFig container table, both the canary and
+production rows showed the PR #504 ARM64 immutable tag and the `H` healthy
+marker; the Redis container showed `R` running. RouterOS exposes the configured
+tag, not the registry digest of its cached image. No router/container setting,
+VPN user, certificate, CA, policy, or persistent data was changed during this
+read-only check. Exact resource readings and environment values are omitted.
+
+The dashboard showed zero connected VPN users. Therefore this observation did
+not exercise connect/disconnect events or provide an active traffic sample.
+Session-event latency, traffic freshness, Redis delivery/replay, API reconnect
+and snapshot recovery, counter reset, Binary/REST parity, event ordering/loss,
+SQLite restore, and live role/secret checks remain outstanding. The #199
+sustained acceptance window is still pending.
+
+## Earlier read-only browser check — 2026-10-05
 
 The already-open production Dashboard still rendered its previous page, but
 showed `Connection data delayed`; its displayed status generation time remained
@@ -64,15 +88,18 @@ read back and matched this commit and both immutable architecture tags.
 | RouterOS ARM64 | `sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64` | `sha256:2b1d249c4219302305ce54e73b856dc22f5b884ff786b083ea18de2868e454af` |
 | CHR/x86 AMD64 (evaluation) | `sha-a62724c94261b00866fa3d55416a7b540305d40b-amd64` | `sha256:81a7e06a1904b36ccd2ba6208a46f93006ac0ab059e7eeb91a220e94c77594fe` |
 
-No RouterOS read-back was performed for PR #504. The last recorded read-back
-showed canary configured with PR #501 and production with PR #497; it does not
-prove either router now runs PR #504. No router/container configuration was
-changed for this publication check. The current-candidate canary readiness and
-rollback drill, 30-minute telemetry/Redis acceptance, controlled VPN-client
-event test, recovery, counter-reset, parity, ordering, restore, and live
-security checks therefore remain open. Production has not been promoted to
-PR #504. No new numbered release was created; v2.7.0 remains the latest formal
-release.
+Read-only RouterOS WebFig read-back on 2026-10-06 showed both canary and
+production configured with the PR #504 ARM64 tag and the `H` marker; Redis was
+running. The authenticated production dashboard reported `Live · SOCKETIO`
+and Operational health. Its displayed CPU health value changed and router
+uptime advanced across two observations without reloading the page. No VPN
+users were connected. RouterOS does not expose the digest of the locally
+cached image, so this verifies the configured immutable tag and health marker,
+not a router-side digest comparison. No router/container setting or VPN data
+was changed. These observations do not replace candidate-specific `/readyz`
+revision verification, sustained acceptance, or rollback rehearsal. Production
+is configured on PR #504 but the formal acceptance gate remains open. No new
+numbered release was created; v2.7.0 remains the latest formal release.
 
 ## Previously published mainline candidate — PR #501 — 2026-10-06
 

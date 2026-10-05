@@ -27,7 +27,7 @@ on both canary and production containers, each with the RouterOS healthy
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
-### Latest published mainline candidate — PR #504 — 2026-10-06
+### Latest published candidate and RouterOS read-back — PR #504 — 2026-10-06
 
 PR [#504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/504)
 merged as `a62724c94261b00866fa3d55416a7b540305d40b`. Publication workflow
@@ -43,13 +43,22 @@ commit and both immutable tags.
 | RouterOS ARM64 | `sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64` | `sha256:2b1d249c4219302305ce54e73b856dc22f5b884ff786b083ea18de2868e454af` |
 | CHR/x86 AMD64 (evaluation) | `sha-a62724c94261b00866fa3d55416a7b540305d40b-amd64` | `sha256:81a7e06a1904b36ccd2ba6208a46f93006ac0ab059e7eeb91a220e94c77594fe` |
 
-No router read-back was performed for PR #504. The latest recorded state
-remains canary PR #501 and production PR #497; this does not establish that
-either is now running PR #504. The candidate-specific canary readiness and
-rollback rehearsal, sustained telemetry/Redis acceptance, session-event and
-traffic freshness measurements, reconnect/recovery, counter-reset, parity and
-ordering, SQLite restore, and live security checks remain open. Production has
-not been promoted to PR #504. The latest formal release remains v2.7.0.
+Read-only RouterOS WebFig read-back on 2026-10-06 showed both canary and
+production configured with this ARM64 immutable tag, each marked healthy (`H`);
+Redis was running (`R`). RouterOS exposes the configured tag, not an independent
+digest for its cached image. The authenticated production dashboard showed
+`Live · SOCKETIO` and Operational health. Across two read-only observations,
+its CPU health value changed and router uptime advanced without a page reload.
+There were zero connected VPN users, so no session transition or active traffic
+sample was available. No router/container configuration or VPN data was
+changed. The image is configured on production, but this point-in-time
+read-back does not complete the formal acceptance gate.
+
+The candidate-specific readiness/revision and rollback rehearsal, sustained
+telemetry/Redis acceptance, session-event latency, traffic freshness,
+reconnect/snapshot recovery, counter-reset, parity and ordering, SQLite
+restore, and live security checks remain open. The latest formal release
+remains v2.7.0.
 
 ### Previously published mainline candidate and RouterOS read-back — PR #501 — 2026-10-06
 

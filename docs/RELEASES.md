@@ -67,12 +67,17 @@ immutable tags.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64` | `sha256:2b1d249c4219302305ce54e73b856dc22f5b884ff786b083ea18de2868e454af` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-amd64` | `sha256:81a7e06a1904b36ccd2ba6208a46f93006ac0ab059e7eeb91a220e94c77594fe` |
 
-No RouterOS read-back was performed for PR #504. The latest recorded router
-state remains canary PR #501 and production PR #497; those configured tags do
-not establish that PR #504 is installed. The telemetry/Redis acceptance and
-candidate-specific rollback rehearsal remain pending. Production has not been
-promoted to this candidate. No new numbered release was created; v2.7.0
-remains the latest formal version.
+Read-only RouterOS WebFig read-back on 2026-10-06 showed both canary and
+production configured with this ARM64 tag and the `H` health marker; Redis was
+running. The authenticated production dashboard showed `Live · SOCKETIO` and
+Operational health, with CPU health and router uptime changing across two
+observations without a page reload. No VPN user was connected, so session-event
+latency and traffic freshness were not exercised. RouterOS reports the
+configured tag, not an independent digest of its cached image. The 30-minute
+telemetry/Redis acceptance and candidate-specific rollback rehearsal remain
+pending. Production is configured with this candidate, but formal acceptance
+is not complete. No new numbered release was created; v2.7.0 remains the
+latest formal version.
 
 ### Previously published mainline candidate — PR #501 — 2026-10-06
 
