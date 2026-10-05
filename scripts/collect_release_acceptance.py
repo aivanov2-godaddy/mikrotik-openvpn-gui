@@ -177,7 +177,7 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
     metric_samples = [sample["metrics"] for sample in samples if sample.get("metrics")]
     if not metric_samples:
         return {"available": False}
-    first, last = metric_samples[0], metric_samples[-1]
+    last = metric_samples[-1]
     successes_in_window = any(
         sample.get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) > start_epoch
         and sample.get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) <= end_epoch
