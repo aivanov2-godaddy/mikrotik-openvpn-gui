@@ -32,6 +32,8 @@ MAX_SAMPLES = 10_000
 MIN_SOAK_SECONDS = 1800
 MIN_HEALTH_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
+MAX_TRAFFIC_SAMPLE_AGE_SECONDS = 2.0
+MAX_GATEWAY_DELIVERY_P95_SECONDS = 1.0
 METRIC_NAMES = {
     "vpn_dashboard_health",
     "vpn_dashboard_redis_configured",
@@ -327,6 +329,27 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
             "backoff_seconds_last": last.get("vpn_dashboard_telemetry_supervisor_backoff_seconds"),
             "meaning": "Aggregate process-local RouterOS Binary API supervisor state; counters may reset on process restart.",
         },
+        "telemetry_slo": {
+            "traffic_sample_max_age_seconds": observation_age(
+                "vpn_dashboard_telemetry_traffic_sample_age_seconds",
+                "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
+            )["max_seconds"],
+            "gateway_delivery_p95_max_seconds": gauge_window(
+                "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds"
+            )["max"],
+            "gateway_delivery_observations_last": last.get(
+                "vpn_dashboard_telemetry_gateway_delivery_observations"
+            ),
+            "supervisor_non_healthy_samples": sum(
+                sample.get("vpn_dashboard_telemetry_supervisor_status_healthy") != 1
+                or sample.get("vpn_dashboard_telemetry_supervisor_enabled") != 1
+                for sample in metric_samples
+            ),
+            "meaning": (
+                "Traffic freshness and server gateway enqueue-to-client-poll delay only; "
+                "does not measure RouterOS-to-browser session-change latency or rendering."
+            ),
+        },
     }
 
 
@@ -479,6 +502,20 @@ def collect(
         record["redis_configured"] = False
         record["redis_publish_verified"] = False
         if metric_summary["available"]:
+            telemetry_slo = metric_summary["telemetry_slo"]
+            traffic_age = telemetry_slo["traffic_sample_max_age_seconds"]
+            if traffic_age is None:
+                failed_gates.append(f"{environment}_traffic_freshness_unobserved")
+            elif traffic_age > MAX_TRAFFIC_SAMPLE_AGE_SECONDS:
+                failed_gates.append(f"{environment}_traffic_sample_stale")
+            gateway_p95 = telemetry_slo["gateway_delivery_p95_max_seconds"]
+            gateway_observations = telemetry_slo["gateway_delivery_observations_last"]
+            if gateway_p95 is None or gateway_p95 < 0 or not gateway_observations or gateway_observations < 1:
+                failed_gates.append(f"{environment}_gateway_delivery_latency_unobserved")
+            elif gateway_p95 > MAX_GATEWAY_DELIVERY_P95_SECONDS:
+                failed_gates.append(f"{environment}_gateway_delivery_latency_exceeded")
+            if telemetry_slo["supervisor_non_healthy_samples"]:
+                failed_gates.append(f"{environment}_telemetry_supervisor_not_healthy")
             # A passing Redis publish requires configuration, observed availability,
             # and a successful publish in this observation window.
             metrics_window_complete = (

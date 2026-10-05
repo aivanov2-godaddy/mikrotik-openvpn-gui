@@ -98,6 +98,16 @@ attestations cannot report pass. Flags split across multiple partial
 verification records do not combine; an incomplete record set fails with
 `verification_record_incomplete`.
 
+The live release collector independently gates each sampled telemetry window:
+traffic-counter sample age must remain at or below 2 seconds, the bounded
+gateway enqueue-to-authorized-client-poll p95 must remain at or below 1 second,
+and the Binary API supervisor must remain enabled and healthy. Missing traffic
+freshness or gateway-delay observations fail closed. The gateway p95 is a
+server-side delivery stage only; it is not a measurement of RouterOS-to-browser
+session-change latency or browser rendering. A real session transition and its
+end-to-end latency still require a controlled operator acceptance test and
+timestamped evidence; idle periods cannot be interpreted as zero latency.
+
 `event_sequence` is checked within an `event_epoch` (a non-negative integer
 identifying one telemetry-process sequence lifetime); omitted epochs default
 to `0`. Use a new epoch when the broker process restarts and its process-local
