@@ -49,7 +49,34 @@ historical/rollback reference. v2.7.0 remains the latest numbered release.
 
 ## Published images
 
-### Latest published mainline image — PR #497 — 2026-10-05
+### Latest published mainline candidate — PR #501 — 2026-10-06
+
+PR [#501](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/501)
+merged to main as
+`0ab71339f8884e3b8e185d55bfbcdc69cd088c22`. Publication workflow
+[#37376243641](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37376243641)
+passed source and rendered-browser checks, ARM64/AMD64 publication, exact-digest
+provenance/SBOM verification, and published-runtime smoke tests. The ARM64 SLSA
+provenance was independently verified against the published digest and mainline
+commit. The `routeros-stable` manifest asset was fetched and confirmed to name
+this commit and both immutable tags.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0ab71339f8884e3b8e185d55bfbcdc69cd088c22-arm64` | `sha256:f2b4368e194eb6996018efc2c3729f866e1da79046312e60cd9511b92dcf41fa` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0ab71339f8884e3b8e185d55bfbcdc69cd088c22-amd64` | `sha256:dab88909d624e04c9d76acb5a05cbe27a2e9b4ce2d2fab33f94837a0d3b96414` |
+
+Read-only RouterOS WebFig read-back listed the canary on the PR #501 ARM64 tag
+with the `H` status marker, while production remained on the PR #497 immutable
+tag; Redis was running. This is configured-tag/status evidence only: RouterOS
+does not expose the digest of the locally cached image. The production dashboard
+showed `Live · SOCKETIO`, Operational service health, and zero connected VPN
+users in one point-in-time observation. The 30-minute telemetry/Redis acceptance
+and current-candidate rollback rehearsal remain pending. Production has not been
+promoted to this candidate. No new numbered release was created; v2.7.0 remains
+the latest formal version.
+
+### Previously published mainline image — PR #497 — 2026-10-05
 
 PR [#497](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/497)
 merged to main as
