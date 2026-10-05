@@ -49,7 +49,30 @@ historical/rollback reference. v2.7.0 remains the latest numbered release.
 
 ## Published images
 
-### Latest published mainline image — PR #494 — 2026-10-05
+### Latest published mainline image — PR #497 — 2026-10-05
+
+PR [#497](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/497)
+merged to main as
+`3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f`. Publication workflow
+[#37351647768](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37351647768)
+passed release-source and rendered-browser checks, ARM64/AMD64 publication,
+exact-digest provenance/SBOM verification, published-runtime smoke, and stable
+manifest publication. The RouterOS ARM64 image is:
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64` | `sha256:089e9c48c3e388cd08be3a44ddd9f525a0b50ea9e15983d6a8fa78e442fecc6c` |
+
+Read-only RouterOS read-back showed canary and production configured with this
+tag and healthy (`H`). The canary rollback-and-forward-recovery rehearsal
+returned the expected `/readyz` revisions; production was not restarted for
+that drill. The authenticated application later showed live status and
+`Operational` service health. This is point-in-time evidence, not the formal
+30-minute telemetry/Redis acceptance. The router exposes the configured tag,
+not an independent registry digest. No new numbered release was created;
+v2.7.0 remains current.
+
+### Previously published mainline image — PR #494 — 2026-10-05
 
 PR [#494](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/494)
 merged to main as
@@ -62,11 +85,9 @@ checks. The immutable ARM64 image is:
 | --- | --- | --- |
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64` | `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4` |
 
-This is a published, CI-verified mainline image, not a new numbered release
-and not a deployment claim. No timestamped RouterOS read-back confirms PR #494
-on the router. The latest recorded RouterOS tag/health read-back remains PR
-#484 below. The full canary telemetry/Redis soak and rollback acceptance remain
-pending.
+This was a published, CI-verified mainline image, not a new numbered release.
+It has since been superseded by PR #497 above. Its publication history is
+retained here; the full telemetry/Redis acceptance remains pending.
 
 ### Earlier post-release mainline image publication — PR #484 — 2026-10-05
 

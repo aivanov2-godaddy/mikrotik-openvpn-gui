@@ -12,23 +12,22 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published mainline image is PR #494,
-commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, immutable ARM64 tag
-`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64`,
+prove RouterOS compatibility. PR #497, commit
+`3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f`, published the immutable ARM64 tag
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64`,
 registry digest
-`sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`.
-Its publication/CI checks passed, but it has not been confirmed on RouterOS.
-The latest timestamped 2026-10-05 production/canary read-back remains PR #484's
-immutable revision
-`sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` on one physical RouterOS
-ARM64 installation running RouterOS 7.24.5 stable. Both dashboard containers
-reported healthy and Redis was running. RouterOS reported the configured
-immutable tag, not the registry image digest. This is a point-in-time deployment
-observation—not completion of the controlled latency/freshness, event-integrity,
-recovery, resource-soak, or rollback acceptance below. No resource minimum or
-cross-model/version certification is inferred. Formal physical RouterOS
-acceptance remains pending. See the [installation compatibility
-matrix](INSTALLATION.md#compatibility-and-support-matrix) and [release record](RELEASES.md#latest-published-mainline-image-pr-494-2026-10-05).
+`sha256:089e9c48c3e388cd08be3a44ddd9f525a0b50ea9e15983d6a8fa78e442fecc6c`.
+Read-only RouterOS read-back confirmed that tag and healthy state on canary and
+production. Canary `/readyz` returned the expected revision; a canary-only
+rollback to the previous immutable image and forward recovery both returned
+the expected ready revisions. Production was not restarted for the drill.
+RouterOS reports the configured tag, not the registry digest. These are
+point-in-time deployment observations, not completion of the controlled
+latency/freshness, event-integrity, recovery, resource-soak, Redis-delivery, or
+production rollback acceptance below. No resource minimum or cross-model/version
+certification is inferred. Formal physical RouterOS acceptance remains pending.
+See the [installation compatibility
+matrix](INSTALLATION.md#compatibility-and-support-matrix) and [release record](RELEASES.md#latest-published-mainline-image-pr-497-2026-10-05).
 
 - Use one immutable candidate for the canary, such as
   `ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64`.
@@ -54,8 +53,13 @@ Record only the facts needed to reproduce a compatibility result:
 ```routeros
 /system/resource/print
 /system/package/print where name~"container"
-/container/print detail
+/container/print
 ```
+
+Do not use or copy `/container/print detail` or container environment-list
+output into an acceptance record: detailed RouterOS output may expose Redis
+URLs/passwords or other secrets. Capture only the selected non-secret fields
+needed for the test, and keep raw terminal output private.
 
 Include RouterOS version, architecture, candidate tag/digest, and whether the
 test is physical ARM64 or CHR/x86.
