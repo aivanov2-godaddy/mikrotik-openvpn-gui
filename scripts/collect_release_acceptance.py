@@ -47,6 +47,13 @@ METRIC_NAMES = {
     "vpn_dashboard_telemetry_traffic_sample_age_seconds",
     "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
     "vpn_dashboard_telemetry_traffic_samples_total",
+    "vpn_dashboard_telemetry_gateway_clients",
+    "vpn_dashboard_telemetry_gateway_buffered_events",
+    "vpn_dashboard_telemetry_gateway_events_total",
+    "vpn_dashboard_telemetry_gateway_rejected_clients_total",
+    "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds",
+    "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds",
+    "vpn_dashboard_telemetry_gateway_delivery_observations",
 }
 REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_redis_configured",
@@ -61,6 +68,15 @@ REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_telemetry_session_event_timestamp_seconds",
     "vpn_dashboard_telemetry_traffic_sample_age_seconds",
     "vpn_dashboard_telemetry_traffic_sample_timestamp_seconds",
+    "vpn_dashboard_telemetry_gateway_clients",
+    "vpn_dashboard_telemetry_gateway_buffered_events",
+    "vpn_dashboard_telemetry_gateway_events_total_published",
+    "vpn_dashboard_telemetry_gateway_events_total_replayed",
+    "vpn_dashboard_telemetry_gateway_events_total_snapshot_recovery",
+    "vpn_dashboard_telemetry_gateway_rejected_clients_total",
+    "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds",
+    "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds",
+    "vpn_dashboard_telemetry_gateway_delivery_observations",
 }
 METRIC_LINE = re.compile(
     r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+'
@@ -137,12 +153,14 @@ def _parse_metrics(payload: bytes) -> dict[str, float]:
             name = match.group("name")
             labels = match.group("labels") or ""
             if name == "vpn_dashboard_redis_publish_total":
-                outcome = re.search(r'outcome="(success|failure)"', labels)
+                outcome = re.fullmatch(r'outcome="(success|failure)"', labels)
                 if outcome:
                     result[f"{name}_{outcome.group(1)}"] = value
-            elif name == "vpn_dashboard_health":
-                result[name] = value
-            else:
+            elif name == "vpn_dashboard_telemetry_gateway_events_total":
+                outcome = re.fullmatch(r'outcome="(published|replayed|snapshot_recovery)"', labels)
+                if outcome:
+                    result[f"{name}_{outcome.group(1)}"] = value
+            elif not labels:
                 result[name] = value
     return result
 
@@ -159,22 +177,12 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
     metric_samples = [sample["metrics"] for sample in samples if sample.get("metrics")]
     if not metric_samples:
         return {"available": False}
-    first, last = metric_samples[0], metric_samples[-1]
+    last = metric_samples[-1]
     successes_in_window = any(
         sample.get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) > start_epoch
         and sample.get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) <= end_epoch
         for sample in metric_samples
     )
-    failure_delta = max(
-        0,
-        int(last.get("vpn_dashboard_redis_publish_total_failure", 0)
-            - first.get("vpn_dashboard_redis_publish_total_failure", 0)),
-    )
-    failure_counter_reset = (
-        last.get("vpn_dashboard_redis_publish_total_failure", 0)
-        < first.get("vpn_dashboard_redis_publish_total_failure", 0)
-    )
-
     def observation_age(metric_name: str, timestamp_name: str) -> dict[str, Any]:
         values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
         observed = [value for value in values if value >= 0]
@@ -187,6 +195,42 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
             "last_observed_timestamp_seconds": timestamps[-1] if timestamps else None,
         }
 
+    def counter_window(metric_name: str) -> dict[str, Any]:
+        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
+        if not values:
+            return {"delta": 0, "counter_reset": False}
+        previous = max(0, int(values[0]))
+        delta = 0
+        reset = False
+        for raw_value in values[1:]:
+            current = max(0, int(raw_value))
+            if current < previous:
+                # A reset starts a new counter epoch; include the post-reset
+                # observations instead of allowing them to cancel prior work.
+                delta += current
+                reset = True
+            else:
+                delta += current - previous
+            previous = current
+        return {
+            "delta": delta,
+            "counter_reset": reset,
+        }
+
+    def gauge_window(metric_name: str) -> dict[str, Any]:
+        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
+        observed = [value for value in values if value >= 0]
+        return {
+            "last": values[-1] if values else None,
+            "max": max(observed) if observed else None,
+            "observed_samples": len(observed),
+            "unknown_samples": sum(value < 0 for value in values),
+        }
+
+    redis_failure_window = counter_window("vpn_dashboard_redis_publish_total_failure")
+    failure_delta = redis_failure_window["delta"]
+    failure_counter_reset = redis_failure_window["counter_reset"]
+
     return {
         "available": True,
         "redis_configured": last.get("vpn_dashboard_redis_configured"),
@@ -197,6 +241,26 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         "outbox_pending_last": last.get("vpn_dashboard_integration_outbox_pending"),
         "outbox_dead_lettered_last": last.get("vpn_dashboard_integration_outbox_dead_lettered"),
         "outbox_oldest_age_seconds_last": last.get("vpn_dashboard_integration_outbox_oldest_age_seconds"),
+        "telemetry_gateway": {
+            "authorized_clients_last": last.get("vpn_dashboard_telemetry_gateway_clients"),
+            "buffered_events_last": last.get("vpn_dashboard_telemetry_gateway_buffered_events"),
+            "published_events": counter_window("vpn_dashboard_telemetry_gateway_events_total_published"),
+            "replayed_events": counter_window("vpn_dashboard_telemetry_gateway_events_total_replayed"),
+            "snapshot_recoveries": counter_window(
+                "vpn_dashboard_telemetry_gateway_events_total_snapshot_recovery"
+            ),
+            "rejected_clients": counter_window("vpn_dashboard_telemetry_gateway_rejected_clients_total"),
+            "delivery_observations_last": last.get("vpn_dashboard_telemetry_gateway_delivery_observations"),
+            "delivery_queue_age_seconds": gauge_window(
+                "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds"
+            ),
+            "delivery_queue_age_p95_seconds": gauge_window(
+                "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds"
+            ),
+            "meaning": (
+                "Gateway enqueue-to-authorized-client-poll delay; excludes RouterOS observation and browser rendering."
+            ),
+        },
         "telemetry_process_observation_age": {
             "session_event": observation_age(
                 "vpn_dashboard_telemetry_session_event_age_seconds",
