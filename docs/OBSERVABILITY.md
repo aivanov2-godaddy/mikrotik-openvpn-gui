@@ -69,3 +69,13 @@ reconciliation path and live session stream; traffic-sample freshness is marked
 when interface-counter events enter the telemetry runtime. A later acceptance
 collector can sample these gauges over a window without calling RouterOS or
 adding event-level/private data to metrics.
+
+The release-acceptance collector also samples the aggregate telemetry-gateway
+gauges and counters: currently authorized clients, bounded buffered events,
+published/replayed events, snapshot recoveries, rejected subscriptions, and
+latest/P95 enqueue-to-authorized-client-poll delay. It reports counter deltas
+and reset indicators for the soak window, plus observed versus unknown queue-age
+samples. These measures diagnose the gateway delivery stage only; they do not
+measure RouterOS-to-process event latency or browser rendering, and an unknown
+queue age (`-1`) is not treated as zero delay. Metrics remain aggregate and use
+no user, address, session, subscription, or event identifiers as labels.

@@ -69,6 +69,20 @@ class FakeTime:
 
 
 class ReleaseCollectionTests(unittest.TestCase):
+    def test_metric_parser_ignores_unexpected_and_high_cardinality_labels(self) -> None:
+        from scripts.collect_release_acceptance import _parse_metrics
+
+        parsed = _parse_metrics(
+            b'vpn_dashboard_telemetry_gateway_clients{user="private-user"} 99\n'
+            b'vpn_dashboard_telemetry_gateway_events_total{outcome="published",event_id="private-id"} 99\n'
+            b'vpn_dashboard_telemetry_gateway_events_total{outcome="published"} 4\n'
+            b'vpn_dashboard_redis_publish_total{outcome="success",token="private-token"} 99\n'
+            b'vpn_dashboard_redis_publish_total{outcome="success"} 7\n'
+        )
+        self.assertNotIn("vpn_dashboard_telemetry_gateway_clients", parsed)
+        self.assertEqual(parsed["vpn_dashboard_telemetry_gateway_events_total_published"], 4)
+        self.assertEqual(parsed["vpn_dashboard_redis_publish_total_success"], 7)
+
     def run_collection(
         self,
         *,
@@ -107,6 +121,15 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_telemetry_traffic_sample_age_seconds 0.75\n"
                 f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {now - 0.75}\n"
                 "vpn_dashboard_telemetry_traffic_samples_total 12\n"
+                "vpn_dashboard_telemetry_gateway_clients 1\n"
+                "vpn_dashboard_telemetry_gateway_buffered_events 2\n"
+                "vpn_dashboard_telemetry_gateway_events_total{outcome=\"published\"} 15\n"
+                "vpn_dashboard_telemetry_gateway_events_total{outcome=\"replayed\"} 3\n"
+                "vpn_dashboard_telemetry_gateway_events_total{outcome=\"snapshot_recovery\"} 1\n"
+                "vpn_dashboard_telemetry_gateway_rejected_clients_total 0\n"
+                "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds 0.2\n"
+                "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds 0.5\n"
+                "vpn_dashboard_telemetry_gateway_delivery_observations 8\n"
                 "vpn_dashboard_info{revision=\"private-label\"} 1\n"
             )
             return 200, payload.encode()
@@ -145,6 +168,11 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(telemetry["session_event"]["max_seconds"], 0.25)
         self.assertEqual(telemetry["traffic_sample"]["max_seconds"], 0.75)
         self.assertIn("not RouterOS-to-browser delivery latency", telemetry["meaning"])
+        gateway = report["deployments"][0]["metrics"]["telemetry_gateway"]
+        self.assertEqual(gateway["authorized_clients_last"], 1)
+        self.assertEqual(gateway["snapshot_recoveries"]["delta"], 0)
+        self.assertEqual(gateway["delivery_queue_age_p95_seconds"]["max"], 0.5)
+        self.assertIn("excludes RouterOS observation and browser rendering", gateway["meaning"])
         self.assertTrue(all(cookie == "session=secret-cookie" for _, cookie in seen))
         serialized = json.dumps(report)
         self.assertNotIn("must-not-appear-in-output", serialized)
@@ -179,6 +207,74 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(telemetry["session_event"]["unknown_samples"], 1)
         self.assertIsNone(telemetry["traffic_sample"]["max_seconds"])
         self.assertEqual(telemetry["traffic_sample"]["unknown_samples"], 1)
+
+    def test_gateway_metrics_report_counter_deltas_and_unknown_queue_age(self) -> None:
+        from scripts.collect_release_acceptance import _metric_window
+
+        first = {
+            "vpn_dashboard_telemetry_gateway_events_total_published": 10,
+            "vpn_dashboard_telemetry_gateway_events_total_replayed": 3,
+            "vpn_dashboard_telemetry_gateway_events_total_snapshot_recovery": 1,
+            "vpn_dashboard_telemetry_gateway_rejected_clients_total": 2,
+            "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds": -1,
+            "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds": -1,
+            "vpn_dashboard_telemetry_gateway_delivery_observations": 0,
+        }
+        last = {
+            "vpn_dashboard_telemetry_gateway_events_total_published": 14,
+            "vpn_dashboard_telemetry_gateway_events_total_replayed": 5,
+            "vpn_dashboard_telemetry_gateway_events_total_snapshot_recovery": 2,
+            "vpn_dashboard_telemetry_gateway_rejected_clients_total": 2,
+            "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds": 0.25,
+            "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds": 0.75,
+            "vpn_dashboard_telemetry_gateway_delivery_observations": 4,
+        }
+
+        summary = _metric_window([{"metrics": first}, {"metrics": last}], 0, 1)
+        gateway = summary["telemetry_gateway"]
+        self.assertEqual(gateway["published_events"], {"delta": 4, "counter_reset": False})
+        self.assertEqual(gateway["replayed_events"]["delta"], 2)
+        self.assertEqual(gateway["snapshot_recoveries"]["delta"], 1)
+        self.assertEqual(gateway["rejected_clients"]["delta"], 0)
+        self.assertEqual(gateway["delivery_observations_last"], 4)
+        self.assertEqual(gateway["delivery_queue_age_p95_seconds"]["max"], 0.75)
+        self.assertEqual(gateway["delivery_queue_age_p95_seconds"]["unknown_samples"], 1)
+
+    def test_gateway_counter_reset_is_reported_not_wrapped_as_large_delta(self) -> None:
+        from scripts.collect_release_acceptance import _metric_window
+
+        first = {"vpn_dashboard_telemetry_gateway_events_total_published": 100}
+        last = {"vpn_dashboard_telemetry_gateway_events_total_published": 3}
+        summary = _metric_window([{"metrics": first}, {"metrics": last}], 0, 1)
+        self.assertEqual(
+            summary["telemetry_gateway"]["published_events"],
+            {"delta": 3, "counter_reset": True},
+        )
+
+    def test_mid_window_counter_reset_preserves_post_reset_delta(self) -> None:
+        from scripts.collect_release_acceptance import _metric_window
+
+        samples = [
+            {"metrics": {
+                "vpn_dashboard_telemetry_gateway_events_total_published": 10,
+                "vpn_dashboard_redis_publish_total_failure": 5,
+            }},
+            {"metrics": {
+                "vpn_dashboard_telemetry_gateway_events_total_published": 2,
+                "vpn_dashboard_redis_publish_total_failure": 1,
+            }},
+            {"metrics": {
+                "vpn_dashboard_telemetry_gateway_events_total_published": 8,
+                "vpn_dashboard_redis_publish_total_failure": 4,
+            }},
+        ]
+        summary = _metric_window(samples, 0, 1)
+        self.assertEqual(
+            summary["telemetry_gateway"]["published_events"],
+            {"delta": 8, "counter_reset": True},
+        )
+        self.assertEqual(summary["redis_publish_failure_delta"], 4)
+        self.assertTrue(summary["redis_publish_failure_counter_reset"])
 
     def test_readiness_or_revision_mismatch_fails_closed(self) -> None:
         code, report, _ = self.run_collection(ready=False)

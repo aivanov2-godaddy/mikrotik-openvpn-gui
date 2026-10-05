@@ -503,6 +503,16 @@ values. These evaluator safeguards prevent malformed or stale evidence from
 passing; they do not create or substitute for the still-pending router-side
 measurements and recovery drills.
 
+**Acceptance collector gateway-stage metrics:** the collector now requires and
+reports the existing aggregate gateway client/buffer gauges, published and
+replayed event counts, snapshot-recovery and rejected-client counters, delivery
+queue observations, and latest/P95 enqueue-to-authorized-poll delay. It
+calculates counter deltas/reset flags and distinguishes unknown (`-1`) queue
+age from fresh observations. This adds delivery-stage evidence to #199 while
+explicitly not labeling it end-to-end RouterOS-to-browser latency. No runtime
+or RouterOS change is included; the live acceptance gates remain open.
+See [production observability](OBSERVABILITY.md).
+
 **Latest read-only RouterOS observation (2026-10-04 23:41 Europe/Sofia):**
 WebFig showed PR #448's immutable ARM64 image tag configured on both canary
 and production, both with healthy (`H`) status; Redis was running (`R`). A
