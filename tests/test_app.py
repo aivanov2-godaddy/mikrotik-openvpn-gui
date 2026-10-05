@@ -3378,6 +3378,83 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("active VPN-user session", json.loads(payload)["error"])
         self.assertEqual(self.mock.state.mutation_requests, before)
 
+    def test_managed_certificate_retirement_requires_replacement_import_and_live_test(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        old_certificate_name = "ovpn-user-one-device-a"
+        replacement_name = "user-one-managed-replacement"
+        self.mock.state.certificates["*MANAGED-REPLACEMENT"] = {
+            ".id": "*MANAGED-REPLACEMENT", "name": replacement_name,
+            "common-name": "user-one-managed-replacement", "fingerprint": "NEW:MANAGED",
+            "issuer": "vpn-ca", "ca": "vpn-ca", "trusted": "yes", "revoked": "no",
+            "key-usage": "tls-client", "invalid-after": "2030-08-03 00:00:00",
+            "expires-after": "208w",
+        }
+        store = self.server.context.store
+        store.record_profile_migration(
+            legacy_certificate_name=old_certificate_name,
+            vpn_user="user-one",
+            replacement_certificate_name=replacement_name,
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name=old_certificate_name, step="imported", actor="operator",
+        )
+        before = list(self.mock.state.mutation_requests)
+
+        status, _, payload = self.json_request(
+            "POST", f"{path}/preview",
+            {"confirmation": "Managed test phone", "reason": "Replace this phone certificate after renewal."},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("live connection test", json.loads(payload)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, before)
+        self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
+        self.assertIsNone(store.device_by_id(device_id)["revoked_at"])
+
+    def test_managed_certificate_retires_only_after_verified_replacement_test(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        old_certificate_name = "ovpn-user-one-device-a"
+        replacement_name = "user-one-managed-replacement"
+        self.mock.state.certificates["*MANAGED-REPLACEMENT"] = {
+            ".id": "*MANAGED-REPLACEMENT", "name": replacement_name,
+            "common-name": "user-one-managed-replacement", "fingerprint": "NEW:MANAGED",
+            "issuer": "vpn-ca", "ca": "vpn-ca", "trusted": "yes", "revoked": "no",
+            "key-usage": "tls-client", "invalid-after": "2030-08-03 00:00:00",
+            "expires-after": "208w",
+        }
+        store = self.server.context.store
+        store.record_profile_migration(
+            legacy_certificate_name=old_certificate_name,
+            vpn_user="user-one",
+            replacement_certificate_name=replacement_name,
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name=old_certificate_name, step="imported", actor="operator",
+        )
+        store.record_profile_migration_step(
+            legacy_certificate_name=old_certificate_name, step="tested", actor="operator",
+            active_session_observed=True,
+        )
+        request = {
+            "confirmation": "Managed test phone",
+            "reason": "Replacement imported and tested; retire old identity.",
+        }
+
+        status, _, payload = self.json_request("POST", f"{path}/preview", request)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        before = list(self.mock.state.mutation_requests)
+        self.assertNotIn("POST /certificate/issued-revoke", before)
+        status, _, payload = self.json_request(
+            "POST", path, {**request, "review_token": json.loads(payload)["review_token"]},
+        )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertTrue(result["verified"])
+        self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
+        self.assertEqual(self.mock.state.certificates["*MANAGED-REPLACEMENT"]["revoked"], "no")
+        self.assertIsNotNone(store.device_by_id(device_id)["revoked_at"])
+
     def test_device_revoke_preview_is_read_only_and_stale_review_is_rejected(self) -> None:
         path, device_id = self._managed_device_revoke_request()
         reviewed = self._review_device_revoke(path)
