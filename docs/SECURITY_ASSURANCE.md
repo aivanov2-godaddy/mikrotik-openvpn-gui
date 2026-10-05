@@ -27,24 +27,35 @@ management capabilities cannot be obtained through API-token scopes. This is
 representative scope-boundary coverage, not an exhaustive route/method/query
 cross-product.
 
+The polling bridge binds every Engine.IO SID to its creating server-side
+session. PR [#483](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/483)
+adds regressions proving that foreign-session and anonymous SID probes cannot
+read or close the owner's stream, while an owner whose stream capability is
+revoked is cleaned up on its next request:
+`SocketIOPollingBridgeTests.test_polling_sid_is_bound_to_the_session_that_opened_it`,
+`SocketIOPollingBridgeTests.test_unauthenticated_sid_probe_cannot_close_another_session_stream`,
+and `SocketIOPollingBridgeTests.test_post_closes_owners_stream_after_session_loses_stream_capability`.
+
 Run focused evidence locally:
 
 ```powershell
-python -m unittest tests.test_security tests.test_asgi_contract tests.test_app
+python -m unittest tests.test_security tests.test_asgi_contract tests.test_app tests.test_telemetry_socketio_polling
 ```
 
-## Repository revalidation — 2026-10-04
+## Repository revalidation — 2026-10-05
 
 The authorization and live-session paths were re-read at repository HEAD
-`9fb89ec1609c4a706c9065355939bffeb0f9ca07`. The review covered the route
-dispatch inventory, token scope matrix, metrics and export guards, SSE
-write-boundary revalidation, Socket.IO origin/session handling, and ASGI live
-delivery checks. No new concrete authorization defect was demonstrated in
-those paths. The focused command above passed all 172 tests locally on this
-revision. This is internal repository evidence only; it does not establish
-deployed proxy behavior, physical-router revocation latency, or an independent
-external ASVS/penetration-test result. Those live and independent-review
-items remain open below.
+`7454f28a9fcc16c05bff5020081cab3f0104e437`. The review covered the route
+dispatch inventory, token-scope matrix, metrics and export guards, SSE
+write-boundary revalidation, Socket.IO origin/session handling, ASGI live
+delivery, and the later polling SID-ownership change. That change prevents a
+foreign or anonymous request from closing another session's subscription;
+the owning session still releases its subscription after revocation. The
+focused command above passed all 185 tests locally on this revision. This is
+an internal maintainer revalidation, not an independent security review. It
+does not establish deployed proxy behavior, physical-router revocation
+latency, or an external ASVS/penetration-test result. Those live and
+independent-review items remain open below.
 
 CI remains the authoritative repository test result for a proposed commit. A
 passing suite only establishes the assertions in those tests; it is not a
