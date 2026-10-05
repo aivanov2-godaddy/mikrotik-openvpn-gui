@@ -312,7 +312,11 @@ class RouterOSClient:
         )
         if record is None or str(record.get("disabled", "no")).strip().casefold() in {"yes", "true", "1"}:
             return None
-        group = str(record.get("group", "full")).strip().lower()
+        raw_group = record.get("group")
+        if not isinstance(raw_group, str) or not raw_group.strip():
+            # An incomplete identity record must never inherit Owner access.
+            return "read_only"
+        group = raw_group.strip().lower()
         # RouterOS groups are the identity source.  The additional named
         # groups are optional custom groups; unknown groups fail closed in the
         # dashboard's role normalizer rather than inheriting owner access.
