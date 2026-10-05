@@ -1,8 +1,9 @@
 # RouterOS canary acceptance test
 
-Use this procedure after public CI has passed and before an operator promotes a
-new immutable image from canary to production. It is a repeatable, redacted
-hardware-in-the-loop check; it complements the repository's automated tests.
+Use this procedure after public CI has passed, before promoting a new immutable
+image from canary to production, and again after promotion. It is a repeatable,
+redacted hardware-in-the-loop check; it complements the repository's automated
+tests.
 
 The procedure is deliberately read-only except for the disposable canary
 container and a disposable VPN profile. Do not paste router exports, passwords,
@@ -12,24 +13,30 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #497, commit
-`3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f`, published the immutable ARM64 tag
-`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64`,
+prove RouterOS compatibility. PR #504, commit
+`a62724c94261b00866fa3d55416a7b540305d40b`, published the ARM64 image
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64`,
 registry digest
-`sha256:089e9c48c3e388cd08be3a44ddd9f525a0b50ea9e15983d6a8fa78e442fecc6c`.
-Read-only RouterOS read-back confirmed that tag and healthy state on canary and
-production. Canary `/readyz` returned the expected revision; a canary-only
-rollback to the previous immutable image and forward recovery both returned
-the expected ready revisions. Production was not restarted for the drill.
-RouterOS reports the configured tag, not the registry digest. These are
-point-in-time deployment observations, not completion of the controlled
-latency/freshness, event-integrity, recovery, resource-soak, Redis-delivery, or
-production rollback acceptance below. No resource minimum or cross-model/version
-certification is inferred. These PR #497 observations are historical: the
-2026-10-06 read-back lists PR #501 on canary while production remains on PR #497.
-See the [current release record](RELEASES.md#latest-published-mainline-candidate-pr-501-2026-10-06).
-The PR #501 candidate still requires its own readiness and rollback checks plus
-the formal physical RouterOS acceptance below.
+`sha256:2b1d249c4219302305ce54e73b856dc22f5b884ff786b083ea18de2868e454af`.
+The 2026-10-06 read-only RouterOS read-back showed this configured tag on both
+canary and production, each healthy (`H`), with Redis running (`R`). The
+authenticated production dashboard showed `Live · SOCKETIO` and Operational
+health; its CPU health value and router uptime changed across two observations
+without a page reload. There were no connected VPN users. RouterOS reports its
+configured tag, not the cached registry digest.
+
+This is point-in-time deployment and live-health evidence, not completion of
+the controlled latency/freshness, session-event, event-integrity, recovery,
+resource-soak, Redis-delivery, restore, or rollback acceptance below. The PR
+#504 image is already configured on production, so its remaining collector run
+uses `--phase postpromotion` with both environments on the same candidate; a
+canary-prepromotion run applies to a later candidate while production remains
+on its prior image. No resource minimum or cross-model/version certification is
+inferred. See the [current release
+record](RELEASES.md#latest-published-mainline-candidate-pr-504-2026-10-06).
+The PR #497 rollback/readiness results described in the [historical release
+record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
+remain historical and do not prove PR #504's canary readiness or rollback.
 See the [installation compatibility
 matrix](INSTALLATION.md#compatibility-and-support-matrix) and [historical release record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05).
 
