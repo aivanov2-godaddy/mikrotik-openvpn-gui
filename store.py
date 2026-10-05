@@ -164,7 +164,8 @@ class MetadataStore:
                     imported_by TEXT NOT NULL DEFAULT '',
                     tested_at INTEGER,
                     tested_by TEXT NOT NULL DEFAULT '',
-                    tested_with_active_session INTEGER NOT NULL DEFAULT 0
+                    tested_with_active_session INTEGER NOT NULL DEFAULT 0,
+                    retirement_state TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS deployment_events (
@@ -263,6 +264,7 @@ class MetadataStore:
                 "tested_at": "INTEGER",
                 "tested_by": "TEXT NOT NULL DEFAULT ''",
                 "tested_with_active_session": "INTEGER NOT NULL DEFAULT 0",
+                "retirement_state": "TEXT NOT NULL DEFAULT ''",
             }.items():
                 try:
                     connection.execute(
@@ -1079,9 +1081,20 @@ class MetadataStore:
                     imported_by='',
                     tested_at=NULL,
                     tested_by='',
-                    tested_with_active_session=0
+                    tested_with_active_session=0,
+                    retirement_state=''
                 """,
                 (legacy_certificate_name, vpn_user, replacement_certificate_name, int(time.time())),
+            )
+
+    def record_profile_migration_retirement(self, *, legacy_certificate_name: str, state: str) -> None:
+        """Persist the verified or partial RouterOS outcome for old-cert retirement."""
+        if state not in {"verified", "partial"}:
+            raise ValueError("Unsupported profile migration retirement state")
+        with self._lock, self._connection() as connection:
+            connection.execute(
+                "UPDATE profile_migrations SET retirement_state=? WHERE legacy_certificate_name=?",
+                (state, legacy_certificate_name),
             )
 
     def record_profile_migration_step(

@@ -44,18 +44,52 @@ python -m unittest tests.test_security tests.test_asgi_contract tests.test_app t
 
 ## Repository revalidation — 2026-10-05
 
-The authorization and live-session paths were re-read at repository HEAD
-`7454f28a9fcc16c05bff5020081cab3f0104e437`. The review covered the route
+The authorization and live-session paths were re-read at baseline commit
+`5d31e8737fe55bea0ac65e0d30f3b1aa14c5c26c`. The review covered the route
 dispatch inventory, token-scope matrix, metrics and export guards, SSE
 write-boundary revalidation, Socket.IO origin/session handling, ASGI live
-delivery, and the later polling SID-ownership change. That change prevents a
+delivery, and polling SID ownership. The polling ownership check prevents a
 foreign or anonymous request from closing another session's subscription;
-the owning session still releases its subscription after revocation. The
-focused command above passed all 185 tests locally on this revision. This is
-an internal maintainer revalidation, not an independent security review. It
-does not establish deployed proxy behavior, physical-router revocation
-latency, or an external ASVS/penetration-test result. Those live and
-independent-review items remain open below.
+the owning session still releases its subscription after revocation.
+
+The same review included managed-certificate retirement. The handler requires
+`device.manage`, an authenticated RouterOS session, CSRF validation, exact
+target-name confirmation, a printable operator reason, and a single-use
+session-bound review receipt over the intent and current certificate state.
+For a migration, it requires recorded import and operator-test steps, an
+active replacement associated with the same VPN user and configured CA, and
+an active source certificate. Expiry validation requires RouterOS's relative
+`expires-after` remaining-time value; it fails closed if that value is absent
+or unparseable, avoiding an assumption that the app host and router share a
+timezone. Expiry health alerts and device posture also use this relative value;
+the timezone-less absolute `invalid-after` string is shown only as reported and
+is not used to decide certificate validity. RouterOS cannot attribute the observed
+VPN-user session to a particular client certificate, so the test step is not
+cryptographic proof that the replacement authenticated. The replacement must
+also have a confirmed positive remaining validity. Before mutation, the
+current RouterOS state is bound to a single-use review. Afterward, read-back must confirm both
+that the exact source certificate is revoked and that the reviewed replacement
+remains unchanged, active, associated with the same user/current CA, and
+unexpired. If source revocation is confirmed but replacement verification
+fails, the result is reported and persisted as partial, local source state
+records the confirmed revocation, and the dashboard continues to show that the
+replacement needs review instead of labeling the migration completed. Tests
+cover missing live-test evidence, successful review/retirement, expiry and
+RouterOS date/duration parsing, a replacement changing during retirement,
+partial-state presentation, lost mutation responses, and unavailable or
+mismatching read-back. Revocation does not terminate a session already
+connected.
+
+The focused command above passed all 187 tests locally on the baseline before
+the additional replacement-state guards. The nine focused follow-up tests
+then passed locally, covering expiry parsing, expiry rejection, retirement
+read-back races, partial-state presentation, and additive SQLite migration.
+The repository pre-commit validation also passed its secret scan, compilation,
+full unit/mock-integration suite, and JavaScript syntax check on the proposed
+change. This is internal repository evidence, not an independent security
+review. It does not establish deployed proxy behavior, physical-router
+revocation latency, or an external ASVS/penetration-test result. Those live
+and independent-review items remain open below.
 
 CI remains the authoritative repository test result for a proposed commit. A
 passing suite only establishes the assertions in those tests; it is not a

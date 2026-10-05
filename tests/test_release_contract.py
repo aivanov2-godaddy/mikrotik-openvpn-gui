@@ -25,6 +25,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_runtime_diagnostic_module_is_bundled_in_the_container(self) -> None:
         containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
         self.assertIn("exposure_doctor.py", containerfile)
+        self.assertIn("certificate_lifecycle.py", containerfile)
         workflows = ROOT / ".github" / "workflows"
         for workflow in ("ci.yml", "container.yml"):
             self.assertIn("exposure_doctor.py", (workflows / workflow).read_text(encoding="utf-8"))

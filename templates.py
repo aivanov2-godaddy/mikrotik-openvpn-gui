@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from icons import icon_sprite
+from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from security import has_capability, normalize_role, role_label
 
 
@@ -138,25 +139,17 @@ def _schedule_label(value: Any) -> str:
 
 
 def _certificate_expiry(value: Any, now: int | None = None) -> tuple[str, str]:
-    """Return a readable certificate lifecycle label and CSS state."""
+    """Return a timezone-independent label from RouterOS remaining validity."""
     raw = str(value or "").strip()
-    expiry = 0
-    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            expiry = int(time.mktime(time.strptime(raw[:19 if " " in pattern else 10], pattern)))
-            break
-        except (TypeError, ValueError, OverflowError):
-            continue
-    if not expiry:
+    remaining = _certificate_remaining_seconds(raw)
+    if remaining is None:
         return ("Expiry unknown", "warning")
-    days = (expiry - int(time.time() if now is None else now)) // 86400
-    if days < 0:
+    days = (remaining + 86399) // 86400
+    if remaining <= 0:
         return ("Expired", "expired")
-    if days == 0:
-        return ("Expires today", "warning")
     if days <= 30:
         return (f"Expires in {days} days", "warning")
-    return (f"Valid · {time.strftime('%d %b %Y', time.localtime(expiry))}", "")
+    return (f"Valid · {days} days remaining", "")
 
 
 def evaluate_device_posture(
@@ -216,8 +209,7 @@ def evaluate_device_posture(
                     f"Issued by {issuer}; the configured current CA is {configured_ca}.",
                 )
             else:
-                expiry_value = certificate.get("invalid_after") or certificate.get("expires_after")
-                expiry_label, _ = _certificate_expiry(expiry_value, now=now)
+                expiry_label, _ = _certificate_expiry(certificate.get("expires_after"), now=now)
                 if expiry_label == "Expired":
                     state, label, reason = (
                         "expired",
@@ -724,9 +716,30 @@ def dashboard_page(
                     migrated_profile_count += 1
                 replacement_name = html.escape(str(migration.get("replacement_certificate_name", "")))
                 if revoked:
-                    migration_status = "Old identity revoked on RouterOS"
-                    migration_action = '<span class="muted-label">Completed</span>'
-                    migration_detail = f'<small class="table-secondary">Replacement: {replacement_name}. RouterOS reports this legacy certificate revoked.</small>'
+                    retirement_state = str(migration.get("retirement_state", ""))
+                    if retirement_state == "partial":
+                        migration_status = "Old identity revoked; replacement needs review"
+                        migration_action = '<span class="muted-label">Partial · review required</span>'
+                        migration_detail = (
+                            f'<small class="table-secondary">Replacement: {replacement_name}. '
+                            "RouterOS confirmed the old certificate revoked, but the replacement could not be confirmed at read-back. "
+                            "Verify or issue a valid replacement before reconnecting.</small>"
+                        )
+                    elif retirement_state == "verified":
+                        migration_status = "Old identity revoked; replacement verified at retirement"
+                        migration_action = '<span class="muted-label">Verified at retirement</span>'
+                        migration_detail = (
+                            f'<small class="table-secondary">Replacement: {replacement_name}. '
+                            "RouterOS confirmed the replacement active at revocation read-back; this does not prove old-client rejection "
+                            "or terminate an existing VPN session.</small>"
+                        )
+                    else:
+                        migration_status = "Old identity revoked; replacement status unknown"
+                        migration_action = '<span class="muted-label">Review replacement</span>'
+                        migration_detail = (
+                            f'<small class="table-secondary">Replacement: {replacement_name}. '
+                            "RouterOS reports the old certificate revoked; verify the replacement and reconnect behavior separately.</small>"
+                        )
                 elif migration.get("tested_at") and migration.get("tested_with_active_session"):
                     migration_status = "Replacement test confirmed by operator"
                     migration_detail = (
@@ -795,7 +808,7 @@ def dashboard_page(
                 <td><strong>{html.escape(owner)}</strong><small class="table-secondary">Issued by {html.escape(certificate_authority or 'previous CA')}</small></td>
                 <td><span class="device-status {status_class}"><i></i>{html.escape(migration_status)}</span>{migration_detail}</td><td>{migration_action}</td></tr>'''
             )
-        lifecycle_label, lifecycle_state = _certificate_expiry(expiry)
+        lifecycle_label, lifecycle_state = _certificate_expiry(certificate.get("expires_after"))
         certificate_state = "revoked" if revoked else lifecycle_state
         certificate_state_label = "Revoked" if revoked else lifecycle_label
         certificate_rows.append(
