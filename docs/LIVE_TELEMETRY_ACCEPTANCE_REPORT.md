@@ -488,7 +488,11 @@ The read-back verifies the configured immutable tag and health, but does not
 independently compare the registry digest on the router or complete the formal
 acceptance window.
 
-## Deployment identity
+## Deployment identity and status snapshot — 2026-10-05 (before PR #501)
+
+The following point-in-time rows preserve the status known before PR #501 was
+published. For the current published candidate, canary tag read-back, and
+production state, see the 2026-10-06 section near the top of this report.
 
 | Field | Value |
 | --- | --- |
@@ -499,11 +503,11 @@ acceptance window.
 | Acceptance production image tag | `sha-ffbf7f618df2fd23ce4bcee033680cd1ef882a8c-arm64` |
 | Acceptance production image digest | `sha256:59358cde350cefdbb7c918045199a9a7b84d01578a58fae6e115f7444d127c08` |
 | Last authenticated production application observation | On 2026-10-05 at approximately 05:08 Europe/Sofia, the freshly loaded authenticated Owner Dashboard showed `Live · updated now` and `Operational`; its baked revision matched the configured immutable ARM64 image tag. No VPN client was connected. This is a point-in-time health/live-state observation, not a session-event latency, traffic-freshness, or sustained acceptance measurement. No session identity or address is included. |
-| Latest RouterOS container read-back | The latest timestamped WebFig read-back on 2026-10-05 showed canary and production configured with PR #484's `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` tag, both healthy (`H`), with Redis running (`R`). This is point-in-time tag/health evidence; RouterOS does not report an independent registry digest. |
-| Latest published mainline image | PR #494 main commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, publication run [37328242084](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37328242084); ARM64 tag `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64`, digest `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`. Published and CI-verified; not verified on RouterOS. |
-| Latest RouterOS System Resources observation | On 2026-10-05 at approximately 05:08 Europe/Sofia, router CPU, memory, and storage were below current cutoffs; exact values remain in private local evidence. This is one point-in-time sample, not a sustained resource baseline. |
+| Latest RouterOS container read-back at that time | The 2026-10-05 WebFig read-back showed canary and production configured with PR #484's `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` tag, both healthy (`H`), with Redis running (`R`). This is point-in-time tag/health evidence; RouterOS does not report an independent registry digest. |
+| Latest published mainline image at that time | PR #494 main commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, publication run [37328242084](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37328242084); ARM64 tag `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64`, digest `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`. Published and CI-verified; not verified on RouterOS. |
+| RouterOS System Resources observation at that time | On 2026-10-05 at approximately 05:08 Europe/Sofia, router CPU, memory, and storage were below the then-current cutoffs; exact values remain in private local evidence. This is one point-in-time sample, not a sustained resource baseline. |
 | Latest numbered release | v2.7.0, commit `2e01f111e1445c79b1753477a41efbaec27a1a2d`, publication run [37212204038](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37212204038); exact-digest provenance/SBOM and runtime smoke passed |
-| Latest main runtime patch | PR #494, commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, is the latest application-runtime change. |
+| Latest main runtime patch at that time | PR #494, commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, was the latest application-runtime change before PR #501. |
 | Formal v2.7.0 ARM64 / AMD64 digests | `sha256:cf7f60ba462db7c70333892cd39ef5a88b4d496c0cfb6068ec2f184b7946178a` / `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f` |
 | Previous main runtime patch | PR #490, commit `8d189f82dca62ee112729c7fdfb2a96a35588ce5`, preceding PR #494 in the application-runtime history. |
 | RouterOS read-back after latest image publication | No RouterOS read-back of PR #494 is recorded. The latest timestamped on-router tag/health observation remains PR #484 on both canary and production. This does not establish PR #492's updater example is installed or complete telemetry acceptance. |
@@ -768,8 +772,8 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current deployment result: **PR #497 IS PUBLISHED, ROUTEROS-OBSERVED, AND
-HEALTHY; FORMAL ACCEPTANCE PENDING —** the canary and production containers
+Historical deployment result as of 2026-10-05: **PR #497 WAS PUBLISHED,
+ROUTEROS-OBSERVED, AND HEALTHY; FORMAL ACCEPTANCE PENDING —** the canary and production containers
 were read back on the immutable ARM64 tag
 `sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64`, whose published
 registry digest is
@@ -799,7 +803,7 @@ Keep private-acceptance.ndjson outside the repository. The procedure for
 collecting it is in LIVE_TELEMETRY_CANARY.md, and the immediate rollback path
 is in LIVE_TELEMETRY_ROLLBACK.md.
 
-## Detailed current RouterOS and browser read-back — PR #497 — 2026-10-05
+## Historical RouterOS and browser read-back — PR #497 — 2026-10-05
 
 Read-only RouterOS WebFig inspection showed both canary and production
 configured with PR #497's immutable ARM64 tag

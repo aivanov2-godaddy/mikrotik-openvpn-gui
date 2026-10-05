@@ -25,9 +25,13 @@ RouterOS reports the configured tag, not the registry digest. These are
 point-in-time deployment observations, not completion of the controlled
 latency/freshness, event-integrity, recovery, resource-soak, Redis-delivery, or
 production rollback acceptance below. No resource minimum or cross-model/version
-certification is inferred. Formal physical RouterOS acceptance remains pending.
+certification is inferred. These PR #497 observations are historical: the
+2026-10-06 read-back lists PR #501 on canary while production remains on PR #497.
+See the [current release record](RELEASES.md#latest-published-mainline-candidate-pr-501-2026-10-06).
+The PR #501 candidate still requires its own readiness and rollback checks plus
+the formal physical RouterOS acceptance below.
 See the [installation compatibility
-matrix](INSTALLATION.md#compatibility-and-support-matrix) and [release record](RELEASES.md#latest-published-mainline-image-pr-497-2026-10-05).
+matrix](INSTALLATION.md#compatibility-and-support-matrix) and [historical release record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05).
 
 - Use one immutable candidate for the canary, such as
   `ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64`.
