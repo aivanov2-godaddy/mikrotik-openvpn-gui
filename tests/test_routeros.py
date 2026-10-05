@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
 import json
 import unittest
+import urllib.error
+import urllib.request
 from unittest.mock import patch
 
 from config import OpenVPNTopology
@@ -354,12 +357,18 @@ class RouterOSClientTests(unittest.TestCase):
         secret_marker = "SYNTHETIC-PRIVATE-KEY-ERROR-DO-NOT-LEAK"
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            response_body = json.dumps({"detail": f"RouterOS echoed {secret_marker}"}).encode()
+            http_error = urllib.error.HTTPError(
+                f"{mock.url}/rest/certificate",
+                500,
+                "Internal Server Error",
+                {},
+                io.BytesIO(response_body),
+            )
             with patch.object(
-                client,
-                "_request",
-                side_effect=RouterOSError(
-                    f"RouterOS echoed {secret_marker}", 500, failure_kind="timeout",
-                ),
+                urllib.request,
+                "urlopen",
+                side_effect=http_error,
             ):
                 with self.assertRaises(RouterOSError) as raised:
                     client.list_ovpn_client_certificates(
@@ -370,7 +379,35 @@ class RouterOSClientTests(unittest.TestCase):
         self.assertNotIn("PRIVATE KEY", str(raised.exception))
         self.assertEqual(str(raised.exception), "RouterOS certificate inventory could not be read")
         self.assertEqual(raised.exception.status, 500)
+        self.assertIsNone(raised.exception.failure_kind)
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(mock.state.mutation_requests, [])
+
+    def test_certificate_inventory_sanitization_preserves_safe_failure_metadata(self) -> None:
+        secret_marker = "SYNTHETIC-ERROR-DETAIL-DO-NOT-LEAK"
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            with patch.object(
+                client,
+                "_request",
+                side_effect=RouterOSError(
+                    f"RouterOS echoed {secret_marker}",
+                    503,
+                    failure_kind="timeout",
+                ),
+            ):
+                with self.assertRaises(RouterOSError) as raised:
+                    client.list_ovpn_client_certificates(
+                        RouterOSCredentials("admin", "routerpass")
+                    )
+
+        self.assertNotIn(secret_marker, str(raised.exception))
+        self.assertEqual(str(raised.exception), "RouterOS certificate inventory could not be read")
+        self.assertEqual(raised.exception.status, 503)
         self.assertEqual(raised.exception.failure_kind, "timeout")
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
         self.assertEqual(mock.state.mutation_requests, [])
 
     def test_authentication_and_crud(self) -> None:
