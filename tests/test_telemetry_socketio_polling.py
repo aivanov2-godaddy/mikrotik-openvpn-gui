@@ -48,11 +48,35 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
         result = self.bridge.handshake("session-1")
         self.assertIsNotNone(result)
         sid, _ = result
+        self.assertTrue(self.bridge.post(sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(self.bridge.poll(sid, "session-1"), "40/telemetry,")
+        self.assertEqual(self.bridge.gateway.client_count, 1)
 
         # A second, independently authenticated session must not be able to
-        # reuse a leaked SID to open or read the first session's stream.
+        # reuse a leaked SID to open/read the first session's stream or tear it
+        # down by submitting the victim's SID.
         self.assertFalse(self.bridge.post(sid, "session-2", b"40/telemetry,"))
         self.assertIsNone(self.bridge.poll(sid, "session-2"))
+        self.assertIn(sid, self.bridge._clients)
+        self.assertEqual(self.bridge.gateway.client_count, 1)
+        self.assertEqual(self.bridge.poll(sid, "session-1"), "2")
+
+    def test_unauthenticated_sid_probe_cannot_close_another_session_stream(self) -> None:
+        result = self.bridge.handshake("session-1")
+        self.assertIsNotNone(result)
+        sid, _ = result
+        self.assertTrue(self.bridge.post(sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(self.bridge.poll(sid, "session-1"), "40/telemetry,")
+
+        self.bridge.principal_resolver = lambda _session_id: None
+        self.assertIsNone(self.bridge.poll(sid, ""))
+        self.assertFalse(self.bridge.post(sid, "", b"3"))
+
+        self.assertIn(sid, self.bridge._clients)
+        self.assertEqual(self.bridge.gateway.client_count, 1)
+        # Once the actual owner is revoked, its next request must release the
+        # subscription and client slot.
+        self.assertIsNone(self.bridge.poll(sid, "session-1"))
         self.assertNotIn(sid, self.bridge._clients)
         self.assertEqual(self.bridge.gateway.client_count, 0)
 
@@ -118,6 +142,22 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
         # must close the subscription rather than leave a stale SID alive.
         self.bridge.principal_resolver = lambda _session_id: None
         self.assertIsNone(self.bridge.poll(sid, "session-1"))
+        self.assertNotIn(sid, self.bridge._clients)
+        self.assertEqual(self.bridge.gateway.client_count, 0)
+
+    def test_post_closes_owners_stream_after_session_loses_stream_capability(self) -> None:
+        result = self.bridge.handshake("session-1")
+        self.assertIsNotNone(result)
+        sid, _ = result
+        self.assertTrue(self.bridge.post(sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(self.bridge.poll(sid, "session-1"), "40/telemetry,")
+        self.assertEqual(self.bridge.gateway.client_count, 1)
+
+        self.bridge.principal_resolver = lambda _session_id: TelemetryPrincipal(
+            True, auth_method="routeros", role="read_only", capabilities=frozenset()
+        )
+        self.assertFalse(self.bridge.post(sid, "session-1", b"3"))
+
         self.assertNotIn(sid, self.bridge._clients)
         self.assertEqual(self.bridge.gateway.client_count, 0)
 

@@ -74,6 +74,7 @@ class SocketIOPollingBridge:
     def post(self, sid: str, session_id: str, body: bytes) -> bool:
         principal = self.principal_resolver(session_id)
         if principal is None or not principal.may_stream:
+            self._close_if_owned(sid, session_id)
             return False
         with self._state_changed:
             self._expire_idle_locked(self.clock())
@@ -81,7 +82,6 @@ class SocketIOPollingBridge:
             if client is None:
                 return False
             if not secrets.compare_digest(client.session_id, session_id):
-                self._close_locked(sid)
                 return False
             client.last_activity = self.clock()
             packets = body.decode("utf-8", "replace").split("\x1e")
@@ -108,7 +108,7 @@ class SocketIOPollingBridge:
     def poll(self, sid: str, session_id: str) -> str | None:
         principal = self.principal_resolver(session_id)
         if principal is None or not principal.may_stream:
-            self.close(sid)
+            self._close_if_owned(sid, session_id)
             return None
         with self._state_changed:
             self._expire_idle_locked(self.clock())
@@ -116,7 +116,6 @@ class SocketIOPollingBridge:
             if client is None:
                 return None
             if not secrets.compare_digest(client.session_id, session_id):
-                self._close_locked(sid)
                 return None
             client.last_activity = self.clock()
             # The Socket.IO client starts its first poll as soon as the
@@ -148,6 +147,13 @@ class SocketIOPollingBridge:
     def close(self, sid: str) -> None:
         with self._lock:
             self._close_locked(sid)
+
+    def _close_if_owned(self, sid: str, session_id: str) -> None:
+        """Reap an invalid client's own SID, never a SID supplied by another session."""
+        with self._lock:
+            client = self._clients.get(sid)
+            if client and secrets.compare_digest(client.session_id, session_id):
+                self._close_locked(sid)
 
     def _close_locked(self, sid: str) -> None:
         client = self._clients.pop(sid, None)
