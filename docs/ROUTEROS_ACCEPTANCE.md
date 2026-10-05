@@ -12,21 +12,30 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest recorded 2026-10-05 production/canary
-read-back covers immutable revision
-`sha-d5f8f4418d6ec972aa51ea4634b56c7fd89093f4-arm64` on one physical RouterOS
+prove RouterOS compatibility. The latest published mainline image is PR #494,
+commit `03d08a2e6a08554c68cf74930049ac29ac0b3219`, immutable ARM64 tag
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64`,
+registry digest
+`sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`.
+Its publication/CI checks passed, but it has not been confirmed on RouterOS.
+The latest timestamped 2026-10-05 production/canary read-back remains PR #484's
+immutable revision
+`sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` on one physical RouterOS
 ARM64 installation running RouterOS 7.24.5 stable. Both dashboard containers
 reported healthy and Redis was running. RouterOS reported the configured
 immutable tag, not the registry image digest. This is a point-in-time deployment
 observation—not completion of the controlled latency/freshness, event-integrity,
 recovery, resource-soak, or rollback acceptance below. No resource minimum or
-cross-model/version certification is inferred. See the [installation compatibility
-matrix](INSTALLATION.md#compatibility-and-support-matrix) and [release record](RELEASES.md#latest-stable-registry-publication-and-deployment-read-back).
+cross-model/version certification is inferred. Formal physical RouterOS
+acceptance remains pending. See the [installation compatibility
+matrix](INSTALLATION.md#compatibility-and-support-matrix) and [release record](RELEASES.md#latest-published-mainline-image-pr-494-2026-10-05).
 
-- Use one immutable candidate such as
+- Use one immutable candidate for the canary, such as
   `ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64`.
-  Record the exact tag and digest. The `/readyz` revision must identify that
-  same candidate.
+  Record its exact tag and digest. For a pre-promotion run, also record
+  production's separate prior image, tag, digest, and revision; each
+  `/readyz` result must match its environment's recorded image. After promotion,
+  both environments should identify the candidate.
 - Use RouterOS 7 with the Container package enabled. ARM64 hardware uses the
   `-arm64` image; CHR/x86 evaluation uses `-amd64`. ARM32 is unsupported.
 - Use a canary router, CHR, or an isolated maintenance window. Take an
@@ -106,20 +115,49 @@ Notes: <no credentials, addresses, hosts, profiles, or exports>
 
 ## Collect a bounded app-health window
 
-`scripts/collect_release_acceptance.py` samples `GET /healthz`,
-`GET /readyz`, and authenticated aggregate `GET /metrics` on both private app
-origins. If `--cookie-env` is supplied, the short-lived cookie is sent to
-health, readiness, and metrics probes
-so deployments behind an authenticated reverse proxy (for example, Access)
-can be checked. Cookie-bearing probes require HTTPS; the cookie and probe
-origins are never written to the report. It checks the readiness revision
-against the immutable image tag, records the observation window and sample
-gaps, and requires complete Redis/outbox health and process-observation metrics
-on every sample in both environments. Missing or incomplete metrics fail the
-collection and clear any caller-supplied Redis success claim. Process-observation
-ages for session events and traffic samples are not end-to-end
-RouterOS-to-browser latency. It does not call RouterOS APIs, restart
-containers, or modify state.
+`scripts/collect_release_acceptance.py` samples `GET /healthz` and
+`GET /readyz` on both private app origins. Post-promotion collection also
+samples authenticated aggregate `GET /metrics` in both environments. During
+`canary-prepromotion`, it samples metrics only from canary; production is checked
+for health, readiness, and its separately recorded prior revision, without
+requiring that older image to expose the candidate's metrics schema. If
+`--cookie-env` is supplied, the short-lived cookie is sent only to the private
+app probes that are enabled for that phase. Cookie-bearing probes require
+HTTPS; the cookie and probe origins are never written to the report. It checks
+each readiness revision against its own immutable image tag, records the
+observation window and sample gaps, and requires complete Redis/outbox health
+and process-observation metrics wherever metrics are part of that phase. Missing
+or incomplete required metrics fail closed and clear any caller-supplied Redis
+success claim. Process-observation ages for session events and traffic samples
+are not end-to-end RouterOS-to-browser latency.
+
+Use `--phase canary-prepromotion` for a candidate soak before promotion. The
+evidence records the candidate image/revision for canary and production's
+separately recorded prior image/revision. The collector checks each deployment
+against its own recorded revision throughout the window and requires
+production to remain on a different prior immutable image from the canary
+candidate. The default `--phase postpromotion` is for verification after
+promotion and requires canary and production to report the same candidate
+image/revision. In either phase, each recorded immutable image digest is
+independently compared with its GHCR OCI manifest digest; an unavailable or
+mismatched registry digest fails closed. This verifies registry artifact
+identity, not the bytes cached on the router. The final evaluator reports
+`promotion_eligible` for a passing pre-promotion candidate gate and
+`production_accepted` only for a passing post-promotion collection. A
+pre-promotion report does not assert production acceptance. After promotion,
+run the collector again with `--phase postpromotion`, both environments on the
+candidate, and both metrics origins supplied; only that passing report marks
+production accepted. The prior-production baseline contributes only health,
+readiness, revision, and sample-coverage evidence; its older transport,
+resource measurements, and data-plane exercise claims are omitted from the
+pre-promotion acceptance report and must be verified against the candidate
+after promotion.
+
+The collector is read-only: it issues HTTP GET/HEAD probes to the private app
+and GHCR and never changes RouterOS/container configuration, promotes an image,
+or performs rollback. A passing collection is not a promotion action and does
+not execute or prove the required rollback rehearsal; that remains a separate
+controlled RouterOS procedure.
 
 The sampled release gate fails if any session-event, traffic-freshness, or
 gateway-delivery latency sample is unknown, even if other samples in the window
@@ -159,9 +197,9 @@ python scripts/collect_release_acceptance.py `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
   --canary-metrics-url https://<approved-canary-origin> `
-  --production-metrics-url https://<approved-production-origin> `
   --cookie-env VPN_ACCEPTANCE_COOKIE `
-  --duration-seconds 1800 --interval-seconds 60
+  --duration-seconds 1800 --interval-seconds 60 `
+  --phase canary-prepromotion
 python scripts/release_acceptance.py --input private-collected-evidence.json `
   --output private-acceptance-report.json
 } finally {
@@ -176,9 +214,14 @@ port). The acceptance
 window is at least 30 minutes, with at least 30 health samples
 per environment and no sample gap over 120 seconds. Duration is capped at 24
 hours, sampling at 10,000 observations, request timeout at 30 seconds, and
-redirects are not followed. The supplied image digest is recorded but not
-fetched or independently verified against a registry. Keep the output local or redact it before sharing. The
-collector cannot independently prove router CPU/memory/storage, VPN event
+redirects are not followed. The collector checks each recorded tag/digest pair
+against GHCR's current OCI manifest digest; unavailable or mismatched registry
+digests fail closed. This is not an independent read-back of RouterOS's cached
+image bytes: the current RouterOS container status exposes the configured tag,
+not its local OCI digest. The report therefore explicitly records
+`router_runtime_digest_verified: false`. Keep the output local or redact it
+before sharing.
+The collector cannot independently prove router CPU/memory/storage, VPN event
 latency/freshness, event loss/ordering, API interruption/recovery, snapshot
 recovery, REST/Binary parity, SQLite restore, rollback, unauthenticated access,
 or secret-free logs. Those remain real-router/operator measurements and must be

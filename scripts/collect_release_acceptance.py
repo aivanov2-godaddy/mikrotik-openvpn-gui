@@ -1,8 +1,10 @@
 """Collect bounded, redacted release evidence from private app probes.
 
 RouterOS-specific measurements remain operator-supplied in the evidence file.
-This collector only performs HTTP GET requests to /healthz, /readyz and (when
-configured) the authenticated, read-only /metrics endpoint.
+The canary-prepromotion phase verifies the candidate while production stays on
+its recorded prior revision. The postpromotion phase requires both environments
+on the same candidate. Probes are read-only; each immutable digest is checked
+against GHCR before the soak.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import re
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
@@ -27,6 +29,7 @@ except ModuleNotFoundError:
 
 
 MAX_RESPONSE_BYTES = 1_000_000
+MAX_REGISTRY_RESPONSE_BYTES = 65_536
 MAX_DURATION_SECONDS = 86_400
 MAX_SAMPLES = 10_000
 MIN_SOAK_SECONDS = 1800
@@ -149,6 +152,8 @@ def _get(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
         headers["Cookie"] = cookie
     request = Request(url, headers=headers, method="GET")
     opener = build_opener(_NoRedirect())
+    stage = "open"
+    response_socket = None
     try:
         with opener.open(request, timeout=timeout) as response:
             payload = response.read(MAX_RESPONSE_BYTES + 1)
@@ -163,6 +168,102 @@ def _get(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
     if len(payload) > MAX_RESPONSE_BYTES:
         return 0, b""
     return status, payload
+
+
+def _registry_digest(image: str, *, timeout: float) -> str | None:
+    """Return the published GHCR manifest digest for a validated immutable image.
+
+    Only GHCR is queried, redirects are disabled, response sizes are bounded,
+    and the short-lived anonymous pull token is never returned or logged.
+    """
+    if not IMAGE.fullmatch(image):
+        return None
+    reference = image.removeprefix("ghcr.io/")
+    repository, tag = reference.rsplit(":", 1)
+    if repository.count("/") != 1:
+        return None
+    token_path = "/token?" + urlencode({"scope": f"repository:{repository}:pull"})
+    try:
+        token_payload = _ghcr_request(
+            "GET", token_path, timeout=timeout, max_body_bytes=MAX_REGISTRY_RESPONSE_BYTES,
+            headers={"Accept": "application/json"},
+        )
+        if token_payload is None:
+            return None
+        token_document = json.loads(token_payload)
+        if not isinstance(token_document, dict):
+            return None
+        token = token_document.get("token") or token_document.get("access_token")
+        if (
+            not isinstance(token, str)
+            or not token
+            or len(token) > 16_384
+            or "\r" in token
+            or "\n" in token
+        ):
+            return None
+        digest = _ghcr_request(
+            "HEAD", f"/v2/{repository}/manifests/{tag}", timeout=timeout,
+            max_body_bytes=0,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": ", ".join((
+                    "application/vnd.oci.image.index.v1+json",
+                    "application/vnd.oci.image.manifest.v1+json",
+                    "application/vnd.docker.distribution.manifest.list.v2+json",
+                    "application/vnd.docker.distribution.manifest.v2+json",
+                )),
+            },
+            digest_header=True,
+        )
+    except (HTTPError, URLError, OSError, TimeoutError, ValueError, TypeError):
+        return None
+    return digest if isinstance(digest, str) and DIGEST.fullmatch(digest) else None
+
+
+def _ghcr_request(
+    method: str,
+    path: str,
+    *,
+    timeout: float,
+    max_body_bytes: int,
+    headers: dict[str, str],
+    digest_header: bool = False,
+) -> bytes | str | None:
+    """Make one GHCR-only HTTPS request with redirects disabled and bounded reads."""
+    deadline = time.monotonic() + timeout
+    request = Request(
+        f"https://ghcr.io{path}",
+        headers={**headers, "Accept-Encoding": "identity"},
+        method=method,
+    )
+    opener = build_opener(_NoRedirect())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            if response.status != 200 or time.monotonic() >= deadline:
+                return None
+            if digest_header:
+                return response.headers.get("Docker-Content-Digest")
+            payload = bytearray()
+            response_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+            while len(payload) <= max_body_bytes:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                if response_socket is not None and response_socket.fileno() >= 0:
+                    response_socket.settimeout(remaining)
+                chunk = response.read1(min(8192, max_body_bytes + 1 - len(payload)))
+                if not chunk:
+                    break
+                payload.extend(chunk)
+            if len(payload) > max_body_bytes:
+                return None
+            return bytes(payload)
+    except HTTPError as error:
+        error.close()
+        return None
+    except (URLError, OSError, TimeoutError, ValueError):
+        return None
 
 
 def _parse_metrics(payload: bytes) -> dict[str, float]:
@@ -377,7 +478,9 @@ def collect(
     duration_seconds: float = 1800,
     interval_seconds: float = 60,
     timeout_seconds: float = 5,
+    phase: str = "postpromotion",
     probe: Callable[..., tuple[int, bytes]] = _get,
+    registry_probe: Callable[..., str | None] = _registry_digest,
     clock: Callable[[], datetime] = _utc_now,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
@@ -386,10 +489,12 @@ def collect(
 ) -> tuple[int, dict[str, Any]]:
     if not isinstance(evidence, dict) or evidence.get("format") != "vpn-dashboard-release-evidence-v2":
         raise ValueError("evidence must use vpn-dashboard-release-evidence-v2")
+    if phase not in {"canary-prepromotion", "postpromotion"}:
+        raise ValueError("phase must be canary-prepromotion or postpromotion")
     # The shared validator enforces every field's type, enum, bounds, and
     # timestamp format, then returns a strict allowlisted projection. Use that
     # projection as the only source of caller-supplied values in output.
-    _, validated_evidence = validate_evidence(evidence)
+    _, validated_evidence = validate_evidence(evidence, phase=phase)
     records = validated_evidence["deployments"]
     if not math.isfinite(duration_seconds) or duration_seconds <= 0 or duration_seconds > MAX_DURATION_SECONDS:
         raise ValueError("duration must be greater than zero and no more than 86400 seconds")
@@ -407,6 +512,8 @@ def collect(
     metrics_urls = metrics_urls or {}
     if not set(metrics_urls).issubset(ENVIRONMENTS):
         raise ValueError("metrics URL environment must be canary or production")
+    if phase == "canary-prepromotion":
+        metrics_urls = {name: url for name, url in metrics_urls.items() if name == "canary"}
     for environment, metrics_url in metrics_urls.items():
         if _origin(metrics_url) != _origin(readyz_urls[environment]):
             raise ValueError(f"{environment} metrics URL origin must exactly match its readiness probe origin")
@@ -424,13 +531,40 @@ def collect(
         digest = str(record.get("digest", ""))
         if not IMAGE.fullmatch(image) or not DIGEST.fullmatch(digest):
             raise ValueError(f"{environment} evidence needs an immutable image tag and digest")
-        if environment in safe_records and safe_records[environment]["image"] != image:
-            raise ValueError("canary and production must use the same image")
         safe_records[environment] = dict(record)
 
-    if safe_records["canary"]["image"] != safe_records["production"]["image"]:
+    if phase == "postpromotion" and safe_records["canary"]["image"] != safe_records["production"]["image"]:
         raise ValueError("canary and production must use the same image")
-    expected_revision = REVISION_IN_IMAGE.search(safe_records["canary"]["image"]).group("revision")  # type: ignore[union-attr]
+    if phase == "canary-prepromotion" and (
+        safe_records["canary"]["image"] == safe_records["production"]["image"]
+        or safe_records["canary"]["digest"] == safe_records["production"]["digest"]
+    ):
+        raise ValueError("pre-promotion canary evidence requires production to remain on its prior image and digest")
+    expected_revisions = {
+        environment: REVISION_IN_IMAGE.search(safe_records[environment]["image"]).group("revision")  # type: ignore[union-attr]
+        for environment in ENVIRONMENTS
+    }
+    registry_verification: list[dict[str, Any]] = []
+    failed_gates: list[str] = []
+    for environment in ENVIRONMENTS:
+        image = safe_records[environment]["image"]
+        expected_digest = safe_records[environment]["digest"]
+        try:
+            observed_digest = registry_probe(image, timeout=timeout_seconds)
+        except Exception:  # Treat registry client failures as unavailable evidence.
+            observed_digest = None
+        observed_digest_valid = isinstance(observed_digest, str) and DIGEST.fullmatch(observed_digest) is not None
+        registry_verification.append({
+            "environment": environment,
+            "image": image,
+            "expected_digest": expected_digest,
+            "observed_digest": observed_digest if observed_digest_valid else None,
+            "verified": observed_digest_valid and observed_digest == expected_digest,
+        })
+        if not observed_digest_valid:
+            failed_gates.append(f"{environment}_registry_digest_unavailable")
+        elif observed_digest != expected_digest:
+            failed_gates.append(f"{environment}_registry_digest_mismatch")
     deployment_samples: dict[str, list[dict[str, Any]]] = {name: [] for name in ENVIRONMENTS}
     begun = clock()
     began_epoch = begun.timestamp()
@@ -447,7 +581,7 @@ def collect(
             revision = ready_payload.get("revision") if isinstance(ready_payload.get("revision"), str) else ""
             metrics: dict[str, float] = {}
             metrics_valid = False
-            if environment in metrics_urls:
+            if environment in metrics_urls and (phase == "postpromotion" or environment == "canary"):
                 metrics_code, metrics_body = probe(
                     _probe_url(metrics_urls[environment], "/metrics"), cookie=cookie, timeout=timeout_seconds
                 )
@@ -460,7 +594,7 @@ def collect(
             revision_matches = (
                 ready_code == 200
                 and ready_payload.get("status") == "ready"
-                and revision == expected_revision
+                and revision == expected_revisions[environment]
             )
             ready = revision_matches
             deployment_samples[environment].append({
@@ -481,7 +615,6 @@ def collect(
     ended_monotonic = monotonic()
     wall_duration = (ended - begun).total_seconds()
     monotonic_duration = max(0.0, ended_monotonic - began_monotonic)
-    failed_gates: list[str] = []
     if wall_duration < 0 or abs(wall_duration - monotonic_duration) > MAX_CLOCK_DRIFT_SECONDS:
         failed_gates.append("collection_clock_anomaly")
     summary: dict[str, Any] = {"format": "vpn-dashboard-release-collection-v1", "deployments": []}
@@ -519,10 +652,16 @@ def collect(
             failed_gates.append(f"{environment}_health_samples_insufficient")
         if max_gap > MAX_SAMPLE_GAP_SECONDS:
             failed_gates.append(f"{environment}_sample_gap_exceeded")
-        if len(metrics_samples) < minimum_health_samples:
+        metrics_required = phase == "postpromotion" or environment == "canary"
+        if metrics_required and len(metrics_samples) < minimum_health_samples:
             failed_gates.append(f"{environment}_metrics_samples_insufficient")
-        if metrics_failures or max_metrics_gap > MAX_SAMPLE_GAP_SECONDS:
+        if metrics_required and (metrics_failures or max_metrics_gap > MAX_SAMPLE_GAP_SECONDS):
             failed_gates.append(f"{environment}_metrics_observation_gap")
+        metrics_window_complete = (
+            len(metrics_samples) >= minimum_health_samples
+            and metrics_failures == 0
+            and max_metrics_gap <= MAX_SAMPLE_GAP_SECONDS
+        )
         record = safe_records[environment]
         record.update({
             "container_healthy": health_failures == 0,
@@ -538,7 +677,7 @@ def collect(
         # window that did not independently observe complete aggregate metrics.
         record["redis_configured"] = False
         record["redis_publish_verified"] = False
-        if metric_summary["available"]:
+        if metric_summary["available"] and (metrics_required or metrics_window_complete):
             telemetry_slo = metric_summary["telemetry_slo"]
             traffic_age = telemetry_slo["traffic_sample_max_age_seconds"]
             if telemetry_slo["session_event_unknown_samples"]:
@@ -575,11 +714,6 @@ def collect(
                 failed_gates.append(f"{environment}_outbox_age_unobserved")
             # A passing Redis publish requires configuration, observed availability,
             # and a successful publish in this observation window.
-            metrics_window_complete = (
-                len(metrics_samples) >= minimum_health_samples
-                and metrics_failures == 0
-                and max_metrics_gap <= MAX_SAMPLE_GAP_SECONDS
-            )
             record["redis_configured"] = metrics_window_complete and metric_summary["redis_configured"] == 1
             record["redis_publish_verified"] = metrics_window_complete and (
                 record["redis_configured"]
@@ -610,14 +744,18 @@ def collect(
         "deployments": [safe_records[name] for name in ENVIRONMENTS],
         "collection": {
             "format": summary["format"],
+            "phase": phase,
             "passed": not failed_gates,
             "failed_gates": sorted(set(failed_gates)),
             "started_at": begun.isoformat(),
             "ended_at": ended.isoformat(),
             "duration_seconds": max(0.0, wall_duration),
             "interval_seconds": interval_seconds,
-            "read_only_get_probes": ["/healthz", "/readyz", "/metrics"],
-            "image_digest_source": "operator-supplied; registry digest is not fetched by this tool",
+            "read_only_app_probe_paths": ["/healthz", "/readyz", "/metrics"],
+            "registry_request_methods": ["GET token", "HEAD image manifest"],
+            "image_digest_source": "GHCR Docker-Content-Digest response",
+            "router_runtime_digest_verified": False,
+            "registry_digest_verification": registry_verification,
         },
     }
     summary["passed"] = not failed_gates
@@ -638,6 +776,12 @@ def main() -> int:
     parser.add_argument("--duration-seconds", type=float, default=1800)
     parser.add_argument("--interval-seconds", type=float, default=60)
     parser.add_argument("--timeout-seconds", type=float, default=5)
+    parser.add_argument(
+        "--phase",
+        choices=("canary-prepromotion", "postpromotion"),
+        default="postpromotion",
+        help="soak the candidate before promotion, or verify both environments after promotion",
+    )
     args = parser.parse_args()
     try:
         evidence = json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -651,6 +795,8 @@ def main() -> int:
                 ("canary", args.canary_metrics_url), ("production", args.production_metrics_url)
             ) if value
         }
+        if args.phase == "canary-prepromotion":
+            metrics_urls.pop("production", None)
         code, summary = collect(
             evidence,
             readyz_urls={"canary": args.canary_url, "production": args.production_url},
@@ -659,6 +805,7 @@ def main() -> int:
             duration_seconds=args.duration_seconds,
             interval_seconds=args.interval_seconds,
             timeout_seconds=args.timeout_seconds,
+            phase=args.phase,
         )
         Path(args.output).write_text(json.dumps(summary["evidence"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
         public_summary = {key: value for key, value in summary.items() if key != "evidence"}
