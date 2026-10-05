@@ -6,6 +6,19 @@ semantic-version style release tags.
 
 ## Unreleased
 
+### Changed
+
+- Require at least 30 candidate readiness samples, at least 60 seconds apart,
+  before the RouterOS release updater automatically promotes a canary image.
+  Any failed sample rolls the canary back without changing production.
+- Clarify that readiness-only sampling does not replace the full telemetry,
+  Redis, resource, reconnect, event-integrity, and rollback acceptance report.
+
+### Tests
+
+- Guard the updater's minimum 30-minute sampled readiness gate and rollback
+  ordering before production promotion.
+
 ## 2.7.0 - 2026-10-04
 
 ### Added

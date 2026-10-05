@@ -22,9 +22,11 @@
 :local historyFile "disk1/vpn-dashboard/routeros-update-history.log"
 :local pollAttempts 6
 :local pollDelay 10s
-# Keep a healthy canary under observation before promotion. This is deliberately
-# configurable per router; use 0 only for a manually reviewed emergency rollout.
-:local canaryValidationSeconds 60
+# Require a sampled canary readiness window before automatic promotion.
+# Thirty one-minute intervals provide at least 30 minutes of repeated probes.
+# Both settings are guarded below against values shorter than release policy.
+:local canaryValidationInterval 1m
+:local canaryValidationSamples 30
 :local dryRun false
 :local failureRetryLimit 3
 :local failureFile ($stateFile . ".failed")
@@ -263,6 +265,11 @@
         :log warning ("vpn-gui immutable updater: dry-run accepted candidate " . $image . "; no container changed")
         :set skipUpdate true
     }
+    :if (!$skipUpdate) do={
+        # Validate policy before even changing the isolated canary.
+        :if ($canaryValidationSamples < 30) do={ :error "canary requires at least 30 readiness samples" }
+        :if ($canaryValidationInterval < 1m) do={ :error "canary readiness samples must be at least one minute apart" }
+    }
 
     # The script only changes remote-image and container lifecycle.  It never
     # writes mountlists, envlists, root-dir, interface, router configuration,
@@ -314,15 +321,25 @@
         :error "canary readiness gate failed"
     }
 
-    # A single successful /readyz response is not enough to promote. Keep the
-    # exact immutable candidate running for the configured stability window and
-    # probe it again immediately before changing production.
-    :if ($canaryValidationSeconds < 0) do={ :error "canary validation window cannot be negative" }
-    :if ($canaryValidationSeconds > 0) do={ :delay ($canaryValidationSeconds . "s") }
-    :local canaryStabilityResult "check-error"
-    :do { :set canaryStabilityResult [$fetchReady $canaryReadyUrl $canaryReadyTransport $commit] } on-error={ :set canaryStabilityResult "check-error" }
-    :if ($canaryStabilityResult != "ready") do={
-        :log error ("vpn-gui immutable updater: canary stability check result=" . $canaryStabilityResult . "; restoring " . $canaryCurrent)
+    # Do not promote based on a single delayed probe. Require at least 30
+    # successful readiness samples spaced at least 60 seconds apart; any
+    # failed, incomplete, or mismatched-revision response rejects and rolls back
+    # the candidate while production remains untouched.
+    :local canaryStable true
+    :for sample from=1 to=$canaryValidationSamples do={
+        :delay $canaryValidationInterval
+        :local canarySampleResult "check-error"
+        :do {
+            :set canarySampleResult [$fetchReady $canaryReadyUrl $canaryReadyTransport $commit]
+        } on-error={ :set canarySampleResult "check-error" }
+        :if ($canarySampleResult != "ready") do={
+            :set canaryStable false
+            :log error ("vpn-gui immutable updater: canary sample " . $sample . "/" . $canaryValidationSamples . " result=" . $canarySampleResult)
+            :break
+        }
+    }
+    :if (!$canaryStable) do={
+        :log error ("vpn-gui immutable updater: canary readiness soak failed; restoring " . $canaryCurrent . "; production unchanged")
         $recordFailure $image
         :do {
             /container/stop $canaryId
@@ -330,8 +347,9 @@
             /container/update $canaryId
             /container/start $canaryId
         } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
-        :error "canary stability gate failed"
+        :error "canary readiness soak failed"
     }
+    :log info ("vpn-gui immutable updater: canary readiness soak passed samples=" . $canaryValidationSamples)
 
     :log info ("vpn-gui immutable updater: promoting validated canary " . $image)
     :do {
