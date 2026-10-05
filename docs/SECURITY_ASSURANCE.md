@@ -6,6 +6,55 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
+## Scoped ASVS control matrix
+
+This matrix covers every requirement in ASVS 5.0.0 V7 (Session Management),
+V8 (Authorization), and V4.4 (WebSocket) for this review's scope. It does not
+cover the rest of ASVS or establish conformance. `TESTED` means repository
+tests directly exercise the stated behavior; `PARTIAL` means an implementation
+or test exists but the full requirement is not established; `GAP` means the
+current product does not satisfy the requirement; `N/A` is a documented
+product-scope exclusion; and `EXTERNAL` requires evidence from the deployed
+proxy, RouterOS, or host. External and partial results are not passes.
+
+| ASVS 5.0.0 control | Status | Scoped finding and evidence |
+| --- | --- | --- |
+| V7.1.1 | PARTIAL | Idle and absolute lifetimes are documented and tested, but the risk-based rationale for the selected values is not recorded. See V7.3.1–V7.3.2 below. |
+| V7.1.2 | GAP | No documented maximum for concurrent dashboard sessions or defined behavior when that maximum is reached. |
+| V7.1.3 | EXTERNAL | Cloudflare Access is an independent edge-authentication layer; its session lifetime/termination relationship to the app session has not been verified from deployment configuration. |
+| V7.2.1–V7.2.3 | TESTED | Backend reference-session validation and CSPRNG token generation are covered by `test_session_tokens_are_fresh_csprng_reference_values` and login-boundary tests. |
+| V7.2.4 | PARTIAL | Each successful login creates a new server-side reference session; no regression proves that a prior session is terminated on re-authentication because the app has no re-authentication flow. |
+| V7.3.1–V7.3.2 | PARTIAL | 30-minute idle and 8-hour absolute defaults and in-process expiry/live-delivery behavior are tested. Risk justification and production/proxy timing remain unverified. |
+| V7.4.1 | TESTED | Logout, expiry, and server-side revocation stop subsequent session use and live delivery in deterministic tests. |
+| V7.4.2 | TESTED | Disabled/missing RouterOS account regressions revoke the corresponding existing dashboard session. |
+| V7.4.3 | N/A | The dashboard does not change authentication factors for its operator accounts; RouterOS credential/factor lifecycle is outside this app session-management scope. |
+| V7.4.4 | PARTIAL | A sign-out control is present in the shared authenticated header. There is no human usability evidence confirming visibility across every authenticated view. |
+| V7.4.5 | TESTED | Administrative session inventory and scoped revocation are covered by session-store and route tests, including `DashboardIntegrationTests.test_admin_session_revocation_is_csrf_protected_scoped_and_audited`. |
+| V7.5.1 | N/A | The app does not edit authentication/recovery attributes of dashboard operator accounts. VPN-user profile edits are a separate RouterOS identity domain. |
+| V7.5.2 | GAP | Session inventory/revocation exists, but terminating other operator sessions does not require fresh re-authentication. |
+| V7.5.3 | GAP | Review receipts, CSRF, and rationale protect sensitive operations, but the app does not require a second authentication factor/step-up before highly sensitive operations. No ASVS Level 3 claim is made. |
+| V7.6.1 | EXTERNAL | The app does not coordinate an IdP/RP session itself; Cloudflare Access session behavior and termination propagation require deployment evidence. |
+| V7.6.2 | TESTED | App session creation follows an explicit login request; login/CSRF/origin boundary tests cover the app-side entry point. |
+| V8.1.1 | TESTED | Function/data authorization rules are documented in [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md) and exercised by route/capability matrices. |
+| V8.1.2 | PARTIAL | Capability-filtered fields and export scopes have targeted tests, but no exhaustive field-by-field authorization inventory has been independently reviewed. |
+| V8.1.3–V8.1.4 | N/A | The app does not make adaptive risk decisions from location, time, device posture, or similar environmental context. Edge-provider policy is outside this repository's evidence. |
+| V8.2.1 | PARTIAL | Server-side function authorization and representative role/capability route families are tested; the route/method/token-scope cross-product is not exhaustive. |
+| V8.2.2 | PARTIAL | Resource ownership/state checks exist on sensitive mutations, but data-specific authorization has not received an exhaustive independent review. |
+| V8.2.3 | PARTIAL | Selected API/export fields are capability-filtered and tested; an exhaustive read/write field-level map is not available. |
+| V8.2.4 | N/A | Adaptive environmental/contextual authorization is not a product feature; no Level 3 adaptive-control claim is made. |
+| V8.3.1 | TESTED | Authorization is enforced server-side; client-side visibility is not the enforcement boundary. Negative route tests verify denials precede RouterOS/state mutation. |
+| V8.3.2 | PARTIAL | RouterOS account/group changes are revalidated at up to 15-second intervals and live delivery rechecks authorization; immediate physical-router enforcement and deployed latency are unmeasured. |
+| V8.3.3 | PARTIAL | Current RouterOS-session capabilities are re-derived for live delivery; a complete end-to-end subject-vs-intermediary authorization review remains outstanding. |
+| V8.4.1 | N/A | Multi-tenant architecture is explicitly excluded from the single-router product scope. |
+| V8.4.2 | PARTIAL | App-side RouterOS role revalidation and the Cloudflare Access edge provide separate controls, but deployed configuration, device-posture checks, and contextual risk controls are unverified. |
+| V4.4.1 | EXTERNAL | The public app uses HTTPS, but deployed WebSocket transport/TLS termination has not been independently verified; a Socket.IO status label alone is not proof of WSS. |
+| V4.4.2 | TESTED | Same-origin checks cover the Socket.IO polling path; ASGI handshake tests reject foreign WebSocket origins. Deployed proxy behavior is unverified. |
+| V4.4.3–V4.4.4 | N/A | Live connections use the standard authenticated app session rather than a separate WebSocket token; separate-token acquisition/validation requirements are therefore not applicable to the implemented path. |
+
+The `N/A` entries are limited to the stated product boundary; they are not
+claims that an external proxy, RouterOS, or the whole deployment satisfies
+those controls. The gaps and external checks above remain open acceptance work.
+
 ## Evidence map
 
 The V7 references follow the [OWASP ASVS 5.0.0 session-management requirements](https://github.com/OWASP/ASVS/blob/v5.0.0_release/5.0/en/0x16-V7-Session-Management.md). Authorization controls use [ASVS 5.0.0 V8](https://github.com/OWASP/ASVS/blob/v5.0.0_release/5.0/en/0x17-V8-Authorization.md); the WebSocket origin control is [V4.4.2](https://github.com/OWASP/ASVS/blob/v5.0.0_release/5.0/en/0x13-V4-API-and-Web-Service.md#v44-websocket). These references are version-qualified because control identifiers differ across ASVS versions.
