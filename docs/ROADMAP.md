@@ -481,6 +481,18 @@ read-back above; this new Access-gated observation supersedes the earlier
 resume or pass live acceptance until authenticated API access is restored.
 See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
+**Authenticated access follow-up (2026-10-05, about 03:37–03:39
+Europe/Sofia):** the already-open production Dashboard was observed twice
+about 75 seconds apart without a manual refresh. It reported `Live · SOCKETIO`
+or `Live · updated now` and `Operational`; Router uptime advanced and the CPU
+sample changed. The connected-session count remained zero. This supersedes
+the earlier Access-gated page as the latest browser observation and confirms
+live health updates for that authenticated browser session. No login code was
+entered and no router/container state was changed. It does not provide a
+nonzero VPN session, event latency, traffic freshness, Redis delivery,
+reconnect/recovery, or a sustained acceptance window; #198/#199 remain open.
+See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
 **Acceptance evidence integrity:** merged PR #461 requires reconnect,
 comparison, security, and verification attestations to carry timestamps within
 the same strictly increasing sample window; missing timestamps,

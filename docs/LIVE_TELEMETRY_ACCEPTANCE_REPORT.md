@@ -10,7 +10,10 @@ copied into this repository. The later runtime image listed below is a newer
 build; its full 30-minute Redis/telemetry acceptance window and rollback drill
 have not been recorded as complete.
 
-## Browser/API access gate — 2026-10-05, about 03:17–03:19 Europe/Sofia
+## Earlier browser/API access gate — 2026-10-05, about 03:17–03:19 Europe/Sofia
+
+**Superseded as the latest browser-state observation by the authenticated
+follow-up below.**
 
 The already-open production Dashboard showed `Connection data delayed` while
 its browser console repeatedly reported `TypeError: Failed to fetch` from the
@@ -26,10 +29,23 @@ RouterOS WebFig logs around the same interval showed local `/readyz` HTTP 200
 probes for canary and production. Readiness probes do not verify authenticated
 `/api/status`, live-stream delivery, or end-to-end telemetry freshness. No
 login code was submitted, the original dashboard tab was not reloaded, and no
-RouterOS configuration or container was changed. Resume live acceptance only
-after the operator restores Cloudflare Access authentication and an
-authenticated endpoint response is observed. This is a gate, not a passing
-acceptance sample.
+RouterOS configuration or container was changed. At this observation, live
+acceptance was gated until Cloudflare Access authentication and an authenticated
+endpoint response were restored. This was not a passing acceptance sample.
+
+## Authenticated dashboard access restored — 2026-10-05, about 03:37–03:39 Europe/Sofia
+
+Using the already-open authenticated production Dashboard, two read-only
+observations about 75 seconds apart showed `Live · SOCKETIO` / `Live · updated
+now` and `Operational` service health. Router uptime advanced and the CPU
+sample changed between observations. The connected-session count remained
+zero in both observations. The page was not manually refreshed, no credentials
+or login code were entered, and no RouterOS configuration or container was
+changed. This confirms that the authenticated dashboard and its live health
+updates were working again for this browser session; it does not establish
+session-event delivery, traffic freshness, Redis delivery, end-to-end latency,
+or sustained acceptance. No VPN client was active, so the event/reconnect
+acceptance gates remain open. Exact resource and network values are omitted.
 
 ## PR #455 and subsequent RouterOS rollout — 2026-10-05
 
