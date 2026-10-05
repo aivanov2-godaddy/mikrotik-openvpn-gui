@@ -7,10 +7,42 @@ telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
 copied into this repository. The later runtime image listed below is a newer
-build; its full 30-minute Redis/telemetry acceptance window and rollback drill
-have not been recorded as complete.
+build. Its full 30-minute Redis/telemetry acceptance window remains pending;
+the isolated canary rollback-and-recovery drill for the current candidate has
+passed, but does not substitute for that sustained acceptance.
 
-## Latest published mainline image — PR #494 — 2026-10-05
+## Latest published mainline image — PR #497 — 2026-10-05
+
+PR [#497](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/497)
+merged as `3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f`. Publication workflow
+[#37351647768](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37351647768)
+passed source and rendered-browser checks, both architecture builds, exact-digest
+provenance/SBOM verification, runtime smoke, and stable-manifest publication.
+The RouterOS ARM64 image is
+`sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64` /
+`sha256:089e9c48c3e388cd08be3a44ddd9f525a0b50ea9e15983d6a8fa78e442fecc6c`.
+The numbered release remains v2.7.0.
+
+Read-only RouterOS read-back showed both canary and production configured with
+this immutable tag and healthy (`H`). Canary `/readyz` returned the candidate
+revision. A canary-only rollback to the previous immutable image and subsequent
+forward recovery both returned the expected ready revision; production was not
+restarted during that rehearsal. The router reports a configured tag, not an
+independent registry digest. The authenticated production UI later showed live
+status and `Operational` Service Health (six healthy checks, none needing
+review or unavailable). The active VPN-session count was zero, so no session
+event latency or under-load traffic freshness was measured. Unauthenticated
+public requests to `/readyz` and `/metrics` were redirected to Cloudflare
+Access; this is edge-gate evidence only.
+
+These are point-in-time deployment/readiness observations, not the full #199
+acceptance window. No continuous 30-minute metrics series, Redis delivery or
+outbox evidence, session transition, API-interruption recovery, counter-reset
+or parity test, SQLite restore drill, or live session authorization-expiry
+exercise was run. Exact router resource values and deployment-specific records
+remain outside this public repository.
+
+## Previously published mainline image — PR #494 — 2026-10-05
 
 PR [#494](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/494)
 merged to main as `03d08a2e6a08554c68cf74930049ac29ac0b3219`. Publication
@@ -22,10 +54,9 @@ provenance/SBOM verification, and runtime smoke. The immutable ARM64 image is
 with registry digest
 `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`.
 
-This is published and CI-verified, not RouterOS-deployed or device-accepted.
-The latest timestamped RouterOS tag/health read-back remains PR #484 below;
-there is no read-back confirming PR #494 on canary or production. The full
-30-minute telemetry/Redis soak and rollback drill remain pending.
+This was published and CI-verified, but has since been superseded by PR #497
+above. Its publication record is retained here for history. The full
+30-minute telemetry/Redis acceptance remains pending.
 
 ## Previously published mainline image — PR #492 — 2026-10-05
 
@@ -669,20 +700,22 @@ window, immutable telemetry image, reconnect/snapshot behavior, live traffic
 freshness, counter handling, Binary/REST parity, event integrity, and privacy
 gates.**
 
-Current deployment result: **PR #494 IS PUBLISHED AND CI-VERIFIED, NOT
-CONFIRMED ON ROUTEROS; PR #484 REMAINS THE LATEST TIMESTAMPED ROUTEROS-
-OBSERVED IMAGE; FORMAL ACCEPTANCE PENDING —** WebFig read-back on 2026-10-05
-showed PR #484's
-`sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` tag on canary and
-production, both healthy (`H`), with Redis running (`R`). Its published ARM64
+Current deployment result: **PR #497 IS PUBLISHED, ROUTEROS-OBSERVED, AND
+HEALTHY; FORMAL ACCEPTANCE PENDING —** the canary and production containers
+were read back on the immutable ARM64 tag
+`sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64`, whose published
 registry digest is
-`sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73`;
-RouterOS reports the configured tag, not an independent digest. PR #494's
-newer ARM64 artifact passed publication/CI checks, but no RouterOS read-back
-confirms it deployed. PR #492's updater example was not installed by this work.
-These point-in-time observations are not a sustained baseline. The 30-minute
-Redis/telemetry window, measured freshness/latency, reconnect/failure tests,
-session expiry/revocation exercise, and rollback drill remain pending.**
+`sha256:089e9c48c3e388cd08be3a44ddd9f525a0b50ea9e15983d6a8fa78e442fecc6c`.
+RouterOS reports the configured tag, not an independent digest. The canary
+rollback-and-forward-recovery drill returned the expected `/readyz` revisions;
+the production container was not restarted for that drill. The authenticated
+dashboard showed live status and Operational service health, but no VPN client
+was connected and no event or traffic-freshness metric was available. PR #492's
+30-sample updater example is not installed on the router. These point-in-time
+observations are not a sustained baseline. The 30-minute Redis/telemetry
+window, latency/freshness percentiles, API-reconnect and event-integrity
+evidence, SQLite restore, and live session expiry/revocation exercise remain
+pending.**
 
 The deployed image contains PR #478's fail-closed acceptance collector and
 dialog accessibility checks. PR #479 updates the repository's release and
@@ -698,42 +731,29 @@ Keep private-acceptance.ndjson outside the repository. The procedure for
 collecting it is in LIVE_TELEMETRY_CANARY.md, and the immediate rollback path
 is in LIVE_TELEMETRY_ROLLBACK.md.
 
-## Current RouterOS and browser read-back — 2026-10-05
+## Detailed current RouterOS and browser read-back — PR #497 — 2026-10-05
 
 Read-only RouterOS WebFig inspection showed both canary and production
-configured with PR #494's immutable ARM64 tag
-`sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64`. Both containers were
-marked healthy; the production container's health check was `good` for its
-local `/readyz` command. Redis was running on its existing pinned Redis 7.4
-Alpine image. The tag maps to the publication record's ARM64 registry digest
-`sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`;
-RouterOS exposes the configured tag and health state, not an independent
-on-device registry digest. This corrects the earlier statement above that no
-PR #494 RouterOS read-back existed. Exact router/container resource samples
-are intentionally omitted from this public report.
+configured with PR #497's immutable ARM64 tag
+`sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64`; both dashboard
+containers were marked healthy (`H`). Canary `/readyz` returned HTTP 200 and
+the expected revision. A canary-only rollback to the previous immutable image
+and forward recovery to PR #497 both returned the expected ready revisions.
+Production was not restarted or rolled back. RouterOS exposes the configured
+tag and health state, not an independent registry digest; the matching digest
+is from the verified publication record. Exact router/container resource
+samples remain operator-local.
 
-During a separate read-only browser check, the already-rendered production
-Dashboard and Connections view showed `Connection data delayed`; the Service
-Health view simultaneously reported six healthy checks and `Operational`.
-Subsequent browser-state inspection found the dashboard tab on the Cloudflare
-Access reauthentication page. No code was entered and no authenticated
-`/api/status` response or VPN-session transition was captured at that time.
-This was consistent with a stale/expired Access session but did not prove the
-precise failure layer, and was not evidence of a RouterOS or Redis fault.
-
-A later fresh Dashboard tab in the same browser loaded authenticated using the
-existing session, without entering a code or manually refreshing the old
-page. It first showed `Live · updated now`; about 30 seconds later it showed
-`Live · SOCKETIO`, with the RouterOS CPU sample changed and uptime advanced.
-At a further observation 45 seconds later, the live status remained and the
-CPU/uptime samples had advanced again. The Connections view also reported
-`Live · SOCKETIO` and stated that its traffic graphs update automatically
-every five seconds. The connected-session count remained zero. This confirms
-live health updates and an active transport indicator for that authenticated
-browser session and resolves the immediate access gate for the fresh tab. It
-does not demonstrate a VPN connect/disconnect event, traffic-sample freshness
-under load, event latency, Redis delivery, or sustained operation. No
-VPN-client transition was exercised, and no RouterOS configuration,
-container, policy, certificate, or user data was changed. The soak, event
-latency/freshness, Redis delivery/recovery, API-restart/snapshot, integrity,
-and rollback gates remain open.
+In the authenticated browser, the Dashboard showed `Live · updated now` and
+zero connected VPN clients; the Service Health page showed `Operational`, six
+healthy checks, and zero needing review or unavailable. These observations
+confirm a currently live authenticated UI and read-only health result, not a
+VPN connect/disconnect event, end-to-end event latency, under-load traffic
+freshness, Redis delivery, or a sustained soak. Unauthenticated public
+requests to `/readyz` and `/metrics` were redirected to Cloudflare Access;
+this establishes the edge gate only. No live client event or production
+service interruption was induced. No CA, certificate, VPN user, or RouterOS
+policy was changed. The canary image was rolled back and restored to the
+candidate; the production container was not restarted.
+Formal #199 acceptance and #200 live authorization/security checks remain
+open.
