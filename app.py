@@ -5221,6 +5221,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 certificate_id = str(device.get("certificate_id") or "")
                 certificate_name = str(device.get("certificate_name") or "")
                 vpn_user = str(device.get("vpn_user", ""))
+                migration = self.server.context.store.profile_migrations().get(certificate_name)
+                if migration and (
+                    migration.get("tested_at") is None
+                    or not migration.get("tested_with_active_session")
+                ):
+                    raise ValueError(
+                        "Import the replacement and confirm its live connection test before retiring this device certificate"
+                    )
             else:
                 migration = self.server.context.store.profile_migrations().get(device_id)
                 if (
@@ -5261,16 +5269,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 replacement = next((item for item in certificates if
                     str(item.get("name", "")) == str(migration.get("replacement_certificate_name", ""))), None)
                 current_ca = str(getattr(self.server.context.router, "ovpn_ca", ""))
+                old_certificate_owned = str(certificate.get("common_name", "")).casefold().startswith(
+                    f"{vpn_user.casefold()}-"
+                )
+                replacement_owned = bool(replacement) and str(
+                    replacement.get("common_name", "")
+                ).casefold().startswith(f"{vpn_user.casefold()}-")
                 if (
                     not current_ca
                     or not str(certificate.get("certificate_authority", ""))
-                    or str(certificate.get("certificate_authority", "")) == current_ca
-                    or not str(certificate.get("common_name", "")).casefold().startswith(f"{vpn_user.casefold()}-")
+                    or (not device and str(certificate.get("certificate_authority", "")) == current_ca)
+                    or not old_certificate_owned
+                    or str(migration.get("vpn_user", "")) != vpn_user
                     or not replacement
                     or bool(replacement.get("revoked"))
                     or str(replacement.get("certificate_authority", "")) != current_ca
+                    or not replacement_owned
                 ):
-                    raise ValueError("The legacy certificate and active replacement under the current CA could not both be verified")
+                    raise ValueError("The source certificate and active replacement under the current CA could not both be verified")
             receipt = {
                 "intent": {
                     "device_id": device_id,
