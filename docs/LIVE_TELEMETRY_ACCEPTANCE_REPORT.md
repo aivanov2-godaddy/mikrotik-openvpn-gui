@@ -710,7 +710,7 @@ Alpine image. The tag maps to the publication record's ARM64 registry digest
 RouterOS exposes the configured tag and health state, not an independent
 on-device registry digest. This corrects the earlier statement above that no
 PR #494 RouterOS read-back existed. Exact router/container resource samples
-remain in the private operator record and are not copied here.
+are intentionally omitted from this public report.
 
 During a separate read-only browser check, the already-rendered production
 Dashboard and Connections view showed `Connection data delayed`; the Service
