@@ -3714,11 +3714,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.CONFLICT,
             )
             return
+        active_session_observed = False
+        if step == "tested":
+            try:
+                active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+            except RouterOSError:
+                self._json(
+                    {"error": "RouterOS live-session state is unavailable; no migration test was recorded"},
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+            active_session_observed = any(
+                str(item.get("name", "")) == str(migration.get("vpn_user", ""))
+                for item in active_sessions
+            )
+            if not active_session_observed:
+                self._json(
+                    {"error": "RouterOS does not currently show an active session for this VPN user; no migration test was recorded"},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
         try:
             updated = self.server.context.store.record_profile_migration_step(
                 legacy_certificate_name=legacy_certificate_name,
                 step=step,
                 actor=session.username,
+                active_session_observed=active_session_observed,
             )
         except (KeyError, ValueError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.CONFLICT)
@@ -3728,7 +3749,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             action=f"profile.migration.{step}",
             target=legacy_certificate_name,
             status="operator_attested",
-            details={"replacement_certificate": replacement_name},
+            details={
+                "replacement_certificate": replacement_name,
+                "active_user_session_observed": active_session_observed,
+                "certificate_attribution_verified": False,
+            },
         )
         # RouterOS does not expose which client certificate was used by a
         # particular session. These steps remain explicitly operator-attested.
@@ -3737,6 +3762,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "status": "recorded",
                 "step": step,
                 "operator_attested": True,
+                "active_user_session_observed": active_session_observed,
+                "certificate_attribution_verified": False,
                 "imported_at": updated.get("imported_at"),
                 "tested_at": updated.get("tested_at"),
             }
@@ -5196,8 +5223,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 vpn_user = str(device.get("vpn_user", ""))
             else:
                 migration = self.server.context.store.profile_migrations().get(device_id)
-                if not migration or migration.get("tested_at") is None:
-                    raise ValueError("Only a tested profile migration can retire an unmanaged legacy certificate")
+                if (
+                    not migration
+                    or migration.get("tested_at") is None
+                    or not migration.get("tested_with_active_session")
+                ):
+                    raise ValueError("Only a replacement test recorded while RouterOS showed an active VPN-user session can retire an unmanaged legacy certificate")
                 device_name = str(migration.get("legacy_certificate_name") or "")
                 certificate_id = ""
                 certificate_name = device_id

@@ -455,6 +455,14 @@ Missing, null, or blank group now maps to read-only, with regression coverage.
 This does not close #200: live privilege-change/expiry/revocation acceptance
 and a full independent external security review remain open.
 
+**Certificate lifecycle hardening:** the staged migration's connection-test
+attestation now also requires a read-only observation that RouterOS currently
+shows an active session for the matching VPN user. This is user-level evidence,
+not proof of which client certificate the connection used; historic migration
+records without this observation must be re-confirmed before revocation. The
+existing import/test/retire workflow and exact RouterOS revocation read-back
+remain in place. Live client/CRL/reconnect acceptance is still outstanding.
+
 **Current deployment correction (2026-10-05; supersedes the earlier #198/#199
 table snapshot below):** PR #455's first canary attempt
 rolled back after about five seconds; the exact rejection cause is unknown.
