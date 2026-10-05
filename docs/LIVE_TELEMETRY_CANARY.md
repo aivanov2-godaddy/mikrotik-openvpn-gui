@@ -107,6 +107,9 @@ server-side delivery stage only; it is not a measurement of RouterOS-to-browser
 session-change latency or browser rendering. A real session transition and its
 end-to-end latency still require a controlled operator acceptance test and
 timestamped evidence; idle periods cannot be interpreted as zero latency.
+When the collected v1 report is passed to `release_acceptance.py`, its
+`collection.passed` flag and empty `collection.failed_gates` are also required;
+optimistic deployment-record fields cannot override a failed live probe window.
 
 `event_sequence` is checked within an `event_epoch` (a non-negative integer
 identifying one telemetry-process sequence lifetime); omitted epochs default

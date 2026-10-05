@@ -54,6 +54,35 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(report["deployments"][0]["digest"], "sha256:" + "b" * 64)
         self.assertNotIn("details", report["deployments"][0])
 
+    def test_failed_live_collection_cannot_be_overridden_by_deployment_claims(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["collection"] = {
+            "format": "vpn-dashboard-release-collection-v1",
+            "passed": False,
+            "failed_gates": ["canary_traffic_sample_stale"],
+        }
+
+        code, report = evaluate(evidence)
+
+        self.assertEqual(code, 1)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["failed_gates"], ["live_collection_failed"])
+
+    def test_passing_live_collection_is_accepted_and_malformed_collection_is_rejected(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["collection"] = {
+            "format": "vpn-dashboard-release-collection-v1",
+            "passed": True,
+            "failed_gates": [],
+        }
+        code, report = evaluate(evidence)
+        self.assertEqual(code, 0)
+        self.assertTrue(report["passed"])
+
+        evidence["collection"]["passed"] = "true"
+        with self.assertRaisesRegex(ValueError, "passed must be boolean"):
+            evaluate(evidence)
+
     def test_mismatched_production_digest_fails_closed(self) -> None:
         self.evidence["deployments"][1]["digest"] = "sha256:" + "c" * 64
         code, report = evaluate(self.evidence)

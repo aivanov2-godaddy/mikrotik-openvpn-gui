@@ -76,6 +76,23 @@ def evaluate(document: Any) -> tuple[int, dict[str, Any]]:
         raise ValueError("deployments must contain canary followed by production")
 
     failures: list[str] = []
+    collection = document.get("collection")
+    if collection is not None:
+        if not isinstance(collection, dict) or collection.get("format") != "vpn-dashboard-release-collection-v1":
+            raise ValueError("collection must use vpn-dashboard-release-collection-v1")
+        collection_passed = collection.get("passed")
+        collection_failures = collection.get("failed_gates")
+        if not isinstance(collection_passed, bool):
+            raise ValueError("collection passed must be boolean")
+        if not isinstance(collection_failures, list) or any(
+            not isinstance(gate, str) for gate in collection_failures
+        ):
+            raise ValueError("collection failed_gates must be a list of strings")
+        # Collector failures cannot be overridden by optimistic fields in the
+        # deployment records. Do not copy caller-controlled gate names to the
+        # public report.
+        if not collection_passed or collection_failures:
+            failures.append("live_collection_failed")
     safe_records: list[dict[str, Any]] = []
     for record, expected_environment in zip(deployments, ENVIRONMENTS):
         if not isinstance(record, dict):
