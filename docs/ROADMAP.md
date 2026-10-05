@@ -26,7 +26,7 @@ on both canary and production containers, each with the RouterOS healthy
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
-### Latest deployed runtime image — 2026-10-05
+### Latest RouterOS-confirmed runtime image — 2026-10-05
 
 The latest numbered release remains **v2.7.0**; subsequent changes are
 main-branch patches. PR [#478](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/478)
@@ -44,6 +44,26 @@ read-back. The current browser tab was at the dashboard sign-in page, so this
 read-back confirms image identity and container health only—not authenticated
 post-deployment UI, live-event behavior, or the sustained acceptance window.
 No new numbered release was created.
+
+### Latest published mainline candidate — 2026-10-05
+
+After that RouterOS read-back, PRs #481–#484 merged. The latest runtime change
+is PR [#484](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/484),
+commit `93627bca38312ad1845249c6df1c0fcecf12122e`. Publication workflow
+[37302952543](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37302952543)
+passed source and browser verification, both architecture builds, runtime
+smoke tests, and detached provenance/SBOM attestations. ARM64 tag/digest:
+`sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` /
+`sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73`.
+AMD64 tag/digest:
+`sha-93627bca38312ad1845249c6df1c0fcecf12122e-amd64` /
+`sha256:6c6c2babc30e499f35b62877cc8e2450ea17cb0aad9e32b3f296cfd5199fce78`.
+The `routeros-stable` manifest was refreshed to this candidate as part of the
+same workflow; it does not update routers automatically.
+This mainline image is not a numbered release and has not been verified on
+RouterOS. The last read-back still identifies the older `d5f8f441` image;
+deployment, post-deployment UI/live-stream verification, and canary acceptance
+remain outstanding. The latest numbered release remains v2.7.0.
 
 PR #474's earlier published-but-unverified image was
 `sha-aa48c90a6a5fbba5763a96390f10210efe34131c-arm64` /
