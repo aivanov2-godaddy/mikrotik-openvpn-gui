@@ -332,12 +332,12 @@ test('keyboard-only navigation activates Dashboard, VPN Users, and Connections',
   }
 });
 
-test('720 CSS-pixel reflow keeps primary views and actions reachable', async ({ page }) => {
+test('720 CSS-pixel reflow keeps all operator views reachable', async ({ page }) => {
   // 720 CSS px is a 200%-zoom-equivalent reflow approximation for a 1440px
   // desktop layout. It does not emulate actual browser zoom.
   await page.setViewportSize({ width: 720, height: 500 });
   await expect(page.getByRole('link', { name: 'VPN Users', exact: true })).toBeVisible();
-  for (const view of views) {
+  for (const view of accessibilityViews) {
     if (view.target !== 'overview') {
       await page.getByRole('link', { name: view.name, exact: true }).click();
     }
@@ -351,8 +351,10 @@ test('720 CSS-pixel reflow keeps primary views and actions reachable', async ({ 
   }
   const navigationCanScroll = await page.locator('.winbox-sidebar').evaluate((element) => {
     const before = element.scrollLeft;
-    element.scrollLeft = element.scrollWidth;
-    const moved = element.scrollLeft > before;
+    element.scrollLeft = 0;
+    const maxScroll = element.scrollWidth - element.clientWidth;
+    element.scrollLeft = maxScroll;
+    const moved = maxScroll > 0 && element.scrollLeft > 0;
     element.scrollLeft = before;
     return moved;
   });
