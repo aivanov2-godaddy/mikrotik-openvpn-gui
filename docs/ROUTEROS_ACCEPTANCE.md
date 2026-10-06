@@ -263,7 +263,49 @@ recovery, REST/Binary parity, SQLite restore, rollback, unauthenticated access,
 or secret-free logs. Those remain real-router/operator measurements and must be
 recorded in the input evidence; a successful HTTP probe is not a substitute.
 
-Promote only a fully passing candidate through the operator-installed
-[router-local automation](ROUTER_LOCAL_AUTOMATION.md). If a check needs review,
-leave production on its current immutable image and investigate in the local
-router environment.
+### Evidence-gated RouterOS promotion
+
+The installed RouterOS scheduler must use the reviewed stage-only updater from
+[`ROUTER_LOCAL_AUTOMATION.md`](ROUTER_LOCAL_AUTOMATION.md); an older updater
+that promotes after readiness alone bypasses the full acceptance gate. The
+stage-only updater writes a small pending record only after its canary
+readiness soak and never changes production. The promotion controller requires
+that record to match the collected candidate and the exact production baseline.
+
+Set `ROUTEROS_REST_URL`, `ROUTEROS_DEPLOY_USERNAME`, and
+`ROUTEROS_DEPLOY_PASSWORD` in the local process environment, plus
+`ROUTEROS_REST_CA_PEM` if the router REST certificate uses a private CA. If the
+app readiness endpoints use HTTPS with a private CA, set
+`VPN_ACCEPTANCE_READY_CA_PEM` separately. Do not put any credential, readiness
+URL, router address, or collected evidence in a public issue or repository.
+The controller accepts HTTPS or direct private RFC1918 IPv4 HTTP on port 8080
+for exact `/readyz` endpoints; it refuses redirects and does not use the public
+Cloudflare Access page as readiness evidence.
+
+First run the zero-write gate check from the same trusted local workstation
+that can reach the router and private VETH endpoints:
+
+```powershell
+python -m scripts.promote_routeros_release `
+  --input private-collected-evidence.json `
+  --canary-ready-url http://<private-canary-ip>:8080/readyz `
+  --production-ready-url http://<private-production-ip>:8080/readyz `
+  --check-only
+```
+
+The command re-evaluates the fresh `canary-prepromotion` evidence at the time
+of invocation, checks the exact project ARM64 candidate tag, confirms both live
+RouterOS image tags and readiness revisions still match the report, and
+compares the stage-only pending record. To promote after the read-only check
+passes, run the same command without `--check-only`. The controller changes
+only the named production container's immutable image/lifecycle, verifies the
+candidate `/readyz`, records it as last good, and restores the prior image if
+startup, readiness, or journal persistence fails. A failed candidate is
+quarantined for the scheduler. It never uploads the report or changes mounts,
+environment lists, `/data`, certificates, users, firewall, or OpenVPN policy.
+After promotion, run the full `postpromotion` collector and evaluator; the
+pre-promotion report does not assert production acceptance.
+
+If a check fails, production must remain on its recorded prior immutable image.
+Investigate and collect a new window; do not loosen or edit the report to make
+the gate pass.

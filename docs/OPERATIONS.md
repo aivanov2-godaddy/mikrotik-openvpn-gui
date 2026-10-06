@@ -333,17 +333,36 @@ It emits only release identity, observation window, aggregate measurements,
 and pass/fail evidence. RouterOS resource samples and client-exercise results
 remain operator-supplied evidence; the app collector does not probe RouterOS
 or control VPN clients. A passing report is evidence, not a deployment action:
-the collector never promotes or rolls back. The router-local updater has its
-own readiness-only soak; do not treat `/readyz` success alone as full release
-acceptance. Keep origins out of the report and keep credentials, VPN-user data,
+the collector never promotes or rolls back. The reviewed RouterOS updater stages
+candidates on canary only; it cannot update production after the readiness-only
+soak. After the full collector and evaluator pass, the local
+`scripts/promote_routeros_release.py` controller re-evaluates the fresh evidence,
+checks the router's current canary and production images, confirms the stage
+record, and rechecks both private
+`/readyz` endpoints. Use `--check-only` first to verify the gate without
+RouterOS writes:
+
+```powershell
+python -m scripts.promote_routeros_release `
+  --input private-collected-evidence.json `
+  --canary-ready-url http://<private-canary-ip>:8080/readyz `
+  --production-ready-url http://<private-production-ip>:8080/readyz `
+  --check-only
+```
+
+Only after the read-only check passes, run the same command without
+`--check-only` to authorize the production image update. RouterOS REST
+credentials are read only from `ROUTEROS_REST_URL`,
+`ROUTEROS_DEPLOY_USERNAME`, and `ROUTEROS_DEPLOY_PASSWORD`; never put them in
+arguments or evidence files. The controller verifies production readiness,
+updates the local last-good journal, and restores the previous immutable image
+if startup, readiness, or journal persistence fails. It does not upload the
+acceptance report or alter mounts, environment lists, `/data`, certificates,
+VPN users, firewall, or RouterOS OpenVPN policy. A scheduler stage is not
+promotion; production acceptance still requires a fresh `postpromotion`
+collection. Keep origins out of the report and keep credentials, VPN-user data,
 addresses, and raw logs out of both input and output. The example JSON contains
 illustrative values only and is not production evidence.
-
-**Promotion-interlock limitation:** the current router-local updater does not
-consume this evaluator report; it may promote after its separate readiness-only
-canary soak. The collector is not an automatic promotion interlock. Until that
-boundary is integrated and deployed, a scheduler promotion is not proof that
-the full #199 acceptance gate passed.
 
 Apply retention appropriate to the sensitivity of email ownership, address, usage, and audit metadata. Destroy expired backups securely.
 
