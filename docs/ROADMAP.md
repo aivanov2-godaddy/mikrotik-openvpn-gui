@@ -714,6 +714,14 @@ respective repository-coverage gaps only; live role-expiry/revocation, CRL,
 certificate replacement/import, canary, and independent external review gates
 remain open under #194/#200. The tests are not RouterOS acceptance evidence.
 
+**#194 profile-delivery regression (2026-10-07):** a focused synthetic-store
+test now checks that a temporary profile download link works before its
+advertised 10-minute deadline and expires exactly at the deadline. Existing
+integration coverage verifies the three-download cap. This proves local token
+expiry behavior, not successful replacement import, RouterOS CRL enforcement,
+or rejection of a retired client on reconnect; those device-backed checks
+remain open.
+
 **2026-10-06 repository progress:** PR #515 adds rendered cross-theme
 design-token, text-contrast, and keyboard-focus gates for Dashboard, VPN Users,
 and Connections at desktop/tablet/mobile sizes; the five-task human study,
