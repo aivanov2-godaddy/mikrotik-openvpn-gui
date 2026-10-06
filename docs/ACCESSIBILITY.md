@@ -41,6 +41,12 @@ Status colors communicate category, not the entire meaning. Reuse the existing
 spacing rhythm (4/8/12/16/24 px); introduce a new token only when a distinct,
 reusable semantic role needs it.
 
+The Playwright/axe regression scans all ten operator views in Standard, Dark,
+and Light themes. Serious and critical WCAG 2.2 A/AA findings—including color
+contrast—fail the gate in every theme; contrast findings are not baseline-
+exempted. This automated coverage complements, but does not replace, the
+manual and assistive-technology review described below.
+
 ## WCAG-informed review map
 
 | UI area | Review points |
