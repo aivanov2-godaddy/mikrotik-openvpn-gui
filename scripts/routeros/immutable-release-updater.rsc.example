@@ -58,9 +58,9 @@
     # Keep the journal bounded on router storage. It contains only public image
     # identity and lifecycle outcomes, never credentials or application data.
     :if ([:len $previous] > 12000) do={ :set previous "" }
-    :local line=([/system/clock/get date] . " " . [/system/clock/get time] . " event=" . $event . " image=" . $candidate . " detail=" . $detail)
-    :if ([:len $previous] > 0) do={ :set line ($previous . "\n" . $line) }
-    $writeState $historyFile $line
+    :local historyEntry ([/system/clock/get date] . " " . [/system/clock/get time] . " event=" . $event . " image=" . $candidate . " detail=" . $detail)
+    :if ([:len $previous] > 0) do={ :set historyEntry ($previous . "\n" . $historyEntry) }
+    $writeState $historyFile $historyEntry
 }
 :local stateLine do={
     :local contents $1
@@ -190,12 +190,9 @@
     # GitHub's release-asset endpoint may be served by an intermediary cache
     # after an asset is replaced in place.  Make each read URL distinct without
     # making the release data executable: the response is still JSON-only,
-    # HTTPS-only, certificate-validated, and redirect-bounded below.  Date and
-    # time contain no secrets and never leave the router except as a cache key.
-    :local manifestQuerySeparator "?"
-    :if ([:find $manifestUrl "?"] != nil) do={ :set manifestQuerySeparator "&" }
-    :local manifestCacheBust ([/system/clock/get date] . "-" . [/system/clock/get time])
-    :local manifestRequestUrl ($manifestUrl . $manifestQuerySeparator . "routeros-cache-bust=" . $manifestCacheBust)
+    # HTTPS-only, certificate-validated, and redirect-bounded below. Keep the
+    # query short and numeric: this form was verified with RouterOS fetch.
+    :local manifestRequestUrl ($manifestUrl . "?cb=" . [:rndnum from=100000 to=999999])
     :local fetched [/tool/fetch url=$manifestRequestUrl mode=https check-certificate=yes http-max-redirect-count=2 output=user as-value]
     :if (($fetched->"status") != "finished") do={
         :error "release manifest fetch did not finish"
