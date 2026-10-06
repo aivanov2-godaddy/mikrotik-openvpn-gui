@@ -7,15 +7,14 @@ exercised route tuples and sends anonymous requests to every listed GET, POST,
 PATCH, and DELETE route. Every listed write is also sent with a valid cookie but
 without CSRF and must be denied before RouterOS or persistent state changes.
 This dispatch/anonymous-CSRF coverage does **not** mean every route has a
-complete route-to-capability matrix or exhaustive role-by-role tests; the table
-below is a maintained summary, and targeted capability tests cover selected
-high-risk boundaries.
-
-The additional role-boundary tests send valid-CSRF requests to sensitive route
-families as a `read_only` role. A `403` is expected where the capability is not
-granted. Safe, non-mutating diagnostics and plans may intentionally be
-available to read-only roles; an HTTP POST alone does not make a route a
-RouterOS mutation.
+complete route-to-capability matrix. The sensitive management matrix sends
+valid-CSRF requests for each declared high-impact route example through all
+five dashboard roles. Roles without the route's capability must receive `403`;
+roles with it must pass the capability gate (later validation may still reject
+an incomplete test request). This is a complete matrix over the maintained
+examples, not proof that the examples exhaust every guarded dispatch branch.
+Safe, non-mutating diagnostics and plans may intentionally be available to
+read-only roles; an HTTP POST alone does not make a route a RouterOS mutation.
 
 ## Public, bearer-link, and browser-session routes
 
@@ -66,9 +65,11 @@ read-only role boundary test verifies this explicit exception.
 
 ## Limits of this evidence
 
-Automated route tests establish the listed dispatch and role-denial assertions;
-they do not replace a code-owner review of every handler, an external
-penetration test, or verification behind the production proxy. The high-impact
+Automated route tests establish the listed dispatch, anonymous/CSRF,
+token-scope, and declared high-impact route-by-role assertions. They do not
+prove that the maintained examples exhaust every guarded dispatch branch,
+replace a code-owner review of every handler, or provide an external
+penetration test or verification behind the production proxy. The high-impact
 router mutation workflow is tracked separately in [mutation safety](ROADMAP.md#phase-4-release-and-security-assurance).
 
 ## Independent code review record — 2026-10-04
@@ -86,6 +87,7 @@ security, and ASGI run passed 158 tests, and hosted CI passed before release.
 This internal code review is not an external penetration test or compliance
 assessment. Role-derived authorization for ordinary authenticated reads and
 live streams is rechecked at most every 15 seconds; privileged management
-actions force an immediate role lookup. Full route-by-role/token-scope
-cross-product coverage, maximum physical-router revocation latency, and
-authenticated production-proxy behavior remain unverified.
+actions force an immediate role lookup. An exhaustive all-dispatch route-by-role
+and route-by-token-scope inventory, maximum physical-router revocation latency,
+and independently verified authenticated production-proxy behavior remain
+unverified.

@@ -22,7 +22,7 @@ from unittest import mock
 from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, _certificate_remaining_seconds, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
-from security import LoginRateLimiter, SessionStore
+from security import LoginRateLimiter, SessionStore, has_capability
 from store import MetadataStore
 from templates import dashboard_page, evaluate_device_posture
 from tests.mock_routeros import MockRouterOS
@@ -1447,26 +1447,38 @@ class DashboardIntegrationTests(unittest.TestCase):
         ]
         before_mutations = list(self.mock.state.mutation_requests)
         denied_cases = 0
+        allowed_cases = 0
+        role_groups = ("owner", "security-operator", "operator", "audit", "read")
 
-        for group in ("security-operator", "operator", "audit", "read"):
+        for group in role_groups:
             self.mock.state.admin_group = group
             self.cookie = ""
             self.csrf = ""
             self.login()
             headers = {"Content-Type": "application/json", "X-CSRF-Token": self.csrf}
             for capability, method, path, body in route_cases:
-                if group not in denied[capability]:
-                    continue
                 with self.subTest(group=group, capability=capability, method=method, path=path):
                     status, _, payload = self.request(
                         method, path, body=json.dumps(body).encode(), headers=headers,
                     )
-                    self.assertEqual(status, 403)
-                    self.assertIn(capability.encode(), payload)
                     self.assertNotIn(b"routerpass", payload)
-                    denied_cases += 1
+                    if group in denied[capability]:
+                        self.assertEqual(status, 403)
+                        self.assertIn(capability.encode(), payload)
+                        denied_cases += 1
+                    else:
+                        self.assertTrue(
+                            has_capability(group, capability),
+                            f"{group} is missing the declared {capability} capability",
+                        )
+                        self.assertNotEqual(
+                            status, 403,
+                            f"{group} has {capability} but {method} {path} denied it: {payload!r}",
+                        )
+                        allowed_cases += 1
 
         self.assertEqual(denied_cases, 118)
+        self.assertEqual(allowed_cases + denied_cases, len(role_groups) * len(route_cases))
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
     def test_admin_session_revocation_is_csrf_protected_scoped_and_audited(self) -> None:
