@@ -1109,3 +1109,21 @@ result. No canary or production image read-back is claimed for this artifact;
 the 30-minute telemetry/Redis window, real VPN session transition, API
 reconnect/snapshot recovery, integrity/parity, restore rehearsal, and live
 authorization checks remain outstanding.
+
+## RouterOS logo-image read-back — 2026-10-07
+
+Read-only WebFig inspection observed both canary and production configured
+with `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; both reported healthy
+(`H`). The separate Redis container was running. The release record above
+contains the registry-published ARM64 digest; RouterOS reports the configured
+tag but does not independently expose the running image digest. This closes
+the deployment-presence check for the logo-enabled image only. It does not
+prove the logo rendered in a newly loaded production page or satisfy telemetry,
+Redis, session-transition, reconnect/snapshot, event-integrity, SQLite-restore,
+or candidate-rollback acceptance.
+
+The only authenticated dashboard tab available was already loaded before the
+deployment and was left untouched to preserve its live stream. A fresh tab
+redirected to Cloudflare Access, so post-deployment visual confirmation could
+not be performed in this observation. No RouterOS policy, certificate, VPN
+user/session, or application data was modified.
