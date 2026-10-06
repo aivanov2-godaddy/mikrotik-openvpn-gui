@@ -726,12 +726,36 @@ def dashboard_page(
                             "Verify or issue a valid replacement before reconnecting.</small>"
                         )
                     elif retirement_state == "verified":
-                        migration_status = "Old identity revoked; replacement verified at retirement"
-                        migration_action = '<span class="muted-label">Verified at retirement</span>'
+                        reconnect_result = str(migration.get("reconnect_result", ""))
+                        reconnect_actor = html.escape(str(migration.get("reconnect_tested_by") or "operator"))
+                        if reconnect_result == "connected":
+                            migration_status = "Old profile connected after revocation · investigate"
+                            reconnect_detail = (
+                                f"Operator {reconnect_actor} reported that the old profile connected on a fresh attempt. "
+                                "Treat this as a security warning. RouterOS confirms certificate state but cannot attribute a live session to a certificate."
+                            )
+                        elif reconnect_result == "rejected":
+                            migration_status = "Old profile rejected on reported fresh reconnect"
+                            reconnect_detail = (
+                                f"Operator {reconnect_actor} reported rejection on a fresh attempt. "
+                                "This is not independent proof of CRL enforcement; RouterOS cannot attribute a session to a certificate."
+                            )
+                        else:
+                            migration_status = "Old identity revoked; replacement verified at retirement"
+                            reconnect_detail = "No fresh reconnect outcome has been recorded."
+                        migration_action = (
+                            f'<span class="migration-reconnect-actions" data-migration-reconnect-actions>'
+                            f'<button type="button" class="table-action" data-migration-reconnect-result="rejected" '
+                            f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}">Report: rejected</button> '
+                            f'<button type="button" class="table-action" data-migration-reconnect-result="connected" '
+                            f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}">Report: connected</button></span>'
+                            if can_manage_profiles else '<span class="muted-label">Read-only</span>'
+                        )
                         migration_detail = (
                             f'<small class="table-secondary">Replacement: {replacement_name}. '
-                            "RouterOS confirmed the replacement active at revocation read-back; this does not prove old-client rejection "
-                            "or terminate an existing VPN session.</small>"
+                            "RouterOS confirmed the replacement active at revocation read-back. Fully disconnect this VPN user before trying the old profile once; "
+                            f'<span data-migration-reconnect-detail>{reconnect_detail}</span> '
+                            "The result is operator-reported, not independently verified.</small>"
                         )
                     else:
                         migration_status = "Old identity revoked; replacement status unknown"
@@ -802,7 +826,11 @@ def dashboard_page(
                 migration_status = "Match owner manually"
                 migration_action = '<span class="muted-label">No matching VPN user</span>'
                 migration_detail = ""
-            status_class = "approved" if revoked else "warning"
+            status_class = (
+                "warning"
+                if migration and migration.get("reconnect_result") in {"connected", "rejected"}
+                else "approved" if revoked else "warning"
+            )
             migration_rows.append(
                 f'''<tr><td><strong>{html.escape(certificate_name)}</strong><small class="table-secondary">{html.escape(device_label)}</small></td>
                 <td><strong>{html.escape(owner)}</strong><small class="table-secondary">Issued by {html.escape(certificate_authority or 'previous CA')}</small></td>

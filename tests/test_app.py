@@ -1142,6 +1142,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/users/test-user/suspend/preview",
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
             "/api/profile-migrations/legacy-user-one-phone/steps/imported",
+            "/api/profile-migrations/legacy-user-one-phone/reconnect-test",
             "/api/profile-migrations/legacy-user-one-phone/revoke/preview",
             "/api/profile-migrations/legacy-user-one-phone/revoke",
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
@@ -2974,6 +2975,133 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Replacement test confirmed by operator", page)
         self.assertIn(b"RouterOS cannot identify which client certificate", page)
 
+    def _prepare_retired_profile_migration(self, *, retirement_state: str = "verified") -> None:
+        self.mock.state.certificates["*OLD-RECONNECT"] = {
+            ".id": "*OLD-RECONNECT", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "yes", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.mock.state.certificates["*NEW-RECONNECT"] = {
+            ".id": "*NEW-RECONNECT", "name": "user-one-phone-current", "common-name": "user-one-phone-current",
+            "fingerprint": "NEW:FAKE", "issuer": "vpn-ca", "ca": "vpn-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.server.context.store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-current",
+        )
+        self.server.context.store.record_profile_migration_retirement(
+            legacy_certificate_name="legacy-user-one-phone", state=retirement_state,
+        )
+        self.login()
+
+    def test_retired_profile_reconnect_result_requires_fresh_routeros_state(self) -> None:
+        self._prepare_retired_profile_migration(retirement_state="partial")
+        path = "/api/profile-migrations/legacy-user-one-phone/reconnect-test"
+        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
+        self.assertEqual(status, 409)
+        self.assertIn("must confirm", json.loads(payload)["error"])
+
+        self.server.context.store.record_profile_migration_retirement(
+            legacy_certificate_name="legacy-user-one-phone", state="verified",
+        )
+        self.mock.state.certificates["*OLD-RECONNECT"]["revoked"] = "no"
+        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
+        self.assertEqual(status, 409)
+        self.assertIn("no longer confirms", json.loads(payload)["error"])
+        self.mock.state.certificates["*OLD-RECONNECT"]["revoked"] = "yes"
+
+        self.mock.state.certificates["*NEW-RECONNECT"]["expires-after"] = "0s"
+        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
+        self.assertEqual(status, 409)
+        self.assertIn("no longer confirms", json.loads(payload)["error"])
+        self.assertEqual(
+            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["reconnect_result"], "",
+        )
+
+    def test_retired_profile_reconnect_result_is_operator_attested_without_router_mutation(self) -> None:
+        self._prepare_retired_profile_migration()
+        path = "/api/profile-migrations/legacy-user-one-phone/reconnect-test"
+        status, _, payload = self.json_request("POST", path, {"result": "unknown"})
+        self.assertEqual(status, 400)
+
+        status, _, payload = self.json_request("POST", path, {"result": "rejected"}, csrf=False)
+        self.assertEqual(status, 403)
+
+        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
+        self.assertEqual(status, 200, payload.decode())
+        response = json.loads(payload)
+        self.assertTrue(response["operator_attested"])
+        self.assertFalse(response["certificate_attribution_verified"])
+        self.assertFalse(response["routeros_active_user_session_observed"])
+        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
+        self.assertEqual(migration["reconnect_result"], "rejected")
+        self.assertEqual(migration["reconnect_tested_by"], "admin")
+        self.assertIsNotNone(migration["reconnect_tested_at"])
+
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Old profile rejected on reported fresh reconnect", page)
+        self.assertIn(b"not independently verified", page)
+        self.assertIn(b'class="device-status warning"', page)
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "operator_attested")
+        self.assertEqual(self.mock.state.mutation_requests, [])
+
+    def test_retired_profile_reconnect_connected_outcome_is_a_security_warning(self) -> None:
+        self._prepare_retired_profile_migration()
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2", "name": "user-one", "service": "ovpn",
+            "caller-id": "198.51.100.41", "address": "198.18.0.49",
+            "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
+        }
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/reconnect-test", {"result": "connected"},
+        )
+        self.assertEqual(status, 200, payload.decode())
+        response = json.loads(payload)
+        self.assertTrue(response["operator_attested"])
+        self.assertTrue(response["routeros_active_user_session_observed"])
+        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
+        self.assertEqual(migration["reconnect_result"], "connected")
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "security_warning")
+
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Old profile connected after revocation", page)
+        self.assertIn(b"Treat this as a security warning", page)
+        self.assertIn(b'class="device-status warning"', page)
+        self.assertEqual(self.mock.state.mutation_requests, [])
+
+    def test_retired_profile_reconnect_result_requires_matching_live_user_state_and_permission(self) -> None:
+        self._prepare_retired_profile_migration()
+        path = "/api/profile-migrations/legacy-user-one-phone/reconnect-test"
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2", "name": "user-one", "service": "ovpn",
+            "caller-id": "198.51.100.41", "address": "198.18.0.49",
+            "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
+        }
+        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
+        self.assertEqual(status, 409)
+        self.assertIn("disconnect existing sessions", json.loads(payload)["error"])
+        self.mock.state.active_sessions.pop("*A2")
+        status, _, payload = self.json_request("POST", path, {"result": "connected"})
+        self.assertEqual(status, 409)
+        self.assertIn("does not currently show", json.loads(payload)["error"])
+
+        self.mock.state.admin_group = "read"
+        self.cookie = ""
+        self.csrf = ""
+        self.login()
+        status, _, _ = self.json_request("POST", path, {"result": "rejected"})
+        self.assertEqual(status, 403)
+        self.assertEqual(
+            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["reconnect_result"], "",
+        )
+
     def test_profile_migration_test_requires_a_live_user_session_and_fails_closed(self) -> None:
         self.mock.state.certificates["*OLD"] = {
             ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
@@ -3084,7 +3212,10 @@ class DashboardIntegrationTests(unittest.TestCase):
             active_session_observed=True,
         )
         store.record_profile_migration_retirement(
-            legacy_certificate_name="legacy-user-one-phone", state="partial",
+            legacy_certificate_name="legacy-user-one-phone", state="verified",
+        )
+        store.record_profile_migration_reconnect_test(
+            legacy_certificate_name="legacy-user-one-phone", result="rejected", actor="operator",
         )
         store.record_profile_migration(
             legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
@@ -3095,6 +3226,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNone(migration["tested_at"])
         self.assertFalse(migration["tested_with_active_session"])
         self.assertEqual(migration["retirement_state"], "")
+        self.assertIsNone(migration["reconnect_tested_at"])
+        self.assertEqual(migration["reconnect_tested_by"], "")
+        self.assertEqual(migration["reconnect_result"], "")
 
     def test_profile_migration_progress_requires_live_active_certificates_and_profile_capability(self) -> None:
         self.mock.state.certificates["*OLD"] = {
