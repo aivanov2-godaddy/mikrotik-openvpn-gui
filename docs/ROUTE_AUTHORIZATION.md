@@ -17,6 +17,13 @@ fail until classified. Long-lived authorized SSE delivery is covered by the
 focused streaming tests rather than this cross-product test. This is an
 exhaustive automated matrix over the current dispatch forms, not an independent
 handler security review or proof of deployed proxy behavior.
+`DashboardIntegrationTests.test_scoped_api_tokens_follow_the_route_scope_matrix`
+also checks every current literal GET `/api` dispatch form is assigned to a
+scoped-token route, a RouterOS-session-only route, or an explicitly
+ungrantable-capability route. Across every nonempty combination of the four
+grantable token scopes, it verifies each classified route's allow/deny outcome;
+new regex GET dispatches fail until deliberately classified. This matrix does
+not authorize bearer tokens for POST, PATCH, or DELETE routes.
 Safe, non-mutating diagnostics and plans may intentionally be available to
 read-only roles; an HTTP POST alone does not make a route a RouterOS mutation.
 
@@ -70,10 +77,11 @@ read-only role boundary test verifies this explicit exception.
 ## Limits of this evidence
 
 Automated route tests establish current dispatch-form coverage, anonymous/CSRF,
-token-scope, and route-by-role capability assertions. They do not replace a
-code-owner review of every handler, provide an external penetration test, or
-verify behavior behind the production proxy. The high-impact router mutation
-workflow is tracked separately in [mutation safety](ROADMAP.md#phase-4-release-and-security-assurance).
+all current GET API-token route/scope combinations, and route-by-role capability
+assertions. They do not replace a code-owner review of every handler, provide
+an external penetration test, or verify behavior behind the production proxy.
+The high-impact router mutation workflow is tracked separately in
+[mutation safety](ROADMAP.md#phase-4-release-and-security-assurance).
 
 ## Independent code review record — 2026-10-04
 
