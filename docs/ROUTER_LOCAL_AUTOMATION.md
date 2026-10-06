@@ -78,7 +78,7 @@ production to the same SQLite file: one database must have one writer.
    attempt (PR #278).
 2. It fetches the approved public manifest through HTTPS with certificate
    validation and checks its schema, architecture, image prefix, and complete
-   SHA-tag format. The request carries a router-clock cache-busting query so a
+   SHA-tag format. The request carries a short numeric cache-busting query so a
    replaced GitHub release asset cannot be served stale by an intermediary;
    this query contains no configuration or credentials, and the response is
    still data-only and redirect-bounded.
