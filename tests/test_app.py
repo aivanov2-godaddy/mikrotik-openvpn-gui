@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, RedirectHandler, _certificate_remaining_seconds, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, _certificate_remaining_seconds, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from security import LoginRateLimiter, SessionStore, has_capability
@@ -66,6 +66,22 @@ class CertificateExpiryParsingTests(unittest.TestCase):
         self.assertEqual(_certificate_remaining_seconds("0s"), 0)
         self.assertEqual(_certificate_remaining_seconds("-1s"), -1)
         self.assertIsNone(_certificate_remaining_seconds("2h3d"))
+
+
+class ProfileShareStoreTests(unittest.TestCase):
+    def test_profile_download_link_expires_at_its_advertised_deadline(self) -> None:
+        shares = ProfileShareStore()
+        with mock.patch("app.time.time", return_value=1_000):
+            token, ttl = shares.put(b"synthetic-profile", "user-device.zip")
+
+        self.assertEqual(ttl, 600)
+        with mock.patch("app.time.time", return_value=1_599):
+            available = shares.take(token)
+        self.assertIsNotNone(available)
+        self.assertEqual(available.payload, b"synthetic-profile")
+
+        with mock.patch("app.time.time", return_value=1_600):
+            self.assertIsNone(shares.take(token))
 
 
 class OperationsTimelineTests(unittest.TestCase):
