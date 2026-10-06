@@ -322,6 +322,17 @@ test('keyboard-only navigation activates Dashboard, VPN Users, and Connections',
     const link = page.getByRole('link', { name: view.name, exact: true });
     await tabTo(page, link);
     await expect(link).toBeFocused();
+    const focusStyle = await link.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        outlineStyle: style.outlineStyle,
+        outlineWidth: Number.parseFloat(style.outlineWidth),
+        outlineOffset: Number.parseFloat(style.outlineOffset),
+      };
+    });
+    expect(focusStyle.outlineStyle, `${view.name}: keyboard focus has a visible outline`).toBe('solid');
+    expect(focusStyle.outlineWidth, `${view.name}: focus outline is at least 2 CSS pixels`).toBeGreaterThanOrEqual(2);
+    expect(focusStyle.outlineOffset, `${view.name}: focus ring is offset from the control`).toBeGreaterThan(0);
     await page.keyboard.press('Enter');
     await expect(page.locator(`[data-view="${view.target}"]`)).toBeVisible();
     await expect(link).toHaveAttribute('aria-current', 'page');

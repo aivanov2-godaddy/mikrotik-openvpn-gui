@@ -19,6 +19,14 @@ no-results filter, add-user dialog, and termination-review dialog also receive
 axe-core WCAG 2.2 A/AA scans in their rendered states; these focused state scans
 run on desktop, while the ten primary-view scans run at all three viewports.
 
+`design-system.spec.js` renders Dashboard, VPN Users, and Connections at each
+viewport in Standard, Dark, and Light themes. It guards the shared font, text,
+heading, panel, and metric roles against the semantic CSS tokens, and checks
+4.5:1 contrast for primary text roles on the workspace and panel surfaces. The
+keyboard-only navigation regression also verifies the rendered focus outline's
+style, width, and offset on each primary view. These checks use the mock REST
+fixture and do not assert telemetry cadence or wait on a live stream.
+
 ## Run locally
 
 Install Python runtime dependencies, Node.js 24, then run:
