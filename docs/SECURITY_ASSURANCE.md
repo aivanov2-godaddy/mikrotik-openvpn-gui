@@ -237,6 +237,15 @@ application's own anonymous-route behavior, authenticated authorization,
 cross-origin handling, or live-stream revocation. No redirect query, cookies,
 credentials, telemetry payloads, or router identifiers are recorded here.
 
+On 2026-10-06, the same unauthenticated, no-cookie HTTPS GET check was repeated
+for `/`, `/metrics`, `/api/events`, and `/api/users`; each returned HTTP 302.
+Redirects were not followed, and response bodies/destinations were not retained.
+This confirms only the public edge redirect behavior at that observation time.
+It does not verify backend authorization, authenticated session expiry or
+revocation, WebSocket TLS/origin behavior through the proxy, or host/proxy log
+contents. A simultaneous authenticated dashboard observation showed
+`Connection data delayed`, so no live-telemetry acceptance pass is claimed.
+
 The following remain **NOT VERIFIED** and require an authorized controlled
 test window:
 
