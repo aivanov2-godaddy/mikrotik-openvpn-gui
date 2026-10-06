@@ -1069,3 +1069,16 @@ policy was changed. The canary image was rolled back and restored to the
 candidate; the production container was not restarted.
 Formal #199 acceptance and #200 live authorization/security checks remain
 open.
+
+## Post-merge dashboard logo artifact — PR #535 — 2026-10-06
+
+PR #535 added the OpenVPN logo as a locally served responsive dashboard asset.
+The main-branch publication workflow completed all source, rendered-browser,
+ARM64/AMD64 build, provenance/SBOM, and runtime smoke-test checks. The ARM64
+artifact is tagged
+`sha-604958d2d8921193b535206cca9c13cd291ecbc2-arm64` at
+`sha256:17e1bdaadf6b17435df17b0803bf219d0cea4b5f5b38b95413048e9c510697ed`.
+This records publication only. No RouterOS container was updated or restarted,
+and no independent device-side tag/revision/digest read-back was performed.
+The image is not claimed as deployed to canary or production and does not
+complete the outstanding live acceptance gates in #192, #194, #199, or #200.

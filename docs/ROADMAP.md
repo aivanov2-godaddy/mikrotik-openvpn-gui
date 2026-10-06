@@ -1160,3 +1160,13 @@ Health remained Operational and the page showed zero connected VPN users. No
 status response or stream frame was captured, so this is a single browser
 observation—not proof of the trigger, event delivery, sustained freshness, or
 session transitions. The root cause and full #199 acceptance remain unresolved.
+
+**2026-10-06 dashboard branding update (PR #535):** the locally served,
+responsive OpenVPN logo was merged to `main`. The main-branch release workflow
+published the ARM64 image
+`sha-604958d2d8921193b535206cca9c13cd291ecbc2-arm64` at
+`sha256:17e1bdaadf6b17435df17b0803bf219d0cea4b5f5b38b95413048e9c510697ed`
+with provenance/SBOM verification and runtime smoke test passing. This is a
+published artifact, not a RouterOS deployment: no post-publication canary or
+production read-back has been performed, and the existing #192/#194/#199/#200
+human/live acceptance gates remain open.
