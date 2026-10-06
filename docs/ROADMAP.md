@@ -1235,6 +1235,19 @@ smoke tests, with provenance/SBOM verification in the release workflow:
 - ARM64: `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, digest
   `sha256:5bc577fdc322b80530d1027ffd4572006aa598a7a89854292c0bce8022eb9dfa`.
 
-This records publication only. It does not assert that either image is
-deployed to RouterOS; canary/production read-back and the outstanding live
-acceptance gates remain separate and incomplete.
+This records the original publication evidence. Subsequent RouterOS read-back
+is recorded below; it does not replace the outstanding live acceptance gates.
+
+**2026-10-07 RouterOS logo-image read-back:** read-only WebFig inspection found
+both `vpn-dashboard-canary` and `vpn-dashboard-production` configured with the
+ARM64 tag `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; both displayed
+the healthy (`H`) state. The separate Redis container remained running. The
+verified publication record above supplies the ARM64 registry digest; RouterOS
+shows the configured immutable tag, not an independent digest. This confirms
+the logo-enabled image is deployed to both containers, but it is not a 30-minute
+telemetry/Redis acceptance window. The existing authenticated dashboard tab
+was loaded before deployment and was not reloaded, to avoid interrupting its
+live stream. A fresh tab stopped at Cloudflare Access, so current visual logo
+rendering remains unverified. No router policy, VPN session/user, certificate,
+CA, or persistent application data was changed during this read-back. Issues
+#192, #194, #199, and #200 retain their separate human/device acceptance work.
