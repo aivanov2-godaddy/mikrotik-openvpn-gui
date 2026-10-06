@@ -41,6 +41,24 @@ reconnect/snapshot recovery, integrity/parity, restore, and rollback gates in
 #199 remain incomplete. Exact resource readings and environment contents are
 intentionally omitted.
 
+## Foreground dashboard follow-up — 2026-10-06
+
+The existing authenticated production Dashboard was brought to the foreground
+and observed for about 18 seconds without reloading. It continued to display
+`Connection data delayed`; Service Health remained `Operational`, the
+connected-client count remained zero, and the displayed health/uptime snapshot
+did not advance during this observation. No authenticated status response,
+Socket.IO frame, or browser-console/network error was captured, so the failing
+layer remains unknown. This confirms a visible foreground delay in this
+session, not a measured telemetry outage or passing acceptance window.
+
+RouterOS read-back in the preceding section showed the canary on PR #522's
+revision and production on the earlier PR #511 revision. The live-indicator
+change from PR #522 is therefore not yet under production observation; the
+published PR #530 image is also not confirmed deployed. No refresh, sign-in,
+container operation, or router configuration change was performed. Full #199
+telemetry and recovery acceptance remains incomplete.
+
 ## Authenticated dashboard follow-up — 2026-10-06
 
 The already-open production Dashboard was inspected without reloading it. Its

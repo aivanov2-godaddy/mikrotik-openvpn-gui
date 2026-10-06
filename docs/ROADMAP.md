@@ -1141,6 +1141,18 @@ and no container, VPN account/session, certificate, CA, policy, or persistent
 data was changed. This is a point-in-time status check only; #199 acceptance
 and the candidate's required production gates remain incomplete.
 
+**Foreground dashboard follow-up (2026-10-06):** after bringing the existing
+authenticated production Dashboard to the foreground, the page still showed
+`Connection data delayed` about 18 seconds later without a reload. Service
+Health stayed `Operational`; the connected-client count and displayed health
+snapshot did not advance. No authenticated poll response or stream frame was
+captured, so the failing layer is unproven. The PR #522 indicator fix is on the
+canary revision, while production remains on the earlier PR #511 revision; the
+published PR #530 image is not deployed. This is a foreground user-visible
+delay, not end-to-end telemetry failure measurement or a passing acceptance
+window. See the
+[live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
 **2026-10-06 foreground live-indicator observation:** during a later read-only
 check of the already-open authenticated Dashboard, the indicator returned from
 `Connection data delayed` to `Live · SOCKETIO` without a page reload. Service
