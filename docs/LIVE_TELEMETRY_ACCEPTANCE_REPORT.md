@@ -13,6 +13,26 @@ stayed on its prior image. This readiness-only soak does not constitute the
 full 30-minute telemetry/Redis acceptance or a candidate-specific rollback
 rehearsal; the earlier PR #497 drill does not substitute for either check.
 
+## Authenticated dashboard follow-up — 2026-10-06
+
+The already-open production Dashboard was inspected without reloading it. Its
+header showed `Connection data delayed`, Service Health showed `Operational`,
+and the session count was zero. The read-only RouterOS WebFig log view included
+successful local `/readyz` HTTP 200 checks for both dashboard containers; this
+does not verify authenticated `/api/status` or telemetry delivery. No response
+status, body, or browser-console error for the current status poll was captured,
+so the failure layer remains unknown. This observation does not prove that the
+Socket.IO stream was up or down and is not a passing acceptance sample.
+
+Code review found that the frontend's five-second `/api/status` poll and the
+SSE/Socket.IO snapshot handler both wrote the same live indicator. A poll error
+could therefore mark the indicator delayed despite a recent stream snapshot.
+PR #522 separates these signals: the badge remains live only while a received
+stream snapshot is within a 10-second client-side freshness window aligned with
+the telemetry stale threshold; otherwise a failed poll still marks connection
+data delayed. The regression is repository evidence, not deployed behavior; the
+published image has not been updated or read back on RouterOS for this fix.
+
 ## Latest canary read-back — PR #518 — 2026-10-06 12:47 UTC
 
 The RouterOS updater's pending record showed candidate tag

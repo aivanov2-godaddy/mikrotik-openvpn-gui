@@ -1,7 +1,10 @@
 # Browser regression tests
 
 The browser suite uses the existing mock RouterOS server. It does not connect
-to a real router, mutate router configuration, or test live-stream timing.
+to a real router or mutate router configuration. One targeted realtime
+regression uses synthetic transport frames to verify that a fresh live snapshot
+is not overwritten by a failed REST status poll; it does not measure production
+stream latency or RouterOS availability.
 Screenshot regression covers Dashboard, VPN Users, and Connections. Each case
 logs in with the mock-only `admin` / `routerpass` fixture and captures a
 full-page Chromium screenshot at 1440×1000, 768×1024, and 390×844 CSS pixels.

@@ -14,6 +14,8 @@ const THEME_STORAGE_KEY = 'vpn-dashboard-theme';
 const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
 let pollingInFlight = false;
+let lastLiveSnapshotAt = 0;
+const LIVE_SNAPSHOT_FRESHNESS_MS = 10_000;
 let realtimeSource = null;
 let socketIoSource = null;
 let realtimeReconnectTimer = null;
@@ -700,6 +702,7 @@ function updateLiveSnapshot(payload) {
   // timestamps; mixing either with Date.now() makes a normal counter delta
   // appear to have happened in a few milliseconds.
   const timestamp = Date.now();
+  lastLiveSnapshotAt = timestamp;
   syncActiveSessions(payload.sessions, timestamp);
   $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
   $$('[data-nav-session-count]').forEach((item) => { item.textContent = payload.sessions.length; });
@@ -749,18 +752,33 @@ async function pollStatus() {
     const payload = await response.json();
     updateDashboard(payload);
     pollingFailures = 0;
-    indicators.forEach((indicator) => {
-      indicator.classList.remove('stale', 'pending');
-      $('span', indicator).textContent = 'Live · updated now';
-    });
+    // The status endpoint refreshes the full dashboard snapshot; the live
+    // indicator itself is governed by telemetry freshness, not by this poll.
+    if (lastLiveSnapshotAt && Date.now() - lastLiveSnapshotAt <= LIVE_SNAPSHOT_FRESHNESS_MS) {
+      updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
+    }
   } catch (error) {
     console.error('Live status refresh failed:', error);
     pollingFailures += 1;
-    indicators.forEach((indicator) => {
-      indicator.classList.add('stale');
-      $('span', indicator).textContent = 'Connection data delayed';
-    });
-    if (pollingFailures === 2) toast('Live RouterOS data is temporarily unavailable. Retrying automatically.', 'error');
+    const streamIsFresh = lastLiveSnapshotAt
+      && Date.now() - lastLiveSnapshotAt <= LIVE_SNAPSHOT_FRESHNESS_MS;
+    if (streamIsFresh) {
+      // A failed snapshot poll must not overwrite a newer live stream frame.
+      updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
+    } else {
+      indicators.forEach((indicator) => {
+        indicator.classList.add('stale');
+        $('span', indicator).textContent = 'Connection data delayed';
+      });
+    }
+    if (pollingFailures === 2) {
+      toast(
+        streamIsFresh
+          ? 'The full status snapshot is delayed; live connection updates are still arriving. Retrying automatically.'
+          : 'Live RouterOS data is temporarily unavailable. Retrying automatically.',
+        'error',
+      );
+    }
   } finally {
     pollingInFlight = false;
   }
