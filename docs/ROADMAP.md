@@ -20,14 +20,58 @@ AMD64 image tag/digest:
 `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f`.
 Both image builds passed runtime smoke tests and detached provenance/SBOM
 verification. At the v2.7.0 publication on 2026-10-04, the `routeros-stable`
-manifest pointed to this commit; as of 2026-10-06 it names the PR #504 candidate
-recorded below. The 2026-10-04 RouterOS WebFig read-back confirmed the v2.7.0 ARM64 immutable tag
+manifest pointed to this commit; as of 2026-10-06 it names the newer PR #516
+candidate recorded below. The 2026-10-04 RouterOS WebFig read-back confirmed
+the v2.7.0 ARM64 immutable tag
 on both canary and production containers, each with the RouterOS healthy
 (`H`) marker. This verifies image deployment and container health only; it is
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
-### Latest published candidate and RouterOS read-back — PR #504 — 2026-10-06
+### Latest published candidate and current RouterOS read-back — 2026-10-06
+
+PR [#516](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/516)
+merged as `2b425d70d93f22da31f84c3458166b41091c262a`. Publication workflow
+[#37453158880](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37453158880)
+passed source/browser checks, both architecture builds, runtime smoke, and
+exact-digest provenance/SBOM verification. The `routeros-stable` manifest
+read-back names this commit and both immutable tags.
+
+| Platform | Immutable tag | Published registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-2b425d70d93f22da31f84c3458166b41091c262a-arm64` | `sha256:99345aeca36fd6eb5c3950be9609dc98f479fb059d9c6873caebe7c5aefc6376` |
+| CHR/x86 AMD64 (evaluation) | `sha-2b425d70d93f22da31f84c3458166b41091c262a-amd64` | `sha256:84cdf90a33cbc5d7458171e263b27630f650e52161e40f64e210100e3f566740` |
+
+At 10:53 UTC, a read-only RouterOS WebFig container-list observation showed
+both canary and production configured with the earlier PR #511 ARM64 immutable
+tag `sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`, each healthy
+(`H`), and Redis running (`R`). This supersedes the older PR #504 deployment
+read-back below. The cause and timing of the tag change were not established.
+RouterOS exposed the configured tag, not an independent image digest.
+The read-only Scheduler table still marked `vpn-gui-immutable-update` disabled
+(`X`); the stage-only replacement from PR #513 has not been verified installed
+or accepted on the router. No automatic promotion is claimed.
+PR #516 is published but was not observed on either router container. This
+point-in-time observation does not satisfy the 30-minute telemetry/Redis soak,
+client-event, reconnect, rollback, or post-promotion acceptance gates. No
+router configuration or VPN data was changed during the read-back.
+
+### Previously published candidate — PR #515 — 2026-10-06
+
+PR [#515](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/515)
+merged as `307b413eed988f405a8446ef0a0e5cbcf2333a74`. Publication workflow
+[#37451430328](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37451430328)
+passed source/browser checks, both architecture builds, runtime smoke, and
+exact-digest provenance/SBOM verification. Its ARM64 tag/digest are
+`sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-arm64` /
+`sha256:94881c473984b4860443e1675d05cd15996d9587d197a105e5307cfb7e5d7ac9`;
+the AMD64 evaluation tag/digest are
+`sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-amd64` /
+`sha256:4aff5ef95d6de644039325c8f7c1b541ee9e9af50ef7624e6e48abc21b637d69`.
+The stable manifest named this commit after publication; it has since advanced
+to PR #516. No RouterOS deployment of PR #515 was verified.
+
+### Earlier published candidate and RouterOS read-back — PR #504 — 2026-10-06
 
 PR [#504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/504)
 merged as `a62724c94261b00866fa3d55416a7b540305d40b`. Publication workflow
@@ -182,8 +226,8 @@ and runtime smoke. ARM64 tag/digest:
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64` /
 `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`.
 This is publication/CI evidence only; no RouterOS read-back confirms this image
-on either canary or production. The latest timestamped RouterOS tag/health
-read-back remains PR #484 above. The 30-minute telemetry/Redis soak and
+on either canary or production. At that publication, the latest timestamped
+RouterOS tag/health read-back was PR #484. The 30-minute telemetry/Redis soak and
 rollback acceptance remain pending.
 
 ### Previously published mainline artifact — PR #492 — 2026-10-05
@@ -198,8 +242,8 @@ runtime smoke tests. Its ARM64 image is
 `sha256:682a6dc61aeb47cc0e0979ab03d3c4f30d8497f8f0fbb44282bef84267f7f373`.
 The commit updates only the repository's RouterOS updater example, docs, and
 tests; its 30-sample readiness soak has not been installed or exercised on the
-router. This is a newer publication, **not** a verified deployment. The latest
-timestamped RouterOS tag/health read-back remains PR #484 above, and #199's
+router. This is a newer publication, **not** a verified deployment. At that
+publication, the latest timestamped RouterOS tag/health read-back was PR #484; #199's
 telemetry/Redis soak and rollback acceptance remain open. The latest numbered
 release remains v2.7.0.
 
@@ -626,6 +670,22 @@ that restart; the later live-update observation is recorded above.
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
+**2026-10-06 repository progress:** PR #515 adds rendered cross-theme
+design-token, text-contrast, and keyboard-focus gates for Dashboard, VPN Users,
+and Connections at desktop/tablet/mobile sizes; the five-task human study,
+assistive-technology review, and actual 200% browser-zoom review in #192 remain
+open. PR #514 rejects explicitly foreign `Origin` requests to authenticated
+SSE before any RouterOS query, with a regression test; origin-less requests
+still require the existing session and `sessions.read` authorization. Live
+proxy/session expiry and revocation checks and independent security review in
+#200 remain open. PR #516 adds staged same-CA renewal for expiring or expired
+dashboard-managed devices, requires nonempty exact RouterOS certificate ID and
+fingerprint ownership evidence, and removes a post-revocation report that could
+not attribute a session to a certificate. Issuance does not revoke the source;
+replacement import/test and retirement remain separate reviewed steps. The
+live client, CRL, active-session, and canary rollback checks in #194 remain
+open. These repository checks are not router acceptance evidence.
+
 **#199 release-acceptance follow-up (PR #495):** Adds separate
 `canary-prepromotion` and `postpromotion` phases, phase-scoped GHCR digest
 verification, a hard deadline for registry requests, and truthful handling of
@@ -803,7 +863,7 @@ remains for compatibility. This is acceptance-tooling hardening, not a runtime
 image or RouterOS change, and does not complete the pending device-side #199
 soak, event/reconnect exercises, or rollback/restore evidence.
 
-**Latest timestamped RouterOS read-back (2026-10-05):** WebFig showed PR #484's
+**Historical timestamped RouterOS read-back (2026-10-05):** WebFig showed PR #484's
 immutable ARM64 tag `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` on
 both canary and production, each healthy (`H`), with Redis running (`R`). Its
 registry digest is `sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73`;
