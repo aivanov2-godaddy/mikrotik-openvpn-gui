@@ -1091,14 +1091,16 @@ freshness using a 10-second receive-time window and adds a rendered regression;
 its behavior is not deployed until the immutable image is staged and verified.
 This UI observation is not a passing #199 acceptance sample.
 
-**#192 200%-zoom follow-up (2026-10-06):** the authenticated production page
-was inspected at actual 200% browser zoom. That observation informed PR #520,
-which adds a 574 CSS-pixel zoom-equivalent overflow regression and yields the
-redundant brand-host label at widths through 600px. The candidate's rendered
-browser/accessibility CI passed, but CI viewport emulation is not a manual
-200%-zoom confirmation of the deployed fix. The latest deployed image has not
-been read back with this fix; the human task study, assistive-technology
-review, and post-deployment 200%-zoom review remain open.
+**#192 200%-zoom follow-up (2026-10-06):** an actual 200% Chrome zoom review
+was completed on the already-open authenticated page across Dashboard,
+Connections, and VPN Users. All three views remained reachable; the primary
+navigation became horizontally scrollable. The Dashboard traffic helper text
+was visibly ellipsized, so PR #530 changed it to wrap and added a rendered
+540-CSS-pixel regression. PR #530 merged as `9e3cba32190aef904fd55b0289217779594bae14`;
+the post-merge publication workflow completed, but the resulting image has
+not been read back on RouterOS and the fix is not claimed as deployed. Chrome
+was restored to 100%. The five-operator task study and assistive-technology
+review remain open; CI viewport emulation does not replace actual zoom review.
 
 **2026-10-06 publication and canary-readiness update:** PR #522 is merged and
 its runtime candidate was published successfully at commit
@@ -1114,3 +1116,13 @@ full acceptance. No production image, RouterOS policy, account, or certificate
 was changed. Detailed deployment records remain private. The publication and
 deployment distinction is documented in
 [`LIVE_TELEMETRY_ACCEPTANCE_REPORT.md`](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
+**2026-10-06 PR #530 publication:** the focused zoom/reflow correction passed
+all required PR checks and its post-merge source, browser, ARM64/AMD64 build,
+provenance/SBOM, and runtime smoke-test workflow completed successfully.
+The ARM64 image is tagged
+`sha-9e3cba32190aef904fd55b0289217779594bae14-arm64` at
+`sha256:762d10f6d765f435a5c720f67e40b0dbf095a0875fabb520811a514a7ab94ff3`.
+This is a published registry artifact only. No RouterOS stage or production
+deployment is claimed; the current container tags/digests have not been
+independently read back in this follow-up. Full #199 acceptance remains open.
