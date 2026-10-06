@@ -11,11 +11,12 @@ is PR #522, commit `1203b768a690dd80ce04a40c1cd2ab0ad47d3640`, ARM64 tag
 `sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64`, digest
 `sha256:def674be0ab82f3e020c13a6549b7e8c9c82c79305cc488002660c13eb9288d2`.
 The publication workflow passed source and rendered-browser verification,
-ARM64/AMD64 builds, provenance/SBOM verification, and runtime smoke tests.
-Read-only RouterOS WebFig inspection after publication still showed the prior
-PR #518 canary and PR #511 production images, both healthy; Redis was running.
-The new image is therefore published, not deployed. The PR #522 canary soak
-and full 30-minute telemetry/Redis acceptance have not run.
+ARM64/AMD64 builds, provenance/SBOM verification, and runtime smoke tests. A
+subsequent private, stage-only RouterOS run placed this candidate on the
+isolated canary and recorded a successful 30-sample, one-minute readiness
+soak. Production remained on its prior immutable image. This is readiness-only
+evidence: the authenticated 30-minute telemetry/Redis acceptance and the other
+live-client, reconnect, integrity, restore, and rollback gates remain open.
 
 ## Authenticated dashboard follow-up — 2026-10-06
 
@@ -55,14 +56,18 @@ published image has not been updated or read back on RouterOS for this fix.
 A read-only WinBox and authenticated-dashboard inspection was completed. The
 dashboard showed delayed live connection data while Service Health reported
 operational. A RouterOS job with unknown identity was active, so no competing
-update was started and production was not promoted. Exact image read-backs,
-resource measurements, job metadata, and other deployment-specific evidence
-are retained in the private operator record and intentionally omitted from this
-public report, per #199.
+update was started and production was not promoted. Later, the guarded
+stage-only updater completed its canary readiness window for the published
+PR #522 candidate; the router-local pending record was written after the 30
+one-minute readiness samples passed. The candidate remains canary-only and
+production remains on its prior image. Exact image read-backs, resource
+measurements, job metadata, and other deployment-specific evidence are retained
+in the private operator record and intentionally omitted from this public
+report, per #199.
 
 This observation does not establish the cause of delayed telemetry and does not
-pass candidate readiness, telemetry freshness, Redis delivery,
-session-transition, resource soak, reconnect, event-integrity, parity, restore,
+pass telemetry freshness, Redis delivery, session-transition, resource soak,
+reconnect, event-integrity, parity, restore,
 or rollback acceptance.
 
 ## Latest canary read-back — PR #518 — 2026-10-06 12:47 UTC

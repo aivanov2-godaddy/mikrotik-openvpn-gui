@@ -37,22 +37,22 @@ and exact-digest provenance/SBOM verification. The published image identity is
 in the public release workflow; deployment-specific RouterOS read-backs are
 kept outside this repository, as required by #199.
 
-A private read-only RouterOS inspection on 2026-10-06 did not stage or promote
-the published candidate. The authenticated production Connections page showed
-delayed connection data while the Service Health view reported operational;
-this does not establish root cause or pass telemetry freshness acceptance. An
-unidentified active RouterOS job was present, so no competing update was
-started. Detailed image read-backs, resource samples, router state, and
-acceptance artifacts remain in the private operator record, not in this public
-repository.
+A private read-only RouterOS inspection on 2026-10-06 initially did not stage
+or promote the published candidate. Later, the guarded updater completed a
+stage-only rollout to the isolated canary and passed its 30 one-minute
+readiness samples for PR #522; production stayed on its prior immutable image.
+The authenticated production Connections page showed delayed connection data
+while Service Health reported operational; this does not establish root cause
+or pass telemetry freshness acceptance. Detailed image read-backs, resource
+samples, router state, and acceptance artifacts remain in the private operator
+record, not in this public repository.
 
-The remaining #199 gates include staging and verifying the published candidate
-through the guarded canary path, authenticated telemetry/Redis samples and a
-nonzero VPN session transition, measured event latency/freshness and resource
-load, API restart/reconnect and full-snapshot recovery, counter-reset and
-REST/Binary parity checks, event integrity, SQLite restore rehearsal, and
-candidate-specific rollback. Production promotion remains gated on complete
-passing evidence.
+The #199 readiness-stage gate has now passed for this candidate. Remaining
+gates include authenticated telemetry/Redis samples and a nonzero VPN session
+transition, measured event latency/freshness and resource load, API
+restart/reconnect and full-snapshot recovery, counter-reset and REST/Binary
+parity checks, event integrity, SQLite restore rehearsal, and candidate-specific
+rollback. Production promotion remains gated on complete passing evidence.
 
 ### Previously published candidate and earlier RouterOS read-back — PR #516 — 2026-10-06
 
@@ -1100,16 +1100,17 @@ browser/accessibility CI passed, but CI viewport emulation is not a manual
 been read back with this fix; the human task study, assistive-technology
 review, and post-deployment 200%-zoom review remain open.
 
-**2026-10-06 publication/read-back update:** PR #522 is merged and its runtime
-candidate was published successfully at commit `1203b768a690dd80ce04a40c1cd2ab0ad47d3640`
-(ARM64 tag `sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64`, digest
+**2026-10-06 publication and canary-readiness update:** PR #522 is merged and
+its runtime candidate was published successfully at commit
+`1203b768a690dd80ce04a40c1cd2ab0ad47d3640` (ARM64 tag
+`sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64`, digest
 `sha256:def674be0ab82f3e020c13a6549b7e8c9c82c79305cc488002660c13eb9288d2`).
-Read-only RouterOS WebFig inspection found both canary and production still
-using their earlier immutable image tags and healthy, with Redis running. The
-authenticated dashboard still displayed delayed connection data; Service
-Health remained operational with zero connected users. The candidate was not
-staged or deployed, so it provides no runtime validation and cannot close the
-live-telemetry acceptance item. No RouterOS image, container, configuration,
-policy, or VPN data was changed during this inspection. The detailed
-publication-versus-deployment record is in
+The guarded stage-only updater subsequently staged that candidate on the
+isolated canary and completed 30 one-minute readiness samples successfully;
+production was left on its prior immutable image. The authenticated dashboard
+showed live health updates but zero connected VPN users, so this does not
+validate live session events, traffic freshness, Redis delivery, reconnect, or
+full acceptance. No production image, RouterOS policy, account, or certificate
+was changed. Detailed deployment records remain private. The publication and
+deployment distinction is documented in
 [`LIVE_TELEMETRY_ACCEPTANCE_REPORT.md`](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
