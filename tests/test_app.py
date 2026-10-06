@@ -3187,6 +3187,40 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Expiry unknown", page)
         self.assertNotIn(b'data-replacement-type="renewal"', page)
 
+    def test_same_ca_renewal_requires_nonempty_identity_evidence(self) -> None:
+        self.mock.state.certificates["*CL1"]["fingerprint"] = ""
+        self.mock.state.certificates["*CL1"]["expires-after"] = "15d"
+        self.server.context.store.add_device(
+            device_id="managed-missing-fingerprint",
+            vpn_user="user-one",
+            device_name="Managed phone",
+            certificate_name="ovpn-user-one-device-a",
+            certificate_id="*CL1",
+            fingerprint="",
+        )
+        self.login()
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertNotIn(b'data-replacement-type="renewal"', page)
+
+        user_id = next(
+            user["id"] for user in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if user["name"] == "user-one"
+        )
+        status, _, response = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles/preview",
+            {
+                "device_name": "Replacement for missing fingerprint",
+                "delivery": "zip",
+                "legacy_certificate": "ovpn-user-one-device-a",
+                "reason": "Approved certificate renewal request",
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("dashboard-managed", json.loads(response)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, [])
+
     def test_profile_migration_test_requires_a_live_user_session_and_fails_closed(self) -> None:
         self.mock.state.certificates["*OLD"] = {
             ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",

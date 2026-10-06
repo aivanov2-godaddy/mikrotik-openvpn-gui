@@ -712,6 +712,8 @@ def dashboard_page(
         managed_expiring_device = bool(
             metadata.get("id")
             and owner in user_ids
+            and str(certificate.get("id", "")).strip()
+            and str(certificate.get("fingerprint", "")).strip()
             and str(metadata.get("certificate_id", "")) == str(certificate.get("id", ""))
             and str(metadata.get("fingerprint", "")) == str(certificate.get("fingerprint", ""))
             and not revoked

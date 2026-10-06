@@ -3730,9 +3730,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not legacy or not current_ca or not authority or bool(legacy.get("revoked")):
                 raise ValueError("Choose an active certificate with a verifiable issuer")
             managed = self.server.context.store.device_by_certificate(legacy_certificate_name)
+            certificate_id = str(legacy.get("id", "")).strip()
+            fingerprint = str(legacy.get("fingerprint", "")).strip()
             managed_matches_routeros = bool(managed) and (
-                str(managed.get("certificate_id", "")) == str(legacy.get("id", ""))
-                and str(managed.get("fingerprint", "")) == str(legacy.get("fingerprint", ""))
+                bool(certificate_id and fingerprint)
+                and str(managed.get("certificate_id") or "").strip() == certificate_id
+                and str(managed.get("fingerprint") or "").strip() == fingerprint
             )
             managed_by_user = managed_matches_routeros and str(managed.get("vpn_user", "")) == username
             is_current_ca = authority == current_ca
