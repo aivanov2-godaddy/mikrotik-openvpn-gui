@@ -1126,3 +1126,11 @@ The ARM64 image is tagged
 This is a published registry artifact only. No RouterOS stage or production
 deployment is claimed; the current container tags/digests have not been
 independently read back in this follow-up. Full #199 acceptance remains open.
+
+**2026-10-06 foreground live-indicator observation:** during a later read-only
+check of the already-open authenticated Dashboard, the indicator returned from
+`Connection data delayed` to `Live · SOCKETIO` without a page reload. Service
+Health remained Operational and the page showed zero connected VPN users. No
+status response or stream frame was captured, so this is a single browser
+observation—not proof of the trigger, event delivery, sustained freshness, or
+session transitions. The root cause and full #199 acceptance remain unresolved.
