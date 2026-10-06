@@ -168,8 +168,8 @@ label { color: #d0d7dc; }
 /* Dashboard content */
 .app-view[hidden] { display: none !important; }
 .view-heading { display: flex; min-height: 62px; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 2px 2px 12px; border-bottom: 1px solid #2b3841; }
-.view-heading h1 { margin: 0 0 2px; color: #f0f4f6; font-size: 22px; font-weight: 600; }
-.view-heading p:not(.eyebrow) { margin: 0; color: #9aa6ae; }
+.view-heading h1 { margin: 0 0 2px; color: var(--text-bright); font-size: 22px; font-weight: 600; }
+.view-heading p:not(.eyebrow) { margin: 0; color: var(--muted); }
 .heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
 .live-refresh { display: inline-flex; align-items: center; gap: 5px; color: #9eabb3; font-size: 11px; white-space: nowrap; }
 .live-refresh i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
@@ -190,7 +190,7 @@ label { color: #d0d7dc; }
 .metric-icon .wb-icon { width: 19px; height: 19px; }
 .metric > div:last-child { display: grid; min-width: 0; }
 .metric small { color: #a5b0b7; font-size: 10px; }
-.metric strong { overflow: hidden; color: #f1f5f7; font-size: 21px; font-weight: 600; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
+.metric strong { overflow: hidden; color: var(--text-bright); font-size: 21px; font-weight: 600; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
 .metric span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .metric .traffic-total { font-size: 13px; }
 
@@ -325,7 +325,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .panel-heading > div:first-child { display: flex; align-items: center; gap: 7px; }
 .panel-heading > div:first-child > .wb-icon { width: 17px; height: 17px; color: #3ba9e2; }
 .panel-heading > div:first-child > span { display: grid; }
-.panel-heading strong { color: #ebf0f2; font-size: 13px; font-weight: 600; }
+.panel-heading strong { color: var(--text-bright); font-size: 13px; font-weight: 600; }
 .user-panel .panel-heading strong { font-size: 17px; }
 .user-panel .panel-heading small { font-size: 11px; }
 .panel-heading small { color: var(--muted); font-size: 11px; }
@@ -1011,7 +1011,7 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
     border-bottom-color: #354650;
   }
   .view-heading h1 {
-    color: #f5f8fa;
+    color: var(--text-bright);
     font-size: clamp(22px, 6vw, 28px);
     letter-spacing: -.025em;
     line-height: 1.15;
@@ -1019,7 +1019,7 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .view-heading p:not(.eyebrow) {
     display: block;
     max-width: 58ch;
-    color: #a7b5bd;
+    color: var(--muted);
     font-size: 13px;
     line-height: 1.5;
   }

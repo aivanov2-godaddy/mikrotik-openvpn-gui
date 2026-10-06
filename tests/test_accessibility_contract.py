@@ -54,6 +54,47 @@ class AccessibilityRegressionContractTests(unittest.TestCase):
         self.assertIn("@media (max-width: 760px)", css)
         self.assertIn("@media (max-width: 520px)", css)
 
+    def test_primary_theme_palettes_define_shared_design_tokens(self) -> None:
+        css = (ROOT / "static" / "app.css").read_text(encoding="utf-8")
+        tokens = (
+            "--workspace",
+            "--panel",
+            "--panel-2",
+            "--text",
+            "--text-bright",
+            "--muted",
+            "--blue",
+            "--green",
+            "--amber",
+            "--red",
+        )
+        for palette in (":root", 'html[data-theme="dark"]', 'html[data-theme-resolved="light"]'):
+            with self.subTest(palette=palette):
+                declarations = css_block(css, palette)
+                for token in tokens:
+                    self.assertRegex(declarations, rf"(?m)^\s*{re.escape(token)}\s*:")
+        self.assertRegex(css_block(css, ":root"), r"(?m)^\s*--font\s*:")
+
+    def test_shared_primary_view_roles_use_semantic_tokens(self) -> None:
+        css = (ROOT / "static" / "app.css").read_text(encoding="utf-8")
+        expected = (
+            ("body", "color", "--text"),
+            ("body", "background", "--workspace"),
+            (".view-heading h1", "color", "--text-bright"),
+            (".view-heading p:not(.eyebrow)", "color", "--muted"),
+            (".panel-heading strong", "color", "--text-bright"),
+            (".metric strong", "color", "--text-bright"),
+        )
+        for selector, property_name, token in expected:
+            with self.subTest(selector=selector, property=property_name):
+                declarations = css_block(css, selector).lower()
+                self.assertRegex(
+                    declarations,
+                    rf"\b{re.escape(property_name)}\s*:\s*var\({re.escape(token)}\)\s*;",
+                )
+        body = css_block(css, "body").lower()
+        self.assertRegex(body, r"\bfont\s*:[^;]*var\(--font\)")
+
     def test_accessibility_review_covers_real_operator_views_and_tasks(self) -> None:
         guide = (ROOT / "docs" / "ACCESSIBILITY.md").read_text(encoding="utf-8")
         for expected in (
@@ -66,6 +107,10 @@ class AccessibilityRegressionContractTests(unittest.TestCase):
             "forced",
             "Five operator usability tasks",
             "without moderator hints",
+            "Primary-view design system",
+            "Dashboard",
+            "VPN Users",
+            "Connections",
         ):
             self.assertIn(expected, guide)
 
