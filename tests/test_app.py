@@ -3391,6 +3391,58 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2"})
         self.assertEqual(self.mock.state.certificates["*CL1"]["issuer"], "rotated-vpn-ca")
 
+    def test_same_ca_renewal_rejects_changed_source_id_fingerprint_or_revocation(self) -> None:
+        source_name = "ovpn-user-one-device-a"
+        user_id = next(
+            user["id"] for user in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if user["name"] == "user-one"
+        )
+        self.server.context.store.add_device(
+            device_id="managed-renewal-identity-phone",
+            vpn_user="user-one",
+            device_name="Managed phone",
+            certificate_name=source_name,
+            certificate_id="*CL1",
+            fingerprint="A1:EX:26",
+        )
+        self.login()
+        source = self.mock.state.certificates["*CL1"]
+        original = dict(source)
+
+        # Each RouterOS identity change must stop issuance before any mutation.
+        for field, value in ((".id", "*ROTATED"), ("fingerprint", "B2:CHANGED"), ("revoked", "yes")):
+            with self.subTest(field=field):
+                source.clear()
+                source.update(original)
+                device_name = f"Replacement {field.replace('.', 'id-')}"
+                preview = self.preview_profile(
+                    user_id, device_name, delivery="ovpn", legacy_certificate=source_name,
+                )
+                before_mutations = list(self.mock.state.mutation_requests)
+                source[field] = value
+                passphrase = "source-identity-change-passphrase"
+                status, _, payload = self.json_request(
+                    "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles",
+                    {
+                        "device_name": device_name,
+                        "reason": preview["reason"],
+                        "key_passphrase": passphrase,
+                        "legacy_certificate": source_name,
+                        "delivery": "ovpn",
+                        "review_token": preview["review_token"],
+                    },
+                )
+
+                self.assertEqual(status, 400)
+                self.assertNotIn(passphrase.encode(), payload)
+                self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+                self.assertEqual(set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2"})
+                self.assertNotIn(passphrase, json.dumps(self.server.context.store.recent_audit(20)))
+
+        source.clear()
+        source.update(original)
+
     def test_same_ca_renewal_rejects_unmanaged_certificate(self) -> None:
         self.login()
         user_id = next(
