@@ -10,6 +10,8 @@ class FakeSocketIO:
     def __init__(self) -> None:
         self.handlers = {}
         self.emitted = []
+        self.environ = {}
+        self.disconnected = []
 
     def on(self, event, handler, namespace=None):
         self.handlers[(namespace, event)] = handler
@@ -17,19 +19,32 @@ class FakeSocketIO:
     def emit(self, event, payload, **kwargs):
         self.emitted.append((event, payload, kwargs))
 
+    def get_environ(self, sid, namespace=None):
+        return self.environ[sid]
+
+    def disconnect(self, sid, namespace=None):
+        self.disconnected.append((sid, namespace))
+
 
 class SocketIOTelemetryAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
         broker = TelemetryBroker(clock=lambda: 100)
         gateway = TelemetryGatewayContract(broker, clock=lambda: 100)
-        principal = TelemetryPrincipal(True, auth_method="routeros", role="owner")
-        self.adapter = SocketIOTelemetryAdapter(gateway, lambda _sid, _facts: principal)
+        self.principal = TelemetryPrincipal(True, auth_method="routeros", role="owner")
+        self.adapter = SocketIOTelemetryAdapter(gateway, lambda _sid, _facts: self.principal)
         self.server = FakeSocketIO()
         self.adapter.attach(self.server)
         self.broker = broker
+        self.gateway = gateway
+
+    def _connect(self, sid: str, adapter=None, server=None) -> bool:
+        adapter = adapter or self.adapter
+        server = server or self.server
+        server.environ[sid] = {}
+        return adapter.on_connect(sid, {}, {})
 
     def test_connect_subscribe_publish_and_disconnect_are_explicit(self) -> None:
-        self.assertTrue(self.adapter.on_connect("sid-1", {}, {}))
+        self.assertTrue(self._connect("sid-1"))
         events = self.broker.apply(RouterOSReply("re", {".id": "*1", "name": "alice", "password": "secret"}), now=101)
         self.assertEqual(self.adapter.publish(events), 1)
         self.assertEqual(len(self.server.emitted), 1)
@@ -46,7 +61,7 @@ class SocketIOTelemetryAdapterTests(unittest.TestCase):
         self.assertFalse(adapter.on_connect("sid", {}, {}))
 
     def test_reconnect_replays_live_updates_after_client_cursor(self) -> None:
-        self.assertTrue(self.adapter.on_connect("sid-before", {}, {}))
+        self.assertTrue(self._connect("sid-before"))
         first_events = self.broker.apply(
             RouterOSReply("re", {".id": "*1", "name": "alice", "password": "secret"}),
             now=101,
@@ -60,7 +75,7 @@ class SocketIOTelemetryAdapterTests(unittest.TestCase):
         )
         self.adapter.publish(second_events)
 
-        self.assertTrue(self.adapter.on_connect("sid-after", {}, {}))
+        self.assertTrue(self._connect("sid-after"))
         response = self.adapter.on_poll("sid-after", {"after_sequence": first_events[-1].sequence})
 
         self.assertEqual([frame["event"] for frame in response["frames"]], ["vpn.session.updated"])
@@ -74,8 +89,10 @@ class SocketIOTelemetryAdapterTests(unittest.TestCase):
         gateway = TelemetryGatewayContract(broker, clock=lambda: 100, max_replay=1)
         principal = TelemetryPrincipal(True, auth_method="routeros", role="owner")
         adapter = SocketIOTelemetryAdapter(gateway, lambda _sid, _facts: principal)
+        server = FakeSocketIO()
+        adapter.attach(server)
 
-        self.assertTrue(adapter.on_connect("sid-before", {}, {}))
+        self.assertTrue(self._connect("sid-before", adapter, server))
         first = broker.apply(
             RouterOSReply("re", {".id": "*1", "name": "alice", "password": "secret"}), now=101
         )
@@ -86,7 +103,7 @@ class SocketIOTelemetryAdapterTests(unittest.TestCase):
         )
         adapter.publish(second)
 
-        self.assertTrue(adapter.on_connect("sid-after", {}, {}))
+        self.assertTrue(self._connect("sid-after", adapter, server))
         response = adapter.on_poll("sid-after", {"after_sequence": 0})
 
         self.assertEqual(len(response["frames"]), 1)
@@ -99,6 +116,55 @@ class SocketIOTelemetryAdapterTests(unittest.TestCase):
         self.assertNotIn("private-key", str(response))
         self.assertEqual(gateway.metrics()["snapshot_recoveries"], 1)
         adapter.on_disconnect("sid-after")
+
+    def test_publish_closes_stream_when_authorization_is_revoked(self) -> None:
+        self.assertTrue(self._connect("sid-revoked"))
+        self.principal = TelemetryPrincipal(False)
+        events = self.broker.apply(
+            RouterOSReply("re", {".id": "*1", "name": "alice"}), now=101
+        )
+
+        self.assertEqual(self.adapter.publish(events), 1)
+        self.assertEqual(self.server.emitted, [])
+        self.assertEqual(self.server.disconnected, [("sid-revoked", "/telemetry")])
+        self.assertEqual(self.adapter.client_count, 0)
+        self.assertEqual(self.gateway.metrics()["active_clients"], 0)
+
+    def test_poll_revalidates_before_emitting_each_frame(self) -> None:
+        broker = TelemetryBroker(clock=lambda: 100)
+        gateway = TelemetryGatewayContract(broker, clock=lambda: 100)
+        checks = 0
+
+        def resolve(_sid, _facts):
+            nonlocal checks
+            checks += 1
+            return TelemetryPrincipal(checks < 3, auth_method="routeros", role="owner")
+
+        adapter = SocketIOTelemetryAdapter(gateway, resolve)
+        server = FakeSocketIO()
+        adapter.attach(server)
+        self.assertTrue(self._connect("sid-mid-poll", adapter, server))
+        events = broker.apply(
+            RouterOSReply("re", {".id": "*1", "name": "alice"}), now=101
+        )
+        gateway.publish(events)
+
+        with self.assertRaisesRegex(SocketIOTelemetryError, "authorization"):
+            adapter.on_poll("sid-mid-poll")
+
+        self.assertEqual(server.emitted, [])
+        self.assertEqual(server.disconnected, [("sid-mid-poll", "/telemetry")])
+        self.assertEqual(gateway.metrics()["active_clients"], 0)
+
+    def test_poll_fails_closed_when_session_environment_disappears(self) -> None:
+        self.assertTrue(self._connect("sid-missing"))
+        del self.server.environ["sid-missing"]
+
+        with self.assertRaisesRegex(SocketIOTelemetryError, "authorization"):
+            self.adapter.on_poll("sid-missing")
+
+        self.assertEqual(self.adapter.client_count, 0)
+        self.assertEqual(self.gateway.metrics()["active_clients"], 0)
 
 
 if __name__ == "__main__":
