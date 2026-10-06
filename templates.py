@@ -675,7 +675,7 @@ def dashboard_page(
     posture_panel = f"""<section class="panel posture-overview" aria-label="Device posture summary">
       <div class="panel-heading"><div>{_icon('shield')}<span><strong>Device posture</strong><small>Read-only certificate checks for every managed profile</small></span></div><span class="posture-badge">RouterOS inventory</span></div>
       <div class="posture-metrics"><div class="posture-metric approved"><strong>{matched_devices}</strong><span>Inventory match</span><small>Current CA · not revoked · unexpired</small></div><div class="posture-metric warning"><strong>{review_devices}</strong><span>Needs review</span><small>Missing, revoked, expired, expiring, or unknown</small></div></div>
-      <p class="posture-overview-note">An inventory match confirms only that the certificate is present, unrevoked, unexpired, and issued by <strong>{html.escape(current_ca or 'the configured current CA')}</strong>. It does not prove CRL enforcement, disconnect an active VPN session, or verify rejection on reconnect. This view is read-only; no certificates, CA material, sessions, or RouterOS settings are changed.</p>
+      <p class="posture-overview-note">An inventory match confirms only that the certificate is present, unrevoked, unexpired, and issued by <strong>{html.escape(current_ca or 'the configured current CA')}</strong>. It does not prove CRL enforcement, disconnect an active VPN session, or verify rejection on reconnect. These posture checks are read-only; any issue or retirement action is separately reviewed and verified.</p>
     </section>"""
 
     devices_by_certificate = {
@@ -684,8 +684,8 @@ def dashboard_page(
     }
     certificate_rows: list[str] = []
     migration_rows: list[str] = []
-    legacy_profile_count = 0
-    migrated_profile_count = 0
+    replacement_source_count = 0
+    tracked_replacement_count = 0
     for certificate in certificates:
         certificate_name = str(certificate.get("name", "")) or "—"
         metadata = devices_by_certificate.get(certificate_name, {})
@@ -708,12 +708,21 @@ def dashboard_page(
         certificate_authority = str(certificate.get("certificate_authority", ""))
         legacy = bool(current_ca and certificate_authority and certificate_authority != current_ca)
         migration = profile_migrations.get(certificate_name)
-        if legacy and (not revoked or migration):
-            if not revoked:
-                legacy_profile_count += 1
+        lifecycle_label, lifecycle_state = _certificate_expiry(certificate.get("expires_after"))
+        managed_expiring_device = bool(
+            metadata.get("id")
+            and owner in user_ids
+            and str(certificate.get("id", "")).strip()
+            and str(certificate.get("fingerprint", "")).strip()
+            and str(metadata.get("certificate_id", "")) == str(certificate.get("id", ""))
+            and str(metadata.get("fingerprint", "")) == str(certificate.get("fingerprint", ""))
+            and not revoked
+            and (lifecycle_state == "expired" or lifecycle_label.startswith("Expires in "))
+        )
+        if (legacy and not revoked) or migration or managed_expiring_device:
+            replacement_source_count += 1
             if migration:
-                if not revoked:
-                    migrated_profile_count += 1
+                tracked_replacement_count += 1
                 replacement_name = html.escape(str(migration.get("replacement_certificate_name", "")))
                 if revoked:
                     retirement_state = str(migration.get("retirement_state", ""))
@@ -802,7 +811,7 @@ def dashboard_page(
                     migration_status = "Replacement issued; import pending"
                     migration_detail = (
                         f'<small class="table-secondary">New identity: {replacement_name}. '
-                        "Import it on the VPN device first; the existing certificate remains active.</small>"
+                        "Import it on the VPN device first; this step does not revoke the existing certificate.</small>"
                     )
                     migration_action = (
                         f'<button type="button" class="table-action" data-migration-step="imported" '
@@ -810,18 +819,39 @@ def dashboard_page(
                         "Confirm replacement imported</button>"
                         if can_manage_profiles else '<span class="muted-label">Read-only</span>'
                     )
-            elif owner in user_ids:
+            elif legacy and owner in user_ids:
                 migration_status = "Replacement needed"
                 migration_action = (
                     f'<button type="button" class="table-action" data-migrate-profile '
                     f'data-user-id="{html.escape(user_ids[owner], quote=True)}" '
                     f'data-user-name="{html.escape(owner, quote=True)}" '
                     f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}" '
-                    f'data-legacy-device="{html.escape(device_label, quote=True)}">'
+                    f'data-legacy-device="{html.escape(device_label, quote=True)}" '
+                    'data-replacement-type="migration">'
                     f'{_icon("refresh")}<span>Issue replacement</span></button>'
                     if can_manage_profiles else '<span class="muted-label">Read-only</span>'
                 )
                 migration_detail = ""
+            elif managed_expiring_device:
+                migration_status = (
+                    "Expired · renewal recommended"
+                    if lifecycle_state == "expired" else "Renewal recommended"
+                )
+                migration_detail = (
+                    f'<small class="table-secondary">{html.escape(lifecycle_label)}. '
+                    "Issue a replacement under the configured CA, import and test it, then separately review retirement. "
+                    "Issuance does not revoke this certificate; an expired certificate may already be unusable.</small>"
+                )
+                migration_action = (
+                    f'<button type="button" class="table-action" data-migrate-profile '
+                    f'data-user-id="{html.escape(user_ids[owner], quote=True)}" '
+                    f'data-user-name="{html.escape(owner, quote=True)}" '
+                    f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}" '
+                    f'data-legacy-device="{html.escape(device_label, quote=True)}" '
+                    'data-replacement-type="renewal">'
+                    f'{_icon("refresh")}<span>Renew certificate</span></button>'
+                    if can_manage_profiles else '<span class="muted-label">Read-only</span>'
+                )
             else:
                 migration_status = "Match owner manually"
                 migration_action = '<span class="muted-label">No matching VPN user</span>'
@@ -836,7 +866,6 @@ def dashboard_page(
                 <td><strong>{html.escape(owner)}</strong><small class="table-secondary">Issued by {html.escape(certificate_authority or 'previous CA')}</small></td>
                 <td><span class="device-status {status_class}"><i></i>{html.escape(migration_status)}</span>{migration_detail}</td><td>{migration_action}</td></tr>'''
             )
-        lifecycle_label, lifecycle_state = _certificate_expiry(certificate.get("expires_after"))
         certificate_state = "revoked" if revoked else lifecycle_state
         certificate_state_label = "Revoked" if revoked else lifecycle_label
         certificate_rows.append(
@@ -849,7 +878,7 @@ def dashboard_page(
             </tr>"""
         )
     certificate_markup = "".join(certificate_rows) or '<tr><td colspan="5" class="table-empty">No OpenVPN client certificates were found.</td></tr>'
-    migration_markup = "".join(migration_rows) or '<tr><td colspan="4" class="table-empty">No legacy client profiles need migration.</td></tr>'
+    migration_markup = "".join(migration_rows) or '<tr><td colspan="4" class="table-empty">No expiring managed devices or previous-CA profiles need a staged replacement.</td></tr>'
 
     version = html.escape(str(router.get("version", "unknown")))
     board = html.escape(str(router.get("board-name", "MikroTik")))
@@ -1086,7 +1115,7 @@ def dashboard_page(
          <header class="view-heading"><div><p class="eyebrow">DEVICES</p><h1>Device Profiles</h1><p>Each phone gets its own protected OpenVPN profile.</p></div>{f'<button class="primary" type="button" data-view-target="vpn-users">{_icon("plus")}<span>Add a device</span></button>' if can_manage_profiles else ''}</header>
         <details class="panel profile-onboarding"><summary><strong>First time adding a phone?</strong><span>See the three-step setup</span></summary><div class="profile-onboarding-content"><ol class="simple-steps"><li><strong>1</strong><span><b>Add the person</b><small>The dashboard creates everything automatically.</small></span></li><li><strong>2</strong><span><b>Download the profile</b><small>Send the downloaded file to the phone.</small></span></li><li><strong>3</strong><span><b>Open it with OpenVPN</b><small>Enter the VPN username and password, then connect.</small></span></li></ol>{add_phone_button}</div></details>
         {posture_panel}
-         <section class="panel table-panel migration-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Certificate migration</strong><small>Replace profiles issued by a previous CA before retiring them.</small></span></div><span class="posture-badge">{migrated_profile_count}/{legacy_profile_count} replacements issued</span></div><div class="migration-guidance"><strong>Safe order:</strong> issue a replacement, import it, test a VPN connection using that replacement, then review revocation of the old certificate. Import and connection-test steps are operator attestations, not facts RouterOS can verify; revocation still uses a separate impact review. Issuing a replacement never disconnects or revokes the existing profile.</div><div class="responsive-table" tabindex="0" aria-label="Scrollable certificate migration table"><table class="migration-table"><thead><tr><th>Legacy certificate / device</th><th>Owner / issuer</th><th>Migration state</th><th>Action</th></tr></thead><tbody>{migration_markup}</tbody></table></div></section>
+         <section class="panel table-panel migration-panel"><div class="panel-heading"><div>{_icon('refresh')}<span><strong>Certificate replacement</strong><small>Renew expiring devices or replace profiles from a previous CA.</small></span></div><span class="posture-badge">{tracked_replacement_count}/{replacement_source_count} tracked</span></div><div class="migration-guidance"><strong>Safe order:</strong> issue the replacement, import and test it, then separately review retirement of the existing certificate. Import and connection-test steps are operator attestations; RouterOS cannot identify which certificate a session used. Issuing a replacement never changes CA-wide policy or interrupts the existing profile.</div><div class="responsive-table" tabindex="0" aria-label="Scrollable certificate replacement table"><table class="migration-table"><thead><tr><th>Existing certificate / device</th><th>Owner / issuer</th><th>Replacement state</th><th>Action</th></tr></thead><tbody>{migration_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('device')}<span><strong>Managed devices</strong><small>Profiles created by this dashboard</small></span></div><span class="posture-badge">Protected automatically</span></div><div class="responsive-table" tabindex="0" aria-label="Scrollable managed devices table"><table class="device-table"><thead><tr><th>Device / owner</th><th>Status</th><th>Protection ID</th><th>Created</th><th>Action</th></tr></thead><tbody>{device_markup}</tbody></table></div></section>
         <section class="panel table-panel"><div class="panel-heading"><div>{_icon('certificate')}<span><strong>RouterOS certificate inventory</strong><small>Current and legacy OpenVPN client identities discovered on this router</small></span></div><span class="muted-label">{len(certificates)} certificates</span></div><div class="responsive-table" tabindex="0" aria-label="Scrollable RouterOS certificate inventory"><table class="certificate-table"><thead><tr><th>Certificate / identity</th><th>Owner / device</th><th>Status</th><th>Expires</th><th>Fingerprint</th></tr></thead><tbody>{certificate_markup}</tbody></table></div></section>
         <section class="panel profile-diagnostics-panel"><div class="panel-heading"><div>{_icon('shield')}<span><strong>Profile diagnostics</strong><small>Validate a downloaded .ovpn file in memory before importing it.</small></span></div><span class="posture-badge">Read-only</span></div><form data-profile-diagnostics><label><span>OpenVPN profile</span><input type="file" name="profile" accept=".ovpn,.txt" required><small>Only structural checks are performed. The file is not stored and certificate/key contents are never returned.</small></label><p class="form-status" role="status"></p><button type="submit" class="quiet">Run diagnostics</button><div class="diagnostic-result" data-diagnostic-result hidden></div></form></section>
