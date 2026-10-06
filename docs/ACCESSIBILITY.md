@@ -8,10 +8,11 @@ alone.
 
 ## Shared design rules
 
-- Use the shared system font stack and the existing `--text`, `--text-bright`,
-  `--muted`, `--dim`, `--blue`, `--green`, `--amber`, and `--red` tokens.
-  Body copy uses the standard page size; small uppercase labels are metadata,
-  never the only way to identify an action or status.
+- Use the shared system font stack and semantic tokens: `--workspace`,
+  `--panel`, `--panel-2`, `--line`, `--text`, `--text-bright`, `--muted`,
+  `--blue`, `--green`, `--amber`, and `--red`. Body copy uses the standard
+  page size. `--dim` is for decorative metadata only, never essential content
+  or the only way to identify an action or status.
 - Reuse the existing spacing rhythm (4/8/12/16/24 px), panel surfaces, and
   common button classes. Primary actions are visually distinct; secondary and
   destructive actions are not presented with equal emphasis.
@@ -23,6 +24,22 @@ alone.
   links, labels, and disclosure elements where possible.
 - Prefer short labels and progressive disclosure over dense explanatory copy.
   Keep live telemetry and current form values intact when views update.
+
+## Primary-view design system
+
+| View | Hierarchy and components | Accessibility guardrails |
+| --- | --- | --- |
+| Dashboard | Keep the page title and short summary first; use metric cards for the few at-a-glance values; group service health and security posture into panels. | Metric labels remain readable text; health and security states pair color with a word/icon; the primary action is clear without implying a manual refresh is needed for live data. |
+| VPN Users | Lead each card with the person's VPN identity, then connection/profile status and secondary details; keep filters and add-user actions close to the list; put infrequent actions behind the existing per-user menu. | Search and empty results have names and text; status is not color-only; add, suspend, and remove dialogs preserve their review, reason, keyboard, and cancel behavior. |
+| Connections | Put active devices before history; keep source, VPN address, uptime, and direction-labelled Rx/Tx rates distinct from cumulative totals; keep history in its labelled scroll region. | Graphs are supplementary to textual rates; keyboard-operable graph controls expose their selected state; termination remains an explicit review-and-confirm action. Updating telemetry must not steal focus or replace text being edited. |
+
+Across these views, use the same page heading, panel heading, metric, and action
+roles rather than inventing per-view colors or font stacks. Standard, Dark, and
+Light palettes must preserve at least 4.5:1 contrast for the `--text`,
+`--text-bright`, and `--muted` roles on the workspace and panel surfaces.
+Status colors communicate category, not the entire meaning. Reuse the existing
+spacing rhythm (4/8/12/16/24 px); introduce a new token only when a distinct,
+reusable semantic role needs it.
 
 ## WCAG-informed review map
 
