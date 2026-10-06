@@ -54,6 +54,70 @@ test('falls back to SSE and applies a live snapshot after Socket.IO transport fa
   await expect(page.getByText('synthetic-user', { exact: true }).first()).toBeVisible();
 });
 
+test('a failed status poll does not mark a recent Socket.IO snapshot as delayed', async ({ page }) => {
+  let statusPolls = 0;
+  await page.route('**/api/status', async (route) => {
+    statusPolls += 1;
+    await route.abort();
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true, socketio_engine: 'asgi' }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: `window.__liveTestSocket = {
+      handlers: new Map(),
+      on(name, callback) { this.handlers.set(name, callback); return this; },
+      close() {},
+    };
+    window.io = () => window.__liveTestSocket;`,
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (
+    window.__liveTestSocket?.handlers.has('telemetry.snapshot')
+  ))).toBe(true);
+  await expect.poll(() => statusPolls).toBeGreaterThan(0);
+
+  await page.evaluate(() => window.__liveTestSocket.handlers.get('telemetry.snapshot')({
+    payload: { sessions: [] },
+  }));
+  const indicators = page.locator('[data-live-indicator]');
+  await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
+
+  await expect.poll(() => statusPolls, { timeout: 8000 }).toBeGreaterThan(1);
+  await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
+});
+
+test('a failed status poll remains delayed when no live snapshot has arrived', async ({ page }) => {
+  let statusPolls = 0;
+  await page.route('**/api/status', async (route) => {
+    statusPolls += 1;
+    await route.abort();
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'sse', socketio_enabled: false }),
+  }));
+  await page.route('**/api/events', (route) => route.abort());
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect.poll(() => statusPolls).toBeGreaterThan(0);
+  await expect(page.locator('[data-live-indicator]'))
+    .toHaveText(['Connection data delayed', 'Connection data delayed']);
+});
+
 test('reconnects the live stream and applies a fresh snapshot when a sleeping tab wakes', async ({ page }) => {
   await page.addInitScript(() => {
     window.__syntheticEventSources = [];

@@ -1085,6 +1085,19 @@ configuration, image, RouterOS policy, VPN account, or certificate was
 intentionally changed. The canary had a brief availability interruption; its
 persistent application data was not independently audited during recovery.
 
+**2026-10-06 authenticated dashboard follow-up and live-indicator fix:** A
+read-only inspection of the existing production dashboard showed `Connection
+data delayed`, while Service Health remained `Operational` and no VPN users
+were connected. RouterOS WebFig displayed local `/readyz` HTTP 200 checks for
+both dashboard containers, but this is not evidence of authenticated
+`/api/status` or stream delivery. The exact browser request failure was not
+captured, so the upstream cause remains unknown. Code review found that failed
+five-second status polls could overwrite the same badge used by successful
+stream snapshots. PR #522 binds the badge to actual recent stream-snapshot
+freshness using a 10-second receive-time window and adds a rendered regression;
+its behavior is not deployed until the immutable image is staged and verified.
+This UI observation is not a passing #199 acceptance sample.
+
 **#192 200%-zoom follow-up (2026-10-06):** the authenticated production page
 was inspected at actual 200% browser zoom. That observation informed PR #520,
 which adds a 574 CSS-pixel zoom-equivalent overflow regression and yields the

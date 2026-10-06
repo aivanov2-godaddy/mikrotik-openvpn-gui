@@ -20,10 +20,19 @@ semantic-version style release tags.
 - Clarify that readiness-only sampling does not replace the full telemetry,
   Redis, resource, reconnect, event-integrity, and rollback acceptance report.
 
+### Fixed
+
+- Keep the live-telemetry indicator governed by recent stream snapshots instead
+  of letting a failed five-second full-status poll overwrite a fresh SSE or
+  Socket.IO update. The delayed state remains visible when no recent stream
+  snapshot is available.
+
 ### Tests
 
 - Guard the updater's minimum 30-minute sampled readiness gate and rollback
   ordering before production promotion.
+- Verify repeated status-poll failures do not turn a recently updated Socket.IO
+  connection indicator into a delayed state.
 
 ## 2.7.0 - 2026-10-04
 
