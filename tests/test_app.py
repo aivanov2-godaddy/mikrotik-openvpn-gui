@@ -2935,7 +2935,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         status, _, page = self.request("GET", "/dashboard")
         self.assertEqual(status, 200)
-        self.assertIn(b"Certificate migration", page)
+        self.assertIn(b"Certificate replacement", page)
         self.assertIn(b"legacy-user-one-phone", page)
         self.assertIn(b"Issue replacement", page)
 
@@ -3006,132 +3006,186 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Replacement test confirmed by operator", page)
         self.assertIn(b"RouterOS cannot identify which client certificate", page)
 
-    def _prepare_retired_profile_migration(self, *, retirement_state: str = "verified") -> None:
-        self.mock.state.certificates["*OLD-RECONNECT"] = {
-            ".id": "*OLD-RECONNECT", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
-            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
-            "trusted": "yes", "revoked": "yes", "key-usage": "tls-client",
-            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
-        }
-        self.mock.state.certificates["*NEW-RECONNECT"] = {
-            ".id": "*NEW-RECONNECT", "name": "user-one-phone-current", "common-name": "user-one-phone-current",
-            "fingerprint": "NEW:FAKE", "issuer": "vpn-ca", "ca": "vpn-ca",
-            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
-            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
-        }
-        self.server.context.store.record_profile_migration(
-            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
-            replacement_certificate_name="user-one-phone-current",
-        )
-        self.server.context.store.record_profile_migration_retirement(
-            legacy_certificate_name="legacy-user-one-phone", state=retirement_state,
+    def test_expiring_managed_certificate_supports_staged_same_ca_renewal(self) -> None:
+        source_name = "ovpn-user-one-device-a"
+        source_device_id = "managed-expiring-phone"
+        source_device_name = "Managed phone"
+        self.mock.state.certificates["*CL1"]["expires-after"] = "2w"
+        self.server.context.store.add_device(
+            device_id=source_device_id,
+            vpn_user="user-one",
+            device_name=source_device_name,
+            certificate_name=source_name,
+            certificate_id="*CL1",
+            fingerprint="A1:EX:26",
         )
         self.login()
 
-    def test_retired_profile_reconnect_result_requires_fresh_routeros_state(self) -> None:
-        self._prepare_retired_profile_migration(retirement_state="partial")
-        path = "/api/profile-migrations/legacy-user-one-phone/reconnect-test"
-        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
-        self.assertEqual(status, 409)
-        self.assertIn("must confirm", json.loads(payload)["error"])
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Renewal recommended", page)
+        self.assertIn(b"Renew certificate", page)
+        self.assertIn(b"data-replacement-type=\"renewal\"", page)
 
-        self.server.context.store.record_profile_migration_retirement(
-            legacy_certificate_name="legacy-user-one-phone", state="verified",
+        user_id = next(
+            user["id"] for user in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if user["name"] == "user-one"
         )
-        self.mock.state.certificates["*OLD-RECONNECT"]["revoked"] = "no"
-        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
-        self.assertEqual(status, 409)
-        self.assertIn("no longer confirms", json.loads(payload)["error"])
-        self.mock.state.certificates["*OLD-RECONNECT"]["revoked"] = "yes"
-
-        self.mock.state.certificates["*NEW-RECONNECT"]["expires-after"] = "0s"
-        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
-        self.assertEqual(status, 409)
-        self.assertIn("no longer confirms", json.loads(payload)["error"])
-        self.assertEqual(
-            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["reconnect_result"], "",
+        preview = self.preview_profile(
+            user_id, "Managed phone replacement", delivery="ovpn",
+            legacy_certificate=source_name,
         )
+        self.assertEqual(preview["replacement_type"], "renewal")
+        self.assertTrue(preview["old_profile_remains_active"])
 
-    def test_retired_profile_reconnect_result_is_operator_attested_without_router_mutation(self) -> None:
-        self._prepare_retired_profile_migration()
-        path = "/api/profile-migrations/legacy-user-one-phone/reconnect-test"
-        status, _, payload = self.json_request("POST", path, {"result": "unknown"})
+        passphrase = "renewal-passphrase-never-persisted"
+        status, _, profile = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles",
+            {
+                "device_name": "Managed phone replacement",
+                "reason": preview["reason"],
+                "key_passphrase": passphrase,
+                "legacy_certificate": source_name,
+                "delivery": "ovpn",
+                "review_token": preview["review_token"],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(profile)
+        migration = self.server.context.store.profile_migrations()[source_name]
+        replacement_name = migration["replacement_certificate_name"]
+        persisted_state = json.dumps(migration, sort_keys=True)
+        self.assertNotIn(passphrase, persisted_state)
+        self.assertNotIn("PRIVATE KEY", persisted_state)
+        self.assertFalse(self.mock.state.certificates["*CL1"]["revoked"] in {"yes", "true"})
+
+        status, _, response = self.json_request(
+            "POST", "/api/devices/managed-expiring-phone/revoke/preview",
+            {"confirmation": source_device_name, "reason": "Staged replacement must be tested first."},
+        )
         self.assertEqual(status, 400)
+        self.assertIn("test", json.loads(response)["error"].lower())
+        self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
 
-        status, _, payload = self.json_request("POST", path, {"result": "rejected"}, csrf=False)
-        self.assertEqual(status, 403)
-
-        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
-        self.assertEqual(status, 200, payload.decode())
-        response = json.loads(payload)
-        self.assertTrue(response["operator_attested"])
-        self.assertFalse(response["certificate_attribution_verified"])
-        self.assertFalse(response["routeros_active_user_session_observed"])
-        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
-        self.assertEqual(migration["reconnect_result"], "rejected")
-        self.assertEqual(migration["reconnect_tested_by"], "admin")
-        self.assertIsNotNone(migration["reconnect_tested_at"])
-
-        status, _, page = self.request("GET", "/dashboard")
-        self.assertEqual(status, 200)
-        self.assertIn(b"Old profile rejected on reported fresh reconnect", page)
-        self.assertIn(b"not independently verified", page)
-        self.assertIn(b'class="device-status warning"', page)
-        audit = self.server.context.store.recent_audit(1)[0]
-        self.assertEqual(audit["status"], "operator_attested")
-        self.assertEqual(self.mock.state.mutation_requests, [])
-
-    def test_retired_profile_reconnect_connected_outcome_is_a_security_warning(self) -> None:
-        self._prepare_retired_profile_migration()
-        self.mock.state.active_sessions["*A2"] = {
-            ".id": "*A2", "name": "user-one", "service": "ovpn",
-            "caller-id": "198.51.100.41", "address": "198.18.0.49",
-            "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
-        }
-        status, _, payload = self.json_request(
-            "POST", "/api/profile-migrations/legacy-user-one-phone/reconnect-test", {"result": "connected"},
+        status, _, response = self.json_request(
+            "POST", f"/api/profile-migrations/{urllib.parse.quote(source_name, safe='')}/steps/imported", {},
         )
-        self.assertEqual(status, 200, payload.decode())
-        response = json.loads(payload)
-        self.assertTrue(response["operator_attested"])
-        self.assertTrue(response["routeros_active_user_session_observed"])
-        migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
-        self.assertEqual(migration["reconnect_result"], "connected")
-        audit = self.server.context.store.recent_audit(1)[0]
-        self.assertEqual(audit["status"], "security_warning")
-
-        status, _, page = self.request("GET", "/dashboard")
-        self.assertEqual(status, 200)
-        self.assertIn(b"Old profile connected after revocation", page)
-        self.assertIn(b"Treat this as a security warning", page)
-        self.assertIn(b'class="device-status warning"', page)
-        self.assertEqual(self.mock.state.mutation_requests, [])
-
-    def test_retired_profile_reconnect_result_requires_matching_live_user_state_and_permission(self) -> None:
-        self._prepare_retired_profile_migration()
-        path = "/api/profile-migrations/legacy-user-one-phone/reconnect-test"
+        self.assertEqual(status, 200, response.decode("utf-8"))
+        status, _, response = self.json_request(
+            "POST", f"/api/profile-migrations/{urllib.parse.quote(source_name, safe='')}/steps/tested", {},
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("active session", json.loads(response)["error"])
         self.mock.state.active_sessions["*A2"] = {
             ".id": "*A2", "name": "user-one", "service": "ovpn",
             "caller-id": "198.51.100.41", "address": "198.18.0.49",
             "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
         }
-        status, _, payload = self.json_request("POST", path, {"result": "rejected"})
-        self.assertEqual(status, 409)
-        self.assertIn("disconnect existing sessions", json.loads(payload)["error"])
-        self.mock.state.active_sessions.pop("*A2")
-        status, _, payload = self.json_request("POST", path, {"result": "connected"})
-        self.assertEqual(status, 409)
-        self.assertIn("does not currently show", json.loads(payload)["error"])
-
-        self.mock.state.admin_group = "read"
-        self.cookie = ""
-        self.csrf = ""
-        self.login()
-        status, _, _ = self.json_request("POST", path, {"result": "rejected"})
-        self.assertEqual(status, 403)
+        status, _, response = self.json_request(
+            "POST", f"/api/profile-migrations/{urllib.parse.quote(source_name, safe='')}/steps/tested", {},
+        )
+        self.assertEqual(status, 200, response.decode("utf-8"))
+        self.assertFalse(json.loads(response)["certificate_attribution_verified"])
+        self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
         self.assertEqual(
-            self.server.context.store.profile_migrations()["legacy-user-one-phone"]["reconnect_result"], "",
+            self.server.context.store.profile_migrations()[source_name]["replacement_certificate_name"],
+            replacement_name,
         )
+
+        reason = "Replacement tested on the owner's phone."
+        revoke_path = "/api/devices/managed-expiring-phone/revoke"
+        status, _, response = self.json_request(
+            "POST", f"{revoke_path}/preview",
+            {"confirmation": source_device_name, "reason": reason},
+        )
+        self.assertEqual(status, 200, response.decode("utf-8"))
+        review = json.loads(response)
+        status, _, response = self.json_request(
+            "POST", revoke_path,
+            {
+                "confirmation": source_device_name,
+                "reason": reason,
+                "review_token": review["review_token"],
+            },
+        )
+        self.assertEqual(status, 200, response.decode("utf-8"))
+        self.assertTrue(json.loads(response)["verified"])
+        self.assertNotIn(self.mock.state.certificates["*CL1"]["revoked"], {"no", "false", ""})
+        self.assertFalse(self.mock.state.certificates[next(
+            key for key, item in self.mock.state.certificates.items()
+            if item.get("name") == replacement_name
+        )]["revoked"] in {"yes", "true"})
+        self.assertEqual(
+            self.server.context.store.profile_migrations()[source_name]["retirement_state"],
+            "verified",
+        )
+        renewal_audits = [
+            item for item in self.server.context.store.recent_audit(20)
+            if item["action"] == "profile.renew"
+        ]
+        self.assertEqual(len(renewal_audits), 1)
+        self.assertNotIn(passphrase, json.dumps(renewal_audits))
+
+    def test_same_ca_renewal_rejects_unmanaged_certificate(self) -> None:
+        self.login()
+        user_id = next(
+            user["id"] for user in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if user["name"] == "user-one"
+        )
+        reason = "Approved certificate renewal request"
+        status, _, response = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles/preview",
+            {
+                "device_name": "Unmanaged replacement",
+                "delivery": "zip",
+                "legacy_certificate": "ovpn-user-one-device-a",
+                "reason": reason,
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("dashboard-managed", json.loads(response)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, [])
+
+        self.server.context.store.add_device(
+            device_id="stale-managed-certificate-metadata",
+            vpn_user="user-one",
+            device_name="Managed phone with stale identity",
+            certificate_name="ovpn-user-one-device-a",
+            certificate_id="*STALE",
+            fingerprint="STALE:FAKE",
+        )
+        status, _, response = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles/preview",
+            {
+                "device_name": "Stale replacement",
+                "delivery": "zip",
+                "legacy_certificate": "ovpn-user-one-device-a",
+                "reason": reason,
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("dashboard-managed", json.loads(response)["error"])
+        self.assertEqual(self.mock.state.mutation_requests, [])
+
+    def test_same_ca_renewal_button_requires_known_expiry(self) -> None:
+        self.mock.state.certificates["*CL1"]["expires-after"] = ""
+        self.server.context.store.add_device(
+            device_id="managed-unknown-expiry-phone",
+            vpn_user="user-one",
+            device_name="Managed phone",
+            certificate_name="ovpn-user-one-device-a",
+            certificate_id="*CL1",
+            fingerprint="A1:EX:26",
+        )
+        self.login()
+
+        status, _, page = self.request("GET", "/dashboard")
+
+        self.assertEqual(status, 200)
+        self.assertIn(b"Expiry unknown", page)
+        self.assertNotIn(b'data-replacement-type="renewal"', page)
 
     def test_profile_migration_test_requires_a_live_user_session_and_fails_closed(self) -> None:
         self.mock.state.certificates["*OLD"] = {

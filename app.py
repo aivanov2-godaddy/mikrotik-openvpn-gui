@@ -3725,17 +3725,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             username = str(user["name"])
             common_name = str((legacy or {}).get("common_name", "")).casefold()
-            is_current_ca = str((legacy or {}).get("certificate_authority", "")) == str(
-                self.server.context.router.ovpn_ca or ""
-            )
-            if not legacy or is_current_ca or bool(legacy.get("revoked")):
-                raise ValueError("Choose an active profile issued by a previous CA")
+            current_ca = str(self.server.context.router.ovpn_ca or "").strip()
+            authority = str((legacy or {}).get("certificate_authority", "")).strip()
+            if not legacy or not current_ca or not authority or bool(legacy.get("revoked")):
+                raise ValueError("Choose an active certificate with a verifiable issuer")
             managed = self.server.context.store.device_by_certificate(legacy_certificate_name)
-            owned_by_user = common_name.startswith(f"{username.casefold()}-") or (
-                bool(managed) and str(managed.get("vpn_user", "")) == username
+            managed_matches_routeros = bool(managed) and (
+                str(managed.get("certificate_id", "")) == str(legacy.get("id", ""))
+                and str(managed.get("fingerprint", "")) == str(legacy.get("fingerprint", ""))
             )
+            managed_by_user = managed_matches_routeros and str(managed.get("vpn_user", "")) == username
+            is_current_ca = authority == current_ca
+            if is_current_ca and not managed_by_user:
+                raise ValueError("Same-CA renewal is available only for a dashboard-managed device owned by this VPN user")
+            owned_by_user = common_name.startswith(f"{username.casefold()}-") or managed_by_user
             if not owned_by_user:
-                raise ValueError("The legacy profile does not belong to this VPN user")
+                raise ValueError("The existing certificate does not belong to this VPN user")
         controls = self.server.context.store.user_controls(str(user["name"]))
         policy = str(controls.get("policy", "full-tunnel"))
         dns_mode = str(controls.get("dns_mode", "router"))
@@ -3749,6 +3754,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             } for item in certificates),
             key=lambda item: (item["id"], item["name"]),
         )
+        source_certificate = next(
+            (item for item in certificates if str(item.get("name", "")) == legacy_certificate_name),
+            None,
+        ) if legacy_certificate_name else None
         receipt = {
             "user_id": str(user.get("id", "")),
             "username": str(user.get("name", "")),
@@ -3757,6 +3766,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "reason": reason,
             "delivery": delivery,
             "legacy_certificate": legacy_certificate_name,
+            "source_certificate_identity": ({
+                "id": str(source_certificate.get("id", "")),
+                "fingerprint": str(source_certificate.get("fingerprint", "")),
+                "authority": str(source_certificate.get("certificate_authority", "")),
+                "revoked": bool(source_certificate.get("revoked")),
+            } if source_certificate else None),
             "policy": policy,
             "dns_mode": dns_mode,
             "certificate_inventory": inventory,
@@ -3808,7 +3823,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             or replacement_problem
         ):
             self._json(
-                {"error": "RouterOS no longer shows the legacy identity and a matching active replacement under the configured CA, or replacement validity could not be confirmed; no progress was recorded."},
+                {"error": "RouterOS no longer shows the source identity and a matching active replacement under the configured CA, or replacement validity could not be confirmed; no progress was recorded."},
                 status=HTTPStatus.CONFLICT,
             )
             return
@@ -3978,8 +3993,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         try:
             data = self._read_json()
-            user, device_name, delivery, legacy_name, controls, _, intent_digest = self._profile_review_context(
+            user, device_name, delivery, legacy_name, controls, certificates, intent_digest = self._profile_review_context(
                 session, self._credentials(session), user_id, data,
+            )
+            source_certificate = next(
+                (item for item in certificates if str(item.get("name", "")) == legacy_name),
+                None,
+            ) if legacy_name else None
+            replacement_type = (
+                "renewal"
+                if source_certificate and str(source_certificate.get("certificate_authority", ""))
+                == str(self.server.context.router.ovpn_ca or "")
+                else "migration" if source_certificate else ""
             )
             token = self.server.review_receipts.issue(session.session_id, intent_digest)
             self._json({
@@ -3990,6 +4015,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "dns_mode": str(controls.get("dns_mode", "router")),
                 "delivery": delivery,
                 "legacy_migration": bool(legacy_name),
+                "replacement_type": replacement_type,
                 "old_profile_remains_active": bool(legacy_name),
                 "review_token": token,
             })
@@ -4012,8 +4038,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             passphrase = self._validate_secret(
                 str(data.get("key_passphrase", "")), "Private-key passphrase"
             )
-            user, device_name, delivery, legacy_certificate_name, controls, _, intent_digest = (
+            user, device_name, delivery, legacy_certificate_name, controls, certificates, intent_digest = (
                 self._profile_review_context(session, credentials, user_id, data)
+            )
+            source_certificate = next(
+                (item for item in certificates if str(item.get("name", "")) == legacy_certificate_name),
+                None,
+            ) if legacy_certificate_name else None
+            replacement_type = (
+                "renewal"
+                if source_certificate and str(source_certificate.get("certificate_authority", ""))
+                == str(self.server.context.router.ovpn_ca or "")
+                else "migration" if source_certificate else ""
             )
             supplied_token = str(data.get("review_token", ""))
             if not self.server.review_receipts.consume(
@@ -4057,10 +4093,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                     self.server.context.store.audit(
                         actor=session.username,
-                        action="profile.migrate",
+                        action="profile.renew" if replacement_type == "renewal" else "profile.migrate",
                         target=legacy_certificate_name,
                         status="success",
-                        details={"replacement_certificate": profile.certificate_name, "rationale": reason},
+                        details={
+                            "replacement_certificate": profile.certificate_name,
+                            "replacement_type": replacement_type,
+                            "rationale": reason,
+                        },
                     )
             except Exception as storage_error:  # noqa: BLE001 - reconcile router state after local commit failure
                 router_verified = False
