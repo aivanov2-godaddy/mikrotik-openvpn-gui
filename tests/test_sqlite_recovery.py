@@ -14,7 +14,7 @@ from store import MetadataStore
 
 
 class SQLiteRecoveryTests(unittest.TestCase):
-    def test_profile_migration_retirement_state_adds_safely_to_existing_database(self) -> None:
+    def test_profile_migration_lifecycle_fields_add_safely_to_existing_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"
             connection = sqlite3.connect(database)
@@ -38,10 +38,26 @@ class SQLiteRecoveryTests(unittest.TestCase):
             store = MetadataStore(str(database))
             migration = store.profile_migrations()["legacy-device"]
             self.assertEqual(migration["retirement_state"], "")
+            self.assertEqual(migration["reconnect_result"], "")
+            self.assertIsNone(migration["reconnect_tested_at"])
             store.record_profile_migration_retirement(
                 legacy_certificate_name="legacy-device", state="partial",
             )
             self.assertEqual(store.profile_migrations()["legacy-device"]["retirement_state"], "partial")
+            with self.assertRaisesRegex(ValueError, "Verify the replacement"):
+                store.record_profile_migration_reconnect_test(
+                    legacy_certificate_name="legacy-device", result="rejected", actor="operator",
+                )
+            store.record_profile_migration_retirement(
+                legacy_certificate_name="legacy-device", state="verified",
+            )
+            store.record_profile_migration_reconnect_test(
+                legacy_certificate_name="legacy-device", result="rejected", actor="operator",
+            )
+            migration = store.profile_migrations()["legacy-device"]
+            self.assertEqual(migration["reconnect_result"], "rejected")
+            self.assertEqual(migration["reconnect_tested_by"], "operator")
+            self.assertIsNotNone(migration["reconnect_tested_at"])
 
     def test_write_lock_contention_times_out_and_store_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

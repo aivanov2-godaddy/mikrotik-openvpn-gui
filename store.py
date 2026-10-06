@@ -165,7 +165,10 @@ class MetadataStore:
                     tested_at INTEGER,
                     tested_by TEXT NOT NULL DEFAULT '',
                     tested_with_active_session INTEGER NOT NULL DEFAULT 0,
-                    retirement_state TEXT NOT NULL DEFAULT ''
+                    retirement_state TEXT NOT NULL DEFAULT '',
+                    reconnect_tested_at INTEGER,
+                    reconnect_tested_by TEXT NOT NULL DEFAULT '',
+                    reconnect_result TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS deployment_events (
@@ -265,6 +268,9 @@ class MetadataStore:
                 "tested_by": "TEXT NOT NULL DEFAULT ''",
                 "tested_with_active_session": "INTEGER NOT NULL DEFAULT 0",
                 "retirement_state": "TEXT NOT NULL DEFAULT ''",
+                "reconnect_tested_at": "INTEGER",
+                "reconnect_tested_by": "TEXT NOT NULL DEFAULT ''",
+                "reconnect_result": "TEXT NOT NULL DEFAULT ''",
             }.items():
                 try:
                     connection.execute(
@@ -1082,7 +1088,10 @@ class MetadataStore:
                     tested_at=NULL,
                     tested_by='',
                     tested_with_active_session=0,
-                    retirement_state=''
+                    retirement_state='',
+                    reconnect_tested_at=NULL,
+                    reconnect_tested_by='',
+                    reconnect_result=''
                 """,
                 (legacy_certificate_name, vpn_user, replacement_certificate_name, int(time.time())),
             )
@@ -1096,6 +1105,36 @@ class MetadataStore:
                 "UPDATE profile_migrations SET retirement_state=? WHERE legacy_certificate_name=?",
                 (state, legacy_certificate_name),
             )
+
+    def record_profile_migration_reconnect_test(
+        self, *, legacy_certificate_name: str, result: str, actor: str
+    ) -> dict[str, Any]:
+        """Persist an operator-reported fresh reconnect outcome without claiming RouterOS proof."""
+        if result not in {"rejected", "connected"}:
+            raise ValueError("Unsupported profile migration reconnect result")
+        now = int(time.time())
+        with self._lock, self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
+                (legacy_certificate_name,),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Profile migration not found")
+            if row["retirement_state"] != "verified":
+                raise ValueError("Verify the replacement at retirement before recording a reconnect test")
+            connection.execute(
+                """
+                UPDATE profile_migrations
+                SET reconnect_tested_at=?, reconnect_tested_by=?, reconnect_result=?
+                WHERE legacy_certificate_name=?
+                """,
+                (now, str(actor)[:128], result, legacy_certificate_name),
+            )
+            updated = connection.execute(
+                "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
+                (legacy_certificate_name,),
+            ).fetchone()
+            return dict(updated)
 
     def record_profile_migration_step(
         self, *, legacy_certificate_name: str, step: str, actor: str,
