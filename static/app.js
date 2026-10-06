@@ -1203,6 +1203,14 @@ function hasOpenDialog() {
   return Boolean($('dialog[open]'));
 }
 
+function updateRevokeApplyAvailability(form) {
+  const target = $('[data-confirm-target]', form)?.textContent.trim() || '';
+  const confirmation = form.elements.confirmation.value.trim();
+  $('[data-revoke-apply]', form).disabled = !form.elements.review_token.value
+    || !target
+    || confirmation !== target;
+}
+
 function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertificate = '', legacyDevice = '', replacementType = '' }) {
   const form = $('#profile-form');
   form.reset();
@@ -2179,7 +2187,7 @@ $('#revoke-device-form')?.addEventListener('input', (event) => {
   const form = event.currentTarget;
   if (event.target.matches('[name="reason"], [name="confirmation"]')) {
     form.elements.review_token.value = '';
-    $('[data-revoke-apply]', form).disabled = true;
+    updateRevokeApplyAvailability(form);
     $('[data-revoke-summary]', form).hidden = true;
     $('[data-revoke-review]', form).hidden = false;
   }
@@ -2213,7 +2221,7 @@ $('[data-revoke-review]')?.addEventListener('click', async (event) => {
     setStatus(form, error.message, true);
   } finally {
     setBusy(form, false);
-    $('[data-revoke-apply]', form).disabled = !form.elements.review_token.value;
+    updateRevokeApplyAvailability(form);
     $('[data-revoke-review]', form).disabled = false;
   }
 });

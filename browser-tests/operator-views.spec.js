@@ -398,6 +398,68 @@ test('staged certificate renewal explains impact and stops at explicit review', 
   expect(profileMutations).toHaveLength(0);
 });
 
+test('certificate revocation stays disabled until target confirmation and fresh review', async ({ page }) => {
+  await page.getByRole('link', { name: 'Device Profiles', exact: true }).click();
+  await page.evaluate(() => {
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.textContent = 'Revoke device';
+    trigger.dataset.deviceRevoke = '';
+    trigger.dataset.deviceId = 'synthetic-retirement-device';
+    trigger.dataset.deviceName = 'Test laptop';
+    document.querySelector('[data-view="profile-security"]').append(trigger);
+  });
+
+  const previewRequests = [];
+  const revokeRequests = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST') return;
+    if (request.url().endsWith('/revoke/preview')) previewRequests.push(request);
+    else if (request.url().endsWith('/revoke')) revokeRequests.push(request);
+  });
+  await page.route('**/api/devices/synthetic-retirement-device/revoke/preview', async (route) => {
+    await route.fulfill({ json: {
+      device: 'Test laptop',
+      vpn_user: 'synthetic-user',
+      certificate: 'synthetic-certificate',
+      active_sessions_for_user: 0,
+      active_sessions_scope: 'RouterOS snapshot',
+      effect: 'New connections using this certificate will be rejected when CRL enforcement applies.',
+      review_token: `synthetic-review-${previewRequests.length + 1}`,
+    } });
+  });
+
+  await page.getByRole('button', { name: 'Revoke device', exact: true }).click();
+  const dialog = page.locator('#revoke-device-dialog');
+  const reason = dialog.getByLabel('Reason for revocation');
+  const confirmation = dialog.getByLabel('Type Test laptop to confirm');
+  const review = dialog.getByRole('button', { name: 'Review impact' });
+  const apply = dialog.getByRole('button', { name: 'Revoke certificate' });
+
+  await expect(apply).toBeDisabled();
+  await reason.fill('Replacement profile verified on the test device');
+  await confirmation.fill('Wrong target');
+  await expect(apply).toBeDisabled();
+  await confirmation.fill('Test laptop');
+  await expect(apply).toBeDisabled();
+
+  await review.click();
+  await expect(dialog.locator('[data-revoke-preview-text]')).toContainText('certificate synthetic-certificate is active on RouterOS');
+  await expect(apply).toBeEnabled();
+  await expect.poll(() => previewRequests.length).toBe(1);
+  expect(revokeRequests).toHaveLength(0);
+
+  await confirmation.fill('Wrong target');
+  await expect(apply).toBeDisabled();
+  await expect(dialog.locator('[data-revoke-summary]')).toBeHidden();
+  await expect(review).toBeVisible();
+  expect(revokeRequests).toHaveLength(0);
+
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+  expect(revokeRequests).toHaveLength(0);
+});
+
 async function tabTo(page, locator) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;

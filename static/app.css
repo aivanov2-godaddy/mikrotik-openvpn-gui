@@ -672,6 +672,7 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
 .toggle > span { display: grid; grid-column: 2; text-align: left !important; }
 .toggle small { grid-column: auto !important; }
 .warning-summary { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid #71474b; background: #432a2e; }
+.warning-summary[hidden] { display: none !important; }
 .warning-summary > div { display: grid; }
 .warning-summary small { color: #bd989b; font-size: 9px; }
 .warning-symbol { display: grid; width: 24px; height: 24px; place-items: center; color: #fff; border-radius: 50%; background: #b64c55; font-weight: 700; }
