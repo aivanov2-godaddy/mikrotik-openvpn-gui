@@ -1176,3 +1176,13 @@ with provenance/SBOM verification and runtime smoke test passing. This is a
 published artifact, not a RouterOS deployment: no post-publication canary or
 production read-back has been performed, and the existing #192/#194/#199/#200
 human/live acceptance gates remain open.
+
+**2026-10-06 PR #538 certificate-renewal browser regression:** rendered
+desktop/tablet/mobile coverage exercises the staged same-CA renewal dialog
+using synthetic local data. It checks old-certificate and service-impact
+messaging, source-certificate binding in the review request, no issuance before
+the second explicit confirmation, and invalidation when the reviewed device
+changes. This is UI regression evidence only and does not contact RouterOS or
+create a certificate. Real replacement import/testing, certificate retirement,
+CRL enforcement, active-session behavior, reconnect rejection, and canary
+failure/rollback evidence remain required for #194 and #199.
