@@ -7,7 +7,7 @@ telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
 copied into this repository. The latest verified published runtime candidate
-is PR #515 below. A read-only RouterOS check at 10:53 UTC on 2026-10-06 showed
+is PR #516 below. A read-only RouterOS check at 10:53 UTC on 2026-10-06 showed
 both canary and production healthy on the earlier PR #511 ARM64 tag, with Redis
 running. The router reports the configured tag, not its cached registry
 digest. This current observation is not the full 30-minute Redis/telemetry
@@ -21,7 +21,10 @@ configured with `sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`
 (PR #511), each with the `H` healthy marker; Redis showed `R` running. The
 earlier PR #504 tag observation below is preserved as history, not current
 state. The timing and reason for the tag change were not established. The
-latest published PR #515 image was not observed on either container. No
+latest published PR #516 image was not observed on either container. The
+read-only Scheduler table showed `vpn-gui-immutable-update` disabled (`X`);
+no stage-only replacement installation was verified in this check. No automatic
+promotion or rollback behavior was tested in this observation. No
 router/container setting, VPN user, certificate, CA, policy, or persistent
 data was changed during this read-back. Exact resource readings, environment
 values, and private network identifiers are omitted. This is a single
@@ -85,7 +88,26 @@ configuration change, or container operation was performed. The formal #199
 soak remains pending; neither the older stale tab nor this short live check
 alone establishes overall service availability or acceptance.
 
-## Latest published mainline candidate — PR #515 — 2026-10-06
+## Latest published mainline candidate — PR #516 — 2026-10-06
+
+PR [#516](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/516)
+merged as `2b425d70d93f22da31f84c3458166b41091c262a`. Publication workflow
+[#37453158880](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37453158880)
+passed source/browser checks, ARM64/AMD64 builds, runtime smoke, and
+exact-digest provenance/SBOM verification. The `routeros-stable` manifest
+read-back names this commit and both immutable tags.
+
+| Platform | Immutable image tag | Published registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-2b425d70d93f22da31f84c3458166b41091c262a-arm64` | `sha256:99345aeca36fd6eb5c3950be9609dc98f479fb059d9c6873caebe7c5aefc6376` |
+| CHR/x86 AMD64 (evaluation) | `sha-2b425d70d93f22da31f84c3458166b41091c262a-amd64` | `sha256:84cdf90a33cbc5d7458171e263b27630f650e52161e40f64e210100e3f566740` |
+
+These are publication and registry checks. The latest RouterOS observation
+above still showed PR #511, so PR #516 is not a verified deployment. No
+candidate-specific canary soak, reconnect, nonzero VPN session, rollback, or
+production promotion is claimed for PR #516.
+
+## Previously published mainline candidate — PR #515 — 2026-10-06
 
 PR [#515](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/515)
 merged as `307b413eed988f405a8446ef0a0e5cbcf2333a74`. Publication workflow
@@ -99,9 +121,8 @@ read-back names this commit and both immutable tags.
 | RouterOS ARM64 | `sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-arm64` | `sha256:94881c473984b4860443e1675d05cd15996d9587d197a105e5307cfb7e5d7ac9` |
 | CHR/x86 AMD64 (evaluation) | `sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-amd64` | `sha256:4aff5ef95d6de644039325c8f7c1b541ee9e9af50ef7624e6e48abc21b637d69` |
 
-These are publication and registry checks; the latest RouterOS observation
-above still showed PR #511. No candidate-specific canary soak, reconnect,
-nonzero VPN session, rollback, or production promotion is claimed for PR #515.
+These are historical publication and registry checks; no RouterOS deployment
+of PR #515 was verified before the stable manifest advanced to PR #516.
 
 ## Previously published mainline candidate — PR #504 — 2026-10-06
 

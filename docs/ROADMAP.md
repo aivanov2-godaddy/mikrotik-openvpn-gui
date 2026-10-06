@@ -20,8 +20,9 @@ AMD64 image tag/digest:
 `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f`.
 Both image builds passed runtime smoke tests and detached provenance/SBOM
 verification. At the v2.7.0 publication on 2026-10-04, the `routeros-stable`
-manifest pointed to this commit; as of 2026-10-06 it names the newer PR #515
-candidate recorded below. The 2026-10-04 RouterOS WebFig read-back confirmed the v2.7.0 ARM64 immutable tag
+manifest pointed to this commit; as of 2026-10-06 it names the newer PR #516
+candidate recorded below. The 2026-10-04 RouterOS WebFig read-back confirmed
+the v2.7.0 ARM64 immutable tag
 on both canary and production containers, each with the RouterOS healthy
 (`H`) marker. This verifies image deployment and container health only; it is
 not formal VPN/telemetry acceptance and does not replace the outstanding
@@ -29,17 +30,17 @@ operator acceptance evidence tracked below.
 
 ### Latest published candidate and current RouterOS read-back — 2026-10-06
 
-PR [#515](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/515)
-merged as `307b413eed988f405a8446ef0a0e5cbcf2333a74`. Publication workflow
-[#37451430328](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37451430328)
+PR [#516](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/516)
+merged as `2b425d70d93f22da31f84c3458166b41091c262a`. Publication workflow
+[#37453158880](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37453158880)
 passed source/browser checks, both architecture builds, runtime smoke, and
 exact-digest provenance/SBOM verification. The `routeros-stable` manifest
 read-back names this commit and both immutable tags.
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-arm64` | `sha256:94881c473984b4860443e1675d05cd15996d9587d197a105e5307cfb7e5d7ac9` |
-| CHR/x86 AMD64 (evaluation) | `sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-amd64` | `sha256:4aff5ef95d6de644039325c8f7c1b541ee9e9af50ef7624e6e48abc21b637d69` |
+| RouterOS ARM64 | `sha-2b425d70d93f22da31f84c3458166b41091c262a-arm64` | `sha256:99345aeca36fd6eb5c3950be9609dc98f479fb059d9c6873caebe7c5aefc6376` |
+| CHR/x86 AMD64 (evaluation) | `sha-2b425d70d93f22da31f84c3458166b41091c262a-amd64` | `sha256:84cdf90a33cbc5d7458171e263b27630f650e52161e40f64e210100e3f566740` |
 
 At 10:53 UTC, a read-only RouterOS WebFig container-list observation showed
 both canary and production configured with the earlier PR #511 ARM64 immutable
@@ -47,10 +48,28 @@ tag `sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`, each healthy
 (`H`), and Redis running (`R`). This supersedes the older PR #504 deployment
 read-back below. The cause and timing of the tag change were not established.
 RouterOS exposed the configured tag, not an independent image digest.
-PR #515 is published but was not observed on either router container. This
+The read-only Scheduler table still marked `vpn-gui-immutable-update` disabled
+(`X`); the stage-only replacement from PR #513 has not been verified installed
+or accepted on the router. No automatic promotion is claimed.
+PR #516 is published but was not observed on either router container. This
 point-in-time observation does not satisfy the 30-minute telemetry/Redis soak,
 client-event, reconnect, rollback, or post-promotion acceptance gates. No
 router configuration or VPN data was changed during the read-back.
+
+### Previously published candidate — PR #515 — 2026-10-06
+
+PR [#515](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/515)
+merged as `307b413eed988f405a8446ef0a0e5cbcf2333a74`. Publication workflow
+[#37451430328](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37451430328)
+passed source/browser checks, both architecture builds, runtime smoke, and
+exact-digest provenance/SBOM verification. Its ARM64 tag/digest are
+`sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-arm64` /
+`sha256:94881c473984b4860443e1675d05cd15996d9587d197a105e5307cfb7e5d7ac9`;
+the AMD64 evaluation tag/digest are
+`sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-amd64` /
+`sha256:4aff5ef95d6de644039325c8f7c1b541ee9e9af50ef7624e6e48abc21b637d69`.
+The stable manifest named this commit after publication; it has since advanced
+to PR #516. No RouterOS deployment of PR #515 was verified.
 
 ### Earlier published candidate and RouterOS read-back — PR #504 — 2026-10-06
 
