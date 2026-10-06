@@ -1106,3 +1106,17 @@ browser/accessibility CI passed, but CI viewport emulation is not a manual
 200%-zoom confirmation of the deployed fix. The latest deployed image has not
 been read back with this fix; the human task study, assistive-technology
 review, and post-deployment 200%-zoom review remain open.
+
+**2026-10-06 publication/read-back update:** PR #522 is merged and its runtime
+candidate was published successfully at commit `1203b768a690dd80ce04a40c1cd2ab0ad47d3640`
+(ARM64 tag `sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64`, digest
+`sha256:def674be0ab82f3e020c13a6549b7e8c9c82c79305cc488002660c13eb9288d2`).
+Read-only RouterOS WebFig inspection found both canary and production still
+using their earlier immutable image tags and healthy, with Redis running. The
+authenticated dashboard still displayed delayed connection data; Service
+Health remained operational with zero connected users. The candidate was not
+staged or deployed, so it provides no runtime validation and cannot close the
+live-telemetry acceptance item. No RouterOS image, container, configuration,
+policy, or VPN data was changed during this inspection. The detailed
+publication-versus-deployment record is in
+[`LIVE_TELEMETRY_ACCEPTANCE_REPORT.md`](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
