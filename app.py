@@ -2076,6 +2076,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         return True
 
+    def _reject_live_events_origin(self) -> bool:
+        """Reject an explicitly foreign browser origin before starting SSE work.
+
+        Some non-browser EventSource clients omit Origin, so absence remains
+        compatible. Those callers still need the authenticated RouterOS
+        session and sessions.read capability enforced by ``_events``.
+        """
+        origin = self.headers.get("Origin")
+        if origin is None or _same_origin(origin, self.server.context.public_origin):
+            return False
+        self._json(
+            {"error": "Live events origin is not allowed"},
+            status=HTTPStatus.FORBIDDEN,
+        )
+        return True
+
     def _login_origin_allowed(self) -> bool:
         """Require same-origin browser evidence before accepting credentials."""
         origin = self.headers.get("Origin")
@@ -2587,6 +2603,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return str(value or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
     def _events(self) -> None:
+        if self._reject_live_events_origin():
+            return
         session = self._require_session(api=True)
         if not session:
             return

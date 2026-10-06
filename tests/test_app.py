@@ -620,13 +620,44 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.server.context.sessions.destroy(session_id)
 
         with mock.patch("app.time.sleep", side_effect=revoke_after_first_event):
-            connection.request("GET", "/api/events", headers={"Cookie": self.cookie})
+            connection.request(
+                "GET",
+                "/api/events",
+                headers={"Cookie": self.cookie, "Origin": self.config.public_origin},
+            )
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
             body = response.read()
         connection.close()
 
         self.assertEqual(body.count(b"event: status"), 1)
+
+    def test_sse_rejects_foreign_origin_before_router_fetch(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id)
+        self.assertIsNotNone(session)
+
+        def expire_session(_seconds: float) -> None:
+            session.last_seen = 0
+
+        with (
+            mock.patch("app.time.sleep", side_effect=expire_session),
+            mock.patch.object(
+                self.server.context.router,
+                "list_active_ovpn_sessions",
+                return_value=[],
+            ) as list_sessions,
+        ):
+            status, _, body = self.request(
+                "GET",
+                "/api/events",
+                headers={"Origin": "https://attacker.example"},
+            )
+
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"event: status", body)
+        list_sessions.assert_not_called()
 
     def test_sse_does_not_emit_snapshot_if_session_is_revoked_during_router_fetch(self) -> None:
         self.login()
