@@ -28,38 +28,47 @@ on both canary and production containers, each with the RouterOS healthy
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
-### Latest published candidate and current RouterOS read-back — PR #518 — 2026-10-06
+### Latest published candidate and current RouterOS read-back — PR #522 — 2026-10-06
 
-PR [#518](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/518)
-merged as `8f6f14d80619bb3ea61cade26a495a570f7b9bfd`. Publication workflow
-[#37459986266](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37459986266)
-passed its required checks and published the ARM64 candidate. GHCR currently
-reports digest
-`sha256:5e7ff2ed3de1dd9dfe05758a024330f5ed0b469b8db325320d1b94c7597f9b0e`
-for immutable tag
-`sha-8f6f14d80619bb3ea61cade26a495a570f7b9bfd-arm64`.
+PR [#522](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/522)
+merged as `1203b768a690dd80ce04a40c1cd2ab0ad47d3640`. Publication workflow
+[#37478334992](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37478334992)
+passed source and rendered-browser verification, ARM64/AMD64 builds, runtime
+smoke tests, and exact-digest provenance/SBOM verification. The RouterOS
+ARM64 candidate tag/digest are
+`sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64` /
+`sha256:def674be0ab82f3e020c13a6549b7e8c9c82c79305cc488002660c13eb9288d2`.
 
-On 2026-10-06 at 12:47 UTC, RouterOS WebFig showed the isolated canary
-container healthy on this candidate and production healthy on the prior
-`sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64` tag; Redis was running.
-The router-local pending record names the candidate, prior production tag,
-commit, and stage time (15:39:56 local). The installed updater source writes
-that record only after 30 successful `/readyz` samples spaced one minute
-apart. A direct private-network readiness request returned revision
-`8f6f14d80619bb3ea61cade26a495a570f7b9bfd`; unauthenticated `/metrics` and
-`/api/events` requests returned 401. This verifies the candidate-specific
-readiness soak and anonymous-route denial, while production remained on its
-prior image. It is not the full telemetry/Redis acceptance collector or a
-rollback rehearsal. No production setting, VPN session, user, certificate,
-CA, policy, or persistent data was changed. RouterOS exposes the configured
-tag, not an independent digest for its cached image.
+In a read-only WinBox check on 2026-10-06, the isolated canary was healthy on
+the prior `sha-8f6f14d80619bb3ea61cade26a495a570f7b9bfd-arm64` image,
+production was healthy on `sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`,
+and Redis was running. One-time container statistics were 1.1% CPU / 38.8 MiB
+memory for canary and 0.7% CPU / 40.5 MiB for production; these are snapshots,
+not an acceptance-window baseline. The already-authenticated production
+Connections page remained foregrounded and showed `Connection data delayed`,
+zero connected devices, and no manually refreshed data. Service Health showed
+Operational with six healthy checks, zero needs-review, and zero unavailable.
+This does not establish the cause of stale connection telemetry or a passing
+freshness sample.
 
-The remaining #199 gates are the authenticated continuous telemetry/Redis
-sample series (including freshness, event latency, and resource load), a
-nonzero VPN session transition, API restart/reconnect and full-snapshot
-recovery, counter-reset and REST/Binary parity checks, event integrity,
-SQLite restore rehearsal, and rollback of this exact candidate. Production
-promotion remains gated on that evidence.
+The installed `vpn-gui-immutable-stage-v3` RouterOS script was inspected
+read-only. Its manifest resolves to PR #522 and its guarded stage path targets
+only the canary, with 30 successful one-minute `/readyz` probes and rollback
+on failure. The older `vpn-gui-immutable-update` scheduler entry is disabled.
+WinBox also showed one active job started at router time 11:17:01, but its
+script field was blank; its identity and relation to the updater are unknown.
+To avoid overlapping an unidentified router job, no update was started. The
+candidate remains published, not staged or deployed; production and all router
+configuration/data were left unchanged. RouterOS exposes configured image
+tags, not the cached registry digest.
+
+The remaining #199 gates include staging and verifying this exact candidate
+through the guarded canary path, authenticated telemetry/Redis samples and a
+nonzero VPN session transition, measured event latency/freshness and resource
+load, API restart/reconnect and full-snapshot recovery, counter-reset and
+REST/Binary parity checks, event integrity, SQLite restore rehearsal, and
+candidate-specific rollback. Production promotion remains gated on complete
+passing evidence.
 
 ### Previously published candidate and earlier RouterOS read-back — PR #516 — 2026-10-06
 
