@@ -1714,7 +1714,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, path: str) -> None:
         name = path.removeprefix("/static/")
-        if name not in {"app.css", "app.js", "manifest.webmanifest", "socket.io.min.js"}:
+        if name not in {"app.css", "app.js", "manifest.webmanifest", "socket.io.min.js", "openvpn-logo.svg"}:
             self._json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
             return
         target = STATIC / name

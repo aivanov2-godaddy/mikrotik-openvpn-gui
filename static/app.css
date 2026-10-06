@@ -170,6 +170,8 @@ label { color: #d0d7dc; }
 .view-heading { display: flex; min-height: 62px; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 2px 2px 12px; border-bottom: 1px solid #2b3841; }
 .view-heading h1 { margin: 0 0 2px; color: var(--text-bright); font-size: 22px; font-weight: 600; }
 .view-heading p:not(.eyebrow) { margin: 0; color: var(--muted); }
+.dashboard-heading-brand { display: flex; min-width: 0; align-items: center; gap: 14px; }
+.dashboard-openvpn-logo { display: block; width: clamp(150px, 15vw, 220px); max-width: 38vw; height: auto; flex: 0 1 auto; object-fit: contain; }
 .heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
 .live-refresh { display: inline-flex; align-items: center; gap: 5px; color: #9eabb3; font-size: 11px; white-space: nowrap; }
 .live-refresh i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
@@ -1484,6 +1486,8 @@ body { font-size: 14px; line-height: 1.45; }
 #overview .architecture-panel > footer { font-size: 12px; line-height: 1.4; }
 
 @media (max-width: 760px) {
+  #overview .dashboard-heading-brand { width: 100%; gap: 10px; }
+  #overview .dashboard-openvpn-logo { width: clamp(105px, 38vw, 180px); max-width: 44vw; }
   #overview .view-heading p:not(.eyebrow) { font-size: 14px; }
   #overview .panel-heading strong { font-size: 14px; }
   #overview .metric small { font-size: 12px; }
