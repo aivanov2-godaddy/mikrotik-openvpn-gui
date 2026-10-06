@@ -7,11 +7,15 @@ telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
 copied into this repository. The latest verified published runtime candidate
-is PR #518 below. On 2026-10-06, it was staged to the isolated canary and
-passed the RouterOS updater's 30-sample, one-minute `/readyz` soak. Production
-stayed on its prior image. This readiness-only soak does not constitute the
-full 30-minute telemetry/Redis acceptance or a candidate-specific rollback
-rehearsal; the earlier PR #497 drill does not substitute for either check.
+is PR #522, commit `1203b768a690dd80ce04a40c1cd2ab0ad47d3640`, ARM64 tag
+`sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64`, digest
+`sha256:def674be0ab82f3e020c13a6549b7e8c9c82c79305cc488002660c13eb9288d2`.
+The publication workflow passed source and rendered-browser verification,
+ARM64/AMD64 builds, provenance/SBOM verification, and runtime smoke tests.
+Read-only RouterOS WebFig inspection after publication still showed the prior
+PR #518 canary and PR #511 production images, both healthy; Redis was running.
+The new image is therefore published, not deployed. The PR #522 canary soak
+and full 30-minute telemetry/Redis acceptance have not run.
 
 ## Authenticated dashboard follow-up — 2026-10-06
 
@@ -23,6 +27,19 @@ does not verify authenticated `/api/status` or telemetry delivery. No response
 status, body, or browser-console error for the current status poll was captured,
 so the failure layer remains unknown. This observation does not prove that the
 Socket.IO stream was up or down and is not a passing acceptance sample.
+
+After PR #522 publication, a second read-only observation confirmed the same
+dashboard state: `Connection data delayed`, Service Health `Operational`, and
+zero connected users. In RouterOS WebFig, the canary and production containers
+were both healthy (`H`) but still configured with their earlier immutable
+images: canary `sha-8f6f14d80619bb3ea61cade26a495a570f7b9bfd-arm64` and
+production `sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`; the Redis
+container was running (`R`). RouterOS reports the configured tag, not the
+locally cached registry digest. The candidate tag and digest above are verified
+from the successful GitHub publication workflow, not from RouterOS. No image
+was staged, no container was restarted, and no production setting or VPN data
+was changed. This read-back verifies publication versus current deployment;
+it does not validate the fix in a running container.
 
 Code review found that the frontend's five-second `/api/status` poll and the
 SSE/Socket.IO snapshot handler both wrote the same live indicator. A poll error
