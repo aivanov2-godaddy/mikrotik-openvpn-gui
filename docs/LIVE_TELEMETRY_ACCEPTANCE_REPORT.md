@@ -18,6 +18,29 @@ RouterOS read-back confirms the PR #530 image on canary or production.
 Authenticated 30-minute telemetry/Redis acceptance and the other live-client,
 reconnect, integrity, restore, and rollback gates remain open.
 
+## Latest read-only WinBox image/job check — 2026-10-06
+
+The canary container was healthy and its OCI image revision label matched PR
+#522 (`1203b768a690dd80ce04a40c1cd2ab0ad47d3640`). Production was healthy but
+its revision label matched the earlier PR #511 image
+(`72a9c78a640a43e3227e12652b4e7f2505a0aacb`); Redis was running. PR #530 is
+therefore not verified on either RouterOS container, and production remains
+on the older revision. RouterOS displayed image revision/version metadata but
+not an independent registry digest. Repeated local dashboard-container HTTP
+responses with status 200 appeared in the RouterOS log view; the full request
+path was not visible, so this is not treated as authenticated telemetry or
+readiness evidence.
+
+The immutable stage-updater scheduler entry was disabled. Two active Jobs rows
+were visible, but WinBox did not expose their script identity in that table.
+Neither job was interrupted and no updater was triggered. No image, container
+configuration, RouterOS policy, VPN account/session, certificate, CA, or
+persistent data was changed. This is a point-in-time deployment observation,
+not an acceptance pass. The live telemetry/Redis window, client transition,
+reconnect/snapshot recovery, integrity/parity, restore, and rollback gates in
+#199 remain incomplete. Exact resource readings and environment contents are
+intentionally omitted.
+
 ## Authenticated dashboard follow-up — 2026-10-06
 
 The already-open production Dashboard was inspected without reloading it. Its

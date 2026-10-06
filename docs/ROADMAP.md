@@ -1127,6 +1127,20 @@ This is a published registry artifact only. No RouterOS stage or production
 deployment is claimed; the current container tags/digests have not been
 independently read back in this follow-up. Full #199 acceptance remains open.
 
+**Latest read-only WinBox image/job check (2026-10-06, Europe/Sofia):** the
+canary container was healthy and its OCI revision label matched PR #522
+(`1203b768a690dd80ce04a40c1cd2ab0ad47d3640`); production was healthy and its
+revision label matched the earlier PR #511 image
+(`72a9c78a640a43e3227e12652b4e7f2505a0aacb`). Redis was running. Thus PR #530
+is still a published candidate, not a verified RouterOS deployment, and
+production remains on the older revision. RouterOS exposed revision/version
+metadata, not an independently verified registry digest. The immutable
+stage-updater scheduler entry was disabled; two active Jobs rows did not show
+their script identity. No updater was triggered, no active job was stopped,
+and no container, VPN account/session, certificate, CA, policy, or persistent
+data was changed. This is a point-in-time status check only; #199 acceptance
+and the candidate's required production gates remain incomplete.
+
 **2026-10-06 foreground live-indicator observation:** during a later read-only
 check of the already-open authenticated Dashboard, the indicator returned from
 `Connection data delayed` to `Live · SOCKETIO` without a page reload. Service
