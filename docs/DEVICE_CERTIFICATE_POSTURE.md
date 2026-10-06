@@ -11,8 +11,9 @@ unverifiable-issuer records require review.
 For a dashboard-managed device with a known expiry within 30 days (or already
 expired), Device Profiles offers **Renew certificate**. This stages a new
 client identity under the configured current CA and records only the source
-and replacement certificate names plus operator progress. The existing
-certificate stays active while the operator imports and tests the replacement.
+and replacement certificate names plus operator progress. Issuing the new
+certificate does not revoke the existing one while the operator imports and
+tests the replacement; an expired certificate may already be unusable.
 The database records only safe lifecycle metadata (user, certificate names,
 timestamps, and operator progress), never profile contents or private keys.
 Retirement is a separate reviewed action and requires a current RouterOS

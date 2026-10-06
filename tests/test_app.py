@@ -3187,6 +3187,23 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"Expiry unknown", page)
         self.assertNotIn(b'data-replacement-type="renewal"', page)
 
+    def test_expired_managed_certificate_renewal_does_not_promise_connectivity(self) -> None:
+        self.mock.state.certificates["*CL1"]["expires-after"] = "0s"
+        self.server.context.store.add_device(
+            device_id="managed-expired-phone",
+            vpn_user="user-one",
+            device_name="Managed phone",
+            certificate_name="ovpn-user-one-device-a",
+            certificate_id="*CL1",
+            fingerprint="A1:EX:26",
+        )
+        self.login()
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn("Expired · renewal recommended".encode(), page)
+        self.assertIn(b"an expired certificate may already be unusable", page)
+        self.assertIn(b'data-replacement-type="renewal"', page)
+
     def test_same_ca_renewal_requires_nonempty_identity_evidence(self) -> None:
         self.mock.state.certificates["*CL1"]["fingerprint"] = ""
         self.mock.state.certificates["*CL1"]["expires-after"] = "15d"

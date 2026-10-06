@@ -811,7 +811,7 @@ def dashboard_page(
                     migration_status = "Replacement issued; import pending"
                     migration_detail = (
                         f'<small class="table-secondary">New identity: {replacement_name}. '
-                        "Import it on the VPN device first; the existing certificate remains active.</small>"
+                        "Import it on the VPN device first; this step does not revoke the existing certificate.</small>"
                     )
                     migration_action = (
                         f'<button type="button" class="table-action" data-migration-step="imported" '
@@ -840,7 +840,7 @@ def dashboard_page(
                 migration_detail = (
                     f'<small class="table-secondary">{html.escape(lifecycle_label)}. '
                     "Issue a replacement under the configured CA, import and test it, then separately review retirement. "
-                    "This certificate remains active until retirement is confirmed.</small>"
+                    "Issuance does not revoke this certificate; an expired certificate may already be unusable.</small>"
                 )
                 migration_action = (
                     f'<button type="button" class="table-action" data-migrate-profile '
