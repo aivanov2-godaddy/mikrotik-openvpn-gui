@@ -1,6 +1,5 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
-const accessibilityBaseline = require('./accessibility-baseline.json');
 
 const views = [
   { name: 'Dashboard', heading: 'VPN at a glance', target: 'overview' },
@@ -16,6 +15,11 @@ const accessibilityViews = [
   { name: 'Change History', heading: 'Change History', target: 'audit-log' },
   { name: 'Administrator Sessions', heading: 'Administrator sessions', target: 'admin-sessions' },
   { name: 'Setup Planner', heading: 'Installation planner', target: 'setup-planner' },
+];
+const accessibilityThemes = [
+  { name: 'Standard', choice: 'standard', resolved: 'standard' },
+  { name: 'Dark', choice: 'dark', resolved: 'dark' },
+  { name: 'Light', choice: 'light', resolved: 'light' },
 ];
 
 async function expectNoSeriousAxeViolations(page, testInfo, stateName) {
@@ -169,37 +173,32 @@ test('Connections termination-review prompt renders consistently', async ({ page
   });
 });
 
-for (const view of accessibilityViews) {
-  test(`${view.name} has no new serious WCAG 2.2 A/AA violations`, async ({ page }, testInfo) => {
-    if (view.target !== 'overview') {
-      await page.getByRole('link', { name: view.name, exact: true }).click();
-    }
-    await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
-    await page.waitForLoadState('networkidle');
+for (const theme of accessibilityThemes) {
+  for (const view of accessibilityViews) {
+    test(`${view.name} has no serious WCAG 2.2 A/AA violations in ${theme.name} theme`, async ({ page }, testInfo) => {
+      await page.locator('.theme-menu > summary').click();
+      await page.locator(`[data-theme-choice="${theme.choice}"]`).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', theme.resolved);
+      if (view.target !== 'overview') {
+        await page.getByRole('link', { name: view.name, exact: true }).click();
+      }
+      await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
+      await page.waitForLoadState('networkidle');
 
-    const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-      .analyze();
-    const serious = results.violations.filter((violation) =>
-      ['critical', 'serious'].includes(violation.impact),
-    );
-    const allowed = new Set(
-      (accessibilityBaseline[view.target] || []).map(({ id, impact, target }) => `${id}|${impact}|${target}`),
-    );
-    const current = serious.flatMap(({ id, impact, nodes }) =>
-      nodes.map((node) => ({ id, impact, target: node.target.join(' ') })),
-    );
-    expect(
-      current.filter(({ id }) => id === 'color-contrast'),
-      `${view.name}: serious contrast findings must not be re-baselined`,
-    ).toEqual([]);
-    const unexpected = current.filter(({ id, impact, target }) => !allowed.has(`${id}|${impact}|${target}`));
-    await testInfo.attach('axe-serious-findings.json', {
-      body: Buffer.from(JSON.stringify({ view: view.target, findings: current }, null, 2)),
-      contentType: 'application/json',
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      const serious = results.violations
+        .filter(({ impact }) => ['critical', 'serious'].includes(impact))
+        .flatMap(({ id, impact, nodes }) => nodes.map((node) => ({ id, impact, target: node.target.join(' ') })));
+      await testInfo.attach('axe-serious-findings.json', {
+        body: Buffer.from(JSON.stringify({ view: view.target, theme: theme.choice, findings: serious }, null, 2)),
+        contentType: 'application/json',
+      });
+      expect(serious, `${view.name}/${theme.name}: no serious/critical WCAG findings (including contrast)`)
+        .toEqual([]);
     });
-    expect(unexpected, `${view.name}: new serious/critical WCAG findings`).toEqual([]);
-  });
+  }
 }
 
 test('active alert recurrence is announced without creating duplicate rows', async ({ page }) => {

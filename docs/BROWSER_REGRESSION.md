@@ -46,20 +46,17 @@ The suite compares real browser screenshots against
 reviewing a visual change, run `npm run test:browser -- --update-snapshots`,
 inspect every PNG diff, and commit only the expected baselines.
 
-## Accessibility checks and current baseline
+## Accessibility checks
 
 axe-core scans ten rendered operator views—Dashboard, VPN Users, Connections,
 Device Profiles, Service Health, Connection Doctor, Policy Templates, Change
 History, Administrator Sessions, and Setup Planner—against WCAG 2.2 A/AA rules
-at desktop, tablet, and mobile viewports. The current committed
-`browser-tests/accessibility-baseline.json` has no recorded findings for the
-original three views, and the expanded scans assert there are no serious or
-critical findings across all ten. Older descriptions of contrast and
-scroll-region findings are historical and must not be presented as current
-results. CI fails on new serious/critical findings. The three focused state
-scans also fail on any serious/critical finding and do not use the baseline.
-Removing or correcting a finding is allowed; do not broaden the baseline to
-silence a new one.
+in Standard, Dark, and Light themes at desktop, tablet, and mobile viewports.
+Each scan fails on every serious or critical finding, including color
+contrast; there is no baseline exemption. Older descriptions
+of contrast and scroll-region findings are historical and must not be
+presented as current results. Removing or correcting a finding is allowed;
+findings must not be suppressed by a baseline.
 
 At a separate 720×500 CSS-pixel viewport, the suite visits all ten views and
 checks that each view and heading remain reachable without document-level
