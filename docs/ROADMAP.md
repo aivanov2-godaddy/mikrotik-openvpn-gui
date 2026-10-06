@@ -1186,3 +1186,13 @@ changes. This is UI regression evidence only and does not contact RouterOS or
 create a certificate. Real replacement import/testing, certificate retirement,
 CRL enforcement, active-session behavior, reconnect rejection, and canary
 failure/rollback evidence remain required for #194 and #199.
+
+**2026-10-06 PR #539 certificate-retirement review safeguard:** the rendered
+revocation dialog now leaves the apply action disabled until both a fresh
+RouterOS-bound review receipt and the exact device-name confirmation are
+present. Editing the reason or target confirmation invalidates the review and
+hides its impact summary. The browser regression covers this sequence at
+desktop, tablet, and mobile sizes with synthetic local data and verifies that
+no certificate-revocation request is sent. This is application/test evidence,
+not live RouterOS acceptance; certificate retirement, CRL enforcement, active
+session behavior, and reconnect results remain unverified.
