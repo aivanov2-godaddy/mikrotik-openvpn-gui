@@ -162,6 +162,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn(":if ($canaryValidationSamples < 30)", executable)
         self.assertIn(":if ($canaryValidationInterval < 1m)", executable)
         self.assertIn(":for sample from=1 to=$canaryValidationSamples do={", executable)
+        self.assertIn('canary readiness sample " . $sample . "/" . $canaryValidationSamples . " passed revision=" . $commit', executable)
         self.assertIn("canary readiness soak failed", executable)
         self.assertIn("production unchanged", executable)
         self.assertNotIn("canaryValidationSeconds", executable)
