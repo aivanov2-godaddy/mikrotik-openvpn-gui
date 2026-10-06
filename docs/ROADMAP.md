@@ -786,6 +786,15 @@ explicitly not labeling it end-to-end RouterOS-to-browser latency. No runtime
 or RouterOS change is included; the live acceptance gates remain open.
 See [production observability](OBSERVABILITY.md).
 
+**Acceptance collector credential isolation:** separate per-environment API
+tokens with only `health.read` are supported for authenticated metrics probes.
+Each bearer token is sent only to that environment's exact HTTPS `/metrics`
+origin; public readiness probes receive no credential, and the pre-promotion
+phase does not load a production token. The legacy session-cookie option
+remains for compatibility. This is acceptance-tooling hardening, not a runtime
+image or RouterOS change, and does not complete the pending device-side #199
+soak, event/reconnect exercises, or rollback/restore evidence.
+
 **Latest timestamped RouterOS read-back (2026-10-05):** WebFig showed PR #484's
 immutable ARM64 tag `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` on
 both canary and production, each healthy (`H`), with Redis running (`R`). Its

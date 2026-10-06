@@ -135,16 +135,24 @@ Notes: <no credentials, addresses, hosts, profiles, or exports>
 samples authenticated aggregate `GET /metrics` in both environments. During
 `canary-prepromotion`, it samples metrics only from canary; production is checked
 for health, readiness, and its separately recorded prior revision, without
-requiring that older image to expose the candidate's metrics schema. If
-`--cookie-env` is supplied, the short-lived cookie is sent only to the private
-app probes that are enabled for that phase. Cookie-bearing probes require
-HTTPS; the cookie and probe origins are never written to the report. It checks
-each readiness revision against its own immutable image tag, records the
-observation window and sample gaps, and requires complete Redis/outbox health
-and process-observation metrics wherever metrics are part of that phase. Missing
-or incomplete required metrics fail closed and clear any caller-supplied Redis
-success claim. Process-observation ages for session events and traffic samples
-are not end-to-end RouterOS-to-browser latency.
+requiring that older image to expose the candidate's metrics schema. Prefer
+separate API tokens scoped only to `health.read`: `--canary-api-token-env` and
+`--production-api-token-env` load each token from a named environment variable
+and send it only as a bearer credential to that environment's `/metrics`
+endpoint. The readiness probes `/healthz` and `/readyz` never receive
+credentials. Token-bearing metrics probes require HTTPS, and each metrics URL
+must match its environment's readiness origin exactly. The canary-prepromotion
+phase does not load or require a production token. Use distinct, short-lived
+tokens and revoke them after the acceptance window. The older `--cookie-env`
+option remains available for compatibility, but a single session cookie is
+broader and may be sent to both enabled metrics origins. Credentials and probe
+origins are never written to the report. It checks each readiness revision
+against its own immutable image tag, records the observation window and sample
+gaps, and requires complete Redis/outbox health and process-observation metrics
+wherever metrics are part of that phase. Missing or incomplete required metrics
+fail closed and clear any caller-supplied Redis success claim.
+Process-observation ages for session events and traffic samples are not
+end-to-end RouterOS-to-browser latency.
 
 Use `--phase canary-prepromotion` for a candidate soak before promotion. The
 evidence records the candidate image/revision for canary and production's
@@ -197,38 +205,44 @@ stale; do not edit timestamps by hand.
 Start from the [evidence schema example](release-acceptance-evidence.example.json)
 and fill its RouterOS-only and exercise results locally. Keep that file private.
 The collector overwrites app health, readiness, timestamps, sample counts,
-sample gaps, and Redis publish evidence. Unknown input
-fields are dropped from output. Metrics output is restricted to aggregate
-health, Redis, and outbox numbers; response bodies, labels, URLs, and cookies
-are never written to the report. Use a short-lived, least-privileged dashboard
-session through an environment variable. Avoid
-putting the cookie literal in a command line or shell history; enter it at a
-secure prompt in the same PowerShell session:
+sample gaps, and Redis publish evidence. Unknown input fields are dropped from
+output. Metrics output is restricted to aggregate health, Redis, and outbox
+numbers; response bodies, labels, URLs, tokens, and cookies are never written
+to the report. Create a separate one-hour API token for each environment with
+only the `health.read` capability, and enter the canary token at a secure
+PowerShell prompt for the pre-promotion run. The collector does not create or
+revoke tokens:
 
 ```powershell
-$secureCookie = Read-Host 'Short-lived session Cookie header value' -AsSecureString
+$secureCanaryToken = Read-Host 'Canary health.read API token' -AsSecureString
 try {
-  $env:VPN_ACCEPTANCE_COOKIE = [Net.NetworkCredential]::new('', $secureCookie).Password
+  $env:VPN_ACCEPTANCE_CANARY_TOKEN = [Net.NetworkCredential]::new('', $secureCanaryToken).Password
 python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
   --canary-metrics-url https://<approved-canary-origin> `
-  --cookie-env VPN_ACCEPTANCE_COOKIE `
+  --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
   --duration-seconds 1800 --interval-seconds 60 `
   --phase canary-prepromotion
 python scripts/release_acceptance.py --input private-collected-evidence.json `
   --output private-acceptance-report.json
 } finally {
-  Remove-Item Env:VPN_ACCEPTANCE_COOKIE -ErrorAction SilentlyContinue
-  $secureCookie.Dispose()
+  Remove-Item Env:VPN_ACCEPTANCE_CANARY_TOKEN -ErrorAction SilentlyContinue
+  $secureCanaryToken.Dispose()
 }
 ```
 
-Cookies are sent only to HTTPS origins. Each metrics origin must exactly match
-that environment's health/readiness origin (scheme, hostname, and effective
-port). The acceptance
+After promotion, repeat with separately provisioned canary and production
+`health.read` tokens, supplying both token-environment flags and both metrics
+origins. Clear both environment variables and dispose both secure strings in
+the `finally` block. In `canary-prepromotion`, a production token is neither
+read nor required. If the compatibility `--cookie-env` option is used instead,
+the cookie is sent only to enabled `/metrics` probes and only over HTTPS; avoid
+reusing a broad dashboard session when scoped API tokens are available. Each
+metrics origin must exactly match that environment's health/readiness origin
+(scheme, hostname, and effective port). The acceptance
 window is at least 30 minutes, with at least 30 health samples
 per environment and no sample gap over 120 seconds. Duration is capped at 24
 hours, sampling at 10,000 observations, and app-probe socket timeout at 30
