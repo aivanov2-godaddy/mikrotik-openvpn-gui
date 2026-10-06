@@ -1482,6 +1482,171 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(allowed_cases + denied_cases, len(role_groups) * len(route_cases))
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+    def test_api_dispatch_has_exhaustive_role_capability_inventory(self) -> None:
+        """Bind every API dispatch branch to a role matrix and verify denial side effects."""
+        def literal(path: str) -> str:
+            return f"literal:{path}"
+
+        def regex(pattern: str) -> str:
+            return f"regex:{pattern}"
+
+        # (method, source dispatch form, concrete request path, required
+        # capabilities, request body). An empty capability tuple marks the
+        # intentionally RouterOS-session/CSRF-only routes. Bulk action routes
+        # have separate rows because their required capability is action-bound.
+        route_cases = [
+            ("GET", literal("/api/events"), "/api/events", ("sessions.read",), {}),
+            ("GET", literal("/api/telemetry"), "/api/telemetry", (), {}),
+            ("GET", literal("/api/admin/sessions"), "/api/admin/sessions", ("sessions.read",), {}),
+            ("GET", literal("/api/admin/api-tokens"), "/api/admin/api-tokens", ("security.manage",), {}),
+            ("GET", literal("/api/reports/compliance.zip"), "/api/reports/compliance.zip", ("audit.read", "sessions.read"), {}),
+            ("GET", literal("/api/reports/diagnostics.zip"), "/api/reports/diagnostics.zip", ("health.read",), {}),
+            ("GET", literal("/api/release/verify"), "/api/release/verify", ("health.read",), {}),
+            ("GET", literal("/api/policy-templates"), "/api/policy-templates", ("policies.read",), {}),
+            ("GET", literal("/api/users"), "/api/users", ("users.read",), {}),
+            ("GET", literal("/api/bulk/views"), "/api/bulk/views", ("sessions.read",), {}),
+            ("GET", literal("/api/status"), "/api/status", (), {}),
+            ("GET", literal("/api/service-health"), "/api/service-health", ("health.read",), {}),
+            ("GET", literal("/api/observability"), "/api/observability", ("health.read",), {}),
+            ("GET", literal("/api/setup-preflight"), "/api/setup-preflight", ("health.read",), {}),
+            ("GET", literal("/api/audit.csv"), "/api/audit.csv", ("audit.read",), {}),
+            ("GET", literal("/api/audit.json"), "/api/audit.json", ("audit.read",), {}),
+            ("GET", literal("/api/operations-timeline.json"), "/api/operations-timeline.json", ("audit.read", "sessions.read"), {}),
+            ("GET", literal("/api/backups/metadata.zip"), "/api/backups/metadata.zip", ("backup.manage",), {}),
+            ("GET", literal("/api/connections.csv"), "/api/connections.csv", ("sessions.read",), {}),
+            ("GET", literal("/api/usage.csv"), "/api/usage.csv", ("sessions.read",), {}),
+            ("POST", literal("/api/users/preview"), "/api/users/preview", ("users.manage",), {}),
+            ("POST", regex(r"/api/sessions/([^/]+)/preview"), "/api/sessions/session-1/preview", ("session.manage",), {"reason": "Review test session termination"}),
+            ("POST", regex(r"/api/users/([^/]+)/duplicate/preview"), "/api/users/test-user/duplicate/preview", ("users.manage",), {}),
+            ("POST", literal("/api/users"), "/api/users", ("users.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/preview"), "/api/users/test-user/preview", ("users.manage",), {}),
+            ("POST", literal("/api/bulk/preview"), "/api/bulk/preview", ("users.manage",), {"action": "suspend", "user_ids": ["*1"]}),
+            ("POST", literal("/api/bulk/preview"), "/api/bulk/preview", ("users.manage",), {"action": "tag", "user_ids": ["*1"], "tag": "review"}),
+            ("POST", literal("/api/bulk/preview"), "/api/bulk/preview", ("device.manage",), {"action": "revoke", "user_ids": ["*1"]}),
+            ("POST", literal("/api/bulk/apply"), "/api/bulk/apply", ("users.manage",), {"action": "suspend", "user_ids": ["*1"]}),
+            ("POST", literal("/api/bulk/apply"), "/api/bulk/apply", ("users.manage",), {"action": "tag", "user_ids": ["*1"], "tag": "review"}),
+            ("POST", literal("/api/bulk/apply"), "/api/bulk/apply", ("device.manage",), {"action": "revoke", "user_ids": ["*1"]}),
+            ("POST", literal("/api/bulk/views"), "/api/bulk/views", ("sessions.read",), {}),
+            ("POST", literal("/api/setup-plan"), "/api/setup-plan", (), {}),
+            ("POST", literal("/api/openvpn-foundation-plan"), "/api/openvpn-foundation-plan", ("security.manage",), {}),
+            ("POST", literal("/api/admin/api-tokens"), "/api/admin/api-tokens", ("security.manage",), {}),
+            ("POST", literal("/api/admin/break-glass/plan"), "/api/admin/break-glass/plan", ("security.manage",), {}),
+            ("POST", literal("/api/network/segment-plan"), "/api/network/segment-plan", ("policies.manage",), {}),
+            ("POST", literal("/api/profile/diagnose"), "/api/profile/diagnose", ("profiles.read",), {}),
+            ("POST", literal("/api/connection-doctor"), "/api/connection-doctor", ("health.read",), {}),
+            ("POST", literal("/api/security/exposure-doctor"), "/api/security/exposure-doctor", ("health.read",), {}),
+            ("POST", literal("/api/backups/preflight"), "/api/backups/preflight", ("backup.manage",), {}),
+            ("POST", literal("/api/backups/validate"), "/api/backups/validate", ("backup.manage",), {}),
+            ("POST", literal("/api/backups/restore-plan"), "/api/backups/restore-plan", ("backup.manage",), {}),
+            ("POST", literal("/api/policy-templates"), "/api/policy-templates", ("policies.manage",), {}),
+            ("POST", regex(r"/api/policy-templates/([A-Za-z0-9_-]{1,64})/(preview|apply)"), "/api/policy-templates/test/preview", ("policies.manage",), {}),
+            ("POST", regex(r"/api/policy-templates/([A-Za-z0-9_-]{1,64})/(preview|apply)"), "/api/policy-templates/test/apply", ("policies.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/(suspend|restore)/preview"), "/api/users/test-user/suspend/preview", ("users.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/(suspend|restore)/preview"), "/api/users/test-user/restore/preview", ("users.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/delete/preview"), "/api/users/test-user/delete/preview", ("users.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/(suspend|restore)"), "/api/users/test-user/suspend", ("users.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/(suspend|restore)"), "/api/users/test-user/restore", ("users.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/profiles/preview"), "/api/users/test-user/profiles/preview", ("profiles.manage",), {}),
+            ("POST", regex(r"/api/profile-migrations/([^/]+)/steps/(imported|tested)"), "/api/profile-migrations/legacy-user-one-phone/steps/imported", ("profiles.manage",), {}),
+            ("POST", regex(r"/api/profile-migrations/([^/]+)/steps/(imported|tested)"), "/api/profile-migrations/legacy-user-one-phone/steps/tested", ("profiles.manage",), {}),
+            ("POST", regex(r"/api/profile-migrations/([^/]+)/reconnect-test"), "/api/profile-migrations/legacy-user-one-phone/reconnect-test", ("profiles.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/profiles"), "/api/users/test-user/profiles", ("profiles.manage",), {}),
+            ("POST", regex(r"/api/devices/([^/]+)/revoke/preview"), "/api/devices/test-device/revoke/preview", ("device.manage",), {}),
+            ("POST", regex(r"/api/devices/([^/]+)/revoke"), "/api/devices/test-device/revoke", ("device.manage",), {}),
+            ("POST", regex(r"/api/profile-migrations/([^/]+)/revoke/preview"), "/api/profile-migrations/legacy-user-one-phone/revoke/preview", ("device.manage",), {}),
+            ("POST", regex(r"/api/profile-migrations/([^/]+)/revoke"), "/api/profile-migrations/legacy-user-one-phone/revoke", ("device.manage",), {}),
+            ("POST", regex(r"/api/users/([^/]+)/duplicate"), "/api/users/test-user/duplicate", ("users.manage",), {}),
+            ("POST", regex(r"/api/alerts/(\d+)/ack"), "/api/alerts/1/ack", ("alert.manage",), {}),
+            ("PATCH", regex(r"/api/policy-templates/([A-Za-z0-9_-]{1,64})"), "/api/policy-templates/test-template", ("policies.manage",), {}),
+            ("PATCH", regex(r"/api/users/([^/]+)"), "/api/users/test-user", ("users.manage",), {}),
+            ("DELETE", regex(r"/api/admin/api-tokens/([A-Za-z0-9_-]{8,96})"), "/api/admin/api-tokens/token-12345678", ("security.manage",), {}),
+            ("DELETE", regex(r"/api/admin/sessions/([^/]+)"), "/api/admin/sessions/session-1", ("session.manage",), {}),
+            ("DELETE", regex(r"/api/bulk/views/([A-Za-z0-9_-]{1,64})"), "/api/bulk/views/view-1", ("sessions.read",), {}),
+            ("DELETE", regex(r"/api/sessions/([^/]+)"), "/api/sessions/session-1", ("session.manage",), {}),
+            ("DELETE", regex(r"/api/users/([^/]+)"), "/api/users/test-user", ("users.manage",), {}),
+        ]
+
+        # The public /api dispatch surface is exhaustively classified: source
+        # changes cannot introduce a new API equality/regex branch without
+        # adding a role-matrix case here.
+        declared_forms = {(method, form) for method, form, *_ in route_cases}
+        dispatch_forms: set[tuple[str, str]] = set()
+        for method in ("GET", "POST", "PATCH", "DELETE"):
+            source = inspect.getsource(getattr(DashboardHandler, f"do_{method}"))
+            literal_routes = re.findall(r'path == "(/api/[^"]+)"', source)
+            patterns = re.findall(r're\.fullmatch\(r"(/api/[^"]+)"\s*,\s*path\)', source)
+            dispatch_forms.update((method, literal(path)) for path in literal_routes)
+            dispatch_forms.update((method, regex(pattern)) for pattern in patterns)
+        self.assertEqual(dispatch_forms, declared_forms)
+        for method, form, path, _, _ in route_cases:
+            if form.startswith("regex:"):
+                self.assertRegex(path, re.compile(form.removeprefix("regex:")))
+            else:
+                self.assertEqual(path, form.removeprefix("literal:"))
+
+        store = self.server.context.store
+
+        def non_audit_state() -> dict[str, Any]:
+            with store._connection() as connection:
+                tables = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%' AND name != 'audit' ORDER BY name"
+                ).fetchall()
+                return {
+                    table[0]: connection.execute(f'SELECT * FROM "{table[0]}" ORDER BY rowid').fetchall()
+                    for table in tables
+                }
+
+        before_mutations = list(self.mock.state.mutation_requests)
+        denied_count = 0
+        allowed_count = 0
+        role_groups = ("owner", "security-operator", "operator", "audit", "read")
+        for group in role_groups:
+            self.mock.state.admin_group = group
+            self.cookie = ""
+            self.csrf = ""
+            self.login()
+            headers = {"Content-Type": "application/json", "X-CSRF-Token": self.csrf}
+            for method, form, path, required, body in route_cases:
+                missing = {capability for capability in required if not has_capability(group, capability)}
+                # /api/events is an intentionally long-lived SSE response.
+                # Its allowed streaming behavior is covered by focused SSE
+                # tests; this inventory still exercises every denied role.
+                if method == "GET" and path == "/api/events" and not missing:
+                    continue
+                before_denial_state = non_audit_state() if missing else None
+                before_denial_mutations = len(self.mock.state.mutation_requests)
+                with self.subTest(group=group, method=method, form=form, path=path, body=body):
+                    status, _, payload = self.request(
+                        method, path,
+                        body=json.dumps(body).encode() if method != "GET" else b"",
+                        headers=headers,
+                    )
+                    self.assertNotIn(b"routerpass", payload)
+                    if missing:
+                        self.assertEqual(status, 403)
+                        self.assertNotIn(b"user-one", payload)
+                        self.assertTrue(
+                            any(capability.encode() in payload for capability in missing),
+                            f"denial must name a missing capability from {sorted(missing)}",
+                        )
+                        self.assertEqual(non_audit_state(), before_denial_state)
+                        self.assertEqual(
+                            len(self.mock.state.mutation_requests), before_denial_mutations,
+                            "capability denial must happen before any RouterOS mutation",
+                        )
+                        denied_count += 1
+                    else:
+                        self.assertNotEqual(
+                            status, 403,
+                            f"{group} has {sorted(required)} but {method} {path} denied it: {payload!r}",
+                        )
+                        allowed_count += 1
+
+        self.assertGreater(denied_count, 0)
+        self.assertGreater(allowed_count, 0)
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
     def test_admin_session_revocation_is_csrf_protected_scoped_and_audited(self) -> None:
         self.login()
         current_session_id = self.cookie.split("=", 1)[1]
@@ -3145,6 +3310,49 @@ class DashboardIntegrationTests(unittest.TestCase):
         ]
         self.assertEqual(len(renewal_audits), 1)
         self.assertNotIn(passphrase, json.dumps(renewal_audits))
+
+    def test_same_ca_renewal_review_rejects_changed_source_certificate_identity(self) -> None:
+        source_name = "ovpn-user-one-device-a"
+        user_id = next(
+            user["id"] for user in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if user["name"] == "user-one"
+        )
+        self.server.context.store.add_device(
+            device_id="managed-renewal-review-phone",
+            vpn_user="user-one",
+            device_name="Managed phone",
+            certificate_name=source_name,
+            certificate_id="*CL1",
+            fingerprint="A1:EX:26",
+        )
+        self.login()
+        preview = self.preview_profile(
+            user_id, "Replacement phone", delivery="ovpn", legacy_certificate=source_name,
+        )
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        # RouterOS now reports a different issuer identity for the reviewed source.
+        self.mock.state.certificates["*CL1"]["issuer"] = "rotated-vpn-ca"
+        self.mock.state.certificates["*CL1"]["ca"] = "rotated-vpn-ca"
+        status, _, payload = self.json_request(
+            "POST", f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles",
+            {
+                "device_name": "Replacement phone",
+                "reason": preview["reason"],
+                "key_passphrase": "renewal-passphrase-never-persisted",
+                "legacy_certificate": source_name,
+                "delivery": "ovpn",
+                "review_token": preview["review_token"],
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertNotIn(b"renewal-passphrase-never-persisted", payload)
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(set(self.mock.state.certificates), {"*CA", "*CL1", "*CL2"})
+        self.assertEqual(self.mock.state.certificates["*CL1"]["issuer"], "rotated-vpn-ca")
 
     def test_same_ca_renewal_rejects_unmanaged_certificate(self) -> None:
         self.login()
