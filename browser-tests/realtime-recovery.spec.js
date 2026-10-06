@@ -197,3 +197,100 @@ test('reconnects Socket.IO and applies a fresh snapshot when a sleeping tab wake
   await expect.poll(() => page.evaluate(() => window.__appliedStreamSnapshots
     .some((snapshot) => snapshot.names.includes('wake-socket-user-2') && snapshot.statusbarCount === '2'))).toBe(true);
 });
+
+test('stops telemetry after session revocation and denies reconnect with stale authorization', async ({ browser }, testInfo) => {
+  const marker = `pw-authz-target-${testInfo.workerIndex}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const targetContext = await browser.newContext({ userAgent: marker });
+  const adminContext = await browser.newContext({ userAgent: `${marker}-admin` });
+  const targetPage = await targetContext.newPage();
+  const adminPage = await adminContext.newPage();
+  const deniedReconnects = [];
+
+  try {
+    await targetPage.addInitScript(() => {
+      // Keep the target view logically foregrounded when the separate admin
+      // context is used to revoke its session.
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      window.__authorizationStreamFrames = [];
+      window.__authorizationEventSources = [];
+      const NativeEventSource = window.EventSource;
+      window.EventSource = class AuthorizationEventSource extends NativeEventSource {
+        constructor(...args) {
+          super(...args);
+          window.__authorizationEventSources.push(this);
+          this.addEventListener('status', (event) => {
+            try { window.__authorizationStreamFrames.push(JSON.parse(event.data)); } catch (_) { /* ignore malformed test data */ }
+          });
+        }
+      };
+    });
+
+    for (const page of [targetPage, adminPage]) {
+      await page.route('**/api/telemetry', (route) => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ transport: 'sse', socketio_enabled: false }),
+      }));
+    }
+    // Keep the regression focused on the event stream. The dashboard's
+    // independent REST poll redirects on 401 and would otherwise navigate
+    // away before its own reconnect can be observed.
+    await targetPage.route('**/api/status', (route) => route.abort());
+    targetPage.on('response', (response) => {
+      if (new URL(response.url()).pathname === '/api/events' && response.status() === 401) deniedReconnects.push(response);
+    });
+
+    const signIn = async (page) => {
+      await page.goto('/login');
+      await page.getByLabel('Login').fill('admin');
+      await page.getByLabel('Password').fill('routerpass');
+      await page.getByRole('button', { name: 'Connect' }).click();
+      await expect(page).toHaveURL(/\/dashboard$/);
+      await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+    };
+
+    await signIn(targetPage);
+    await expect.poll(() => targetPage.evaluate(() => window.__authorizationStreamFrames.length))
+      .toBeGreaterThan(0);
+    await expect.poll(() => targetPage.evaluate(() => window.__authorizationEventSources
+      .some((source) => source.readyState === EventSource.OPEN))).toBe(true);
+
+    // A separate local administrator session revokes the target through the
+    // same UI control operators use. The target's synthetic visibility state
+    // keeps its live stream active during this cross-session action.
+    await signIn(adminPage);
+    await adminPage.locator('[data-view-target="admin-sessions"]').click();
+    const targetSessionId = await adminPage.evaluate(async (userAgent) => {
+      const response = await fetch('/api/admin/sessions', { credentials: 'same-origin' });
+      if (!response.ok) return '';
+      const payload = await response.json();
+      return payload.sessions.find((session) => session.user_agent === userAgent)?.id || '';
+    }, marker);
+    expect(targetSessionId).not.toBe('');
+    const revokeButton = adminPage.locator(
+      `[data-admin-session-row][data-session-id="${targetSessionId}"] [data-admin-session-revoke]`,
+    );
+    await expect(revokeButton).toHaveCount(1);
+
+    // The open SSE response is revalidated server-side. Once it closes, the
+    // dashboard's app-level reconnect must use the now-revoked cookie and be
+    // rejected, rather than receiving another telemetry snapshot.
+    const deniedReconnect = targetPage.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/events' && response.status() === 401
+    ), { timeout: 15_000 });
+    adminPage.once('dialog', (dialog) => dialog.accept());
+    const revocation = adminPage.waitForResponse((response) => (
+      response.request().method() === 'DELETE'
+      && new URL(response.url()).pathname.startsWith('/api/admin/sessions/')
+    ));
+    await revokeButton.click();
+    expect((await revocation).status()).toBe(200);
+    await deniedReconnect;
+    const framesAfterRevocation = await targetPage.evaluate(() => window.__authorizationStreamFrames.length);
+    expect(framesAfterRevocation).toBeGreaterThan(0);
+    await expect.poll(() => deniedReconnects.length, { timeout: 12_000 }).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => targetPage.evaluate(() => window.__authorizationStreamFrames.length))
+      .toBe(framesAfterRevocation);
+  } finally {
+    await Promise.all([targetContext.close(), adminContext.close()]);
+  }
+});

@@ -13,6 +13,17 @@
 - Dashboard users, connected sessions, and interface counters agree with WinBox for a sample identity.
 - Audit events contain no passwords, tokens, private keys, profile bodies, or raw authorization headers.
 
+### Live dashboard troubleshooting
+
+If the Connections view reports **Connection data delayed**, first check the
+Cloudflare Access session and the dashboard's RouterOS sign-in. A cached page
+can remain visible after either session expires, while authenticated status
+requests stop. Reauthenticate and confirm the live indicator returns before restarting
+containers or treating the symptom as a telemetry outage. If the
+view remains delayed with both sessions current, continue with the authenticated
+health and telemetry diagnostics; do not copy tokens or raw event payloads into
+logs or reports.
+
 ## Optional integrations
 
 Set both `WEBHOOK_URL` and `WEBHOOK_SIGNING_SECRET` in the router-local
@@ -278,14 +289,37 @@ records. Run it before a release with:
 python -m unittest tests.test_security.SecurityTests.test_sqlite_wal_checkpoint_and_backup_are_consistent
 ```
 
-For release acceptance, collect the redacted canary and production observations
-in the format shown by
+For release acceptance, copy the schema shown by
 [`release-acceptance-evidence.example.json`](release-acceptance-evidence.example.json)
-and validate them with:
+to a private local file and fill only the RouterOS/operator-exercise evidence.
+Do not enter deployment health, image-digest, or telemetry claims by hand; the
+read-only collector owns those fields. Keep both files outside the repository.
+Run the collector first, then pass its output—not the example or uncollected
+input—to the evaluator. The pre-promotion phase keeps production on its
+recorded prior image:
 
 ```powershell
-python scripts/release_acceptance.py --input release-evidence.json --output release-report.json
+python scripts/collect_release_acceptance.py `
+  --input private-evidence.json `
+  --output private-collected-evidence.json `
+  --canary-url https://<approved-canary-origin> `
+  --production-url https://<approved-production-origin> `
+  --canary-metrics-url https://<approved-canary-origin> `
+  --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
+  --duration-seconds 1800 --interval-seconds 60 `
+  --phase canary-prepromotion
+python scripts/release_acceptance.py `
+  --input private-collected-evidence.json `
+  --output private-acceptance-report.json
 ```
+
+After production promotion is observed, collect again with
+`--phase postpromotion`, both metrics origins, and separately scoped canary and
+production `health.read` API-token environment variables. Use distinct
+short-lived tokens, never put their values in command-line arguments or files,
+and revoke them after collection. See
+[`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window)
+for secure token handling and the full procedure.
 
 The v2 validator requires the same full immutable image tag and OCI digest in
 canary and production; a 30-minute window with at least 30 health samples and
@@ -296,10 +330,20 @@ REST fallback, reconnect and snapshot recovery, a SQLite restore rehearsal,
 and an isolated canary rollback drill. Production must remain untouched when
 canary fails. Resource gates are CPU <=80%, memory <=90%, and storage <=90%.
 It emits only release identity, observation window, aggregate measurements,
-and pass/fail evidence. The JSON input is still an operator-collected
-attestation, not an automatic RouterOS probe; keep it free of credentials,
-VPN-user data, addresses, and raw logs. The example JSON contains illustrative
-values only and is not production evidence.
+and pass/fail evidence. RouterOS resource samples and client-exercise results
+remain operator-supplied evidence; the app collector does not probe RouterOS
+or control VPN clients. A passing report is evidence, not a deployment action:
+the collector never promotes or rolls back. The router-local updater has its
+own readiness-only soak; do not treat `/readyz` success alone as full release
+acceptance. Keep origins out of the report and keep credentials, VPN-user data,
+addresses, and raw logs out of both input and output. The example JSON contains
+illustrative values only and is not production evidence.
+
+**Promotion-interlock limitation:** the current router-local updater does not
+consume this evaluator report; it may promote after its separate readiness-only
+canary soak. The collector is not an automatic promotion interlock. Until that
+boundary is integrated and deployed, a scheduler promotion is not proof that
+the full #199 acceptance gate passed.
 
 Apply retention appropriate to the sensitivity of email ownership, address, usage, and audit metadata. Destroy expired backups securely.
 
