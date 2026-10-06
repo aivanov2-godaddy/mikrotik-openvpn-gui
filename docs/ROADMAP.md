@@ -28,31 +28,37 @@ on both canary and production containers, each with the RouterOS healthy
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
-### Latest published candidate and current RouterOS read-back — PR #522 — 2026-10-06
+### Latest published artifact and current RouterOS read-back — PR #535 — 2026-10-06
 
-PR [#522](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/522)
-merged as `1203b768a690dd80ce04a40c1cd2ab0ad47d3640`. Its publication workflow
-passed source/browser verification, ARM64/AMD64 builds, runtime smoke tests,
-and exact-digest provenance/SBOM verification. The published image identity is
-in the public release workflow; deployment-specific RouterOS read-backs are
-kept outside this repository, as required by #199.
+PR [#535](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/535)
+merged as `604958d2d8921193b535206cca9c13cd291ecbc2`. Its responsive,
+locally served OpenVPN logo image was published after source/browser
+verification, ARM64/AMD64 builds, runtime smoke tests, and provenance/SBOM
+verification. The ARM64 tag/digest are recorded below; publication does not
+mean that RouterOS is running this artifact.
 
-A private read-only RouterOS inspection on 2026-10-06 initially did not stage
-or promote the published candidate. Later, the guarded updater completed a
-stage-only rollout to the isolated canary and passed its 30 one-minute
-readiness samples for PR #522; production stayed on its prior immutable image.
-The authenticated production Connections page showed delayed connection data
-while Service Health reported operational; this does not establish root cause
-or pass telemetry freshness acceptance. Detailed image read-backs, resource
-samples, router state, and acceptance artifacts remain in the private operator
-record, not in this public repository.
+A fresh, read-only WinBox inspection on 2026-10-06 showed the isolated canary
+healthy (`H`) on PR #522's immutable ARM64 tag
+`sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64`, production healthy (`H`)
+on PR #511's immutable ARM64 tag
+`sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`, and Redis running (`R`).
+The router-local `vpn-gui-immutable-update` scheduler is disabled. The
+RouterOS container list exposes configured tags and health markers, not an
+independent registry digest. Thus the PR #535 image is published but not
+deployed to either container, and the logo is not expected to appear on the
+currently served dashboard.
 
-The #199 readiness-stage gate has now passed for this candidate. Remaining
-gates include authenticated telemetry/Redis samples and a nonzero VPN session
-transition, measured event latency/freshness and resource load, API
-restart/reconnect and full-snapshot recovery, counter-reset and REST/Binary
-parity checks, event integrity, SQLite restore rehearsal, and candidate-specific
-rollback. Production promotion remains gated on complete passing evidence.
+The earlier stage-script transcript is not acceptance evidence: it showed an
+interrupted invocation and did not establish the current candidate revision or
+the repository's required 30 samples spaced at least one minute apart. No
+router configuration, image, user/session, certificate, CA, VPN policy, or
+persistent data was changed during this read-back. The #199 acceptance gates
+remain: exact-candidate canary soak; authenticated telemetry/Redis samples and
+a nonzero VPN session transition; measured event latency/freshness and resource
+load; API restart/reconnect and full-snapshot recovery; counter-reset and
+REST/Binary parity checks; event integrity; SQLite restore rehearsal; and
+candidate-specific rollback. Production promotion remains gated on complete
+passing evidence.
 
 ### Previously published candidate and earlier RouterOS read-back — PR #516 — 2026-10-06
 
