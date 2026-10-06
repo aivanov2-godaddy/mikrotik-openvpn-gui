@@ -1058,3 +1058,38 @@ baseline. They do not identify the old tab's polling failure cause or prove the
 Socket.IO transport is down. No sign-in code, page refresh, or router/container
 change was performed. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md);
 formal telemetry acceptance remains open.
+
+**2026-10-06 PR #520 release and RouterOS read-back:** PR #520 merged as
+`75263b27c2c86b181d2c67ec3c3e63cbf3f32866` after all required checks passed,
+including the rendered browser/accessibility suite. The main publish workflow
+completed with verified provenance/SBOM and runtime smoke tests. Published
+architecture-specific immutable images are ARM64 digest
+`sha256:d52b02895553fe44d3700185d3443ab3684f24295a601eed053734fa99d1c8b5`
+and AMD64 digest
+`sha256:78257505b4c33fbd257c5203e75e500f56aa1e19e2d871b3ebfa71a9bdaf371c`;
+the stable manifest names commit `75263b27c2c86b181d2c67ec3c3e63cbf3f32866`.
+These are registry artifacts, not deployment evidence. A read-only WinBox
+inspection on 2026-10-06 showed canary healthy on the earlier PR #518
+candidate revision `8f6f14d80619bb3ea61cade26a495a570f7b9bfd` and production
+healthy on revision `72a9c78a640a43e3227e12652b4e7f2505a0aacb`; neither was
+read back on the PR #520 image. No production promotion is claimed, and the
+full #199 acceptance window and gates remain outstanding.
+
+During that inspection, a WinBox click intended to open canary configuration
+instead issued Stop. The canary stopped, was started again within seconds, and
+returned to HEALTHY in under a minute; production was not selected or changed.
+The dashboard showed zero connected VPN clients at the time. This was an
+operator-interface error and recovery, not a planned restart/reconnect
+acceptance test, so it must not be counted as #199 evidence. No container
+configuration, image, RouterOS policy, VPN account, or certificate was
+intentionally changed. The canary had a brief availability interruption; its
+persistent application data was not independently audited during recovery.
+
+**#192 200%-zoom follow-up (2026-10-06):** the authenticated production page
+was inspected at actual 200% browser zoom. That observation informed PR #520,
+which adds a 574 CSS-pixel zoom-equivalent overflow regression and yields the
+redundant brand-host label at widths through 600px. The candidate's rendered
+browser/accessibility CI passed, but CI viewport emulation is not a manual
+200%-zoom confirmation of the deployed fix. The latest deployed image has not
+been read back with this fix; the human task study, assistive-technology
+review, and post-deployment 200%-zoom review remain open.
