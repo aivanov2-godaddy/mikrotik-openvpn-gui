@@ -8,6 +8,19 @@ CA as issuer. Certificates expiring within 30 days are marked **Expiring
 soon**; expired, unknown-expiry, missing, revoked, legacy-issuer, or
 unverifiable-issuer records require review.
 
+For a dashboard-managed device with a known expiry within 30 days (or already
+expired), Device Profiles offers **Renew certificate**. This stages a new
+client identity under the configured current CA and records only the source
+and replacement certificate names plus operator progress. Issuing the new
+certificate does not revoke the existing one while the operator imports and
+tests the replacement; an expired certificate may already be unusable.
+The database records only safe lifecycle metadata (user, certificate names,
+timestamps, and operator progress), never profile contents or private keys.
+Retirement is a separate reviewed action and requires a current RouterOS
+read-back of the active source and usable replacement. The flow does not
+change CA-wide policy. Previous-CA certificates continue to use the same
+staged replacement sequence.
+
 This is not proof that a VPN client can connect or is rejected. In particular,
 the inventory result does not establish CRL publication/enforcement, terminate
 an already active VPN session, or prove that a revoked/expired identity is
@@ -15,12 +28,13 @@ rejected on a fresh connection. Existing sessions may remain active after
 certificate revocation unless separately terminated. Those are RouterOS and
 live-client acceptance checks, not facts inferred from this inventory view.
 
-This view and its evaluator are read-only. They do not create, renew, revoke,
-or import certificates; alter CA/CRL settings; terminate VPN sessions; or
-change RouterOS configuration. Certificate names and fingerprint display
-remain part of the existing operator inventory UI; this change adds no new
-identifiers, private data, or raw RouterOS fields to telemetry, logs, or
-reports.
+The posture evaluator and certificate inventory read are read-only. Separate
+profile-issuance and certificate-retirement actions use a one-time review,
+explicit operator confirmation where applicable, and RouterOS read-back.
+They do not alter CA/CRL settings or terminate existing VPN sessions.
+Certificate names and fingerprint display remain part of the operator
+inventory UI; profile archives and private keys are never persisted or added
+to telemetry, logs, or reports.
 
 ## Lost profile recovery
 
@@ -31,7 +45,7 @@ a profile is lost, issue a replacement, import and test it, then separately
 revoke the prior certificate. Issuing a replacement does not itself terminate
 an active VPN session, and inventory/revocation read-back does not prove CRL
 enforcement or rejection on a fresh connection. Do not describe this as
-same-identity re-download. After issuance, the Device Profiles migration row
+same-identity re-download. After issuance, the Device Profiles replacement row
 shows the replacement certificate name and reminds the operator to import and
 test it before revoking the legacy certificate. “Replacement issued” records
 only that issuance completed; it is not evidence that the profile was imported,
@@ -65,11 +79,11 @@ certificate, profile archive, or user record is used by these checks.
   flag alone.
 - Under an approved test window, prove that revocation prevents a fresh
   connection and separately test the handling of an already-active session.
-- Complete and accept the guided staged per-device renewal flow: issue a
-  replacement, import and test it, then separately retire the prior identity.
-  PR #429 clarifies that this is a new identity, not same-identity re-download;
-  issued private keys are deliberately not retained. Validate the replacement
-  recovery flow and its RouterOS outcomes in the approved test window. This
-  read-only posture evaluator itself adds no mutation action.
+- Accept the guided staged per-device renewal flow on RouterOS: issue a new
+  same-CA renewal or previous-CA replacement, import and test it, then
+  separately retire the prior identity. PR #429 clarifies this is a new identity, not
+  same-identity re-download; issued private keys are deliberately not retained.
+  Validate renewal, replacement recovery, and RouterOS read-back outcomes in
+  the approved test window.
 - Exercise those workflows on a canary with rollback evidence before any
   production rollout. No such live validation or deployment is claimed here.

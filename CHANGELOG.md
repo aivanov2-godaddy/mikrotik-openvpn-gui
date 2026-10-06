@@ -6,6 +6,12 @@ semantic-version style release tags.
 
 ## Unreleased
 
+### Added
+
+- Offer staged same-CA renewal for expiring or expired dashboard-managed device
+  certificates; retain the old certificate until the replacement is imported,
+  tested, and separately retired through the existing review and read-back flow.
+
 ### Changed
 
 - Require at least 30 candidate readiness samples, at least 60 seconds apart,

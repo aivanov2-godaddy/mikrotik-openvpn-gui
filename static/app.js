@@ -1185,7 +1185,7 @@ function hasOpenDialog() {
   return Boolean($('dialog[open]'));
 }
 
-function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertificate = '', legacyDevice = '' }) {
+function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertificate = '', legacyDevice = '', replacementType = '' }) {
   const form = $('#profile-form');
   form.reset();
   form.user_id.value = userId;
@@ -1201,11 +1201,14 @@ function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertif
   $('[data-profile-review]', form).hidden = true;
   const migrationNote = $('[data-migration-note]', form);
   if (legacyCertificate) {
-    $('[data-profile-title]', form).textContent = 'Replace legacy profile';
-    $('[data-profile-description]', form).textContent = 'Issue a replacement first. The old profile stays active until you test and revoke it.';
+    const renewal = replacementType === 'renewal';
+    $('[data-profile-title]', form).textContent = renewal ? 'Renew device certificate' : 'Replace legacy profile';
+    $('[data-profile-description]', form).textContent = renewal
+      ? 'Issue a new certificate under the configured CA. Issuance does not revoke the existing certificate; an expired certificate may already be unusable.'
+      : 'Issue a replacement first. The old profile stays active until you test and revoke it.';
     form.device_name.value = `${legacyDevice || 'Replacement'} replacement`.slice(0, 64);
     migrationNote.hidden = false;
-    migrationNote.textContent = `Replacing certificate ${legacyCertificate}. No connection will be interrupted.`;
+    migrationNote.textContent = `${renewal ? 'Renewing' : 'Replacing'} certificate ${legacyCertificate}. No connection will be interrupted.`;
   } else {
     migrationNote.hidden = true;
   }
@@ -1573,6 +1576,7 @@ document.addEventListener('click', async (event) => {
       delivery: button.matches('[data-qr-profile]') ? 'qr' : 'zip',
       legacyCertificate: button.dataset.legacyCertificate || '',
       legacyDevice: button.dataset.legacyDevice || '',
+      replacementType: button.dataset.replacementType || '',
     });
   } else if (button.matches('[data-duplicate]') && row) {
     const form = $('#duplicate-form');
@@ -1708,7 +1712,7 @@ document.addEventListener('click', async (event) => {
     const step = button.dataset.migrationStep;
     const stepDescription = step === 'tested'
       ? 'Only confirm after connecting with the replacement profile. The app will require RouterOS to show an active session for this VPN user, but RouterOS cannot prove which client certificate that session used.'
-      : 'Only confirm after you have imported the replacement profile on the VPN device. The old profile remains active.';
+      : 'Only confirm after you have imported the replacement profile on the VPN device. This step does not revoke the old certificate.';
     if (!window.confirm(stepDescription)) return;
     button.disabled = true;
     try {
@@ -1871,8 +1875,10 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
       const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/profiles/preview`, { method: 'POST', body: intent }));
       const preview = await response.json();
       form.elements.review_token.value = preview.review_token || '';
-      const migration = preview.legacy_migration
-        ? ' The previous profile remains active; this does not revoke or disconnect it.'
+      const migration = preview.replacement_type === 'renewal'
+        ? ' This issues a new certificate under the configured CA without revoking the existing certificate. An expired certificate may already be unusable.'
+        : preview.legacy_migration
+          ? ' The previous profile remains active; this does not revoke or disconnect it.'
         : '';
       $('[data-profile-review]', form).textContent = `Reviewed: ${preview.user} · ${preview.device} · ${preview.policy} · ${preview.dns_mode} DNS · ${preview.delivery}. Reason: ${preview.reason}.${migration} Private-key passphrase is not part of the review.`;
       $('[data-profile-review]', form).hidden = false;
