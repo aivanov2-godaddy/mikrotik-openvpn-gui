@@ -1121,7 +1121,7 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .form-status { font-size: 12px; line-height: 1.4; }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 600px) {
   /* At 200% zoom the brand host is redundant with the router status pill.
      Let it yield space so the sign-out control keeps its full accessible label. */
   .brand-host { display: none; }
