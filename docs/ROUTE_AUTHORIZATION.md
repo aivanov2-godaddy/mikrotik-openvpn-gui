@@ -6,13 +6,17 @@ compares the literal/regex API dispatch forms in `DashboardHandler` with its
 exercised route tuples and sends anonymous requests to every listed GET, POST,
 PATCH, and DELETE route. Every listed write is also sent with a valid cookie but
 without CSRF and must be denied before RouterOS or persistent state changes.
-This dispatch/anonymous-CSRF coverage does **not** mean every route has a
-complete route-to-capability matrix. The sensitive management matrix sends
-valid-CSRF requests for each declared high-impact route example through all
-five dashboard roles. Roles without the route's capability must receive `403`;
-roles with it must pass the capability gate (later validation may still reject
-an incomplete test request). This is a complete matrix over the maintained
-examples, not proof that the examples exhaust every guarded dispatch branch.
+`DashboardIntegrationTests.test_api_dispatch_has_exhaustive_role_capability_inventory`
+maintains a separate capability declaration and valid-CSRF request example for
+every literal/regex API dispatch form. It checks all five dashboard roles:
+roles missing a declared capability receive `403` without RouterOS mutation or
+non-audit persistent-state changes; permitted roles pass the capability gate
+(later validation may reject an incomplete request). The test also compares its
+declared forms with the handler dispatch table so newly added dispatch forms
+fail until classified. Long-lived authorized SSE delivery is covered by the
+focused streaming tests rather than this cross-product test. This is an
+exhaustive automated matrix over the current dispatch forms, not an independent
+handler security review or proof of deployed proxy behavior.
 Safe, non-mutating diagnostics and plans may intentionally be available to
 read-only roles; an HTTP POST alone does not make a route a RouterOS mutation.
 
@@ -65,12 +69,11 @@ read-only role boundary test verifies this explicit exception.
 
 ## Limits of this evidence
 
-Automated route tests establish the listed dispatch, anonymous/CSRF,
-token-scope, and declared high-impact route-by-role assertions. They do not
-prove that the maintained examples exhaust every guarded dispatch branch,
-replace a code-owner review of every handler, or provide an external
-penetration test or verification behind the production proxy. The high-impact
-router mutation workflow is tracked separately in [mutation safety](ROADMAP.md#phase-4-release-and-security-assurance).
+Automated route tests establish current dispatch-form coverage, anonymous/CSRF,
+token-scope, and route-by-role capability assertions. They do not replace a
+code-owner review of every handler, provide an external penetration test, or
+verify behavior behind the production proxy. The high-impact router mutation
+workflow is tracked separately in [mutation safety](ROADMAP.md#phase-4-release-and-security-assurance).
 
 ## Independent code review record — 2026-10-04
 

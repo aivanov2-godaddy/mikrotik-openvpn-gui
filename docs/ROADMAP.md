@@ -702,6 +702,18 @@ that restart; the later live-update observation is recorded above.
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
 
+**2026-10-07 repository progress:** the current authorization test inventory
+now classifies every literal/regex API dispatch form against all five dashboard
+roles, verifies denied roles cause no RouterOS mutation or non-audit persistent
+state change, and fails when a handler dispatch form is added without an
+inventory entry. The route-authorization document now distinguishes this
+automated source-coverage matrix from independent review and production-proxy
+acceptance. A renewal regression also proves a changed source-certificate
+issuer invalidates the review before certificate issuance. These close the
+respective repository-coverage gaps only; live role-expiry/revocation, CRL,
+certificate replacement/import, canary, and independent external review gates
+remain open under #194/#200. The tests are not RouterOS acceptance evidence.
+
 **2026-10-06 repository progress:** PR #515 adds rendered cross-theme
 design-token, text-contrast, and keyboard-focus gates for Dashboard, VPN Users,
 and Connections at desktop/tablet/mobile sizes; the five-task human study,
