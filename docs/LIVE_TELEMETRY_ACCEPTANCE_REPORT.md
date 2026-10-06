@@ -50,37 +50,20 @@ the telemetry stale threshold; otherwise a failed poll still marks connection
 data delayed. The regression is repository evidence, not deployed behavior; the
 published image has not been updated or read back on RouterOS for this fix.
 
-### Current WinBox read-back — 2026-10-06
+### Current private RouterOS read-back — 2026-10-06
 
-With the authenticated Connections view returned to the foreground, the
-production dashboard still showed `Connection data delayed` and zero connected
-devices. The Service Health view reported Operational, six healthy checks, zero
-needs-review, and zero unavailable. This is a second foreground observation,
-not proof of a stream transport failure: no live client event, event age, or
-status-poll HTTP result was captured.
+A read-only WinBox and authenticated-dashboard inspection was completed. The
+dashboard showed delayed live connection data while Service Health reported
+operational. A RouterOS job with unknown identity was active, so no competing
+update was started and production was not promoted. Exact image read-backs,
+resource measurements, job metadata, and other deployment-specific evidence
+are retained in the private operator record and intentionally omitted from this
+public report, per #199.
 
-WinBox showed the canary healthy on
-`sha-8f6f14d80619bb3ea61cade26a495a570f7b9bfd-arm64`, production healthy on
-`sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`, and Redis running. One
-container-stat sample was 1.1% CPU / 38.8 MiB memory for canary and 0.7% CPU /
-40.5 MiB for production; it is not a sustained resource measurement. The
-published PR #522 ARM64 candidate remains
-`sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64` /
-`sha256:def674be0ab82f3e020c13a6549b7e8c9c82c79305cc488002660c13eb9288d2`;
-it was not present in either container's configured tag.
-
-The installed `vpn-gui-immutable-stage-v3` script names the current stable
-manifest and canary and requires 30 successful readiness samples one minute
-apart before writing its stage record; it rolls back the canary on a failed or
-mismatched sample. The older 5-minute scheduler entry remains disabled. One
-active RouterOS job was visible with start time 11:17:01 (router time), but no
-script name was shown. Because its identity is unknown, no second updater job
-was launched. No container, RouterOS configuration, VPN session, user,
-certificate, CA, policy, or persistent data was changed during this inspection.
-
-This evidence updates deployment state only. It does not pass candidate
-readiness, telemetry freshness, Redis delivery, session-transition, resource
-soak, reconnect, event-integrity, parity, restore, or rollback acceptance.
+This observation does not establish the cause of delayed telemetry and does not
+pass candidate readiness, telemetry freshness, Redis delivery,
+session-transition, resource soak, reconnect, event-integrity, parity, restore,
+or rollback acceptance.
 
 ## Latest canary read-back — PR #518 — 2026-10-06 12:47 UTC
 
