@@ -1,20 +1,48 @@
 # Live telemetry acceptance report
 
-Status: **TELEMETRY BASELINE ACCEPTED — CURRENT RUNTIME SOAK PENDING**
+Status: **TELEMETRY BASELINE ACCEPTED — CANARY READINESS SOAK PASSED; FULL ACCEPTANCE PENDING**
 
 This report records the operator's 2026-10-02 acceptance of the Binary API
 telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
 copied into this repository. The latest verified published runtime candidate
-is PR #516 below. A read-only RouterOS check at 10:53 UTC on 2026-10-06 showed
-both canary and production healthy on the earlier PR #511 ARM64 tag, with Redis
-running. The router reports the configured tag, not its cached registry
-digest. This current observation is not the full 30-minute Redis/telemetry
-acceptance or a candidate-specific rollback rehearsal; the earlier PR #497 drill does
-not substitute for either check.
+is PR #518 below. On 2026-10-06, it was staged to the isolated canary and
+passed the RouterOS updater's 30-sample, one-minute `/readyz` soak. Production
+stayed on its prior image. This readiness-only soak does not constitute the
+full 30-minute telemetry/Redis acceptance or a candidate-specific rollback
+rehearsal; the earlier PR #497 drill does not substitute for either check.
 
-## Latest RouterOS read-only check — 2026-10-06 10:53 UTC
+## Latest canary read-back — PR #518 — 2026-10-06 12:47 UTC
+
+The RouterOS updater's pending record showed candidate tag
+`sha-8f6f14d80619bb3ea61cade26a495a570f7b9bfd-arm64`, prior production tag
+`sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`, commit
+`8f6f14d80619bb3ea61cade26a495a570f7b9bfd`, and stage time 15:39:56 local.
+The installed script was inspected read-only in WinBox: it records a staged
+candidate only after 30 successful readiness samples at one-minute intervals;
+any failed or mismatched sample restores the canary image. The pending record
+therefore confirms that this readiness gate passed. An independent GHCR HEAD
+request verified the ARM64 registry digest as
+`sha256:5e7ff2ed3de1dd9dfe05758a024330f5ed0b469b8db325320d1b94c7597f9b0e`.
+
+A direct request to the isolated canary returned `/readyz` revision
+`8f6f14d80619bb3ea61cade26a495a570f7b9bfd`; anonymous requests to `/metrics`
+and `/api/events` returned HTTP 401. RouterOS WebFig showed the canary and
+production containers healthy and Redis running. Production's configured tag
+remained the prior PR #511 image. RouterOS reports the configured immutable
+tag but does not expose an independently verifiable digest for the locally
+cached image. No production container, RouterOS policy, VPN session, user,
+certificate, CA, or persistent data was changed.
+
+This completed only the updater's repeated readiness gate. It did not sample
+authenticated telemetry, Redis/outbox delivery, event latency/freshness,
+resource impact, or a nonzero VPN-session transition; nor did it exercise API
+restart/recovery, event integrity, counter reset, REST/Binary parity, SQLite
+restore, or rollback of this candidate. Full issue #199 acceptance and
+production promotion remain pending.
+
+## Earlier RouterOS read-only check — 2026-10-06 10:53 UTC
 
 The already-open WebFig container table showed both canary and production
 configured with `sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`
