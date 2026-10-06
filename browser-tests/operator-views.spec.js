@@ -415,6 +415,31 @@ test('539 CSS-pixel 200% zoom-equivalent viewport keeps sign-out label readable'
   expect(pageWidth, 'the page must not overflow the zoom-equivalent viewport').toBeLessThanOrEqual(539);
 });
 
+test('dashboard metric context wraps instead of truncating at 200%-zoom width', async ({ page }) => {
+  // A 1080px desktop at 200% zoom is approximately 540 CSS px. This viewport
+  // approximation supplements, but does not replace, a real browser-zoom check.
+  await page.setViewportSize({ width: 540, height: 700 });
+  const context = page.locator('#overview .metric span').filter({ hasText: 'Internet and home network protected' });
+  await expect(context).toBeVisible();
+  const layout = await context.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      whiteSpace: style.whiteSpace,
+      textOverflow: style.textOverflow,
+      lineClamp: style.webkitLineClamp,
+      width: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    };
+  });
+  expect(layout.whiteSpace, 'essential metric context can wrap').toBe('normal');
+  expect(layout.textOverflow, 'essential metric context is not ellipsized').toBe('clip');
+  expect(layout.lineClamp, 'metric context remains compact').toBe('2');
+  expect(layout.width, 'metric context has a rendered width').toBeGreaterThan(0);
+  expect(layout.scrollWidth, 'metric context does not overflow its box').toBeLessThanOrEqual(layout.width);
+  const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(pageWidth, 'the page must not overflow at the zoom-equivalent viewport').toBeLessThanOrEqual(540);
+});
+
 test('forced-colors mode keeps Dashboard navigation and keyboard focus visible', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await expect.poll(() => page.evaluate(() => window.matchMedia('(forced-colors: active)').matches))
