@@ -1196,3 +1196,17 @@ desktop, tablet, and mobile sizes with synthetic local data and verifies that
 no certificate-revocation request is sent. This is application/test evidence,
 not live RouterOS acceptance; certificate retirement, CRL enforcement, active
 session behavior, and reconnect results remain unverified.
+
+**2026-10-06 PR #539 publication:** the post-merge release workflow for
+`7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95` completed successfully. Both
+architecture-specific immutable images passed registry pull and runtime
+smoke tests, with provenance/SBOM verification in the release workflow:
+
+- AMD64: `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-amd64`, digest
+  `sha256:7b033e547d1400ee270e91dd804c4266d21d5a6b905338e0a8554310caf77bdc`.
+- ARM64: `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, digest
+  `sha256:5bc577fdc322b80530d1027ffd4572006aa598a7a89854292c0bce8022eb9dfa`.
+
+This records publication only. It does not assert that either image is
+deployed to RouterOS; canary/production read-back and the outstanding live
+acceptance gates remain separate and incomplete.

@@ -1092,3 +1092,20 @@ that PR #535 remains publication-only and is not running on canary or
 production. RouterOS did not provide an independent registry digest. No
 container was updated or restarted during the check. This does not complete
 the outstanding live acceptance gates in #192, #194, #199, or #200.
+
+## Post-merge PR #539 artifact (2026-10-06)
+
+The release workflow for commit `7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95`
+completed successfully for AMD64 and ARM64. Both immutable architecture
+images passed publication verification and runtime smoke testing:
+
+| Architecture | Immutable tag | Published manifest digest |
+| --- | --- | --- |
+| AMD64 | `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-amd64` | `sha256:7b033e547d1400ee270e91dd804c4266d21d5a6b905338e0a8554310caf77bdc` |
+| ARM64 | `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64` | `sha256:5bc577fdc322b80530d1027ffd4572006aa598a7a89854292c0bce8022eb9dfa` |
+
+This is build/publish evidence, not a RouterOS deployment or live acceptance
+result. No canary or production image read-back is claimed for this artifact;
+the 30-minute telemetry/Redis window, real VPN session transition, API
+reconnect/snapshot recovery, integrity/parity, restore rehearsal, and live
+authorization checks remain outstanding.
