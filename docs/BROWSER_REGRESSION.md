@@ -62,10 +62,12 @@ At a separate 720×500 CSS-pixel viewport, the suite visits all ten views and
 checks that each view and heading remain reachable without document-level
 horizontal overflow. This approximates a 1440px desktop's content width at
 200% zoom, but it is viewport emulation only and is not an actual browser-zoom
-or manual usability result. A separate 539×700 CSS-pixel case checks a narrower
-zoom-equivalent layout and verifies that the mobile header's sign-out label is
-not clipped. Viewport emulation checks responsive CSS behavior; it does not
-validate physical browser-zoom rendering.
+or manual usability result. A 574×700 CSS-pixel case checks the header and
+sign-out control at the equivalent width of a 1148px desktop at 200%; a
+separate 539×700 CSS-pixel case checks a narrower zoom-equivalent layout and
+verifies that the mobile header's sign-out label is not clipped. Viewport
+emulation checks responsive CSS behavior; it does not validate physical
+browser-zoom rendering.
 
 This is automated coverage of ten views, not a whole-application conformance
 claim. Additional populated/error states beyond the selected screenshots,

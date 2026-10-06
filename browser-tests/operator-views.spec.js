@@ -372,6 +372,29 @@ test('720 CSS-pixel reflow keeps all operator views reachable', async ({ page })
   expect(navigationCanScroll, 'primary navigation remains horizontally scrollable').toBe(true);
 });
 
+test('574 CSS-pixel zoom-equivalent viewport keeps the header within the page', async ({ page }) => {
+  // A 1148px desktop viewport at 200% browser zoom is approximately 574 CSS px.
+  // This complements the narrower 539px guard and does not emulate browser zoom.
+  await page.setViewportSize({ width: 574, height: 700 });
+
+  const headerGeometry = await page.locator('.winbox-menubar').evaluate((header) => {
+    const signOut = header.querySelector('.top-logout button');
+    return {
+      clientWidth: header.clientWidth,
+      scrollWidth: header.scrollWidth,
+      signOutRight: signOut.getBoundingClientRect().right,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(headerGeometry.scrollWidth, 'header contents must not overflow horizontally')
+    .toBeLessThanOrEqual(headerGeometry.clientWidth);
+  expect(headerGeometry.signOutRight, 'sign-out control must remain fully in the viewport')
+    .toBeLessThanOrEqual(headerGeometry.viewportWidth);
+
+  const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(pageWidth, 'the document must not overflow at the tested viewport').toBeLessThanOrEqual(574);
+});
+
 test('539 CSS-pixel 200% zoom-equivalent viewport keeps sign-out label readable', async ({ page }) => {
   // A 1078px desktop viewport at 200% browser zoom has roughly this CSS width.
   // This checks the responsive layout equivalent, not the browser zoom setting.
