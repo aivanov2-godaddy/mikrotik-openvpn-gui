@@ -901,6 +901,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'<details class="dashboard-reference">', page)
         self.assertIn(b"How this dashboard works", page)
         self.assertIn(b"View connections", page)
+        self.assertIn(b'<img class="dashboard-openvpn-logo" src="/static/openvpn-logo.svg?v=20261006-openvpn-logo-v1" alt="OpenVPN">', page)
         self.assertIn(b"Manage devices", page)
         self.assertIn(b"Connection history", page)
         self.assertIn(b'<details class="user-activity-disclosure">', page)
@@ -2114,6 +2115,12 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "application/manifest+json")
         self.assertEqual(json.loads(manifest)["display"], "standalone")
+
+        status, headers, logo = self.request("GET", "/static/openvpn-logo.svg")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["content-type"], "image/svg+xml")
+        self.assertIn(b"<svg", logo)
+        self.assertNotIn(b"<script", logo.lower())
 
     def test_user_profile_lifecycle_and_csrf(self) -> None:
         self.login()

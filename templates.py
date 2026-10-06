@@ -10,6 +10,8 @@ from icons import icon_sprite
 from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from security import has_capability, normalize_role, role_label
 
+ASSET_VERSION = "20261006-openvpn-logo-v1"
+
 
 def _icon(name: str, extra_class: str = "") -> str:
     class_name = f"wb-icon {extra_class}".strip()
@@ -26,10 +28,9 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
         if csrf
         else ""
     )
-    asset_version = "20261002-connection-doctor-v5"
     script_tag = (
-        f'<script src="/static/socket.io.min.js?v={asset_version}" defer></script>'
-        f'<script src="/static/app.js?v={asset_version}" defer></script>'
+        f'<script src="/static/socket.io.min.js?v={ASSET_VERSION}" defer></script>'
+        f'<script src="/static/app.js?v={ASSET_VERSION}" defer></script>'
         if script else ""
     )
     return f"""<!doctype html>
@@ -42,7 +43,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="VPN Dashboard">
-  <link rel="manifest" href="/static/manifest.webmanifest?v={asset_version}">
+  <link rel="manifest" href="/static/manifest.webmanifest?v={ASSET_VERSION}">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260905">
   <link rel="alternate icon" type="image/x-icon" href="/favicon.ico?v=20260905">
   {csrf_meta}
@@ -57,7 +58,7 @@ def _page(title: str, body: str, *, script: bool = False, csrf: str = "") -> str
       }} catch (_) {{ /* storage may be disabled; keep the safe default */ }}
     }})();
   </script>
-  <link rel="stylesheet" href="/static/app.css?v={asset_version}">
+  <link rel="stylesheet" href="/static/app.css?v={ASSET_VERSION}">
   {script_tag}
 </head>
 <body>{icon_sprite()}{body}</body>
@@ -1065,7 +1066,7 @@ def dashboard_page(
     <main class="workspace-content">
       {warning_markup}
       <section class="app-view" id="overview" data-view="overview">
-        <header class="view-heading"><div><p class="eyebrow">VPN DASHBOARD</p><h1>VPN at a glance</h1></div><div class="heading-actions"><span class="live-refresh" data-live-indicator><i></i><span>Live · updated now</span></span><button type="button" class="quiet" data-view-target="live-sessions">{_icon('session')}<span>View connections</span></button>{add_user_button}</div></header>
+        <header class="view-heading"><div class="dashboard-heading-brand"><div><p class="eyebrow">VPN DASHBOARD</p><h1>VPN at a glance</h1></div><img class="dashboard-openvpn-logo" src="/static/openvpn-logo.svg?v={ASSET_VERSION}" alt="OpenVPN"></div><div class="heading-actions"><span class="live-refresh" data-live-indicator><i></i><span>Live · updated now</span></span><button type="button" class="quiet" data-view-target="live-sessions">{_icon('session')}<span>View connections</span></button>{add_user_button}</div></header>
         <section class="metric-grid" aria-label="VPN overview">
           <button class="metric" type="button" data-view-target="vpn-users"><div class="metric-icon" aria-hidden="true">{_icon('users')}</div><div><small>VPN users</small><strong data-user-total>{len(users)}</strong><span>{sum(1 for user in users if not user.get('disabled'))} ready to connect</span></div></button>
           <button class="metric live-metric" type="button" data-view-target="live-sessions"><div class="metric-icon pulse-icon" aria-hidden="true">{_icon('session')}</div><div><small>Connected now</small><strong data-session-total>{len(sessions)}</strong><span data-active-users>{active_users} connected user{'s' if active_users != 1 else ''}</span></div></button>

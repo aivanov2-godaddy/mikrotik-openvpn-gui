@@ -63,6 +63,12 @@ for (const view of views) {
 
     await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
     await expect(page.locator(`[data-view="${view.target}"]`)).toBeVisible();
+    if (view.target === 'overview') {
+      const logo = page.getByRole('img', { name: 'OpenVPN', exact: true });
+      await expect(logo).toBeVisible();
+      const bounds = await logo.boundingBox();
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth));
+    }
 
     await expect(page).toHaveScreenshot(`${view.target}.png`, {
       fullPage: true,
@@ -70,6 +76,25 @@ for (const view of views) {
     });
   });
 }
+
+test('OpenVPN dashboard logo stays within a narrow mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  const logo = page.getByRole('img', { name: 'OpenVPN', exact: true });
+  await expect(logo).toBeVisible();
+  const layout = await page.evaluate(() => {
+    const brand = document.querySelector('#overview .dashboard-heading-brand');
+    const image = document.querySelector('#overview .dashboard-openvpn-logo');
+    return {
+      brandRight: brand.getBoundingClientRect().right,
+      imageRight: image.getBoundingClientRect().right,
+      viewportWidth: document.documentElement.clientWidth,
+      imageLoaded: image.complete && image.naturalWidth > 0,
+    };
+  });
+  expect(layout.imageLoaded).toBe(true);
+  expect(layout.brandRight).toBeLessThanOrEqual(layout.viewportWidth);
+  expect(layout.imageRight).toBeLessThanOrEqual(layout.viewportWidth);
+});
 
 test('Dashboard warning alert state renders consistently', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-1440', 'Additional state snapshots are intentionally desktop-only.');
