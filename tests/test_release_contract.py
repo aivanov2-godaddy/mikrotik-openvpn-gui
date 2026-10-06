@@ -97,6 +97,21 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("credentials, environment values, configuration, database data", installation)
         self.assertIn("canary", deployment.casefold())
 
+    def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:
+        operations = (ROOT / "docs/OPERATIONS.md").read_text(encoding="utf-8")
+
+        self.assertIn("### Live dashboard troubleshooting", operations)
+        self.assertIn("Cloudflare Access session and the dashboard's RouterOS sign-in", operations)
+        self.assertIn("before restarting\ncontainers", operations)
+        self.assertIn("scripts/collect_release_acceptance.py", operations)
+        self.assertIn("--phase canary-prepromotion", operations)
+        self.assertIn("private-collected-evidence.json", operations)
+        self.assertIn("Run the collector first", operations)
+        self.assertIn("never promotes or rolls back", operations)
+        self.assertIn("readiness-only soak", operations)
+        self.assertIn("consume this evaluator report", operations)
+        self.assertIn("not an automatic promotion interlock", operations)
+
     def test_router_local_updater_fetch_is_cache_fresh_and_redirect_bounded(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
             encoding="utf-8"
