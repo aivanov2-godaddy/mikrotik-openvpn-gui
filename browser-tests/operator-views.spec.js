@@ -325,6 +325,79 @@ test('profile delivery actions clearly state that they issue a new identity', as
   await expect(dialog.locator('[data-profile-description]')).toContainText('cannot re-download an earlier profile');
 });
 
+test('staged certificate renewal explains impact and stops at explicit review', async ({ page }) => {
+  await page.getByRole('link', { name: 'Device Profiles', exact: true }).click();
+  const firstUser = page.locator('.user-card').first();
+  const userId = await firstUser.getAttribute('data-user-id');
+  const userName = await firstUser.getAttribute('data-user-name');
+  expect(userId).toBeTruthy();
+  expect(userName).toBeTruthy();
+
+  // The local mock fixture has no expiring certificate. Add the same delegated
+  // action contract emitted by the server-rendered certificate inventory so
+  // this browser test can exercise the renewal dialog without touching RouterOS.
+  await page.evaluate(({ id, name }) => {
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.textContent = 'Renew certificate';
+    trigger.dataset.migrateProfile = '';
+    trigger.dataset.userId = id;
+    trigger.dataset.userName = name;
+    trigger.dataset.legacyCertificate = 'managed-expiring-test-device';
+    trigger.dataset.legacyDevice = 'Test device';
+    trigger.dataset.replacementType = 'renewal';
+    document.querySelector('[data-view="profile-security"]').append(trigger);
+  }, { id: userId, name: userName });
+
+  const previewRequests = [];
+  const profileMutations = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST') return;
+    if (request.url().endsWith('/profiles/preview')) previewRequests.push(request);
+    else if (/\/profiles(?:\?|$)/.test(new URL(request.url()).pathname)) profileMutations.push(request);
+  });
+  await page.route('**/api/users/*/profiles/preview', async (route) => {
+    await route.fulfill({ json: {
+      user: userName,
+      device: 'Test device replacement',
+      reason: 'Replace the expiring test device certificate',
+      policy: 'full-tunnel',
+      dns_mode: 'router',
+      delivery: 'zip',
+      legacy_migration: true,
+      replacement_type: 'renewal',
+      old_profile_remains_active: true,
+      review_token: 'synthetic-review-token',
+    } });
+  });
+
+  await page.getByRole('button', { name: 'Renew certificate', exact: true }).click();
+  const dialog = page.locator('#profile-dialog');
+  await expect(dialog.locator('[data-profile-title]')).toHaveText('Renew device certificate');
+  await expect(dialog.locator('[data-profile-description]')).toContainText('does not revoke the existing certificate');
+  await expect(dialog.locator('[data-migration-note]')).toContainText('No connection will be interrupted');
+
+  await dialog.getByLabel('Phone or device').fill('Test device replacement');
+  await dialog.getByLabel('Reason for issuing access').fill('Replace the expiring test device certificate');
+  await dialog.getByLabel('Protect file with').fill('synthetic-passphrase');
+  await dialog.getByRole('button', { name: 'Review profile request' }).click();
+
+  await expect(dialog.locator('[data-profile-review]')).toContainText('without revoking the existing certificate');
+  await expect(dialog.locator('[data-profile-submit]')).toHaveText('Create and download .zip');
+  await expect.poll(() => previewRequests.length).toBe(1);
+  expect(JSON.parse(previewRequests[0].postData()).legacy_certificate).toBe('managed-expiring-test-device');
+  expect(profileMutations).toHaveLength(0);
+
+  await dialog.getByLabel('Phone or device').fill('Different replacement device');
+  await expect(dialog.locator('[data-profile-review]')).toBeHidden();
+  await expect(dialog.locator('[data-profile-submit]')).toHaveText('Review profile request');
+  expect(profileMutations).toHaveLength(0);
+
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+  expect(profileMutations).toHaveLength(0);
+});
+
 async function tabTo(page, locator) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;
