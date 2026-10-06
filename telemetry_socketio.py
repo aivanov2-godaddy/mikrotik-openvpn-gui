@@ -5,7 +5,8 @@ small adapter boundary needed by a future Socket.IO server (for example,
 ``python-socketio``) without importing that optional dependency or changing
 the RouterOS mutation path.  A caller must explicitly attach a Socket.IO
 server and provide a session resolver; unauthenticated or non-RouterOS
-sessions are rejected before a subscription is created.
+sessions are rejected before a subscription is created and revalidated before
+every client poll and server-pushed frame.
 """
 
 from __future__ import annotations
@@ -52,20 +53,28 @@ class SocketIOTelemetryAdapter:
     def attach(self, server: Any) -> None:
         """Register handlers on an already-created Socket.IO server."""
 
-        if not callable(getattr(server, "on", None)) or not callable(getattr(server, "emit", None)):
-            raise TypeError("Socket.IO server must provide on() and emit()")
+        required_methods = ("on", "emit", "get_environ", "disconnect")
+        if any(not callable(getattr(server, method, None)) for method in required_methods):
+            raise TypeError(
+                "Socket.IO server must provide on(), emit(), get_environ(), and disconnect()"
+            )
         self._server = server
         server.on("connect", self.on_connect, namespace=self.namespace)
         server.on("disconnect", self.on_disconnect, namespace=self.namespace)
         server.on("telemetry.subscribe", self.on_subscribe, namespace=self.namespace)
         server.on("telemetry.poll", self.on_poll, namespace=self.namespace)
 
-    def on_connect(self, sid: str, environ: Mapping[str, Any] | None = None, auth: Any = None) -> bool:
-        """Authenticate a dashboard session before opening a subscription."""
+    def on_connect(
+        self,
+        sid: str,
+        environ: Mapping[str, Any] | None = None,
+        _auth: Any = None,
+    ) -> bool:
+        """Authenticate a server-side dashboard session before subscribing."""
 
+        # The transport's auth payload is client-controlled. Authentication is
+        # resolved only from the server-provided request environment.
         facts = dict(environ or {})
-        if isinstance(auth, Mapping):
-            facts.update({str(key): value for key, value in auth.items()})
         principal = self._session_resolver(str(sid), facts)
         if principal is None or not principal.may_stream:
             return False
@@ -83,7 +92,7 @@ class SocketIOTelemetryAdapter:
     def on_subscribe(self, sid: str, data: Any = None) -> dict[str, Any]:
         """Return a bounded replay from the subscription's current cursor."""
 
-        subscription = self._subscription(sid)
+        subscription = self._authorized_subscription(sid)
         after = data.get("after_sequence") if isinstance(data, Mapping) else None
         frames = self._gateway.poll(subscription, after_sequence=after)
         return {"protocol_version": 1, "frames": frames}
@@ -94,6 +103,7 @@ class SocketIOTelemetryAdapter:
         response = self.on_subscribe(sid, data)
         if self._server is not None and response["frames"]:
             for frame in response["frames"]:
+                self._authorized_subscription(sid)
                 self._server.emit(frame["event"], frame, to=str(sid), namespace=self.namespace)
         return response
 
@@ -104,7 +114,15 @@ class SocketIOTelemetryAdapter:
         if self._server is None:
             return count
         for sid, subscription in list(self._subscriptions.items()):
+            try:
+                self._authorized_subscription(sid)
+            except SocketIOTelemetryError:
+                continue
             for frame in self._gateway.poll(subscription):
+                try:
+                    self._authorized_subscription(sid)
+                except SocketIOTelemetryError:
+                    break
                 self._server.emit(frame["event"], frame, to=sid, namespace=self.namespace)
         return count
 
@@ -112,4 +130,30 @@ class SocketIOTelemetryAdapter:
         subscription = self._subscriptions.get(str(sid))
         if not subscription:
             raise SocketIOTelemetryError("telemetry subscription is not active")
+        return subscription
+
+    def _authorized_subscription(self, sid: str) -> str:
+        """Revalidate the server-side session before returning telemetry."""
+
+        sid = str(sid)
+        subscription = self._subscription(sid)
+        try:
+            facts = self._server.get_environ(sid, namespace=self.namespace)
+            principal = (
+                self._session_resolver(sid, dict(facts))
+                if isinstance(facts, Mapping)
+                else None
+            )
+        except Exception:
+            # Missing session state and resolver failures both fail closed.
+            principal = None
+        if principal is None or not principal.may_stream:
+            self.on_disconnect(sid)
+            try:
+                self._server.disconnect(sid, namespace=self.namespace)
+            except Exception:
+                # The subscription has already been closed; a concurrent
+                # transport disconnect must not restore access or leak frames.
+                pass
+            raise SocketIOTelemetryError("telemetry authorization is no longer active")
         return subscription
