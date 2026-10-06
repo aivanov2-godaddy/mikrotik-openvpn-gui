@@ -226,8 +226,8 @@ and runtime smoke. ARM64 tag/digest:
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-03d08a2e6a08554c68cf74930049ac29ac0b3219-arm64` /
 `sha256:5d5645d7613f74081bb01e390d6201ba6230968de72248119b39c9a4274ecad4`.
 This is publication/CI evidence only; no RouterOS read-back confirms this image
-on either canary or production. The latest timestamped RouterOS tag/health
-read-back remains PR #484 above. The 30-minute telemetry/Redis soak and
+on either canary or production. At that publication, the latest timestamped
+RouterOS tag/health read-back was PR #484. The 30-minute telemetry/Redis soak and
 rollback acceptance remain pending.
 
 ### Previously published mainline artifact — PR #492 — 2026-10-05
@@ -242,8 +242,8 @@ runtime smoke tests. Its ARM64 image is
 `sha256:682a6dc61aeb47cc0e0979ab03d3c4f30d8497f8f0fbb44282bef84267f7f373`.
 The commit updates only the repository's RouterOS updater example, docs, and
 tests; its 30-sample readiness soak has not been installed or exercised on the
-router. This is a newer publication, **not** a verified deployment. The latest
-timestamped RouterOS tag/health read-back remains PR #484 above, and #199's
+router. This is a newer publication, **not** a verified deployment. At that
+publication, the latest timestamped RouterOS tag/health read-back was PR #484; #199's
 telemetry/Redis soak and rollback acceptance remain open. The latest numbered
 release remains v2.7.0.
 
@@ -863,7 +863,7 @@ remains for compatibility. This is acceptance-tooling hardening, not a runtime
 image or RouterOS change, and does not complete the pending device-side #199
 soak, event/reconnect exercises, or rollback/restore evidence.
 
-**Latest timestamped RouterOS read-back (2026-10-05):** WebFig showed PR #484's
+**Historical timestamped RouterOS read-back (2026-10-05):** WebFig showed PR #484's
 immutable ARM64 tag `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` on
 both canary and production, each healthy (`H`), with Redis running (`R`). Its
 registry digest is `sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73`;
