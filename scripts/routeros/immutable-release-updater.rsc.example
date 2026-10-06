@@ -344,6 +344,7 @@
             :log error ("vpn-gui immutable updater: canary sample " . $sample . "/" . $canaryValidationSamples . " result=" . $canarySampleResult)
             :break
         }
+        :log info ("vpn-gui immutable updater: canary readiness sample " . $sample . "/" . $canaryValidationSamples . " passed revision=" . $commit)
     }
     :if (!$canaryStable) do={
         :log error ("vpn-gui immutable updater: canary readiness soak failed; restoring " . $canaryRestoreImage . "; production unchanged")
