@@ -29,6 +29,14 @@ status, body, or browser-console error for the current status poll was captured,
 so the failure layer remains unknown. This observation does not prove that the
 Socket.IO stream was up or down and is not a passing acceptance sample.
 
+During a subsequent read-only foreground check, the same dashboard later showed
+`Live · SOCKETIO` without a page reload after the earlier delayed indicator.
+The view continued to show Operational service health and zero connected VPN
+users. This demonstrates one automatic return to the live badge in the browser,
+but no stream frame, authenticated status response, or session transition was
+captured; the trigger and cause are unknown. It is not evidence of a sustained
+freshness window or a passing #199 acceptance sample.
+
 After PR #522 publication, a second read-only observation confirmed the same
 dashboard state: `Connection data delayed`, Service Health `Operational`, and
 zero connected users. In RouterOS WebFig, the canary and production containers
