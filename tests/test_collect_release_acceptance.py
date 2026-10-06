@@ -87,6 +87,45 @@ class ReleaseCollectionTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 0)
         self.assertIn("[--production-metrics-url PRODUCTION_METRICS_URL]", output.getvalue())
+        self.assertIn("--canary-api-token-env", output.getvalue())
+        self.assertIn("--production-api-token-env", output.getvalue())
+
+    def test_http_probe_sends_api_token_as_bearer_without_cookie(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        token = "vpt_" + "c" * 48
+
+        class Response:
+            status = 200
+
+            def __enter__(self) -> Response:
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            @staticmethod
+            def read(_limit: int) -> bytes:
+                return b"ok"
+
+        opener = Mock()
+        opener.open.return_value = Response()
+        with patch.object(collector, "build_opener", return_value=opener):
+            self.assertEqual(
+                collector._get("https://canary.example/metrics", api_token=token, timeout=1),
+                (200, b"ok"),
+            )
+
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_header("Authorization"), f"Bearer {token}")
+        self.assertIsNone(request.get_header("Cookie"))
+        with self.assertRaisesRegex(ValueError, "either a session cookie or an API token"):
+            collector._get(
+                "https://canary.example/metrics",
+                cookie="session=secret-cookie",
+                api_token=token,
+                timeout=1,
+            )
 
     def test_registry_digest_uses_bounded_ghcr_token_and_manifest_head(self) -> None:
         from scripts import collect_release_acceptance as collector
@@ -286,10 +325,12 @@ class ReleaseCollectionTests(unittest.TestCase):
         registry_digests: dict[str, str | None] | None = None,
         clear_prior_production_runtime_evidence: bool = False,
         omit_prior_production_digest: bool = False,
-    ) -> tuple[int, dict[str, object], list[tuple[str, str | None]]]:
+        cookie: str | None = "session=secret-cookie",
+        metrics_tokens: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, object], list[tuple[str, str | None, str | None]]]:
         time = FakeTime()
         time.wall_clock_adjustment_seconds = wall_clock_adjustment_seconds
-        seen: list[tuple[str, str | None]] = []
+        seen: list[tuple[str, str | None, str | None]] = []
         metrics_observations = 0
         source = evidence()
         if production_revision is not None:
@@ -320,9 +361,15 @@ class ReleaseCollectionTests(unittest.TestCase):
             for deployment in source["deployments"]:
                 deployment["redis_publish_verified"] = True
 
-        def probe(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
+        def probe(
+            url: str,
+            *,
+            timeout: float,
+            cookie: str | None = None,
+            api_token: str | None = None,
+        ) -> tuple[int, bytes]:
             del timeout
-            seen.append((url, cookie))
+            seen.append((url, cookie, api_token))
             if url.endswith("/healthz"):
                 return (200 if ready else 503), b'{"status":"ok"}'
             if url.endswith("/readyz"):
@@ -392,7 +439,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 }
                 if include_metrics else None
             ),
-            cookie="session=secret-cookie",
+            cookie=cookie,
+            metrics_tokens=metrics_tokens,
             duration_seconds=1,
             interval_seconds=0.5,
             probe=probe,
@@ -441,12 +489,55 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(supervisor["reconnects"]["delta"], 0)
         self.assertEqual(supervisor["failures"]["delta"], 0)
         self.assertGreater(supervisor["last_snapshot_timestamp_seconds"], 0)
-        self.assertTrue(all(cookie == "session=secret-cookie" for _, cookie in seen))
+        self.assertTrue(all(
+            cookie == ("session=secret-cookie" if url.endswith("/metrics") else None)
+            for url, cookie, _ in seen
+        ))
+        self.assertTrue(all(api_token is None for _, _, api_token in seen))
         serialized = json.dumps(report)
         self.assertNotIn("must-not-appear-in-output", serialized)
         self.assertNotIn("private-label", serialized)
         self.assertNotIn("session=secret-cookie", serialized)
         self.assertNotIn("192.168.1.2", serialized)
+
+    def test_per_environment_api_tokens_are_sent_only_to_their_metrics_origin(self) -> None:
+        code, report, seen = self.run_collection(
+            cookie=None,
+            metrics_tokens={
+                "canary": "vpt_" + "c" * 48,
+                "production": "vpt_" + "p" * 48,
+            },
+        )
+
+        self.assertEqual(code, 0)
+        self.assertTrue(all(cookie is None for _, cookie, _ in seen))
+        self.assertTrue(all(
+            api_token == (
+                "vpt_" + "c" * 48 if "192.168.1.2" in url and url.endswith("/metrics")
+                else "vpt_" + "p" * 48 if "private.example" in url and url.endswith("/metrics")
+                else None
+            )
+            for url, _, api_token in seen
+        ))
+        serialized = json.dumps(report)
+        self.assertNotIn("vpt_" + "c" * 48, serialized)
+        self.assertNotIn("vpt_" + "p" * 48, serialized)
+
+    def test_pre_promotion_does_not_use_or_require_production_metrics_token(self) -> None:
+        code, report, seen = self.run_collection(
+            phase="canary-prepromotion",
+            production_revision="c" * 40,
+            cookie=None,
+            metrics_tokens={"canary": "vpt_" + "c" * 48, "production": "vpt_" + "p" * 48},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertTrue(report["passed"])
+        self.assertTrue(all(
+            api_token == ("vpt_" + "c" * 48 if url.endswith("/metrics") and "192.168.1.2" in url else None)
+            for url, _, api_token in seen
+        ))
+        self.assertNotIn("vpt_" + "p" * 48, json.dumps(report))
 
     def test_measured_telemetry_slo_violations_fail_closed(self) -> None:
         code, report, _ = self.run_collection(
@@ -650,7 +741,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 self.assertEqual(report["evidence"]["deployments"][1]["redis_publish_verified"], False)
                 self.assertIsNone(report["evidence"]["deployments"][1]["digest"])
                 self.assertEqual(report["deployments"][1]["metrics_sample_count"], 0)
-                self.assertFalse(any(url == "https://private.example/metrics" for url, _ in seen))
+                self.assertFalse(any(url == "https://private.example/metrics" for url, _, _ in seen))
                 self.assertEqual(
                     report["evidence"]["collection"]["registry_digest_verification_scope"],
                     "candidate-canary-only",
@@ -744,24 +835,24 @@ class ReleaseCollectionTests(unittest.TestCase):
                 duration_seconds=1799,
             )
 
-    def test_authenticated_metrics_cannot_send_cookies_over_http(self) -> None:
+    def test_authenticated_metrics_cannot_send_credentials_over_http(self) -> None:
         with self.assertRaisesRegex(ValueError, "require HTTPS"):
             collect(
                 evidence(),
                 readyz_urls={"canary": "http://192.168.1.2", "production": "https://private.example"},
                 metrics_urls={"canary": "http://192.168.1.2"},
-                cookie="session=secret-cookie",
+                metrics_tokens={"canary": "vpt_" + "c" * 48},
                 duration_seconds=1,
                 minimum_soak_seconds=1,
             )
 
-    def test_rejects_cross_host_metrics_origin_before_sending_cookie(self) -> None:
+    def test_rejects_cross_host_metrics_origin_before_sending_token(self) -> None:
         with self.assertRaisesRegex(ValueError, "origin must exactly match"):
             collect(
                 evidence(),
                 readyz_urls={"canary": "https://canary.example", "production": "https://production.example"},
                 metrics_urls={"canary": "https://attacker.example"},
-                cookie="session=secret-cookie",
+                metrics_tokens={"canary": "vpt_" + "c" * 48},
                 duration_seconds=1,
                 minimum_soak_seconds=1,
             )

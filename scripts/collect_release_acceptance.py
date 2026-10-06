@@ -148,10 +148,20 @@ def _origin(base_url: str) -> tuple[str, str, int]:
     return scheme, host, port
 
 
-def _get(url: str, *, cookie: str | None, timeout: float) -> tuple[int, bytes]:
+def _get(
+    url: str,
+    *,
+    cookie: str | None = None,
+    api_token: str | None = None,
+    timeout: float,
+) -> tuple[int, bytes]:
     headers = {"Accept": "application/json, text/plain; version=0.0.4"}
+    if cookie and api_token:
+        raise ValueError("use either a session cookie or an API token, not both")
     if cookie:
         headers["Cookie"] = cookie
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
     request = Request(url, headers=headers, method="GET")
     opener = build_opener(_NoRedirect())
     try:
@@ -495,6 +505,7 @@ def collect(
     readyz_urls: dict[str, str],
     metrics_urls: dict[str, str] | None = None,
     cookie: str | None = None,
+    metrics_tokens: dict[str, str] | None = None,
     duration_seconds: float = 1800,
     interval_seconds: float = 60,
     timeout_seconds: float = 5,
@@ -532,16 +543,27 @@ def collect(
     metrics_urls = metrics_urls or {}
     if not set(metrics_urls).issubset(ENVIRONMENTS):
         raise ValueError("metrics URL environment must be canary or production")
+    metrics_tokens = metrics_tokens or {}
+    if not set(metrics_tokens).issubset(ENVIRONMENTS):
+        raise ValueError("metrics token environment must be canary or production")
     if phase == "canary-prepromotion":
         metrics_urls = {name: url for name, url in metrics_urls.items() if name == "canary"}
+        metrics_tokens = {name: token for name, token in metrics_tokens.items() if name == "canary"}
+    if cookie and metrics_tokens:
+        raise ValueError("use either per-environment API tokens or a session cookie, not both")
+    if set(metrics_tokens).difference(metrics_urls):
+        raise ValueError("each metrics API token requires a matching metrics URL")
+    for environment, token in metrics_tokens.items():
+        if not re.fullmatch(r"vpt_[A-Za-z0-9_-]{32,128}", token):
+            raise ValueError(f"{environment} metrics API token has an invalid format")
     for environment, metrics_url in metrics_urls.items():
         if _origin(metrics_url) != _origin(readyz_urls[environment]):
             raise ValueError(f"{environment} metrics URL origin must exactly match its readiness probe origin")
-    if cookie and any(
+    if (cookie or metrics_tokens) and any(
         urlsplit(url).scheme != "https"
-        for url in (*readyz_urls.values(), *metrics_urls.values())
+        for url in metrics_urls.values()
     ):
-        raise ValueError("authenticated acceptance probes require HTTPS")
+        raise ValueError("authenticated metrics probes require HTTPS")
 
     safe_records: dict[str, dict[str, Any]] = {}
     for record, environment in zip(records, ENVIRONMENTS):
@@ -601,15 +623,18 @@ def collect(
         observed_monotonic = monotonic()
         for environment in ENVIRONMENTS:
             base = readyz_urls[environment]
-            health_code, _ = probe(_probe_url(base, "/healthz"), cookie=cookie, timeout=timeout_seconds)
-            ready_code, ready_body = probe(_probe_url(base, "/readyz"), cookie=cookie, timeout=timeout_seconds)
+            health_code, _ = probe(_probe_url(base, "/healthz"), timeout=timeout_seconds)
+            ready_code, ready_body = probe(_probe_url(base, "/readyz"), timeout=timeout_seconds)
             ready_payload = _json_status(ready_body) if ready_code == 200 else {}
             revision = ready_payload.get("revision") if isinstance(ready_payload.get("revision"), str) else ""
             metrics: dict[str, float] = {}
             metrics_valid = False
             if environment in metrics_urls and (phase == "postpromotion" or environment == "canary"):
                 metrics_code, metrics_body = probe(
-                    _probe_url(metrics_urls[environment], "/metrics"), cookie=cookie, timeout=timeout_seconds
+                    _probe_url(metrics_urls[environment], "/metrics"),
+                    cookie=cookie,
+                    api_token=metrics_tokens.get(environment),
+                    timeout=timeout_seconds,
                 )
                 if metrics_code == 200:
                     metrics = _parse_metrics(metrics_body)
@@ -801,7 +826,9 @@ def main() -> int:
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
     parser.add_argument("--canary-metrics-url", required=True, help="canary app origin for authenticated /metrics")
     parser.add_argument("--production-metrics-url", help="production app origin for authenticated /metrics (required for postpromotion acceptance)")
-    parser.add_argument("--cookie-env", help="environment variable containing a short-lived session Cookie header value")
+    parser.add_argument("--cookie-env", help="legacy environment variable containing a short-lived session Cookie header value")
+    parser.add_argument("--canary-api-token-env", help="environment variable containing a canary health.read API token")
+    parser.add_argument("--production-api-token-env", help="environment variable containing a production health.read API token")
     parser.add_argument("--duration-seconds", type=float, default=1800)
     parser.add_argument("--interval-seconds", type=float, default=60)
     parser.add_argument("--timeout-seconds", type=float, default=5)
@@ -819,6 +846,17 @@ def main() -> int:
             raise ValueError("the requested cookie environment variable is unset or empty")
         if cookie and ("\r" in cookie or "\n" in cookie or len(cookie) > 8192):
             raise ValueError("the session cookie value contains invalid characters or exceeds the size limit")
+        metrics_tokens: dict[str, str] = {}
+        token_environment_names = {"canary": args.canary_api_token_env}
+        if args.phase != "canary-prepromotion":
+            token_environment_names["production"] = args.production_api_token_env
+        for environment, variable_name in token_environment_names.items():
+            if not variable_name:
+                continue
+            token = os.environ.get(variable_name)
+            if not token:
+                raise ValueError(f"the requested {environment} API-token environment variable is unset or empty")
+            metrics_tokens[environment] = token
         metrics_urls = {
             name: value for name, value in (
                 ("canary", args.canary_metrics_url), ("production", args.production_metrics_url)
@@ -831,6 +869,7 @@ def main() -> int:
             readyz_urls={"canary": args.canary_url, "production": args.production_url},
             metrics_urls=metrics_urls,
             cookie=cookie,
+            metrics_tokens=metrics_tokens,
             duration_seconds=args.duration_seconds,
             interval_seconds=args.interval_seconds,
             timeout_seconds=args.timeout_seconds,
