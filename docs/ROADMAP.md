@@ -20,14 +20,39 @@ AMD64 image tag/digest:
 `sha256:c5549656a5706786579052e274c0018f405ea2c7530956a3761143ca200e8b1f`.
 Both image builds passed runtime smoke tests and detached provenance/SBOM
 verification. At the v2.7.0 publication on 2026-10-04, the `routeros-stable`
-manifest pointed to this commit; as of 2026-10-06 it names the PR #504 candidate
-recorded below. The 2026-10-04 RouterOS WebFig read-back confirmed the v2.7.0 ARM64 immutable tag
+manifest pointed to this commit; as of 2026-10-06 it names the newer PR #515
+candidate recorded below. The 2026-10-04 RouterOS WebFig read-back confirmed the v2.7.0 ARM64 immutable tag
 on both canary and production containers, each with the RouterOS healthy
 (`H`) marker. This verifies image deployment and container health only; it is
 not formal VPN/telemetry acceptance and does not replace the outstanding
 operator acceptance evidence tracked below.
 
-### Latest published candidate and RouterOS read-back — PR #504 — 2026-10-06
+### Latest published candidate and current RouterOS read-back — 2026-10-06
+
+PR [#515](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/515)
+merged as `307b413eed988f405a8446ef0a0e5cbcf2333a74`. Publication workflow
+[#37451430328](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37451430328)
+passed source/browser checks, both architecture builds, runtime smoke, and
+exact-digest provenance/SBOM verification. The `routeros-stable` manifest
+read-back names this commit and both immutable tags.
+
+| Platform | Immutable tag | Published registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-arm64` | `sha256:94881c473984b4860443e1675d05cd15996d9587d197a105e5307cfb7e5d7ac9` |
+| CHR/x86 AMD64 (evaluation) | `sha-307b413eed988f405a8446ef0a0e5cbcf2333a74-amd64` | `sha256:4aff5ef95d6de644039325c8f7c1b541ee9e9af50ef7624e6e48abc21b637d69` |
+
+At 10:53 UTC, a read-only RouterOS WebFig container-list observation showed
+both canary and production configured with the earlier PR #511 ARM64 immutable
+tag `sha-72a9c78a640a43e3227e12652b4e7f2505a0aacb-arm64`, each healthy
+(`H`), and Redis running (`R`). This supersedes the older PR #504 deployment
+read-back below. The cause and timing of the tag change were not established.
+RouterOS exposed the configured tag, not an independent image digest.
+PR #515 is published but was not observed on either router container. This
+point-in-time observation does not satisfy the 30-minute telemetry/Redis soak,
+client-event, reconnect, rollback, or post-promotion acceptance gates. No
+router configuration or VPN data was changed during the read-back.
+
+### Earlier published candidate and RouterOS read-back — PR #504 — 2026-10-06
 
 PR [#504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/504)
 merged as `a62724c94261b00866fa3d55416a7b540305d40b`. Publication workflow
@@ -625,6 +650,22 @@ that restart; the later live-update observation is recorded above.
 | [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202) | Policy-template apply revalidates a session-bound preview receipt and current RouterOS state (#223); session termination reads back RouterOS state and reports verified, failed, or unknown outcomes; policy-template application now performs per-user RouterOS profile read-back and preserves local metadata only after verification (#250); user deletion verifies managed certificate revocation before account deletion and verifies account absence before clearing local metadata, reconciling lost responses and reporting unknown/partial outcomes (#261); single-user suspend/restore verifies the RouterOS `disabled` state before clearing local enforcement, reconciles lost PATCH responses, and distinguishes mismatch from unavailable read-back (#264); single-user edits verify RouterOS state before committing metadata, reconcile response loss and keep passwords unverifiable/partial (#265, #272); generated PPP rate-limit profile state is now bound into account-provision, edit, and policy-template review receipts, with exact `rate-limit` read-back after create/update; bulk suspend/revoke use read-back and preserve partial progress; device revocation and profile issuance require reviewed state and reconcile failures (#279, #282, #292, #293); account creation and duplication now preview copied/effective settings, exclude secrets from review display, and reject stale intent before mutation (#294); all review-first edit, policy apply, suspension, device revoke, profile issue, and account provision flows now use server-side atomic single-use receipts, with replay rejected and changed password values bound by a process-keyed commitment (#295); bulk suspend/revoke/tag bind receipts to selected users and relevant account/session/certificate/tag state, reject stale previews, and prevent replay (#298); account deletion now reviews the exact managed-certificate scope and consumes a one-time session-bound receipt before revocation/deletion, rejecting changed certificate inventories (#301); deletion review also binds dashboard-local metadata and clears account-scoped tags, policy assignment, controls, and email only after confirmed absence (#302); individual session termination now binds the exact live session identity to a single-use review receipt and rejects changed sessions before disconnecting (#303); access restoration also requires a one-time receipt bound to the disabled account state (#304); account-provisioning failure verifies account/certificate cleanup and compares generated PPP profile state against the reviewed snapshot, retaining shared-profile residue and reporting `partial`/`unknown` explicitly instead of falsely claiming complete recovery; failed profile issuance now reads back the uniquely named partial certificate after cleanup and reports unresolved RouterOS residue instead of silently ignoring a rejected DELETE; relative expiry selections now remain stable across review/apply second boundaries (#305); ambiguous individual session-termination DELETE responses are now reconciled by exact-session read-back even when the request response is lost (#317); the route-by-route mutation and local-write boundary is documented in [MUTATION_SAFETY.md](MUTATION_SAFETY.md). | Live-router acceptance across the supported release/model matrix and independent review of ambiguous/competing-operator scenarios; compensating recovery may remain partial/unknown because RouterOS has no cross-resource transaction. |
 | [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | Immutable image tags, SPDX SBOM and provenance generation (#221); publication verifies each detached attestation against the exact image digest, expected signer workflow, and source commit (#249); installation docs distinguish CI smoke from hardware evidence, identify ARM64 deployment context, evaluation-only AMD64, unsupported ARM32, unverified RouterOS releases/models, and no universal resource minimums; workflow #332 splits Linux full verification from Windows browser regression, with both required before publishing; runtime revision `04d7d0b1cb653865d3bbe8c516c92b28ee0cb315` was published with ARM64 digest `sha256:d2b07cd6fcf4403a2d26212a2ce48a6c29846638d2a251c38be64e8b29faf6a3` and AMD64 digest `sha256:172e9b5803305d53dc2a74435231681309e7e5862e518da61a58c45395b448cf`; exact-digest provenance/SBOM verification, runtime smoke, and stable manifest update passed (run #37129113703). This is registry evidence, not a deployment claim. | RouterOS compatibility for this revision and other hardware/releases, independent on-router digest comparison, and measured per-device CPU/memory/storage baselines. |
 | [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Completed: authenticated, bounded, allowlisted diagnostic bundle with no RouterOS calls (#225); static, redacted RouterOS error guidance (#247); keyboard-accessible preview-before-download disclosure with explicit contents/exclusions and unchanged authenticated download (#256). Tests verify privacy exclusions, bounded export, no RouterOS dependency, and rendered desktop/tablet/mobile download behavior. |
+
+**2026-10-06 repository progress:** PR #515 adds rendered cross-theme
+design-token, text-contrast, and keyboard-focus gates for Dashboard, VPN Users,
+and Connections at desktop/tablet/mobile sizes; the five-task human study,
+assistive-technology review, and actual 200% browser-zoom review in #192 remain
+open. PR #514 rejects explicitly foreign `Origin` requests to authenticated
+SSE before any RouterOS query, with a regression test; origin-less requests
+still require the existing session and `sessions.read` authorization. Live
+proxy/session expiry and revocation checks and independent security review in
+#200 remain open. PR #516 adds staged same-CA renewal for expiring or expired
+dashboard-managed devices, requires nonempty exact RouterOS certificate ID and
+fingerprint ownership evidence, and removes a post-revocation report that could
+not attribute a session to a certificate. Issuance does not revoke the source;
+replacement import/test and retirement remain separate reviewed steps. The
+live client, CRL, active-session, and canary rollback checks in #194 remain
+open. These repository checks are not router acceptance evidence.
 
 **#199 release-acceptance follow-up (PR #495):** Adds separate
 `canary-prepromotion` and `postpromotion` phases, phase-scoped GHCR digest
