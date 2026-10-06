@@ -6,17 +6,17 @@ This report records the operator's 2026-10-02 acceptance of the Binary API
 telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
-copied into this repository. The latest verified published runtime candidate
-is PR #522, commit `1203b768a690dd80ce04a40c1cd2ab0ad47d3640`, ARM64 tag
-`sha-1203b768a690dd80ce04a40c1cd2ab0ad47d3640-arm64`, digest
-`sha256:def674be0ab82f3e020c13a6549b7e8c9c82c79305cc488002660c13eb9288d2`.
-The publication workflow passed source and rendered-browser verification,
-ARM64/AMD64 builds, provenance/SBOM verification, and runtime smoke tests. A
-subsequent private, stage-only RouterOS run placed this candidate on the
-isolated canary and recorded a successful 30-sample, one-minute readiness
-soak. Production remained on its prior immutable image. This is readiness-only
-evidence: the authenticated 30-minute telemetry/Redis acceptance and the other
-live-client, reconnect, integrity, restore, and rollback gates remain open.
+copied into this repository. The latest verified published runtime is PR #530,
+commit `9e3cba32190aef904fd55b0289217779594bae14`, ARM64 tag
+`sha-9e3cba32190aef904fd55b0289217779594bae14-arm64`, digest
+`sha256:762d10f6d765f435a5c720f67e40b0dbf095a0875fabb520811a514a7ab94ff3`.
+Its publication workflow passed source and rendered-browser verification,
+ARM64/AMD64 builds, provenance/SBOM verification, and runtime smoke tests. The
+separately staged canary readiness candidate remains PR #522; its 30-sample,
+one-minute readiness soak is not evidence that PR #530 is installed. No
+RouterOS read-back confirms the PR #530 image on canary or production.
+Authenticated 30-minute telemetry/Redis acceptance and the other live-client,
+reconnect, integrity, restore, and rollback gates remain open.
 
 ## Authenticated dashboard follow-up — 2026-10-06
 

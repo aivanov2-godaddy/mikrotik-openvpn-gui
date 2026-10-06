@@ -101,3 +101,13 @@ views remain reachable without document-level horizontal overflow and that
 navigation can still scroll to its links. This viewport approximates the
 available width of a 1440px desktop at 200% zoom; it does not emulate actual
 browser zoom and does not replace the manual 200%-zoom review above.
+
+Manual review record (2026-10-06): Dashboard, Connections, and VPN Users were
+inspected in the authenticated browser at actual 200% zoom. Each view remained
+reachable; the primary navigation used horizontal scrolling. The Dashboard's
+traffic helper text was ellipsized. PR #530 changes that text to wrap and adds
+a rendered regression at 540 CSS pixels; the PR and image publication passed,
+but the image has not been read back from RouterOS, so this does not establish
+that the visual fix is deployed. The operator task study and assistive-
+technology review remain outstanding. This spot-check does not claim WCAG
+conformance or replace the other manual review conditions above.
