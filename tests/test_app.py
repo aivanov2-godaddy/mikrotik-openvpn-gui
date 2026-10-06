@@ -2017,6 +2017,26 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/admin/api-tokens": "security.manage",
             "/api/backups/metadata.zip": "backup.manage",
         }
+        get_source = inspect.getsource(DashboardHandler.do_GET)
+        get_dispatch_paths = set(re.findall(r'path == "(/api/[^"]+)"', get_source))
+        get_dispatch_patterns = set(re.findall(r're\.fullmatch\(r"(/api/[^"]+)"\s*,\s*path\)', get_source))
+        token_route_paths = {
+            path
+            for path in (
+                {urllib.parse.urlsplit(path).path for path in scoped_routes}
+                | set(routeros_session_routes)
+                | set(ungrantable_routes)
+            )
+            if path.startswith("/api/")
+        }
+        self.assertEqual(
+            get_dispatch_paths, token_route_paths,
+            "every literal GET /api route must be classified for API-token access",
+        )
+        self.assertEqual(
+            get_dispatch_patterns, set(),
+            "classify any newly added regex GET /api route for API-token access",
+        )
         all_scopes = {"health.read", "audit.read", "sessions.read", "policies.read"}
         scope_names = sorted(all_scopes)
         scope_sets = [
@@ -2048,6 +2068,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                         self.assertNotIn(b"routerpass", response)
                     else:
                         self.assertEqual(status, 403, path)
+                        self.assertNotIn(b"user-one", response)
                         self.assertTrue(
                             any(scope.encode() in response for scope in required - scopes),
                             f"denial should name a missing scope for {path}",

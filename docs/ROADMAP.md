@@ -722,6 +722,14 @@ expiry behavior, not successful replacement import, RouterOS CRL enforcement,
 or rejection of a retired client on reconnect; those device-backed checks
 remain open.
 
+**#200 API-token route coverage (2026-10-07):** the token-scope regression now
+compares every current literal GET `/api` dispatch with the scoped, RouterOS-
+session-only, and ungrantable route inventories, and exercises all 15 nonempty
+combinations of the four grantable token scopes against those routes. A future
+regex GET route fails the inventory check until explicitly classified. This
+complements PR #541's dashboard-role matrix; it is automated repository
+coverage, not live proxy/session revocation evidence or an external review.
+
 **2026-10-06 repository progress:** PR #515 adds rendered cross-theme
 design-token, text-contrast, and keyboard-focus gates for Dashboard, VPN Users,
 and Connections at desktop/tablet/mobile sizes; the five-task human study,
