@@ -108,9 +108,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("private-collected-evidence.json", operations)
         self.assertIn("Run the collector first", operations)
         self.assertIn("never promotes or rolls back", operations)
-        self.assertIn("readiness-only soak", operations)
-        self.assertIn("consume this evaluator report", operations)
-        self.assertIn("not an automatic promotion interlock", operations)
+        self.assertIn("readiness-only", operations)
+        self.assertIn("scripts/promote_routeros_release.py", operations)
+        self.assertIn("cannot update production after the readiness-only", operations)
 
     def test_router_local_updater_fetch_is_cache_fresh_and_redirect_bounded(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
@@ -150,10 +150,14 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn(":log warning $fetchError", executable)
         self.assertNotIn(":log warning $fetchAttributes", executable)
         self.assertNotIn(":log warning $body", executable)
-        self.assertIn("productionCurrentCommit", executable)
         self.assertIn("historyFile", executable)
         self.assertIn('event=" . $event', executable)
-        self.assertIn('$recordHistory "promoted"', updater)
+        self.assertIn('$recordHistory "canary-staged"', updater)
+        self.assertIn('candidate already staged; production unchanged', executable)
+        self.assertIn(':local pendingFile "disk1/vpn-dashboard/routeros-update-pending.txt"', executable)
+        self.assertNotIn('$recordHistory "promoted"', executable)
+        self.assertNotIn("/container/stop $productionId", executable)
+        self.assertNotIn("/container/set $productionId", executable)
         self.assertIn(":local canaryValidationInterval 1m", executable)
         self.assertIn(":local canaryValidationSamples 30", executable)
         self.assertIn(":if ($canaryValidationSamples < 30)", executable)
@@ -183,7 +187,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn(":if ($canaryValidationInterval < 1m)", executable)
         self.assertLess(
             executable.index(":for sample from=1 to=$canaryValidationSamples do={"),
-            executable.index(':log info ("vpn-gui immutable updater: promoting validated canary'),
+            executable.index('$recordHistory "canary-staged"'),
         )
         self.assertLess(
             executable.index(":if ($canaryValidationSamples < 30)"),
@@ -195,6 +199,15 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn('$recordFailure $image', executable)
         self.assertIn('"canary readiness soak failed"', executable)
+
+    def test_gated_promoter_rechecks_acceptance_before_router_mutation(self) -> None:
+        promoter = (ROOT / "scripts" / "promote_routeros_release.py").read_text(encoding="utf-8")
+
+        self.assertIn('evaluate(evidence, now=clock(), phase="canary-prepromotion")', promoter)
+        self.assertIn('report.get("promotion_eligible") is not True', promoter)
+        self.assertIn("_assert_router_matches(canary, production, candidate_image, prior_image)", promoter)
+        self.assertIn("--check-only", promoter)
+        self.assertIn("production image changed since acceptance evidence was collected", promoter)
 
     def test_router_local_updater_noop_paths_do_not_use_top_level_return(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(

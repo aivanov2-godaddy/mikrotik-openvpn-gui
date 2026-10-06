@@ -108,8 +108,9 @@ class RouterOSRest:
             with urllib.request.urlopen(request, context=self.ssl_context, timeout=self.timeout) as response:
                 payload = response.read().decode("utf-8")
         except urllib.error.HTTPError as error:
-            detail = error.read(512).decode("utf-8", errors="replace")
-            raise DeploymentError(f"RouterOS REST {method} {safe_path} failed ({error.code}): {detail}") from error
+            status = error.code
+            error.close()
+            raise DeploymentError(f"RouterOS REST {method} {safe_path} failed ({status})") from None
         except (urllib.error.URLError, TimeoutError) as error:
             raise DeploymentError(f"RouterOS REST {method} {safe_path} was unreachable") from error
         if not payload:

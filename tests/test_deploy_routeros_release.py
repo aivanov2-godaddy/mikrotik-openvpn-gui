@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 from scripts.deploy_routeros_release import (
     DeploymentError,
@@ -89,6 +91,23 @@ def settings(image: str = NEW_IMAGE) -> DeploymentSettings:
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_routeros_error_body_is_not_returned_to_logs(self) -> None:
+        client = RouterOSRest(settings())
+        secret = "environment-secret-must-not-be-logged"
+        error = HTTPError(
+            "https://router.example.test/rest/container/print",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(secret.encode()),
+        )
+        with patch("scripts.deploy_routeros_release.urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(DeploymentError) as raised:
+                client.request("POST", "/container/print")
+
+        self.assertIn("failed (400)", str(raised.exception))
+        self.assertNotIn(secret, str(raised.exception))
+
     def test_routeros_commands_use_plural_numbers_selector(self) -> None:
         client = RouterOSRest(settings())
         client.request = Mock(return_value=[])

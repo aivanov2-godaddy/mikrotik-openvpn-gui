@@ -5,9 +5,11 @@ installation. Source code and container images are public; the running router
 remains the authority for its own configuration and data.
 
 ```text
-public GitHub repository -> public GHCR image -> router-local release controller
+public GitHub repository -> public GHCR image -> RouterOS canary staging
                                                        |
-                                                   canary gate
+                                   private 30-minute acceptance evidence
+                                                       |
+                           local evidence-gated promotion controller
                                                        |
                                                    production
 
@@ -15,10 +17,13 @@ router only: environment list, RouterOS configuration, /data, /config,
              VPN users, certificates, profiles, firewall, proxy, update journal
 ```
 
-The release controller is a static RouterOS scheduler script installed and
-reviewed by the operator. It is **not** downloaded or replaced from GitHub. It
-only reads a public, data-free release manifest and changes the remote image of
-the two predeclared dashboard containers.
+The RouterOS updater is a static scheduler script installed and reviewed by
+the operator. It is **not** downloaded or replaced from GitHub. It reads a
+public, data-free release manifest and stages the candidate on the isolated
+canary only. It never changes production. Production changes only through the
+local `scripts/promote_routeros_release.py` controller after it re-evaluates a
+fresh passing acceptance report and matches the live canary and production
+images to that report.
 
 ## What the public release contains
 
@@ -54,8 +59,10 @@ The controller keeps all state on the router or its approved external storage:
 - RouterOS OpenVPN configuration, users, certificates, firewall, and proxy;
 - a local update journal containing the last-known-good image, commit, and
   successful-promotion timestamp;
+- a small pending-candidate record containing the staged immutable image and
+  prior production image, used to keep scheduled canary staging idempotent;
 - a bounded local history log containing only release image identities and
-  lifecycle outcomes (`promoted` or `failed`).
+  lifecycle outcomes (`canary-staged`, `promoted`, or `failed`).
 
 Routine releases change only `remote-image` and run the RouterOS container
 update/start lifecycle. They do not recreate containers or change mounts,
@@ -95,33 +102,48 @@ production to the same SQLite file: one database must have one writer.
    readiness URL to the log; `check-error` indicates an unexpected script-side
    failure while evaluating the probe.
 6. It requires at least 30 successful `/readyz` samples spaced at least 60
-   seconds apart before promotion (a minimum 30-minute readiness soak). Each
+   seconds apart before staging (a minimum 30-minute readiness soak). Each
    response must identify the exact immutable candidate revision. Any failed,
    incomplete, or mismatched response rejects the canary, restores its
    last-known-good image, records the failure locally, and leaves production
    untouched. The script rejects settings below the minimum sample count or
    cadence before it changes even the canary.
-7. This readiness soak is a minimum promotion guard, not the complete release
+7. This readiness soak is a minimum canary guard, not the complete release
    acceptance report: it does not collect telemetry latency/freshness percentiles,
    Redis delivery history, RouterOS resource samples, API reconnect/snapshot
    evidence, or event-integrity evidence. Those remain separate required
-   acceptance checks; passing `/readyz` alone cannot establish them.
-8. On success, it updates production with that same immutable image, verifies
-   production `/readyz`, and records it as last known good locally.
-9. If production cannot start or become ready, it restores the previously
-   recorded production image and rechecks it. Restoring an image never restores
-   or overwrites `/data`; database restoration is a separate, explicit disaster
-   recovery operation.
+   acceptance checks; passing `/readyz` alone cannot establish them. On success
+   the updater writes a pending-candidate record and leaves production
+   untouched. If the same candidate and production baseline are already staged,
+   later scheduler runs are no-ops and do not restart canary.
+8. Run the read-only collector and evaluator. The evaluator must report
+   `promotion_eligible: true` for the fresh `canary-prepromotion` window.
+9. Run the local promotion controller with that exact collected evidence. It
+   re-evaluates freshness and every acceptance gate, verifies the expected
+   project ARM64 image and pending-candidate record, confirms that RouterOS
+   still has the candidate on canary and the same baseline on production, and
+   checks both private `/readyz` endpoints immediately before mutation. Its
+   `--check-only` mode performs those checks without writes.
+10. Only after all checks pass does the controller update the named production
+    container. It verifies the candidate revision on production, updates the
+    router-local last-known-good journal, and restores the prior image if
+    startup, readiness, or journal persistence fails. A failed candidate is
+    locally quarantined so the scheduler will not repeatedly restage it.
+11. Run a fresh `postpromotion` collection. The pre-promotion result does not
+    mark production accepted. Image rollback never restores or overwrites
+    `/data`; database restoration is a separate, explicit disaster-recovery
+    operation.
 
-The recommended watchdog cadence is every **5 minutes**. The manifest is tiny,
-and an unchanged SHA is a no-op that never touches either container. A
-candidate that fails three times is quarantined locally, so a broken release
+The recommended staging watchdog cadence is every **5 minutes**. The manifest
+is tiny, and an unchanged SHA or already-staged candidate is a no-op that never
+touches production or restarts canary. A candidate rejected during canary
+staging or production promotion is quarantined locally, so a broken release
 cannot cause repeated disruptive restarts; the operator must review and clear
 that local failure marker before retrying it. The example also keeps a bounded
 `routeros-update-history.log` on the router's external storage for review and
 incident recovery; it never uploads this journal to GitHub.
 
-To restrict promotions to a maintenance window, set
+To restrict canary staging to a maintenance window, set
 `maintenanceWindowEnabled` to `true` in the reviewed local script and choose
 `maintenanceStartHour`/`maintenanceEndHour` in RouterOS local time. The start
 hour is inclusive, the end hour is exclusive, and equal hours mean a window

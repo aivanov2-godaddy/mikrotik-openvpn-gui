@@ -2,8 +2,9 @@
 #
 # This is deliberately a static, reviewable RouterOS script.  It does NOT
 # download or execute RouterOS code from GitHub.  It only downloads a JSON
-# release manifest, validates one exact public ARM64 image tag, and updates two
-# pre-existing containers in order: canary, then production.
+# release manifest, validates one exact public ARM64 image tag, and stages it
+# only to the pre-existing isolated canary. Production is changed only by the
+# separate evidence-gated local promotion controller.
 #
 # Before importing: replace every CHANGE-ME value, create the scheduler below,
 # and test it manually with a known-good release.  Do not place router secrets,
@@ -17,14 +18,14 @@
 # private container network. The release manifest itself always remains HTTPS
 # with certificate validation; local HTTP must never point to a public host.
 :local canaryReadyUrl "http://192.168.250.2:8080/readyz"
-:local productionReadyUrl "http://192.168.251.2:8080/readyz"
 :local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
+:local pendingFile "disk1/vpn-dashboard/routeros-update-pending.txt"
 :local historyFile "disk1/vpn-dashboard/routeros-update-history.log"
 :local pollAttempts 6
 :local pollDelay 10s
-# Require a sampled canary readiness window before automatic promotion.
+# Stage only after a sampled canary readiness window. Production promotion is
+# handled by the evidence-gated local controller, never by this scheduler.
 # Thirty one-minute intervals provide at least 30 minutes of repeated probes.
-# Both settings are guarded below against values shorter than release policy.
 :local canaryValidationInterval 1m
 :local canaryValidationSamples 30
 :local dryRun false
@@ -230,7 +231,6 @@
         }
     }
     :local canaryReadyTransport [$readinessTransport $canaryReadyUrl]
-    :local productionReadyTransport [$readinessTransport $productionReadyUrl]
 
     # Do not repeatedly disrupt a canary for the same previously rejected
     # immutable candidate. A new SHA begins with a fresh failure count.
@@ -256,9 +256,17 @@
     :if (([:len $productionCurrent] != $expectedLength) || ([:pick $productionCurrent 0 $prefixLength] != $imagePrefix) || ([:pick $productionCurrent ($prefixLength + 40) $expectedLength] != "-arm64")) do={
         :error "production must already use an allowed immutable ARM64 image before automatic updates are enabled"
     }
-    :local productionCurrentCommit [:pick $productionCurrent $prefixLength ($prefixLength + 40)]
     :if ($productionCurrent = $image) do={
         :log info ("vpn-gui immutable updater: production already uses " . $image)
+        :set skipUpdate true
+    }
+    :local canaryCurrent [/container/get $canaryId remote-image]
+    :local pendingState ""
+    :do { :set pendingState [/file/get [find where name=$pendingFile] contents] } on-error={}
+    :local pendingImage [$stateLine $pendingState "candidate-image="]
+    :local pendingProduction [$stateLine $pendingState "prior-production-image="]
+    :if (($canaryCurrent = $image) && ($pendingImage = $image) && ($pendingProduction = $productionCurrent)) do={
+        :log info ("vpn-gui immutable updater: candidate already staged; production unchanged " . $image)
         :set skipUpdate true
     }
     :if ($dryRun) do={
@@ -271,23 +279,25 @@
         :if ($canaryValidationInterval < 1m) do={ :error "canary readiness samples must be at least one minute apart" }
     }
 
-    # The script only changes remote-image and container lifecycle.  It never
+    # The script only changes the isolated canary image/lifecycle and local
+    # release metadata. It never changes production. It never
     # writes mountlists, envlists, root-dir, interface, router configuration,
     # SQLite data, certificates, users, firewall, or proxy settings.
     :if (!$skipUpdate) do={
         :log info ("vpn-gui immutable updater: testing canary " . $image)
-        :local canaryCurrent [/container/get $canaryId remote-image]
+        :local canaryRestoreImage $canaryCurrent
+        :if ($canaryCurrent = $image) do={ :set canaryRestoreImage $productionCurrent }
         :do {
         /container/stop $canaryId
         /container/set $canaryId remote-image=$image
         /container/update $canaryId
         /container/start $canaryId
     } on-error={
-        :log error ("vpn-gui immutable updater: canary extraction/start failed; restoring " . $canaryCurrent)
+        :log error ("vpn-gui immutable updater: canary extraction/start failed; restoring " . $canaryRestoreImage)
         $recordFailure $image
         :do {
             /container/stop $canaryId
-            /container/set $canaryId remote-image=$canaryCurrent
+            /container/set $canaryId remote-image=$canaryRestoreImage
             /container/update $canaryId
             /container/start $canaryId
         } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
@@ -310,18 +320,18 @@
         :if ($canaryHealthy) do={ :break }
     }
     :if (!$canaryHealthy) do={
-        :log error ("vpn-gui immutable updater: canary rejected " . $image . "; restoring " . $canaryCurrent . "; production unchanged")
+        :log error ("vpn-gui immutable updater: canary rejected " . $image . "; restoring " . $canaryRestoreImage . "; production unchanged")
         $recordFailure $image
         :do {
             /container/stop $canaryId
-            /container/set $canaryId remote-image=$canaryCurrent
+            /container/set $canaryId remote-image=$canaryRestoreImage
             /container/update $canaryId
             /container/start $canaryId
         } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
         :error "canary readiness gate failed"
     }
 
-    # Do not promote based on a single delayed probe. Require at least 30
+    # Do not stage based on a single delayed probe. Require at least 30
     # successful readiness samples spaced at least 60 seconds apart; any
     # failed, incomplete, or mismatched-revision response rejects and rolls back
     # the candidate while production remains untouched.
@@ -339,11 +349,11 @@
         }
     }
     :if (!$canaryStable) do={
-        :log error ("vpn-gui immutable updater: canary readiness soak failed; restoring " . $canaryCurrent . "; production unchanged")
+        :log error ("vpn-gui immutable updater: canary readiness soak failed; restoring " . $canaryRestoreImage . "; production unchanged")
         $recordFailure $image
         :do {
             /container/stop $canaryId
-            /container/set $canaryId remote-image=$canaryCurrent
+            /container/set $canaryId remote-image=$canaryRestoreImage
             /container/update $canaryId
             /container/start $canaryId
         } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
@@ -351,61 +361,10 @@
     }
     :log info ("vpn-gui immutable updater: canary readiness soak passed samples=" . $canaryValidationSamples)
 
-    :log info ("vpn-gui immutable updater: promoting validated canary " . $image)
-    :do {
-        /container/stop $productionId
-        /container/set $productionId remote-image=$image
-        /container/update $productionId
-        /container/start $productionId
-    } on-error={
-        :log error ("vpn-gui immutable updater: production extraction/start failed; restoring " . $productionCurrent)
-        $recordFailure $image
-        :do {
-            /container/stop $productionId
-            /container/set $productionId remote-image=$productionCurrent
-            /container/update $productionId
-            /container/start $productionId
-        } on-error={ :log error "vpn-gui immutable updater: production rollback also failed; operator action required" }
-        :error "production lifecycle gate failed; previous immutable image restored"
-    }
-
-    :local productionHealthy false
-    :for attempt from=1 to=$pollAttempts do={
-        :delay $pollDelay
-        :local readinessResult "check-error"
-        :do {
-            :set readinessResult [$fetchReady $productionReadyUrl $productionReadyTransport $commit]
-            :if ($readinessResult = "ready") do={
-                :set productionHealthy true
-            }
-        } on-error={ :set readinessResult "check-error" }
-        :if (!$productionHealthy) do={
-            :log warning ("vpn-gui immutable updater: production readiness attempt " . $attempt . " result=" . $readinessResult)
-        }
-        :if ($productionHealthy) do={ :break }
-    }
-
-    :if (!$productionHealthy) do={
-        :log error ("vpn-gui immutable updater: production failed; restoring " . $productionCurrent)
-        $recordFailure $image
-        :do {
-            /container/stop $productionId
-            /container/set $productionId remote-image=$productionCurrent
-            /container/update $productionId
-            /container/start $productionId
-            :local rollbackReadinessResult "check-error"
-            :do { :set rollbackReadinessResult [$fetchReady $productionReadyUrl $productionReadyTransport $productionCurrentCommit] } on-error={ :set rollbackReadinessResult "check-error" }
-            :if ($rollbackReadinessResult != "ready") do={
-                :error ("previous production image readiness failed: " . $rollbackReadinessResult)
-            }
-        } on-error={ :log error "vpn-gui immutable updater: production rollback failed readiness; operator action required" }
-        :error "production readiness gate failed; previous immutable image restored"
-    }
-
-        :local state ("last-good-image=" . $image . "\ncommit=" . $commit . "\nupdated-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
-        $writeState $stateFile $state
-        $recordHistory "promoted" $image "canary-and-production-ready"
-        :log info ("vpn-gui immutable updater: production promoted successfully to " . $image)
+    :local pending ("candidate-image=" . $image . "\nprior-production-image=" . $productionCurrent . "\ncommit=" . $commit . "\nstaged-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
+    $writeState $pendingFile $pending
+    $recordHistory "canary-staged" $image "readiness-soak-passed; production-unchanged"
+    :log info ("vpn-gui immutable updater: canary staged; full acceptance and explicit promotion controller required; production unchanged " . $image)
     }
 } on-error={ :log error "vpn-gui immutable updater: update failed; see preceding log entry" }
 :set vpnGuiImmutableUpdateLock false
