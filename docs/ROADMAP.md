@@ -1257,9 +1257,12 @@ traffic totals advanced, and router uptime advanced without a page refresh. The
 operator then used the dashboard's review-first termination flow, explicitly
 authorized for this test client. The live count changed to zero and the session
 history showed the session ended; no automatic reconnect was observed during
-the following 32 seconds. No profile, certificate, CA, RouterOS policy, or
-container was changed. This verifies one live connected-to-disconnected UI
-transition only; it does not prove event latency to a sub-second target,
-automatic reconnect/snapshot recovery, or a 30-minute telemetry/Redis soak.
-Issues #192, #194, #199, and #200 retain their separate human/device acceptance
-work.
+the following 32 seconds. The user then reconnected the test client from its
+VPN client app. The dashboard returned to one connected device, and traffic
+advanced across two read-only observations approximately 8 seconds apart,
+without a page refresh. This verifies manual reconnect visibility and resumed
+live counters; it does not prove automatic retry or full snapshot recovery.
+No profile, certificate, CA, RouterOS policy, or container was changed. This
+still does not prove event latency to a sub-second target or a 30-minute
+telemetry/Redis soak. Issues #192, #194, #199, and #200 retain their separate
+human/device acceptance work.
