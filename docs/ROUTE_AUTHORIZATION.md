@@ -102,3 +102,24 @@ actions force an immediate role lookup. An exhaustive all-dispatch route-by-role
 and route-by-token-scope inventory, maximum physical-router revocation latency,
 and independently verified authenticated production-proxy behavior remain
 unverified.
+
+## Independent handler review — 2026-10-08
+
+A separate read-only AI-assisted review of `origin/main` commit
+`ab537fa1fef7f053aad53bebf27e412c2c8c494e` traced the current GET, POST,
+PATCH, and DELETE dispatch forms to their session, CSRF, RouterOS-session, and
+capability checks. It also examined the authenticated SSE and Socket.IO
+polling paths and the short-lived, download-limited profile-share capability.
+The reviewer found no concrete unauthorized RouterOS operation or privilege
+escalation in those paths. Existing route/role, token-scope, and focused stream
+authorization tests were inspected. The main agent separately ran
+`py -3 -m unittest tests.test_app` after this review; all 155 tests passed.
+That application-suite result is local regression evidence, not an independent
+execution of the full repository CI matrix.
+
+This is a bounded source review, not an external penetration test, formal
+ASVS assessment, or verification of production reverse-proxy/configuration
+behavior. Live role changes, session expiry/revocation timing on the deployed
+router, proxy/origin behavior, RouterOS permission review, and independent
+external assessment remain open acceptance items. No production or router
+state was accessed or changed for this review.
