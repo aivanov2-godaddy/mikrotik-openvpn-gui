@@ -1247,7 +1247,22 @@ shows the configured immutable tag, not an independent digest. This confirms
 the logo-enabled image is deployed to both containers, but it is not a 30-minute
 telemetry/Redis acceptance window. The existing authenticated dashboard tab
 was loaded before deployment and was not reloaded, to avoid interrupting its
-live stream. A fresh tab stopped at Cloudflare Access, so current visual logo
-rendering remains unverified. No router policy, VPN session/user, certificate,
-CA, or persistent application data was changed during this read-back. Issues
-#192, #194, #199, and #200 retain their separate human/device acceptance work.
+live stream. A fresh tab stopped at Cloudflare Access; subsequent inspection of
+the existing authenticated tab visibly confirmed the OpenVPN logo rendered.
+
+**2026-10-07 authenticated live-session check:** the existing production
+dashboard showed `Live · SOCKETIO` and one connected test client. Over read-only
+observations approximately 20 seconds apart, the connected count remained one,
+traffic totals advanced, and router uptime advanced without a page refresh. The
+operator then used the dashboard's review-first termination flow, explicitly
+authorized for this test client. The live count changed to zero and the session
+history showed the session ended; no automatic reconnect was observed during
+the following 32 seconds. The user then reconnected the test client from its
+VPN client app. The dashboard returned to one connected device, and traffic
+advanced across two read-only observations approximately 8 seconds apart,
+without a page refresh. This verifies manual reconnect visibility and resumed
+live counters; it does not prove automatic retry or full snapshot recovery.
+No profile, certificate, CA, RouterOS policy, or container was changed. This
+still does not prove event latency to a sub-second target or a 30-minute
+telemetry/Redis soak. Issues #192, #194, #199, and #200 retain their separate
+human/device acceptance work.
