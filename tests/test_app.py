@@ -1685,6 +1685,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
 
         status, _, payload = self.json_request("DELETE", path)
+        self.assertEqual(status, 400, payload.decode("utf-8"))
+        self.assertIn(b"Enter your RouterOS password", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(other_session.session_id, touch=False))
+
+        status, _, payload = self.json_request("DELETE", path, {"password": "incorrect"})
+        self.assertEqual(status, 401, payload.decode("utf-8"))
+        self.assertNotIn(b"incorrect", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(other_session.session_id, touch=False))
+
+        status, _, payload = self.json_request("DELETE", path, {"password": "routerpass"})
         self.assertEqual(status, 200, payload.decode("utf-8"))
         self.assertIsNone(self.server.context.sessions.get(other_session.session_id, touch=False))
         self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
@@ -1692,6 +1702,23 @@ class DashboardIntegrationTests(unittest.TestCase):
         audit = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(audit["action"], "admin-session.revoke")
         self.assertNotIn(other_session.session_id, audit["details"])
+        reauth_events = self.server.context.store.recent_audit(10)
+        self.assertTrue(any(item["action"] == "admin-session.reauth.failed" for item in reauth_events))
+        self.assertTrue(any(item["action"] == "admin-session.reauth.success" for item in reauth_events))
+        self.assertNotIn("routerpass", json.dumps(reauth_events))
+
+    def test_admin_session_reauthentication_is_rate_limited(self) -> None:
+        self.login()
+        target = self.server.context.sessions.create("admin", "routerpass", role="owner")
+        path = f"/api/admin/sessions/{urllib.parse.quote(target.session_id, safe='')}"
+
+        for _ in range(5):
+            status, _, _ = self.json_request("DELETE", path, {"password": "wrong-password"})
+            self.assertEqual(status, 401)
+        status, _, payload = self.json_request("DELETE", path, {"password": "routerpass"})
+        self.assertEqual(status, 429)
+        self.assertNotIn(b"routerpass", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(target.session_id, touch=False))
 
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
         self.login()

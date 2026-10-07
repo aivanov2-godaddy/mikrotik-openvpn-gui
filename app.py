@@ -2180,6 +2180,66 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if hmac.compare_digest(session.session_id, session_id):
             self._json({"error": "The current session cannot be revoked from itself"}, status=HTTPStatus.BAD_REQUEST)
             return
+        if not self._require_routeros_session(session):
+            return
+        try:
+            data = self._read_json()
+            password = data.get("password")
+            if not isinstance(password, str) or not password or len(password) > 256:
+                raise ValueError("Enter your RouterOS password to confirm this action")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        identity = self._client_ip()
+        if not self.server.context.limiter.allow(identity):
+            self.server.context.store.audit(
+                actor=session.username,
+                action="admin-session.reauth.rate_limited",
+                target="administrator-session",
+                status="denied",
+                details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+            )
+            self._json({"error": "Too many authentication attempts. Try again later."}, status=HTTPStatus.TOO_MANY_REQUESTS)
+            return
+        try:
+            self.server.context.router.verify_credentials(
+                RouterOSCredentials(session.username, password)
+            )
+        except RouterOSError as error:
+            rejected = error.status == HTTPStatus.UNAUTHORIZED
+            if rejected:
+                self.server.context.limiter.fail(identity)
+            self.server.context.store.audit(
+                actor=session.username,
+                action="admin-session.reauth.failed" if rejected else "admin-session.reauth.unavailable",
+                target="administrator-session",
+                status="denied" if rejected else "unavailable",
+                details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+            )
+            if rejected:
+                self._json({"error": "Authentication failed. The administrator session was not revoked."}, status=HTTPStatus.UNAUTHORIZED)
+            else:
+                self._json({"error": "RouterOS could not verify the password right now. The administrator session was not revoked."}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self.server.context.limiter.success(identity)
+        self.server.context.store.audit(
+            actor=session.username,
+            action="admin-session.reauth.success",
+            target="administrator-session",
+            status="success",
+            details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+        )
+
+        # The RouterOS account's effective role can change while step-up is in
+        # flight. Re-read it before the session-management mutation.
+        refreshed = self.server.telemetry_runtime.revalidate_session(
+            session.session_id,
+            force_role_check=True,
+        )
+        if refreshed is None or not self._capability_allowed(refreshed, "session.manage"):
+            self._json({"error": "Authentication or session-management permission changed; no session was revoked"}, status=HTTPStatus.FORBIDDEN)
+            return
         if not self.server.context.sessions.revoke(session_id):
             self._json({"error": "Administrator session was not found or already expired"}, status=HTTPStatus.NOT_FOUND)
             return

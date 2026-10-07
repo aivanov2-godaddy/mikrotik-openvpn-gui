@@ -555,6 +555,10 @@ def dashboard_page(
         "role.assigned": "Assigned administrator role",
         "role.denied": "Denied role capability",
         "session.revoked": "Revoked dashboard session",
+        "admin-session.reauth.failed": "Failed administrator re-authentication",
+        "admin-session.reauth.rate_limited": "Rate-limited administrator re-authentication",
+        "admin-session.reauth.success": "Verified administrator re-authentication",
+        "admin-session.reauth.unavailable": "Administrator re-authentication unavailable",
         "checkpoint.create": "Created safety checkpoint",
         "user.expire": "Expired VPN access",
         "session.limit": "Applied connection limit",
@@ -1194,6 +1198,8 @@ def dashboard_page(
 </div>
 
 <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+<dialog id="admin-session-reauth-dialog" aria-labelledby="admin-session-reauth-title"><form id="admin-session-reauth-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">SECURITY CONFIRMATION</p><h2 id="admin-session-reauth-title">Revoke administrator session</h2><p>Confirm your RouterOS account password to end this dashboard login.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="dialog-fields"><label><span>RouterOS password</span><input id="admin-session-reauth-password" name="password" type="password" required maxlength="256" autocomplete="current-password"><small>Used for a fresh RouterOS check only; it is not saved. This does not disconnect any VPN client.</small></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="danger">Verify and revoke session</button></footer></form></dialog>
 
 <dialog id="add-dialog" aria-labelledby="add-dialog-title"><form id="add-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">NEW ACCESS</p><h2 id="add-dialog-title">Add a person and phone</h2><p>The dashboard prepares the secure profile automatically.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><input type="hidden" name="review_token"><div class="dialog-fields"><label><span>VPN username</span><input name="username" required maxlength="64" pattern="[A-Za-z0-9_.@-]+" placeholder="e.g. maria"></label><label><span>Owner email</span><input type="email" name="email" required maxlength="254" autocomplete="email" placeholder="maria@example.com"><small>Used to identify who owns this access.</small></label><label><span>VPN password</span><input type="password" name="password" required minlength="8" maxlength="256" autocomplete="new-password"><small>Used only for the VPN username login.</small></label><label><span>Private-key passphrase</span><input type="password" name="key_passphrase" required minlength="8" maxlength="256" autocomplete="new-password"><small>Separate password used to protect the downloaded profile during import. It is never stored.</small></label><label><span>Phone or device</span><input name="device_name" required maxlength="64" placeholder="Pixel 10 Pro XL"></label><label><span>Reason for creating access</span><input name="reason" required minlength="12" maxlength="240" autocomplete="off" placeholder="e.g. Owner requested remote access"></label><label><span>Note <i>Optional</i></span><input name="comment" maxlength="96" placeholder="Owner or purpose"></label></div><p data-create-review hidden role="status"></p><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="quiet" data-delivery="qr">Review QR</button><button type="submit" class="primary" data-delivery="zip">Review ZIP</button></footer></form></dialog>
 

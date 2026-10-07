@@ -1266,3 +1266,16 @@ No profile, certificate, CA, RouterOS policy, or container was changed. This
 still does not prove event latency to a sub-second target or a 30-minute
 telemetry/Redis soak. Issues #192, #194, #199, and #200 retain their separate
 human/device acceptance work.
+
+**2026-10-08 administrator-session step-up control (PR pending):** closing
+another dashboard administrator session now requires a fresh verification of
+the current RouterOS account password. The password is sent only for the
+RouterOS authentication request, is not stored or written to audit records,
+and repeated invalid attempts use the existing source rate limiter. The current
+session remains non-revocable by itself; failed verification or unavailable
+RouterOS leaves the target session untouched. Targeted app tests pass for
+missing/incorrect/correct passwords, audit redaction, and throttling; a
+rendered live-stream revocation regression now exercises the password dialog.
+This is application-level evidence only; deployment/proxy behavior and the
+independent security review in #200 remain open. No production image was
+published or promoted for this change.
