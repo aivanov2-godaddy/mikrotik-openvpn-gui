@@ -1674,17 +1674,12 @@ document.addEventListener('click', async (event) => {
     }
   } else if (button.matches('[data-admin-session-revoke]')) {
     const sessionId = button.dataset.sessionId || '';
-    if (!sessionId || !window.confirm('Revoke this administrator session?')) return;
-    button.disabled = true;
-    try {
-      await resultOrError(await api(`/api/admin/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }));
-      button.closest('[data-admin-session-row]')?.remove();
-      toast('Administrator session revoked.');
-      loadAdminSessions();
-    } catch (error) {
-      toast(error.message, 'error');
-      button.disabled = false;
-    }
+    if (!sessionId) return;
+    const form = $('#admin-session-reauth-form');
+    form.dataset.sessionId = sessionId;
+    form.reset();
+    openDialog('admin-session-reauth-dialog');
+    $('#admin-session-reauth-password')?.focus();
   } else if (button.matches('[data-alert-ack]')) {
     button.disabled = true;
     try {
@@ -2620,6 +2615,32 @@ async function loadAdminSessions() {
     renderAdminSessions(await response.json());
   } catch (error) { toast(error.message, 'error'); }
 }
+
+$('#admin-session-reauth-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const password = form.elements.password.value;
+  const sessionId = form.dataset.sessionId || '';
+  if (!sessionId || !password) return;
+  setBusy(form, true);
+  setStatus(form, 'Verifying your RouterOS sign-in before revoking the selected dashboard session…');
+  try {
+    await resultOrError(await api(`/api/admin/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE', body: { password },
+    }));
+    form.reset();
+    delete form.dataset.sessionId;
+    form.closest('dialog')?.close();
+    toast('Administrator session revoked.');
+    loadAdminSessions();
+  } catch (error) {
+    form.elements.password.value = '';
+    setStatus(form, error.message, true);
+    form.elements.password.focus();
+  } finally {
+    setBusy(form, false);
+  }
+});
 
 async function loadApiTokens() {
   const body = $('[data-token-list]');

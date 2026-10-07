@@ -341,13 +341,17 @@ test('stops telemetry after session revocation and denies reconnect with stale a
     const deniedReconnect = targetPage.waitForResponse((response) => (
       new URL(response.url()).pathname === '/api/events' && response.status() === 401
     ), { timeout: 15_000 });
-    adminPage.once('dialog', (dialog) => dialog.accept());
     const revocation = adminPage.waitForResponse((response) => (
       response.request().method() === 'DELETE'
       && new URL(response.url()).pathname.startsWith('/api/admin/sessions/')
     ));
     await revokeButton.click();
+    const reauthentication = adminPage.locator('#admin-session-reauth-dialog');
+    await expect(reauthentication).toBeVisible();
+    await reauthentication.getByLabel('RouterOS password').fill('routerpass');
+    await reauthentication.getByRole('button', { name: 'Verify and revoke session' }).click();
     expect((await revocation).status()).toBe(200);
+    await expect(reauthentication).toBeHidden();
     await deniedReconnect;
     const framesAfterRevocation = await targetPage.evaluate(() => window.__authorizationStreamFrames.length);
     expect(framesAfterRevocation).toBeGreaterThan(0);
