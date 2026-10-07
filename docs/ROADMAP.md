@@ -1267,15 +1267,20 @@ still does not prove event latency to a sub-second target or a 30-minute
 telemetry/Redis soak. Issues #192, #194, #199, and #200 retain their separate
 human/device acceptance work.
 
-**2026-10-08 administrator-session step-up control (PR pending):** closing
-another dashboard administrator session now requires a fresh verification of
-the current RouterOS account password. The password is sent only for the
-RouterOS authentication request, is not stored or written to audit records,
-and repeated invalid attempts use the existing source rate limiter. The current
-session remains non-revocable by itself; failed verification or unavailable
-RouterOS leaves the target session untouched. Targeted app tests pass for
-missing/incorrect/correct passwords, audit redaction, and throttling; a
-rendered live-stream revocation regression now exercises the password dialog.
-This is application-level evidence only; deployment/proxy behavior and the
-independent security review in #200 remain open. No production image was
-published or promoted for this change.
+**2026-10-08 administrator-session step-up control (PR #548):** merged as
+`7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a`. Closing another dashboard
+administrator session now requires a fresh verification of the current
+RouterOS account password. The password is sent only for the RouterOS
+authentication request, is not stored or written to audit records, and
+repeated invalid attempts use the existing source rate limiter. Failed
+verification or unavailable RouterOS leaves the target session untouched.
+Targeted and full unit/mock tests, repository pre-commit and secret checks,
+the rendered desktop/tablet/mobile browser and accessibility suite, ARM64 and
+AMD64 runtime smoke tests, and detached provenance/SBOM verification passed.
+The publisher produced the ARM64 image
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a-arm64`
+with digest
+`sha256:4065905164fbea1c109f9df817c6530851d73ab7275558132c1db2b020cfb848`.
+This is a published artifact, **not a RouterOS deployment**: the read-only
+RouterOS check still showed the prior image on canary and production. Deployed
+proxy behavior and the independent security review in #200 remain open.
