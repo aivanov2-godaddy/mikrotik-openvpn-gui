@@ -6,23 +6,38 @@ This report records the operator's 2026-10-02 acceptance of the Binary API
 telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
-copied into this repository. The latest verified published runtime is PR #535,
-commit `604958d2d8921193b535206cca9c13cd291ecbc2`, ARM64 tag
-`sha-604958d2d8921193b535206cca9c13cd291ecbc2-arm64`, digest
-`sha256:17e1bdaadf6b17435df17b0803bf219d0cea4b5f5b38b95413048e9c510697ed`.
-Its publication workflow passed source and rendered-browser verification,
-ARM64/AMD64 builds, provenance/SBOM verification, and runtime smoke tests. A
-fresh read-only WinBox check on 2026-10-06 showed canary healthy on PR #522's
-immutable tag, production healthy on PR #511's immutable tag, and Redis
-running. The image list reports configured tags and health, not an independent
-registry digest; neither container is verified on PR #535. The router-local
-`vpn-gui-immutable-update` scheduler is disabled. The PR #535 artifact is
-therefore published but not deployed. Authenticated 30-minute telemetry/Redis
-acceptance and the other live-client, reconnect, integrity, restore, and
-rollback gates remain open. A filtered read-only RouterOS job listing showed
-interactive login/API-login sessions and the current terminal query, but no
-active updater-script job. The previous `stage-v3` terminal transcript ended
-with an interrupted invocation; it does not prove a completed candidate soak.
+copied into this repository. The latest verified published candidate is PR
+#548, commit `7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a`, ARM64 tag
+`sha-7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a-arm64`, digest
+`sha256:4065905164fbea1c109f9df817c6530851d73ab7275558132c1db2b020cfb848`.
+Its publisher passed source, unit/mock, and rendered-browser/accessibility
+verification, ARM64/AMD64 builds, provenance/SBOM verification, and runtime
+smoke tests.
+
+A read-only WebFig check on 2026-10-08 showed canary and production both
+configured to the prior PR #539 ARM64 tag
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, both healthy (`H`),
+with Redis running. RouterOS reports configured tags and health, not an
+independent registry digest; PR #548 is therefore published but not deployed.
+The router-local `vpn-gui-immutable-update` scheduler is disabled, the local
+REST deployment client has no credentials configured, and the existing
+canary's configured origin is a placeholder rather than a verified
+operator-facing acceptance endpoint. No deployment was attempted. These
+conditions prevent a safe canary health/login/telemetry gate from running;
+the 30-minute telemetry/Redis soak and live-client, reconnect, integrity,
+restore, and rollback gates remain open.
+
+An authenticated production-dashboard observation on 2026-10-08 showed
+`Live · SOCKETIO` and one connected test client. Traffic totals increased
+across successive captures while the dashboard remained loaded without a
+manual reload. This is a short qualitative no-refresh observation only; it is
+not a controlled event-latency/freshness measurement or acceptance soak. No
+RouterOS policy, container configuration, account, certificate, or session
+was changed during the observation. A filtered read-only RouterOS job listing
+showed interactive login/API-login sessions and the current terminal query,
+but no active updater-script job. The previous `stage-v3` terminal transcript
+ended with an interrupted invocation; it does not prove a completed candidate
+soak.
 
 ## Earlier read-only WinBox image/job check — 2026-10-06 (superseded)
 
