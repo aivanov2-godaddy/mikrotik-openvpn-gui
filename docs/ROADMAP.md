@@ -5,6 +5,27 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
+## Current project snapshot — 2026-10-08
+
+Formal release **v2.7.0** remains the latest numbered release. The latest
+verified published candidate is PR [#548](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/548),
+ARM64 tag `sha-7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a-arm64`, digest
+`sha256:4065905164fbea1c109f9df817c6530851d73ab7275558132c1db2b020cfb848`.
+It is published but **not deployed**: the latest read-only RouterOS check
+shows canary and production on the prior PR #539 image, both healthy, with
+Redis running. The detailed redacted evidence and exact deployment blocker are
+in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
+PR [#550](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/550)
+refreshed that acceptance report; it does not claim the full soak passed. PR
+[#551](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/551)
+recorded a bounded handler authorization review; it is not an external
+penetration test. UX, core workflows, SQLite/Redis resilience, telemetry
+observability, compatibility/provenance, and mutation-safety roadmap issues
+#188–#193 and #195–#198, #201–#204 are closed. The remaining workstreams are
+#194 device/certificate live acceptance, #199 controlled release acceptance,
+and #200 deployed security/session review. Multi-tenancy remains excluded.
+
 ## Current release status — 2026-10-06
 
 Formal release **v2.7.0** is published from commit
