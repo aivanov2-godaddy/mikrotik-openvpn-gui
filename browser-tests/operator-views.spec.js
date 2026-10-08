@@ -175,6 +175,7 @@ test('Connections termination-review prompt renders consistently', async ({ page
 
 test('certificate migration confirmation refreshes its panel without a full page reload', async ({ page }) => {
   const navigations = [];
+  page.on('dialog', (dialog) => dialog.accept());
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigations.push(frame.url());
   });
