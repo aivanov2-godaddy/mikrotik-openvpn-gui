@@ -1106,36 +1106,6 @@ class MetadataStore:
                 (state, legacy_certificate_name),
             )
 
-    def record_profile_migration_reconnect_test(
-        self, *, legacy_certificate_name: str, result: str, actor: str
-    ) -> dict[str, Any]:
-        """Persist an operator-reported fresh reconnect outcome without claiming RouterOS proof."""
-        if result not in {"rejected", "connected"}:
-            raise ValueError("Unsupported profile migration reconnect result")
-        now = int(time.time())
-        with self._lock, self._connection() as connection:
-            row = connection.execute(
-                "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
-                (legacy_certificate_name,),
-            ).fetchone()
-            if row is None:
-                raise KeyError("Profile migration not found")
-            if row["retirement_state"] != "verified":
-                raise ValueError("Verify the replacement at retirement before recording a reconnect test")
-            connection.execute(
-                """
-                UPDATE profile_migrations
-                SET reconnect_tested_at=?, reconnect_tested_by=?, reconnect_result=?
-                WHERE legacy_certificate_name=?
-                """,
-                (now, str(actor)[:128], result, legacy_certificate_name),
-            )
-            updated = connection.execute(
-                "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
-                (legacy_certificate_name,),
-            ).fetchone()
-            return dict(updated)
-
     def record_profile_migration_step(
         self, *, legacy_certificate_name: str, step: str, actor: str,
         active_session_observed: bool = False,

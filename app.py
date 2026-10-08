@@ -1985,12 +1985,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 urllib.parse.unquote(match.group(1)), match.group(2)
             )
             return
-        match = re.fullmatch(r"/api/profile-migrations/([^/]+)/reconnect-test", path)
-        if match:
-            self._record_profile_migration_reconnect_test(
-                urllib.parse.unquote(match.group(1))
-            )
-            return
         match = re.fullmatch(r"/api/users/([^/]+)/profiles", path)
         if match:
             self._create_profile(urllib.parse.unquote(match.group(1)))
@@ -3942,111 +3936,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "certificate_attribution_verified": False,
                 "imported_at": updated.get("imported_at"),
                 "tested_at": updated.get("tested_at"),
-            }
-        )
-
-    def _record_profile_migration_reconnect_test(self, legacy_certificate_name: str) -> None:
-        session = self._require_session(api=True)
-        if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
-            return
-        try:
-            data = self._read_json()
-        except ValueError as error:
-            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
-            return
-        result = str(data.get("result", "")).strip().casefold()
-        if result not in {"rejected", "connected"}:
-            self._json(
-                {"error": "Record whether the old profile was rejected or connected on the fresh reconnect attempt"},
-                status=HTTPStatus.BAD_REQUEST,
-            )
-            return
-        migration = self.server.context.store.profile_migrations().get(legacy_certificate_name)
-        if migration is None:
-            self._json({"error": "Profile migration was not found"}, status=HTTPStatus.NOT_FOUND)
-            return
-        if migration.get("retirement_state") != "verified":
-            self._json(
-                {"error": "RouterOS must confirm the old certificate revoked and replacement valid before testing reconnect"},
-                status=HTTPStatus.CONFLICT,
-            )
-            return
-        try:
-            credentials = self._credentials(session)
-            certificates = self.server.context.router.list_ovpn_client_certificates(
-                credentials, include_legacy=True
-            )
-            active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
-        except RouterOSError:
-            self._json(
-                {"error": "RouterOS certificate or live-session state is unavailable; no reconnect result was recorded"},
-                status=HTTPStatus.BAD_GATEWAY,
-            )
-            return
-        by_name = {str(item.get("name", "")): item for item in certificates}
-        old_certificate = by_name.get(legacy_certificate_name)
-        replacement_name = str(migration.get("replacement_certificate_name", ""))
-        replacement = by_name.get(replacement_name)
-        replacement_problem = _migration_replacement_problem(
-            replacement,
-            vpn_user=str(migration.get("vpn_user", "")),
-            current_ca=str(getattr(self.server.context.router, "ovpn_ca", "")),
-            require_unexpired=True,
-        )
-        if old_certificate is None or not bool(old_certificate.get("revoked")) or replacement_problem:
-            self._json(
-                {"error": "RouterOS no longer confirms a revoked old certificate and a valid replacement; no reconnect result was recorded"},
-                status=HTTPStatus.CONFLICT,
-            )
-            return
-        active_user_session = any(
-            str(item.get("name", "")) == str(migration.get("vpn_user", ""))
-            for item in active_sessions
-        )
-        if (result == "rejected" and active_user_session) or (
-            result == "connected" and not active_user_session
-        ):
-            self._json(
-                {
-                    "error": (
-                        "RouterOS currently shows this VPN user connected; disconnect existing sessions before recording a rejected reconnect"
-                        if result == "rejected"
-                        else "RouterOS does not currently show this VPN user connected; no successful reconnect was recorded"
-                    )
-                },
-                status=HTTPStatus.CONFLICT,
-            )
-            return
-        try:
-            updated = self.server.context.store.record_profile_migration_reconnect_test(
-                legacy_certificate_name=legacy_certificate_name,
-                result=result,
-                actor=session.username,
-            )
-        except (KeyError, ValueError) as error:
-            self._json({"error": str(error)}, status=HTTPStatus.CONFLICT)
-            return
-        self.server.context.store.audit(
-            actor=session.username,
-            action="profile.migration.reconnect_test",
-            target=legacy_certificate_name,
-            status="security_warning" if result == "connected" else "operator_attested",
-            details={
-                "result": result,
-                "replacement_certificate": replacement_name,
-                "active_user_session_observed": active_user_session,
-                "certificate_attribution_verified": False,
-            },
-        )
-        self._json(
-            {
-                "status": "recorded",
-                "result": result,
-                "recorded_by": updated.get("reconnect_tested_by", ""),
-                "recorded_at": updated.get("reconnect_tested_at"),
-                "operator_attested": True,
-                "routeros_active_user_session_observed": active_user_session,
-                "certificate_attribution_verified": False,
             }
         )
 

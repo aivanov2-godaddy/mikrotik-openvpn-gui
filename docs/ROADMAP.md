@@ -667,13 +667,12 @@ still cannot attribute that session to a specific certificate. The PR passed
 repository CI but did not exercise or change router/client state; deployment,
 CRL enforcement, reconnect rejection, and rollback remain outstanding.
 
-The reconnect acceptance record supports an explicit operator-reported result
-after RouterOS read-back confirms the old certificate revoked and the
-replacement currently valid. It requires the user-wide session state to match
-the report, labels both outcomes as attestations (not independent proof), and
-flags a reported successful old-profile connection for investigation. This is
-repository behavior only; a real client reconnect, RouterOS CRL enforcement,
-active-session handling, and canary rollback still require live acceptance.
+An earlier implementation exposed an operator-reported old-profile reconnect
+outcome. RouterOS cannot attribute a live session to a certificate, so the
+current UI/API no longer offers that write action. Existing historical reports
+remain visible as unverified operator reports; they are not acceptance proof.
+A real client reconnect, RouterOS CRL enforcement, active-session handling,
+and canary rollback still require live acceptance.
 
 **Production acceptance update (2026-10-04, 15:02 Europe/Sofia):** the
 operator-authenticated Owner session loaded the protected production Dashboard
