@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from config import ConfigurationError, OpenVPNTopology
+from config import ConfigurationError, OpenVPNTopology, is_reserved_invalid_hostname
 from deploy_routeros_canary import (
     _FULL_COMMIT,
     _GHCR_OWNER,
@@ -68,6 +68,8 @@ class InstallationSettings:
             raise ValueError("architecture must be arm64 or amd64; RouterOS arm is not supported")
 
         origin, _ = _https_url(self.public_origin, "public origin")
+        if is_reserved_invalid_hostname(urlsplit(origin).hostname or ""):
+            raise ValueError("public origin must not use the reserved .invalid hostname")
         if urlsplit(origin).path not in {"", "/"}:
             raise ValueError("public origin must not include a path")
         origin = origin.rstrip("/")

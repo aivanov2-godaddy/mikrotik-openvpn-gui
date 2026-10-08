@@ -78,6 +78,9 @@ class RuntimeConfigTests(unittest.TestCase):
     def test_invalid_public_or_rest_settings_fail_before_a_router_request(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "HTTPS"):
             RuntimeConfig.from_environ({"PUBLIC_ORIGIN": "http://vpn.example.com"})
+        for origin in ("https://canary.invalid", "https://CANARY.INVALID."):
+            with self.subTest(origin=origin), self.assertRaisesRegex(ConfigurationError, r"reserved \.invalid"):
+                RuntimeConfig.from_environ({"PUBLIC_ORIGIN": origin})
         with self.assertRaisesRegex(ConfigurationError, "ending in /rest"):
             RuntimeConfig.from_environ({"ROUTEROS_REST_URL": "https://router.example.com/api"})
         with self.assertRaisesRegex(ConfigurationError, "TRUSTED_PROXY_SOURCES"):

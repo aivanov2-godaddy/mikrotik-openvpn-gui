@@ -174,6 +174,8 @@ class DeploymentPolicyTests(unittest.TestCase):
 
     def test_canary_plan_rejects_unsafe_or_unverified_inputs(self) -> None:
         settings = self.canary_settings()
+        with self.assertRaisesRegex(ValueError, r"reserved \.invalid"):
+            render_canary_plan(replace(settings, public_origin="https://canary.invalid"))
         with self.assertRaisesRegex(ValueError, "full 40-character"):
             render_canary_plan(replace(settings, commit="abc123"))
         with self.assertRaisesRegex(ValueError, "exactly match"):

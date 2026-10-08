@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from config import ConfigurationError, OpenVPNTopology
+from config import ConfigurationError, OpenVPNTopology, is_reserved_invalid_hostname
 
 
 _FULL_COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -122,6 +122,9 @@ class CanarySettings:
             raise ValueError("repository must be a lowercase container repository name")
 
         public_origin, _ = _https_url(self.public_origin, "public origin")
+        origin_host = urlsplit(public_origin).hostname or ""
+        if is_reserved_invalid_hostname(origin_host):
+            raise ValueError("public origin must not use the reserved .invalid hostname")
         if urlsplit(public_origin).path not in {"", "/"}:
             raise ValueError("public origin must not contain a path")
         routeros_rest_url, rest_hostname = _https_url(
