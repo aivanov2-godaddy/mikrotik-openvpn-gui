@@ -1187,3 +1187,30 @@ snapshot recovery, sub-second event delivery, two-second traffic freshness, or
 the 30-minute #199 soak. No router/container, VPN account/session, certificate,
 CA, policy, or persistent application state was changed; client identifiers
 and exact traffic totals are intentionally omitted.
+
+## Post-merge telemetry poll-freshness candidate — PR #562 — 2026-10-08
+
+PR #562 merged as `0c7f11029354b2c6f9f75c7aabb36739d5e48316`. The main-branch
+publication workflow [37853342247](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37853342247)
+passed source checks, rendered browser/accessibility tests, both architecture
+builds, detached SPDX SBOM and provenance verification, and published-runtime
+smoke tests. The immutable image records are:
+
+| Architecture | Immutable tag | Published manifest digest |
+| --- | --- | --- |
+| AMD64 | `sha-0c7f11029354b2c6f9f75c7aabb36739d5e48316-amd64` | `sha256:16bac7be515a9dc9c6e276908594dc0703c7313e651f887e985891229acaab95` |
+| ARM64 | `sha-0c7f11029354b2c6f9f75c7aabb36739d5e48316-arm64` | `sha256:93474e9c2b0805c1937ee324b4a14e227944a81bf4bfec910914974e43b0429a` |
+
+The stable immutable manifest points to those architecture-specific tags.
+This is publication evidence, not RouterOS deployment or acceptance. A
+read-only RouterOS check after publication still showed the canary and
+production containers configured with the earlier
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64` image; no candidate
+rollout or container restart was performed. Canary readiness preconditions
+remain unresolved, so staging is not claimed. After the operator reported a
+manual reconnect, the refreshed PPP Active Connections view still showed no
+active session; no live session transition, latency, or traffic-freshness
+result was captured. This note supersedes the earlier published-candidate
+reference for #199, but does not satisfy its canary soak or the live-router
+authorization checks in #200. No router policy, account, certificate, or VPN
+session was changed.
