@@ -180,6 +180,8 @@ test('certificate migration confirmation refreshes its panel without a full page
   });
 
   await page.evaluate(() => {
+    document.querySelector('[data-view="overview"]').hidden = true;
+    document.querySelector('[data-view="profile-security"]').hidden = false;
     const panel = document.querySelector('.migration-panel');
     panel.dataset.refreshMarker = 'before';
     const button = document.createElement('button');
@@ -209,7 +211,7 @@ test('certificate migration confirmation refreshes its panel without a full page
   await page.getByRole('button', { name: 'Confirm replacement imported' }).click();
 
   await expect(page.locator('.migration-panel')).toHaveAttribute('data-refresh-marker', 'after');
-  await expect(page.locator('[data-view="overview"]')).toBeVisible();
+  await expect(page.locator('[data-view="profile-security"]')).toBeVisible();
   expect(navigations).toEqual([]);
   expect(await page.evaluate(() => window.__unrelatedPageState)).toEqual({ preserved: true });
 });
