@@ -815,12 +815,23 @@ acceptance. See [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md) and
 
 The scoped ASVS 5.0.0 matrix now assigns TESTED, PARTIAL, GAP, N/A, or
 EXTERNAL status to each V7, V8, and V4.4 control considered for this review;
-it records explicit gaps for concurrent-session limits and step-up
-authentication rather than implying broad compliance. A new route-level
+it records explicit gaps rather than implying broad compliance. The
+concurrent-session-limit gap is addressed in the current repository change;
+the step-up-authentication gap remains. A new route-level
 regression verifies that administrator-session revocation is CSRF-protected,
 cannot revoke the current session, removes only the reviewed target session,
 and writes a hashed audit reference. The repository test is not live-proxy or
 independent-review evidence.
+
+**#200 concurrent dashboard sessions (2026-10-08):** the repository now caps
+active sessions at eight per case-insensitive RouterOS account within the
+single application process. Admission is atomic, expired sessions are purged
+before counting, and a valid login above the limit is denied with HTTP 429;
+existing sessions are not evicted. Unit and HTTP integration regressions cover
+the behavior, and [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md) records the
+process-local scope and evidence. This closes only the scoped V7.1.2
+repository gap; it does not establish distributed enforcement, live-proxy
+behavior, or complete #200 acceptance. Issue #200 remains open.
 
 **Certificate lifecycle hardening:** the staged migration's connection-test
 attestation now also requires a read-only observation that RouterOS currently

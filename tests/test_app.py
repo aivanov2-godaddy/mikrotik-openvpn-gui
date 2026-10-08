@@ -844,6 +844,33 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return path, target["id"], json.loads(payload)
 
+    def test_login_denies_valid_account_at_concurrent_session_limit(self) -> None:
+        self.login()
+        for _ in range(7):
+            self.server.context.sessions.create("ADMIN", "routerpass")
+
+        body = urllib.parse.urlencode(
+            {"username": "admin", "password": "routerpass"}
+        ).encode()
+        status, headers, page = self.request(
+            "POST",
+            "/login",
+            body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
+        )
+
+        self.assertEqual(status, 429)
+        self.assertNotIn("set-cookie", headers)
+        self.assertIn(b"maximum of 8 active dashboard sessions", page)
+        self.assertIn(b"sign out or revoke one", page)
+        self.assertEqual(
+            self.server.context.store.recent_audit(1)[0]["action"],
+            "login.concurrent_session_limit",
+        )
+
     def test_login_health_and_authentication_boundaries(self) -> None:
         status, headers, payload = self.request("GET", "/healthz")
         self.assertEqual(status, 200)

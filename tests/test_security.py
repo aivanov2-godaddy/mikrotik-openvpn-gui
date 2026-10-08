@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from security import (
+    ConcurrentSessionLimitReached,
     LoginRateLimiter,
     SessionStore,
     csrf_matches,
@@ -95,6 +96,30 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(second.session_id, "session-two")
         self.assertNotEqual(first.session_id, second.session_id)
         self.assertEqual(token.call_args_list, [mock.call(32), mock.call(32), mock.call(32), mock.call(32)])
+
+    def test_session_limit_is_per_account_and_expired_sessions_free_a_slot(self) -> None:
+        store = SessionStore(
+            idle_seconds=10,
+            absolute_seconds=30,
+            max_sessions_per_account=2,
+        )
+        store.create("Admin", "secret", now=100)
+        store.create("other", "secret", now=100)
+        store.create("admin", "secret", now=105)
+
+        with self.assertRaises(ConcurrentSessionLimitReached):
+            store.create("ADMIN", "secret", now=109)
+
+        admitted = store.create("admin", "secret", now=111)
+        self.assertEqual(admitted.username, "admin")
+        self.assertEqual(
+            sum(session.username.casefold() == "admin" for session in store.active(now=111)),
+            2,
+        )
+
+    def test_session_limit_must_be_positive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            SessionStore(max_sessions_per_account=0)
 
     def test_router_uptime_display(self) -> None:
         self.assertEqual(_router_uptime("1d22h44m45s"), "1d 22:44:45s")
