@@ -1170,3 +1170,20 @@ deployment and was left untouched to preserve its live stream. A fresh tab
 redirected to Cloudflare Access, so post-deployment visual confirmation could
 not be performed in this observation. No RouterOS policy, certificate, VPN
 user/session, or application data was modified.
+
+## Manual test-client reconnect follow-up — 2026-10-08
+
+After the operator manually reconnected the test VPN client, the already-open
+authenticated production Connections page showed one connected device and
+`Live · SOCKETIO`. Two subsequent read-only observations approximately 15
+seconds apart showed the session still listed but the status had changed to
+`Connection data delayed`; displayed uptime and traffic counters were unchanged.
+The page was not refreshed and the VPN client was not disconnected again.
+This confirms manual reconnect visibility, but live-data freshness did not
+pass. No authenticated `/api/status` response or live-stream frame was
+captured, so this does not identify whether the poll, transport, or upstream
+telemetry path failed. It is not evidence of a successful automatic reconnect,
+snapshot recovery, sub-second event delivery, two-second traffic freshness, or
+the 30-minute #199 soak. No router/container, VPN account/session, certificate,
+CA, policy, or persistent application state was changed; client identifiers
+and exact traffic totals are intentionally omitted.
