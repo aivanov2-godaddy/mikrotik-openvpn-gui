@@ -817,8 +817,10 @@ The scoped ASVS 5.0.0 matrix now assigns TESTED, PARTIAL, GAP, N/A, or
 EXTERNAL status to each V7, V8, and V4.4 control considered for this review;
 it records explicit gaps rather than implying broad compliance. The
 concurrent-session-limit gap is addressed in the current repository change;
-the step-up-authentication gap remains. A new route-level
-regression verifies that administrator-session revocation is CSRF-protected,
+PR #548 adds fresh RouterOS-password verification for administrator-session
+revocation, so that one highly sensitive operation has a tested step-up control;
+broader step-up coverage remains unassessed. A route-level regression verifies
+that administrator-session revocation is CSRF-protected,
 cannot revoke the current session, removes only the reviewed target session,
 and writes a hashed audit reference. The repository test is not live-proxy or
 independent-review evidence.
