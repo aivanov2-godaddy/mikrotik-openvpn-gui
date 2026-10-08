@@ -1335,3 +1335,17 @@ with digest
 This is a published artifact, **not a RouterOS deployment**: the read-only
 RouterOS check still showed the prior image on canary and production. Deployed
 proxy behavior and the independent security review in #200 remain open.
+
+**2026-10-08 manual test-client reconnect observation:** after the operator
+manually reconnected the test VPN client, the existing authenticated
+Connections page showed one connected device and `Live · SOCKETIO`. On two
+subsequent read-only observations approximately 15 seconds apart, the session
+remained listed but the badge showed `Connection data delayed`; displayed
+uptime and traffic counters did not advance. The page was not refreshed and
+the client was not disconnected again. This confirms that the manually
+reconnected session was visible, but the live-data freshness check did not
+pass. No authenticated `/api/status` response or stream frame was captured,
+so the failing layer is unknown. No router/container, VPN session, certificate,
+CA, policy, or persistent application state was changed. Record this as a
+failed freshness observation—not a passing reconnect/snapshot or #199 soak.
+See [LIVE_TELEMETRY_ACCEPTANCE_REPORT.md](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
