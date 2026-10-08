@@ -173,6 +173,47 @@ test('Connections termination-review prompt renders consistently', async ({ page
   });
 });
 
+test('certificate migration confirmation refreshes its panel without a full page reload', async ({ page }) => {
+  const navigations = [];
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.push(frame.url());
+  });
+
+  await page.evaluate(() => {
+    const panel = document.querySelector('.migration-panel');
+    panel.dataset.refreshMarker = 'before';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.migrationStep = 'imported';
+    button.dataset.legacyCertificate = 'test-certificate';
+    button.textContent = 'Confirm replacement imported';
+    panel.querySelector('tbody').replaceChildren(Object.assign(document.createElement('tr'), {
+      innerHTML: '<td>Existing certificate</td><td>Test user</td><td>Replacement pending</td><td></td>',
+    }));
+    panel.querySelector('tbody td:last-child').append(button);
+    window.__unrelatedPageState = { preserved: true };
+  });
+  const refreshedHtml = await page.content();
+  const markedHtml = refreshedHtml.replace('data-refresh-marker="before"', 'data-refresh-marker="after"');
+
+  await page.route('**/api/profile-migrations/test-certificate/steps/imported', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: '{}',
+  }));
+  await page.route('**/dashboard', (route) => {
+    if (route.request().resourceType() !== 'fetch') return route.continue();
+    return route.fulfill({ status: 200, contentType: 'text/html', body: markedHtml });
+  });
+
+  await page.getByRole('button', { name: 'Confirm replacement imported' }).click();
+
+  await expect(page.locator('.migration-panel')).toHaveAttribute('data-refresh-marker', 'after');
+  await expect(page.locator('[data-view="overview"]')).toBeVisible();
+  expect(navigations).toEqual([]);
+  expect(await page.evaluate(() => window.__unrelatedPageState)).toEqual({ preserved: true });
+});
+
 for (const theme of accessibilityThemes) {
   for (const view of accessibilityViews) {
     test(`${view.name} has no serious WCAG 2.2 A/AA violations in ${theme.name} theme`, async ({ page }, testInfo) => {
