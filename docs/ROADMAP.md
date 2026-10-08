@@ -26,6 +26,14 @@ observability, compatibility/provenance, and mutation-safety roadmap issues
 #194 device/certificate live acceptance, #199 controlled release acceptance,
 and #200 deployed security/session review. Multi-tenancy remains excluded.
 
+A brief, operator-authorized production smoke on 2026-10-08 observed a test
+client's live session and traffic update without a page reload; after a
+controlled disconnect, the live list/history reflected the end, and a new
+session appeared after the operator manually reconnected. This is qualitative
+evidence for the currently deployed image only. It does not meet latency or
+freshness targets, prove automatic client reconnection, or replace canary
+acceptance. Details are redacted in the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
 ## Current release status — 2026-10-06
 
 Formal release **v2.7.0** is published from commit
@@ -1074,11 +1082,13 @@ verifies live health updates and transport indication in that session only,
 not VPN-session events or traffic freshness under load. See [the current
 acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-Issue #199 remains open: no nonzero VPN-client transition or continuous
-30-minute telemetry/Redis sample series has been collected in this window;
-event latency/freshness, reconnect and full-snapshot recovery, event
-integrity, and a canary rollback/restore drill are still unproven. Do not
-promote a candidate or mark acceptance complete on container health alone.
+Issue #199 remains open. A later production smoke is summarized in the current
+snapshot above, but no continuous 30-minute telemetry/Redis sample series has
+been collected in this window; event latency/freshness targets, RouterOS API
+reconnect and full-snapshot recovery, event integrity, and a canary
+rollback/restore drill remain unproven. Do not promote a candidate or mark
+acceptance complete on container health or a qualitative production smoke
+alone.
 
 **#192 zoom-equivalent layout follow-up (2026-10-05):** A read-only dashboard
 spot-check at a 539 CSS-pixel viewport found the mobile header's sign-out label

@@ -39,6 +39,19 @@ but no active updater-script job. The previous `stage-v3` terminal transcript
 ended with an interrupted invocation; it does not prove a completed candidate
 soak.
 
+A separate controlled production smoke on 2026-10-08 used the operator's
+disposable test client. The live Connections view showed its active session and
+changing traffic without a page reload. After the authorized disconnect, the
+UI briefly reported RouterOS still considered the session active; a subsequent
+live view showed zero active sessions and the history row ended, without a
+retry. The operator then manually reconnected the client, and the live view
+showed a new active session. This confirms qualitative live connect/disconnect
+updates on the currently deployed image, but does not measure the one-second
+event-latency or two-second freshness targets, prove automatic client
+reconnection, or exercise the newer published candidate. The short smoke is
+not a soak or acceptance pass; private identity, address, and traffic values
+are intentionally omitted.
+
 ## Earlier read-only WinBox image/job check — 2026-10-06 (superseded)
 
 The canary container was healthy and its OCI image revision label matched PR
