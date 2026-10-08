@@ -65,10 +65,11 @@ has not yet been seen since process start; zero is a valid fresh age.
 Age measures elapsed wall time since this process accepted an observation. It
 is a freshness signal, not end-to-end RouterOS-to-browser latency or proof of
 delivery to every client. Session observations are marked by the REST/SSE
-reconciliation path and live session stream; traffic-sample freshness is marked
-when interface-counter events enter the telemetry runtime. A later acceptance
-collector can sample these gauges over a window without calling RouterOS or
-adding event-level/private data to metrics.
+reconciliation path and live session stream; traffic-sample freshness advances
+after every successful interface-counter read, including reads with no counter
+delta and therefore no event to publish. A failed read does not advance the
+timestamp. A later acceptance collector can sample these gauges over a window
+without calling RouterOS or adding event-level/private data to metrics.
 
 The release-acceptance collector also samples the aggregate telemetry-gateway
 gauges and counters: currently authorized clients, bounded buffered events,

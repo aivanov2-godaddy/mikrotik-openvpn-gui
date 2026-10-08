@@ -64,6 +64,53 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertEqual(received[0].payload["interface"]["name"], "ether1")
         self.assertTrue(connection.closed)
 
+    def test_interface_sampler_counts_poll_cycles_not_interface_events(self):
+        replies = [
+            RouterOSReply("re", {".id": "*1", "name": "ether1", "rx-byte": "10"}),
+            RouterOSReply("re", {".id": "*2", "name": "ether2", "rx-byte": "20"}),
+        ]
+        connection = FakeConnection(replies)
+        broker = TelemetrySupervisor(
+            lambda: connection,
+            lambda: ("user", "secret"),
+        ).broker
+        samples = []
+        events = []
+        sampler = TelemetryInterfaceSampler(
+            lambda: connection,
+            lambda: ("user", "secret"),
+            broker,
+            on_sample=lambda: samples.append(True),
+            on_events=events.extend,
+        )
+
+        sampler.sample_once()
+        connection.closed = False
+        sampler.sample_once()
+
+        self.assertEqual(len(samples), 2)
+        self.assertEqual(len(events), 4)
+        self.assertTrue(all(event.name == "vpn.interface.counters" for event in events))
+
+    def test_interface_sampler_does_not_mark_failed_observation_fresh(self):
+        connection = FakeConnection(error=OSError("unavailable"))
+        broker = TelemetrySupervisor(
+            lambda: connection,
+            lambda: ("user", "secret"),
+        ).broker
+        samples = []
+        sampler = TelemetryInterfaceSampler(
+            lambda: connection,
+            lambda: ("user", "secret"),
+            broker,
+            on_sample=lambda: samples.append(True),
+        )
+
+        with self.assertRaises(OSError):
+            sampler.sample_once()
+
+        self.assertEqual(samples, [])
+
     def test_disabled_by_default_does_not_create_connection(self):
         created = []
         supervisor = TelemetrySupervisor(

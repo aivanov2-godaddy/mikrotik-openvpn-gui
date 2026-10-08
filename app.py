@@ -2524,7 +2524,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_telemetry_traffic_sample_timestamp_seconds Unix timestamp when the process last observed an interface-counter sample; -1 means none observed.",
             "# TYPE vpn_dashboard_telemetry_traffic_sample_timestamp_seconds gauge",
             f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {telemetry.get('last_traffic_sample_at') if telemetry.get('last_traffic_sample_at') is not None else -1}",
-            "# HELP vpn_dashboard_telemetry_traffic_samples_total Interface-counter samples accepted by the live telemetry runtime.",
+            "# HELP vpn_dashboard_telemetry_traffic_samples_total Successful interface-counter poll cycles completed by the live telemetry runtime.",
             "# TYPE vpn_dashboard_telemetry_traffic_samples_total counter",
             f"vpn_dashboard_telemetry_traffic_samples_total {telemetry.get('traffic_samples', 0)}",
         ]
