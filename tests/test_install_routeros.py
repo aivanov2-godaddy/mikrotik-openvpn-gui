@@ -57,6 +57,7 @@ class InstallationWizardTests(unittest.TestCase):
             {"external_root": "disk1;remove"},
             {"bridge": "container;remove"},
             {"public_origin": "https://vpn.example.com/path"},
+            {"public_origin": "https://canary.invalid"},
             {"routeros_rest_url": "http://router.example.com/rest"},
             {"routeros_rest_san": "other.example.com"},
             {"container_address": "172.31.250.0/24"},

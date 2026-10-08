@@ -86,6 +86,13 @@ def _hostname_or_ip(value: str, name: str, *, casefold: bool = True) -> str:
         return candidate.casefold() if casefold else candidate
 
 
+def is_reserved_invalid_hostname(value: str) -> bool:
+    """Return whether a hostname is under RFC 2606's reserved ``.invalid`` TLD."""
+
+    candidate = value.rstrip(".").casefold()
+    return candidate == "invalid" or candidate.endswith(".invalid")
+
+
 def _routeros_name(value: str, name: str) -> str:
     if not _ROUTEROS_NAME.fullmatch(value):
         raise ConfigurationError(f"{name} must be a RouterOS-safe name")
@@ -111,6 +118,8 @@ def _origin(value: str) -> str:
             "PUBLIC_ORIGIN must be a credential-free HTTP(S) origin without a path"
         )
     host = _hostname_or_ip(parsed.hostname, "PUBLIC_ORIGIN hostname")
+    if is_reserved_invalid_hostname(host):
+        raise ConfigurationError("PUBLIC_ORIGIN must not use the reserved .invalid hostname")
     if parsed.scheme == "http" and host not in {"localhost", "127.0.0.1", "::1"}:
         raise ConfigurationError("PUBLIC_ORIGIN must use HTTPS except for a loopback development origin")
     return value.rstrip("/")

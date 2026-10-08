@@ -14,6 +14,9 @@ semantic-version style release tags.
 
 ### Changed
 
+- Reject the reserved `.invalid` hostname for `PUBLIC_ORIGIN` in runtime config
+  and RouterOS installation/canary plans, preventing a placeholder endpoint
+  from being accepted as a deployable dashboard origin.
 - Remove the certificate-specific reconnect-report action: RouterOS can confirm
   certificate revocation and user-level sessions, but cannot prove which
   certificate a session used. Historical reports remain explicitly unverified.
