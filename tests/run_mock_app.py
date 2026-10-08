@@ -32,7 +32,12 @@ def main() -> None:
         context = AppContext(
             router=RouterOSClient(mock.url, topology=config.topology),
             store=MetadataStore(f"{temporary}/dashboard.sqlite"),
-            sessions=SessionStore(),
+            # Browser regression tests repeatedly create isolated login
+            # contexts against one shared mock server and do not model
+            # production sign-out between cases. Keep that harness churn from
+            # masking UI coverage; SessionStore's production default remains
+            # enforced and its limit is tested in the HTTP integration suite.
+            sessions=SessionStore(max_sessions_per_account=512),
             limiter=LoginRateLimiter(),
             config=config,
         )
