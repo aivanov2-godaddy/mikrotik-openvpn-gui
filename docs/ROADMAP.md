@@ -8,13 +8,21 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-08
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
-verified published candidate is PR [#548](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/548),
-ARM64 tag `sha-7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a-arm64`, digest
-`sha256:4065905164fbea1c109f9df817c6530851d73ab7275558132c1db2b020cfb848`.
-It is published but **not deployed**: the latest read-only RouterOS check
-shows canary and production on the prior PR #539 image, both healthy, with
-Redis running. The detailed redacted evidence and exact deployment blocker are
-in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+verified published candidate is main commit
+`446068934ba50a36a920772a4ab1315fcb9a6433` (PR #554), published by workflow
+[#37796002329](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37796002329).
+ARM64 tag/digest:
+`sha-446068934ba50a36a920772a4ab1315fcb9a6433-arm64` /
+`sha256:a65026006fb3209e89b7520cf84a5131b6003c6bd9ccd913fa5ba364a73cb6e3`.
+AMD64 tag/digest:
+`sha-446068934ba50a36a920772a4ab1315fcb9a6433-amd64` /
+`sha256:e433065d1ba6261f3a647b0709230340485a99497bc216a8fa5026be20765cb1`.
+Publisher checks, both architecture builds, provenance/SBOM verification, and
+runtime smoke passed. This is **published, not verified deployed**. No
+RouterOS deployment was attempted: the canary origin is a placeholder,
+deployment credentials are unavailable locally, and the router-local updater
+scheduler is disabled. The detailed redacted evidence and acceptance blockers
+are in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
 PR [#550](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/550)
 refreshed that acceptance report; it does not claim the full soak passed. PR

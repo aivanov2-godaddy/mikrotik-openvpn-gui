@@ -2,23 +2,38 @@
 
 Status: **TELEMETRY BASELINE ACCEPTED — CANARY READINESS SOAK PASSED; FULL ACCEPTANCE PENDING**
 
+The latest verified published candidate is main commit
+`446068934ba50a36a920772a4ab1315fcb9a6433`, merged from PR #554. Publisher
+run [37796002329](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37796002329)
+passed release-source and rendered browser/accessibility checks, ARM64/AMD64
+builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
+stable-manifest publication. Immutable image identities:
+
+| Platform | Immutable tag | Published registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-446068934ba50a36a920772a4ab1315fcb9a6433-arm64` | `sha256:a65026006fb3209e89b7520cf84a5131b6003c6bd9ccd913fa5ba364a73cb6e3` |
+| AMD64 evaluation | `sha-446068934ba50a36a920772a4ab1315fcb9a6433-amd64` | `sha256:e433065d1ba6261f3a647b0709230340485a99497bc216a8fa5026be20765cb1` |
+
+This is publication evidence only, not deployment or acceptance evidence. No
+RouterOS deployment was attempted: the existing canary origin is still a
+placeholder, deployment credentials are unavailable locally, and the
+router-local updater scheduler is disabled. No deployment/image read-back for
+this candidate is available; do not infer that canary or production runs it.
+
 This report records the operator's 2026-10-02 acceptance of the Binary API
 telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
 names, credentials, certificates, tokens, and private identifiers are not
-copied into this repository. The latest verified published candidate is PR
-#548, commit `7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a`, ARM64 tag
-`sha-7107f7a2dc8bdca54229ac02f690d5abc7aa7f9a-arm64`, digest
-`sha256:4065905164fbea1c109f9df817c6530851d73ab7275558132c1db2b020cfb848`.
-Its publisher passed source, unit/mock, and rendered-browser/accessibility
-verification, ARM64/AMD64 builds, provenance/SBOM verification, and runtime
-smoke tests.
+copied into this repository. Earlier published-candidate entries below are
+retained as historical records; the current candidate and its exact immutable
+identities are listed above.
 
 A read-only WebFig check on 2026-10-08 showed canary and production both
 configured to the prior PR #539 ARM64 tag
 `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, both healthy (`H`),
 with Redis running. RouterOS reports configured tags and health, not an
-independent registry digest; PR #548 is therefore published but not deployed.
+independent registry digest; PR #548 was published but not deployed at that
+read-back. The later PR #554 publication is likewise not verified deployed.
 The router-local `vpn-gui-immutable-update` scheduler is disabled, the local
 REST deployment client has no credentials configured, and the existing
 canary's configured origin is a placeholder rather than a verified
