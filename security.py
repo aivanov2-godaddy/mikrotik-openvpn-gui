@@ -11,6 +11,11 @@ from dataclasses import dataclass
 SESSION_IDLE_SECONDS = 30 * 60
 SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60
 SESSION_ROLE_REVALIDATION_SECONDS = 15
+MAX_SESSIONS_PER_ACCOUNT = 8
+
+
+class ConcurrentSessionLimitReached(ValueError):
+    """Raised when an account already has its maximum active dashboard sessions."""
 
 # Dashboard roles are deliberately derived from the authenticated RouterOS
 # account.  They are capabilities, not another password database, so the
@@ -105,9 +110,13 @@ class SessionStore:
         self,
         idle_seconds: int = SESSION_IDLE_SECONDS,
         absolute_seconds: int = SESSION_ABSOLUTE_SECONDS,
+        max_sessions_per_account: int = MAX_SESSIONS_PER_ACCOUNT,
     ) -> None:
+        if max_sessions_per_account < 1:
+            raise ValueError("max_sessions_per_account must be positive")
         self.idle_seconds = idle_seconds
         self.absolute_seconds = absolute_seconds
+        self.max_sessions_per_account = max_sessions_per_account
         self._sessions: dict[str, Session] = {}
         self._lock = threading.RLock()
         self._role_checked_at: dict[str, float] = {}
@@ -135,6 +144,13 @@ class SessionStore:
             user_agent=str(user_agent or "")[:256],
         )
         with self._lock:
+            self.purge(current)
+            account_sessions = sum(
+                existing.username.casefold() == username.casefold()
+                for existing in self._sessions.values()
+            )
+            if account_sessions >= self.max_sessions_per_account:
+                raise ConcurrentSessionLimitReached
             self._sessions[session.session_id] = session
             self._role_checked_at[session.session_id] = current
         return session

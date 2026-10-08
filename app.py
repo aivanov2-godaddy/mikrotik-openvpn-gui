@@ -37,6 +37,7 @@ from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, Ro
 from qr import svg as qr_svg
 from profile_diagnostics import diagnose_profile
 from security import (
+    ConcurrentSessionLimitReached,
     LoginRateLimiter,
     SECURITY_HEADERS,
     Session,
@@ -3245,15 +3246,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.UNAUTHORIZED,
             )
             return
-        self.server.context.limiter.success(identity)
         role = normalize_role(role)
-        session = self.server.context.sessions.create(
-            username,
-            password,
-            role=role,
-            source_address=identity,
-            user_agent=self.headers.get("User-Agent", ""),
-        )
+        try:
+            session = self.server.context.sessions.create(
+                username,
+                password,
+                role=role,
+                source_address=identity,
+                user_agent=self.headers.get("User-Agent", ""),
+            )
+        except ConcurrentSessionLimitReached:
+            limit = self.server.context.sessions.max_sessions_per_account
+            self.server.context.store.audit(
+                actor=username,
+                action="login.concurrent_session_limit",
+                target="dashboard",
+                status="denied",
+                details={"source": identity, "limit": limit},
+            )
+            self._html(
+                login_page(
+                    f"This account already has the maximum of {limit} active dashboard sessions. "
+                    "Use an existing session to sign out or revoke one, or wait for a session to expire.",
+                    dashboard_name=self.server.context.config.dashboard_name,
+                    router_display_name=self.server.context.config.router_display_name,
+                ),
+                status=HTTPStatus.TOO_MANY_REQUESTS,
+            )
+            return
+        self.server.context.limiter.success(identity)
         cookie = (
             f"vpn_session={session.session_id}; Path=/; Max-Age=28800; "
             "Secure; HttpOnly; SameSite=Strict"
