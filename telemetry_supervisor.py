@@ -304,6 +304,7 @@ class TelemetryInterfaceSampler:
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         stop_event: threading.Event | None = None,
+        on_sample: Callable[[], None] | None = None,
         on_events: Callable[[list[TelemetryEvent]], None] | None = None,
     ) -> None:
         if interval <= 0:
@@ -315,6 +316,7 @@ class TelemetryInterfaceSampler:
         self._clock = clock
         self._sleep = sleep
         self._stop_event = stop_event or threading.Event()
+        self._on_sample = on_sample
         self._on_events = on_events
 
     def stop(self) -> None:
@@ -327,9 +329,13 @@ class TelemetryInterfaceSampler:
         try:
             username, password = self._credentials_provider()
             connection.connect(username, password)
-            events = self._broker.reconcile_interfaces(
-                read_interface_counters(connection), now=int(self._clock())
-            )
+            records = read_interface_counters(connection)
+            events = self._broker.reconcile_interfaces(records, now=int(self._clock()))
+            # Freshness describes a successful RouterOS observation, not only
+            # a counter delta. Quiet interfaces still need to advance the
+            # sample timestamp even though there is nothing to publish.
+            if self._on_sample is not None:
+                self._on_sample()
             if self._on_events is not None:
                 self._on_events(list(events))
             return events
