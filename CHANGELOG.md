@@ -14,6 +14,9 @@ semantic-version style release tags.
 
 ### Changed
 
+- Remove the certificate-specific reconnect-report action: RouterOS can confirm
+  certificate revocation and user-level sessions, but cannot prove which
+  certificate a session used. Historical reports remain explicitly unverified.
 - Require at least 30 candidate readiness samples, at least 60 seconds apart,
   before the RouterOS release updater automatically promotes a canary image.
   Any failed sample rolls the canary back without changing production.

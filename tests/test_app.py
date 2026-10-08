@@ -1190,7 +1190,6 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/users/test-user/suspend/preview",
             "/api/users/test-user/profiles", "/api/users/test-user/profiles/preview",
             "/api/profile-migrations/legacy-user-one-phone/steps/imported",
-            "/api/profile-migrations/legacy-user-one-phone/reconnect-test",
             "/api/profile-migrations/legacy-user-one-phone/revoke/preview",
             "/api/profile-migrations/legacy-user-one-phone/revoke",
             "/api/devices/test-device/revoke/preview", "/api/devices/test-device/revoke",
@@ -1565,7 +1564,6 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("POST", regex(r"/api/users/([^/]+)/profiles/preview"), "/api/users/test-user/profiles/preview", ("profiles.manage",), {}),
             ("POST", regex(r"/api/profile-migrations/([^/]+)/steps/(imported|tested)"), "/api/profile-migrations/legacy-user-one-phone/steps/imported", ("profiles.manage",), {}),
             ("POST", regex(r"/api/profile-migrations/([^/]+)/steps/(imported|tested)"), "/api/profile-migrations/legacy-user-one-phone/steps/tested", ("profiles.manage",), {}),
-            ("POST", regex(r"/api/profile-migrations/([^/]+)/reconnect-test"), "/api/profile-migrations/legacy-user-one-phone/reconnect-test", ("profiles.manage",), {}),
             ("POST", regex(r"/api/users/([^/]+)/profiles"), "/api/users/test-user/profiles", ("profiles.manage",), {}),
             ("POST", regex(r"/api/devices/([^/]+)/revoke/preview"), "/api/devices/test-device/revoke/preview", ("device.manage",), {}),
             ("POST", regex(r"/api/devices/([^/]+)/revoke"), "/api/devices/test-device/revoke", ("device.manage",), {}),
@@ -3693,9 +3691,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         store.record_profile_migration_retirement(
             legacy_certificate_name="legacy-user-one-phone", state="verified",
         )
-        store.record_profile_migration_reconnect_test(
-            legacy_certificate_name="legacy-user-one-phone", result="rejected", actor="operator",
-        )
+        with store._lock, store._connection() as connection:
+            connection.execute(
+                "UPDATE profile_migrations SET reconnect_tested_at=?, reconnect_tested_by=?, reconnect_result=? WHERE legacy_certificate_name=?",
+                (123, "historical-operator", "rejected", "legacy-user-one-phone"),
+            )
         store.record_profile_migration(
             legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
             replacement_certificate_name="user-one-phone-new",
@@ -3708,6 +3708,21 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNone(migration["reconnect_tested_at"])
         self.assertEqual(migration["reconnect_tested_by"], "")
         self.assertEqual(migration["reconnect_result"], "")
+
+    def test_profile_migration_reconnect_report_endpoint_is_removed(self) -> None:
+        self.login()
+        before_mutations = list(self.mock.state.mutation_requests)
+        before_audit = self.server.context.store.recent_audit(20)
+
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/reconnect-test",
+            {"result": "rejected"},
+        )
+
+        self.assertEqual(status, 404)
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertEqual(self.server.context.store.recent_audit(20), before_audit)
+        self.assertNotIn(b"operator_attested", payload)
 
     def test_profile_migration_progress_requires_live_active_certificates_and_profile_capability(self) -> None:
         self.mock.state.certificates["*OLD"] = {
@@ -4171,10 +4186,20 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(result["verified"])
         self.assertTrue(self.mock.state.certificates["*OLD"]["revoked"])
         self.assertEqual(self.mock.state.certificates["*REPLACEMENT"]["revoked"], "no")
+        with self.server.context.store._lock, self.server.context.store._connection() as connection:
+            connection.execute(
+                "UPDATE profile_migrations SET reconnect_tested_at=?, reconnect_tested_by=?, reconnect_result=? WHERE legacy_certificate_name=?",
+                (123, "historical-operator", "rejected", legacy_name),
+            )
         status, _, page = self.request("GET", "/dashboard")
         self.assertEqual(status, 200)
-        self.assertIn(b"Old identity revoked; replacement verified at retirement", page)
+        self.assertIn(b"Old profile rejected on reported fresh reconnect", page)
         self.assertNotIn(b"No managed device record to revoke here", page)
+        self.assertNotIn(b"Report: rejected", page)
+        self.assertNotIn(b"Report: connected", page)
+        self.assertIn(b"Reconnect outcome not verifiable here", page)
+        self.assertIn(b"not independently verified", page)
+        self.assertIn(b"RouterOS cannot attribute a session to a certificate", page)
 
     def test_unmanaged_legacy_revoke_rejects_changed_replacement_after_review(self) -> None:
         path, _ = self._legacy_migration_revoke_request()

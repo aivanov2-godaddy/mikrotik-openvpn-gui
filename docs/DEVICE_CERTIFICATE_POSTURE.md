@@ -27,6 +27,10 @@ an already active VPN session, or prove that a revoked/expired identity is
 rejected on a fresh connection. Existing sessions may remain active after
 certificate revocation unless separately terminated. Those are RouterOS and
 live-client acceptance checks, not facts inferred from this inventory view.
+The dashboard does not offer a manual “reconnect rejected” report because
+RouterOS cannot attribute a live session to a specific certificate. Any
+historical operator report is retained only as unverified context, not proof
+of CRL enforcement or certificate-specific rejection.
 
 The posture evaluator and certificate inventory read are read-only. Separate
 profile-issuance and certificate-retirement actions use a one-time review,

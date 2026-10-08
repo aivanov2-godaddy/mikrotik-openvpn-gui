@@ -44,20 +44,16 @@ class SQLiteRecoveryTests(unittest.TestCase):
                 legacy_certificate_name="legacy-device", state="partial",
             )
             self.assertEqual(store.profile_migrations()["legacy-device"]["retirement_state"], "partial")
-            with self.assertRaisesRegex(ValueError, "Verify the replacement"):
-                store.record_profile_migration_reconnect_test(
-                    legacy_certificate_name="legacy-device", result="rejected", actor="operator",
+            with store._lock, store._connection() as migrated_connection:
+                migrated_connection.execute(
+                    "UPDATE profile_migrations SET reconnect_tested_at=?, reconnect_tested_by=?, reconnect_result=? WHERE legacy_certificate_name=?",
+                    (456, "historical-operator", "rejected", "legacy-device"),
                 )
-            store.record_profile_migration_retirement(
-                legacy_certificate_name="legacy-device", state="verified",
-            )
-            store.record_profile_migration_reconnect_test(
-                legacy_certificate_name="legacy-device", result="rejected", actor="operator",
-            )
-            migration = store.profile_migrations()["legacy-device"]
-            self.assertEqual(migration["reconnect_result"], "rejected")
-            self.assertEqual(migration["reconnect_tested_by"], "operator")
-            self.assertIsNotNone(migration["reconnect_tested_at"])
+            reopened_store = MetadataStore(str(database))
+            historical = reopened_store.profile_migrations()["legacy-device"]
+            self.assertEqual(historical["reconnect_result"], "rejected")
+            self.assertEqual(historical["reconnect_tested_by"], "historical-operator")
+            self.assertEqual(historical["reconnect_tested_at"], 456)
 
     def test_write_lock_contention_times_out_and_store_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

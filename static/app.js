@@ -1750,43 +1750,6 @@ document.addEventListener('click', async (event) => {
       toast(error.message, 'error');
       button.disabled = false;
     }
-  } else if (button.matches('[data-migration-reconnect-result]')) {
-    const result = button.dataset.migrationReconnectResult || '';
-    const connected = result === 'connected';
-    const confirmation = connected
-      ? 'Did a fresh attempt using the old, revoked profile successfully connect? Record this as a security warning. Existing sessions cannot prove which certificate they use.'
-      : 'After fully disconnecting this VPN user, did a fresh attempt using the old, revoked profile get rejected? This is an operator report, not independent proof.';
-    if (!['rejected', 'connected'].includes(result) || !window.confirm(confirmation)) return;
-    button.disabled = true;
-    try {
-      const legacyCertificate = button.dataset.legacyCertificate || '';
-      const response = await resultOrError(await api(
-        `/api/profile-migrations/${encodeURIComponent(legacyCertificate)}/reconnect-test`,
-        { method: 'POST', body: { result } },
-      ));
-      const outcome = await response.json();
-      const row = button.closest('tr');
-      const status = row?.querySelector('.device-status');
-      if (status) {
-        status.classList.remove('approved', 'warning');
-        status.classList.add('warning');
-        const text = status.lastChild;
-        if (text) text.textContent = connected
-          ? 'Old profile connected after revocation · investigate'
-          : 'Old profile rejected on reported fresh reconnect';
-      }
-      const detail = row?.querySelector('[data-migration-reconnect-detail]');
-      if (detail) detail.textContent = connected
-        ? `Operator ${outcome.recorded_by || 'operator'} reported that the old profile connected on a fresh attempt. Treat this as a security warning. RouterOS cannot attribute a live session to a certificate.`
-        : `Operator ${outcome.recorded_by || 'operator'} reported rejection on a fresh attempt. This is not independent proof of CRL enforcement; RouterOS cannot attribute a session to a certificate.`;
-      toast(connected
-        ? 'Successful old-profile reconnect recorded as a security warning.'
-        : 'Old-profile rejection recorded as an operator report.');
-      button.disabled = false;
-    } catch (error) {
-      toast(error.message, 'error');
-      button.disabled = false;
-    }
   } else if (button.matches('[data-device-revoke]')) {
     const form = $('#revoke-device-form');
     form.reset();

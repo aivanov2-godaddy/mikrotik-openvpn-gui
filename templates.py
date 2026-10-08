@@ -756,20 +756,15 @@ def dashboard_page(
                             )
                         else:
                             migration_status = "Old identity revoked; replacement verified at retirement"
-                            reconnect_detail = "No fresh reconnect outcome has been recorded."
-                        migration_action = (
-                            f'<span class="migration-reconnect-actions" data-migration-reconnect-actions>'
-                            f'<button type="button" class="table-action" data-migration-reconnect-result="rejected" '
-                            f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}">Report: rejected</button> '
-                            f'<button type="button" class="table-action" data-migration-reconnect-result="connected" '
-                            f'data-legacy-certificate="{html.escape(certificate_name, quote=True)}">Report: connected</button></span>'
-                            if can_manage_profiles else '<span class="muted-label">Read-only</span>'
-                        )
+                            reconnect_detail = (
+                                "No certificate-specific reconnect result is verified. RouterOS cannot attribute a live session to a certificate."
+                            )
+                        migration_action = '<span class="muted-label">Reconnect outcome not verifiable here</span>'
                         migration_detail = (
                             f'<small class="table-secondary">Replacement: {replacement_name}. '
-                            "RouterOS confirmed the replacement active at revocation read-back. Fully disconnect this VPN user before trying the old profile once; "
-                            f'<span data-migration-reconnect-detail>{reconnect_detail}</span> '
-                            "The result is operator-reported, not independently verified.</small>"
+                            "RouterOS confirmed the replacement active at revocation read-back. "
+                            f'{reconnect_detail} '
+                            "Historical reports are operator-provided, not independently verified.</small>"
                         )
                     else:
                         migration_status = "Old identity revoked; replacement status unknown"
