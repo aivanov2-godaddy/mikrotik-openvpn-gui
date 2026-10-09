@@ -130,6 +130,20 @@ Notes: <no credentials, addresses, hosts, profiles, or exports>
 
 ## Collect a bounded app-health window
 
+Keep the canary's private readiness path distinct from its browser/metrics
+origin. RouterOS or an approved management host can probe the canary's private
+`/healthz` and `/readyz` addresses without public DNS, NAT, or a reverse proxy.
+That path is sufficient for an isolated image-start/readiness soak, but it does
+not prove authenticated UI behavior, live telemetry delivery, or metrics.
+
+For those app-level checks, provide a dedicated HTTPS origin routed only to the
+isolated canary through the approved reverse proxy and access-control layer.
+It must not share a route that resolves to production, and the canary's
+`PUBLIC_ORIGIN` must match that dedicated origin before browser checks begin.
+Never expose the container port directly. If the dedicated route is not ready,
+continue private readiness checks where possible and mark the authenticated
+acceptance window incomplete; do not send canary probes to production.
+
 `scripts/collect_release_acceptance.py` samples `GET /healthz` and
 `GET /readyz` on both private app origins. Post-promotion collection also
 samples authenticated aggregate `GET /metrics` in both environments. During

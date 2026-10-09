@@ -18,11 +18,13 @@ AMD64 tag/digest:
 `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-amd64` /
 `sha256:0fdea4d4f749dd4315e9314a9be2a77146d1f54032ce4defd79a45f2a6c5941e`.
 Publisher checks, both architecture builds, provenance/SBOM verification, and
-runtime smoke passed. This is **published, not verified deployed**. No
-RouterOS deployment was attempted: the canary origin is a placeholder,
-deployment credentials are unavailable locally, and the router-local updater
-scheduler is disabled. The detailed redacted evidence and acceptance blockers
-are in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+runtime smoke passed. This is **published, not verified deployed**. The
+router-local updater scheduler is disabled and this candidate has not been
+staged. Private canary readiness checks need no public hostname; authenticated
+browser/telemetry/metrics acceptance does require a dedicated HTTPS origin
+routed only to canary through the approved access layer. Production must not be
+used as the canary route. The detailed redacted evidence and acceptance
+blockers are in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
 On 2026-10-09, a manually reconnected disposable test client reappeared in the
 already-open production dashboard with live traffic/packet graphs and a new
