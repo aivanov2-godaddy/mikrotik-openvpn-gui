@@ -17,7 +17,26 @@ identities are:
 | RouterOS ARM64 | `sha-23361e18a6c708b76c552783d1e234614df823be-arm64` | `sha256:6ae48e5200675f979e150a3b59811ed25abab4ee6d0051134571d8ce796a28c5` |
 | AMD64 evaluation | `sha-23361e18a6c708b76c552783d1e234614df823be-amd64` | `sha256:868e91d91df669569845fef7637645a7dea3078d3aa7651dcbb7385d5bc2ccf3` |
 
-## RouterOS canary updater and VPN-session recheck — 2026-10-09 21:33 EEST
+## Latest RouterOS read-back — 2026-10-09 21:57 EEST
+
+The canary-only immutable updater completed after the 21:33 observation below.
+At 21:51 EEST, WinBox read-back showed the canary configured with
+`sha-23361e18a6c708b76c552783d1e234614df823be-arm64` and marked Healthy. The
+production container remained configured with
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; it was not promoted or
+restarted by this canary update. The registry digest in the table above is
+publisher evidence; RouterOS exposes the configured tag, not an independent
+cached-image digest.
+
+At 21:57 EEST, the WinBox PPP Active Connections view showed zero rows (status
+count zero). This was after the operator reported the disposable test client
+connected. Therefore the latest observation still has no active VPN session
+from which to measure session-event latency, changing traffic samples, or
+live-stream reconnect/snapshot recovery. No client session, user, certificate,
+CA, RouterOS policy, production container, or credential was changed during
+these read-only checks.
+
+## RouterOS canary updater and VPN-session recheck — 2026-10-09 21:33 EEST (historical)
 
 The authenticated WinBox session showed the RouterOS immutable canary updater
 job still running after its 21:16 EEST start. The job's script is scoped to
