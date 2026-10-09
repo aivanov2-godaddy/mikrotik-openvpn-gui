@@ -4546,6 +4546,44 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"not independently verified", page)
         self.assertIn(b"RouterOS cannot attribute a session to a certificate", page)
 
+    def test_unmanaged_legacy_revoke_reconciles_lost_response_from_readback(self) -> None:
+        path, legacy_name = self._legacy_migration_revoke_request()
+        request = {
+            "confirmation": legacy_name,
+            "reason": "Replacement tested; retire old phone identity.",
+        }
+        status, _, payload = self.json_request("POST", f"{path}/preview", request)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        reviewed = {**request, "review_token": json.loads(payload)["review_token"]}
+        revoke = self.server.context.router.revoke_certificate
+
+        def commit_then_lose_response(credentials: Any, *, certificate_id: str) -> None:
+            revoke(credentials, certificate_id=certificate_id)
+            raise RouterOSError("private simulated response loss", 503)
+
+        with mock.patch.object(
+            self.server.context.router,
+            "revoke_certificate",
+            side_effect=commit_then_lose_response,
+        ):
+            status, _, payload = self.json_request("POST", path, reviewed)
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertTrue(result["verified"])
+        self.assertTrue(self.mock.state.certificates["*OLD"]["revoked"])
+        self.assertEqual(self.mock.state.certificates["*REPLACEMENT"]["revoked"], "no")
+        self.assertEqual(
+            self.server.context.store.profile_migrations()[legacy_name]["retirement_state"],
+            "verified",
+        )
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "success")
+        details = json.loads(audit["details"])
+        self.assertEqual(details["verification"], "routeros_revoked")
+        self.assertEqual(details["mutation_response"], "error")
+        self.assertNotIn("private simulated response loss", payload.decode("utf-8"))
+
     def test_unmanaged_legacy_revoke_rejects_changed_replacement_after_review(self) -> None:
         path, _ = self._legacy_migration_revoke_request()
         request = {"confirmation": "legacy-user-one-phone", "reason": "Replacement tested; retire old identity."}
