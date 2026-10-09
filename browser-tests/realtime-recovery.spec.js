@@ -220,6 +220,99 @@ test('reconnects the live stream and applies a fresh snapshot when a sleeping ta
     .some((snapshot) => snapshot.names.includes('wake-user-2') && snapshot.statusbarCount === '2'))).toBe(true);
 });
 
+test('certificate migration panel refresh preserves the live stream and later telemetry updates', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__syntheticEventSources = [];
+    window.EventSource = class SyntheticEventSource {
+      constructor(url) {
+        this.url = url;
+        this.handlers = new Map();
+        this.closed = false;
+        window.__syntheticEventSources.push(this);
+      }
+
+      addEventListener(name, callback) { this.handlers.set(name, callback); }
+      close() { this.closed = true; }
+      emit(name, payload) { this.handlers.get(name)?.({ data: JSON.stringify(payload) }); }
+    };
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'sse', socketio_enabled: false }),
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__syntheticEventSources.length)).toBe(1);
+
+  const navigations = [];
+  page.on('dialog', (dialog) => dialog.accept());
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.push(frame.url());
+  });
+  await page.getByRole('link', { name: 'Device Profiles', exact: true }).click();
+  await expect(page.locator('.migration-panel')).toBeVisible();
+  await page.evaluate(() => {
+    const panel = document.querySelector('.migration-panel');
+    panel.dataset.refreshMarker = 'before';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.migrationStep = 'imported';
+    button.dataset.legacyCertificate = 'test-certificate';
+    button.textContent = 'Confirm replacement imported';
+    panel.querySelector('tbody').replaceChildren(Object.assign(document.createElement('tr'), {
+      innerHTML: '<td>Existing certificate</td><td>Test user</td><td>Replacement pending</td><td></td>',
+    }));
+    panel.querySelector('tbody td:last-child').append(button);
+  });
+  const refreshedHtml = await page.content();
+  const markedHtml = refreshedHtml.replace('data-refresh-marker="before"', 'data-refresh-marker="after"');
+
+  await page.route('**/api/profile-migrations/test-certificate/steps/imported', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: '{}',
+  }));
+  await page.route('**/dashboard', (route) => {
+    if (route.request().resourceType() !== 'fetch') return route.continue();
+    return route.fulfill({ status: 200, contentType: 'text/html', body: markedHtml });
+  });
+
+  // Entering the Device Profiles view changes the URL hash. Only count
+  // navigation caused by the certificate mutation/refresh itself.
+  navigations.length = 0;
+  await page.getByRole('button', { name: 'Confirm replacement imported' }).click();
+  await expect(page.locator('.migration-panel')).toHaveAttribute('data-refresh-marker', 'after');
+  expect(navigations).toEqual([]);
+  expect(await page.evaluate(() => ({
+    streamCount: window.__syntheticEventSources.length,
+    streamClosed: window.__syntheticEventSources[0]?.closed,
+  }))).toEqual({ streamCount: 1, streamClosed: false });
+
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
+  await page.evaluate(() => window.__syntheticEventSources[0].emit('status', {
+    sessions: [{
+      id: 'migration-live-session',
+      name: 'migration-live-user',
+      encoding: 'AES-256-GCM',
+      vpn_address: '10.8.0.99',
+      source_address: '192.0.2.99',
+      uptime: '1m',
+      rx_bytes: 1024,
+      tx_bytes: 2048,
+      rx_packets: 10,
+      tx_packets: 20,
+    }],
+  }));
+  await expect(page.getByText('migration-live-user', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-live-indicator]').first()).toHaveText('Live · SSE');
+  expect(await page.evaluate(() => window.__syntheticEventSources[0]?.closed)).toBe(false);
+});
+
 test('reconnects Socket.IO and applies a fresh snapshot when a sleeping tab wakes', async ({ page }) => {
   await page.route('**/api/telemetry', (route) => route.fulfill({
     contentType: 'application/json',
