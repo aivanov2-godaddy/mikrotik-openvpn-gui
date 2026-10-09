@@ -88,23 +88,15 @@ jobs:
           python-version: "3.14"
       - name: Install the optional Redis client
         run: python -m pip install --disable-pip-version-check --requirement requirements-redis.txt
-      - name: Start disposable Redis
-        run: docker run --detach --name vpn-dashboard-redis-test -p 127.0.0.1:6379:6379 redis:7.4-alpine
-      - name: Wait for disposable Redis
+      - name: Install the Ubuntu Redis server
         run: |
-          for attempt in $(seq 1 30); do
-            if docker exec vpn-dashboard-redis-test redis-cli ping | grep -Fxq PONG; then exit 0; fi
-            sleep 1
-          done
-          exit 1
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends redis-server
+          redis-server --version
       - name: Verify outbox outage recovery and duplicate semantics
         env:
           REDIS_TEST_URL: redis://127.0.0.1:6379/0
-          REDIS_TEST_CONTAINER: vpn-dashboard-redis-test
         run: python -m unittest tests.test_redis_integration -v
-      - name: Remove disposable Redis
-        if: always()
-        run: docker rm --force vpn-dashboard-redis-test || true
 
   socketio-security-contract:
     name: Socket.IO same-origin security contract

@@ -1,6 +1,6 @@
 # Live telemetry acceptance report
 
-Status: **PR #582 CANARY STAGED; PR #587 CANDIDATE NOT YET STAGED — LIVE-CLIENT ACCEPTANCE PENDING**
+Status: **PR #587 CANARY STAGED; ROUTEROS READINESS SOAK PASSED — LIVE-CLIENT ACCEPTANCE PENDING**
 
 The latest published candidate is main commit
 `f8caab0432a0ac91f578f7a929c75a850f290a35`, merged from PR #587. Publisher
@@ -17,7 +17,31 @@ image identities are:
 | RouterOS ARM64 | `sha-f8caab0432a0ac91f578f7a929c75a850f290a35-arm64` | `sha256:c5659b5da728ee29893c07e41bfe109aadda2e311ef82be5471d49844d61de04` |
 | AMD64 evaluation | `sha-f8caab0432a0ac91f578f7a929c75a850f290a35-amd64` | `sha256:589b2511762039562f5ff4683a6521546fe6edcaee1df9fb82b6b8433a4aefd3` |
 
-## Latest RouterOS read-back — 2026-10-09 23:24 EEST
+## Latest RouterOS read-back — 2026-10-10 00:36 EEST
+
+The canary-only `vpn-gui-immutable-stage-v3` updater staged the PR #587
+candidate. At 00:11 EEST, the WinBox container view showed canary `HEALTHY`
+and its OCI revision label matched
+`f8caab0432a0ac91f578f7a929c75a850f290a35`. At 00:12 EEST, the RouterOS
+Scripts > Jobs view still showed the `vpn-gui-immutable-stage-v3` job running
+(status `C`). By 00:35 EEST the job had completed, and RouterOS logs recorded
+that the canary readiness soak passed and the candidate was staged. This is
+readiness evidence only, not live-client acceptance. The stage-only script did
+not touch or promote production. The configured immutable ARM64 tag and
+publisher digest remain those listed above; RouterOS does not independently
+expose the cached registry digest.
+
+At 00:36 EEST, PPP Active Connections still showed no active tunnel. The
+already-open production Connections page had displayed a prior session row
+with `Connection data delayed`; because RouterOS did not show an active PPP
+session, that page was not treated as proof of a current client connection.
+No authenticated canary Connections observation was available after the
+canary restart. Thus there is no current-candidate live-client latency,
+traffic-freshness, or session-event acceptance result. No production
+container, VPN account, user, certificate, CA, or RouterOS policy was changed
+during this read-back.
+
+## Prior RouterOS read-back — 2026-10-09 23:24 EEST
 
 The canary-only immutable updater completed after the 21:33 observation below.
 At 21:51 EEST, WinBox read-back showed the canary configured with the prior
