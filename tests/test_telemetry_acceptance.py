@@ -26,7 +26,9 @@ def records(*values: dict[str, object]) -> list[str]:
     rendered = []
     for value in values:
         record = dict(value)
-        if record.get("type") in {"reconnect", "comparison", "security", "verification"}:
+        if record.get("type") in {
+            "session_transition", "traffic_update", "reconnect", "comparison", "security", "verification"
+        }:
             record.setdefault("observed_at", 1_728_000_900)
         rendered.append(json.dumps(record))
     return rendered
@@ -35,6 +37,14 @@ def records(*values: dict[str, object]) -> list[str]:
 def acceptance_window(sample: dict[str, object]) -> list[str]:
     return records(
         sample,
+        {"type": "session_transition", "observed_at": 1_728_000_300,
+         "connected": True, "visible_without_refresh": True},
+        {"type": "session_transition", "observed_at": 1_728_000_600,
+         "connected": False, "visible_without_refresh": True},
+        {"type": "traffic_update", "observed_at": 1_728_000_900,
+         "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True},
+        {"type": "traffic_update", "observed_at": 1_728_000_960,
+         "rx_bytes": 1250, "tx_bytes": 460, "visible_without_refresh": True},
         {
             "type": "reconnect", "recovery_seconds": 1,
             "snapshot_recovered": True, "api_interruption_tested": True,
@@ -79,6 +89,14 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         code, result = evaluate(
             records(
                 *samples,
+                {"type": "session_transition", "observed_at": 1_728_000_300,
+                 "connected": True, "visible_without_refresh": True},
+                {"type": "session_transition", "observed_at": 1_728_000_600,
+                 "connected": False, "visible_without_refresh": True},
+                {"type": "traffic_update", "observed_at": 1_728_000_900,
+                 "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True},
+                {"type": "traffic_update", "observed_at": 1_728_000_960,
+                 "rx_bytes": 1250, "tx_bytes": 460, "visible_without_refresh": True},
                 {
                     "type": "reconnect",
                     "observed_at": 1_728_000_900,
@@ -113,6 +131,105 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["failed_gates"], [])
         self.assertEqual(result["sample_count"], 31)
         self.assertEqual(result["observation_window_seconds"], 1800)
+        self.assertEqual(result["session_transition_tests"], 2)
+        self.assertEqual(result["traffic_update_tests"], 2)
+
+    def test_session_transition_evidence_is_required(self) -> None:
+        window = acceptance_window({
+            "type": "sample", "observed_at": 1_728_000_000,
+            "latency_ms": 100, "event_age_seconds": 0.5,
+            "router_cpu_percent": 22, "router_memory_percent": 34,
+            "router_storage_percent": 12, "container_healthy": True,
+            "event_sequence": 1,
+        })
+        window = [
+            line for line in window
+            if json.loads(line).get("type") != "session_transition"
+        ]
+
+        code, result = evaluate(window, limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertIn("test_client_connect_observation_missing", result["failed_gates"])
+        self.assertIn("test_client_disconnect_observation_missing", result["failed_gates"])
+
+    def test_session_transition_requires_actual_ordered_connect_disconnect(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        window = [
+            line for line in window
+            if json.loads(line).get("type") != "session_transition"
+        ]
+        window.extend(records(
+            {"type": "session_transition", "observed_at": 1_728_000_600,
+             "connected": False, "visible_without_refresh": True},
+            {"type": "session_transition", "observed_at": 1_728_000_900,
+             "connected": True, "visible_without_refresh": True},
+        ))
+        code, result = evaluate(window, limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("test_client_disconnect_transition_missing", result["failed_gates"])
+
+    def test_session_transitions_require_distinct_increasing_timestamps(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        window = [
+            line for line in window
+            if json.loads(line).get("type") != "session_transition"
+        ]
+        window.extend(records(
+            {"type": "session_transition", "observed_at": 1_728_000_600,
+             "connected": True, "visible_without_refresh": True},
+            {"type": "session_transition", "observed_at": 1_728_000_600,
+             "connected": False, "visible_without_refresh": True},
+        ))
+        code, result = evaluate(window, limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("session_transition_timestamps_not_increasing", result["failed_gates"])
+
+    def test_traffic_change_requires_measured_counters_and_live_visibility(self) -> None:
+        for updates, expected_gate in (
+            ([{"type": "traffic_update", "observed_at": 1_728_000_900,
+               "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True}],
+             "traffic_counter_observations_missing"),
+            ([{"type": "traffic_update", "observed_at": 1_728_000_900,
+               "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True},
+              {"type": "traffic_update", "observed_at": 1_728_000_960,
+               "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True}],
+             "traffic_counters_unchanged"),
+            ([{"type": "traffic_update", "observed_at": 1_728_000_900,
+               "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": False},
+              {"type": "traffic_update", "observed_at": 1_728_000_960,
+               "rx_bytes": 1200, "tx_bytes": 400, "visible_without_refresh": True}],
+             "traffic_update_visibility"),
+            ([{"type": "traffic_update", "observed_at": 1_728_000_900,
+               "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True},
+              {"type": "traffic_update", "observed_at": 1_728_000_900,
+               "rx_bytes": 1200, "tx_bytes": 400, "visible_without_refresh": True}],
+             "traffic_update_timestamps_not_increasing"),
+        ):
+            with self.subTest(expected_gate=expected_gate):
+                window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+                window = [
+                    line for line in window
+                    if json.loads(line).get("type") != "traffic_update"
+                ]
+                window.extend(records(*updates))
+                code, result = evaluate(window, limits=LIMITS)
+                self.assertEqual(code, 1)
+                self.assertIn(expected_gate, result["failed_gates"])
+
+    def test_session_transition_and_traffic_visibility_must_be_boolean(self) -> None:
+        with self.assertRaisesRegex(ValueError, "visible_without_refresh must be boolean"):
+            evaluate(
+                records(
+                    {"type": "sample", "observed_at": 1_728_000_000},
+                    {
+                        "type": "session_transition",
+                        "connected": True,
+                        "visible_without_refresh": "yes",
+                    },
+                ),
+                limits=LIMITS,
+            )
 
     def test_stale_or_future_dated_sample_window_cannot_pass(self) -> None:
         samples = [

@@ -61,6 +61,10 @@ Every attestation timestamp below falls inside that same interval.
 
 ```json
 {"type":"sample","observed_at":1728000000,"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
+{"type":"session_transition","observed_at":1728000300,"connected":true,"visible_without_refresh":true}
+{"type":"session_transition","observed_at":1728000600,"connected":false,"visible_without_refresh":true}
+{"type":"traffic_update","observed_at":1728000900,"rx_bytes":1000,"tx_bytes":400,"visible_without_refresh":true}
+{"type":"traffic_update","observed_at":1728000960,"rx_bytes":1250,"tx_bytes":460,"visible_without_refresh":true}
 {"type":"reconnect","observed_at":1728000600,"recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
 {"type":"comparison","observed_at":1728000900,"binary_matches_rest":true}
 {"type":"security","observed_at":1728001200,"unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
@@ -72,7 +76,7 @@ python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
 ```
 
 Every sample requires `observed_at`, a non-negative Unix timestamp in seconds.
-Reconnect, comparison, security, and verification records also require
+Session-transition, reconnect, comparison, security, and verification records also require
 `observed_at`. Each such attestation must fall within the inclusive interval
 between the first and last valid sample timestamps; missing, stale, or future
 attestations fail closed. This prevents an old reconnect or security check from
@@ -88,7 +92,13 @@ Missing container-health coverage fails with
 `container_health_sample_coverage`.
 
 The command emits only aggregate metrics and failed gate names. It also
-requires at least one reconnect test, one security test, and one explicit
+requires timestamped, ordered session-transition records showing the test
+client connected and later disconnected, with both changes visible without a
+page refresh. It also requires at least two timestamped traffic-update records
+with numeric receive/transmit byte counters that differ between observations;
+each update must be visible without a refresh. Self-reported booleans without
+the measured counter change are insufficient. The evaluator also requires at least one
+reconnect test, one security test, and one explicit
 verification record that itself covers every precision, reset, ordering, parity, and
 secret-scan gate. Each passing window must also contain at least one CPU,
 memory, and storage measurement; missing values fail independently with

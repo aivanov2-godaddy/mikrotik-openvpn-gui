@@ -4,8 +4,8 @@ The input is newline-delimited JSON captured by an operator harness.  It is
 deliberately limited to measurements and boolean test results; RouterOS
 records, credentials, addresses, and identifiers must never be included.
 
-Accepted record types are ``sample``, ``reconnect``, ``comparison``,
-``security``, and ``verification``.  A
+Accepted record types are ``sample``, ``session_transition``, ``traffic_update``,
+``reconnect``, ``comparison``, ``security``, and ``verification``.  A
 sample may contain the fields understood by :mod:`scripts.telemetry_baseline`
 plus ``event_sequence``, ``event_lost``, ``event_duplicated``,
 ``out_of_order``, ``counter_reset``, and ``counter_reset_recovered``.
@@ -64,6 +64,8 @@ def evaluate(
     lines: Iterable[str], *, limits: dict[str, float], now: float | None = None
 ) -> tuple[int, dict[str, Any]]:
     samples: list[str] = []
+    session_transitions: list[dict[str, Any]] = []
+    traffic_updates: list[dict[str, Any]] = []
     reconnects: list[dict[str, Any]] = []
     comparisons: list[dict[str, Any]] = []
     security: list[dict[str, Any]] = []
@@ -95,7 +97,9 @@ def evaluate(
         if not isinstance(record, dict):
             raise ValueError("each record must be a JSON object")
         record_type = record.get("type", "sample")
-        if isinstance(record_type, str) and record_type in {"reconnect", "comparison", "security", "verification"}:
+        if isinstance(record_type, str) and record_type in {
+            "session_transition", "traffic_update", "reconnect", "comparison", "security", "verification"
+        }:
             if "observed_at" not in record:
                 failures.append(f"{record_type}_timestamp_missing")
             else:
@@ -155,6 +159,18 @@ def evaluate(
                     counter_reset_failures += 1
                 else:
                     counter_reset_evidence += 1
+        elif record_type == "session_transition":
+            session_transitions.append(record)
+            _boolean(record.get("connected"), "connected")
+            visible = _boolean(record.get("visible_without_refresh"), "visible_without_refresh")
+            if not visible:
+                failures.append("session_event_visibility")
+        elif record_type == "traffic_update":
+            traffic_updates.append(record)
+            for field in ("rx_bytes", "tx_bytes"):
+                _number(record.get(field), field)
+            if not _boolean(record.get("visible_without_refresh"), "visible_without_refresh"):
+                failures.append("traffic_update_visibility")
         elif record_type == "reconnect":
             reconnects.append(record)
             interrupted = _boolean(record.get("api_interruption_tested"), "api_interruption_tested")
@@ -189,10 +205,50 @@ def evaluate(
                     verification[name] = verification[name] or current[name]
             verification_records.append(current)
         else:
-            raise ValueError("type must be sample, reconnect, comparison, security, or verification")
+            raise ValueError(
+                "type must be sample, session_transition, traffic_update, reconnect, comparison, security, or verification"
+            )
 
     if not samples:
         raise ValueError("at least one sample record is required")
+    ordered_transitions = sorted(
+        session_transitions,
+        key=lambda item: _number(item.get("observed_at"), "observed_at"),
+    )
+    transition_states = [
+        _boolean(item.get("connected"), "connected") for item in ordered_transitions
+    ]
+    if not any(transition_states):
+        failures.append("test_client_connect_observation_missing")
+    if not any(not connected for connected in transition_states):
+        failures.append("test_client_disconnect_observation_missing")
+    transition_times = [
+        _number(item.get("observed_at"), "observed_at") for item in ordered_transitions
+    ]
+    if any(later <= earlier for earlier, later in zip(transition_times, transition_times[1:])):
+        failures.append("session_transition_timestamps_not_increasing")
+    if not any(
+        earlier and not later
+        for earlier, later in zip(transition_states, transition_states[1:])
+    ):
+        failures.append("test_client_disconnect_transition_missing")
+    if len(traffic_updates) < 2:
+        failures.append("traffic_counter_observations_missing")
+    ordered_traffic = sorted(
+        traffic_updates,
+        key=lambda item: _number(item.get("observed_at"), "observed_at"),
+    )
+    traffic_times = [
+        _number(item.get("observed_at"), "observed_at") for item in ordered_traffic
+    ]
+    if any(later <= earlier for earlier, later in zip(traffic_times, traffic_times[1:])):
+        failures.append("traffic_update_timestamps_not_increasing")
+    if not any(
+        (float(earlier["rx_bytes"]) != float(later["rx_bytes"]))
+        or (float(earlier["tx_bytes"]) != float(later["tx_bytes"]))
+        for earlier, later in zip(ordered_traffic, ordered_traffic[1:])
+    ):
+        failures.append("traffic_counters_unchanged")
     if not reconnects:
         failures.append("reconnect_test_missing")
     if not security:
@@ -297,6 +353,8 @@ def evaluate(
         "healthy": not failures and baseline_code == 0,
         "failed_gates": sorted(set(failures)),
         "baseline": baseline,
+        "session_transition_tests": len(session_transitions),
+        "traffic_update_tests": len(traffic_updates),
         "reconnect_tests": len(reconnects),
         "comparison_tests": len(comparisons),
         "security_tests": len(security),
