@@ -315,6 +315,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         supervisor_status: str = "healthy",
         supervisor_enabled: int = 1,
         outbox_pending: int = 0,
+        outbox_pending_sequence: list[int] | None = None,
         outbox_dead_lettered: int = 0,
         outbox_oldest_age: float = 0,
         unknown_metric_sample: int | None = None,
@@ -332,6 +333,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         time.wall_clock_adjustment_seconds = wall_clock_adjustment_seconds
         seen: list[tuple[str, str | None, str | None]] = []
         metrics_observations = 0
+        metrics_observations_by_environment = {"canary": 0, "production": 0}
         source = evidence()
         if production_revision is not None:
             production = source["deployments"][1]
@@ -384,7 +386,16 @@ class ReleaseCollectionTests(unittest.TestCase):
                 return 200, json.dumps(payload).encode()
             nonlocal metrics_observations
             metrics_observations += 1
+            environment = "production" if "private.example" in url else "canary"
+            metrics_observations_by_environment[environment] += 1
             sample_is_unknown = metrics_observations == unknown_metric_sample
+            pending_value = outbox_pending
+            if outbox_pending_sequence:
+                pending_index = min(
+                    metrics_observations_by_environment[environment] - 1,
+                    len(outbox_pending_sequence) - 1,
+                )
+                pending_value = outbox_pending_sequence[pending_index]
             now = time.clock().timestamp()
             payload = (
                 "vpn_dashboard_redis_configured 1\n"
@@ -392,7 +403,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_redis_publish_total{outcome=\"success\"} 7\n"
                 "vpn_dashboard_redis_publish_total{outcome=\"failure\"} 0\n"
                 f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {now}\n"
-                f"vpn_dashboard_integration_outbox_pending {-1 if sample_is_unknown else outbox_pending}\n"
+                f"vpn_dashboard_integration_outbox_pending {-1 if sample_is_unknown else pending_value}\n"
                 f"vpn_dashboard_integration_outbox_dead_lettered {-1 if sample_is_unknown else outbox_dead_lettered}\n"
                 f"vpn_dashboard_integration_outbox_oldest_age_seconds {-1 if sample_is_unknown else outbox_oldest_age}\n"
                 f"vpn_dashboard_telemetry_session_event_age_seconds {-1 if sample_is_unknown else 0.25}\n"
@@ -469,6 +480,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(report["deployments"][0]["metrics_sample_count"], 3)
         self.assertTrue(collected["deployments"][0]["redis_publish_verified"])
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_last"], 0)
+        self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_max"], 0)
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_dead_lettered_last"], 0)
         telemetry = report["deployments"][0]["metrics"]["telemetry_process_observation_age"]
         self.assertEqual(telemetry["session_event"]["max_seconds"], 0.25)
@@ -599,8 +611,17 @@ class ReleaseCollectionTests(unittest.TestCase):
         )
         self.assertEqual(code, 1)
         for environment in ("canary", "production"):
-            self.assertIn(f"{environment}_outbox_not_drained", report["failed_gates"])
+            self.assertIn(f"{environment}_outbox_pending_during_window", report["failed_gates"])
             self.assertIn(f"{environment}_outbox_dead_letters_present", report["failed_gates"])
+
+    def test_transient_outbox_backlog_fails_even_if_drained_by_window_end(self) -> None:
+        code, report, _ = self.run_collection(outbox_pending_sequence=[0, 2, 0])
+        self.assertEqual(code, 1)
+        for environment in ("canary", "production"):
+            self.assertIn(f"{environment}_outbox_pending_during_window", report["failed_gates"])
+        for deployment in report["deployments"]:
+            self.assertEqual(deployment["metrics"]["outbox_pending_last"], 0)
+            self.assertEqual(deployment["metrics"]["outbox_pending_max"], 2)
 
     def test_unknown_outbox_sample_fails_even_when_final_sample_is_known(self) -> None:
         code, report, _ = self.run_collection(unknown_metric_sample=2)

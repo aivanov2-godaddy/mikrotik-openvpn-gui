@@ -70,6 +70,7 @@ def evaluate(
     comparisons: list[dict[str, Any]] = []
     security: list[dict[str, Any]] = []
     sequence_epochs: dict[int, dict[str, Any]] = {}
+    sequence_observations: list[tuple[int, float | None]] = []
     failures: list[str] = []
     counter_resets = 0
     counter_reset_failures = 0
@@ -117,6 +118,11 @@ def evaluate(
                 raw_epoch = record.get("event_epoch", 0)
                 if isinstance(raw_epoch, bool) or not isinstance(raw_epoch, int) or raw_epoch < 0:
                     raise ValueError("event_epoch must be a non-negative integer")
+                sequence_timestamp = (
+                    _number(record["observed_at"], "observed_at")
+                    if "observed_at" in record else None
+                )
+                sequence_observations.append((raw_epoch, sequence_timestamp))
                 sequence = raw_sequence
                 epoch = sequence_epochs.setdefault(raw_epoch, {"last": None, "seen": set()})
                 last_sequence = epoch["last"]
@@ -165,12 +171,20 @@ def evaluate(
             visible = _boolean(record.get("visible_without_refresh"), "visible_without_refresh")
             if not visible:
                 failures.append("session_event_visibility")
+            if "latency_ms" not in record:
+                failures.append("session_event_latency_missing")
+            elif _number(record["latency_ms"], "latency_ms") > limits["latency_p95_ms"]:
+                failures.append("session_event_latency_exceeded")
         elif record_type == "traffic_update":
             traffic_updates.append(record)
             for field in ("rx_bytes", "tx_bytes"):
                 _number(record.get(field), field)
             if not _boolean(record.get("visible_without_refresh"), "visible_without_refresh"):
                 failures.append("traffic_update_visibility")
+            if "event_age_seconds" not in record:
+                failures.append("traffic_sample_age_missing")
+            elif _number(record["event_age_seconds"], "event_age_seconds") > limits["event_age_seconds"]:
+                failures.append("traffic_sample_stale")
         elif record_type == "reconnect":
             reconnects.append(record)
             interrupted = _boolean(record.get("api_interruption_tested"), "api_interruption_tested")
@@ -255,6 +269,28 @@ def evaluate(
         failures.append("security_test_missing")
     if not comparisons:
         failures.append("binary_rest_comparison_missing")
+    previous_epoch: int | None = None
+    previous_sequence_timestamp: float | None = None
+    for epoch, timestamp in sequence_observations:
+        if previous_epoch is None:
+            if epoch != 0:
+                failures.append("event_epoch_must_start_at_zero")
+        elif epoch != previous_epoch:
+            if epoch != previous_epoch + 1:
+                failures.append("event_epoch_not_increasing")
+            matching_reconnect = any(
+                reconnect.get("api_interruption_tested") is True
+                and reconnect.get("snapshot_recovered") is True
+                and "observed_at" in reconnect
+                and previous_sequence_timestamp is not None
+                and timestamp is not None
+                and previous_sequence_timestamp <= float(reconnect["observed_at"]) <= timestamp
+                for reconnect in reconnects
+            )
+            if not matching_reconnect:
+                failures.append("event_epoch_restart_unverified")
+        previous_epoch = epoch
+        previous_sequence_timestamp = timestamp
     if duplicate_events:
         failures.append("duplicate_events")
     if out_of_order_events:
@@ -361,6 +397,7 @@ def evaluate(
         "counter_resets": counter_resets,
         "duplicate_events": duplicate_events,
         "out_of_order_events": out_of_order_events,
+        "event_epoch_count": len(sequence_epochs),
         "sample_count": len(samples),
         "observation_window_seconds": observation_window,
         "max_sample_gap_seconds": max_sample_gap,
