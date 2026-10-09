@@ -61,10 +61,10 @@ Every attestation timestamp below falls inside that same interval.
 
 ```json
 {"type":"sample","observed_at":1728000000,"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
-{"type":"session_transition","observed_at":1728000300,"connected":true,"visible_without_refresh":true}
-{"type":"session_transition","observed_at":1728000600,"connected":false,"visible_without_refresh":true}
-{"type":"traffic_update","observed_at":1728000900,"rx_bytes":1000,"tx_bytes":400,"visible_without_refresh":true}
-{"type":"traffic_update","observed_at":1728000960,"rx_bytes":1250,"tx_bytes":460,"visible_without_refresh":true}
+{"type":"session_transition","observed_at":1728000300,"connected":true,"visible_without_refresh":true,"latency_ms":180}
+{"type":"session_transition","observed_at":1728000600,"connected":false,"visible_without_refresh":true,"latency_ms":220}
+{"type":"traffic_update","observed_at":1728000900,"rx_bytes":1000,"tx_bytes":400,"visible_without_refresh":true,"event_age_seconds":0.7}
+{"type":"traffic_update","observed_at":1728000960,"rx_bytes":1250,"tx_bytes":460,"visible_without_refresh":true,"event_age_seconds":0.8}
 {"type":"reconnect","observed_at":1728000600,"recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
 {"type":"comparison","observed_at":1728000900,"binary_matches_rest":true}
 {"type":"security","observed_at":1728001200,"unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
@@ -94,10 +94,14 @@ Missing container-health coverage fails with
 The command emits only aggregate metrics and failed gate names. It also
 requires timestamped, ordered session-transition records showing the test
 client connected and later disconnected, with both changes visible without a
-page refresh. It also requires at least two timestamped traffic-update records
-with numeric receive/transmit byte counters that differ between observations;
-each update must be visible without a refresh. Self-reported booleans without
-the measured counter change are insufficient. The evaluator also requires at least one
+page refresh. Every transition must carry its own measured `latency_ms`, which
+must meet the configured latency target; unrelated periodic latency samples do
+not stand in for transition latency. It also requires at least two timestamped
+traffic-update records with numeric receive/transmit byte counters that differ
+between observations; each update must be visible without a refresh and carry
+its own `event_age_seconds` within the configured freshness target. Self-reported
+booleans or unrelated sample ages cannot substitute for measured linked values.
+The evaluator also requires at least one
 reconnect test, one security test, and one explicit
 verification record that itself covers every precision, reset, ordering, parity, and
 secret-scan gate. Each passing window must also contain at least one CPU,
@@ -129,12 +133,14 @@ instead of changing recorded timestamps.
 
 `event_sequence` is checked within an `event_epoch` (a non-negative integer
 identifying one telemetry-process sequence lifetime); omitted epochs default
-to `0`. Use a new epoch when the broker process restarts and its process-local
-sequence counter resets. Within an epoch, a repeated sequence is counted as a
-duplicate; a previously unseen value lower than the highest observed sequence
-is counted as out of order; a forward jump is event loss. Epoch changes are
-reported as boundaries, not as resets or gaps. These classifications describe
-the submitted evidence only and do not prove the capture itself is complete.
+to `0`. A stream must start in epoch `0`; every epoch change must increment by
+exactly one and be covered by a timestamped API-interruption/reconnect record
+that confirms snapshot recovery between adjacent sequenced samples. Arbitrary
+epoch changes cannot be used to hide sequence gaps. Within an epoch, a repeated
+sequence is counted as a duplicate; a previously unseen value lower than the
+highest observed sequence is counted as out of order; a forward jump is event
+loss. These classifications describe the submitted evidence only and do not
+prove the capture itself is complete.
 
 ## Acceptance window
 

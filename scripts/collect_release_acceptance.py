@@ -419,6 +419,7 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         "redis_publish_failure_delta": failure_delta,
         "redis_publish_failure_counter_reset": failure_counter_reset,
         "outbox_pending_last": last.get("vpn_dashboard_integration_outbox_pending"),
+        "outbox_pending_max": outbox_pending["max"],
         "outbox_dead_lettered_last": last.get("vpn_dashboard_integration_outbox_dead_lettered"),
         "outbox_oldest_age_seconds_last": last.get("vpn_dashboard_integration_outbox_oldest_age_seconds"),
         "outbox_pending_unknown_samples": outbox_pending["unknown_samples"],
@@ -757,10 +758,10 @@ def collect(
                 failed_gates.append(f"{environment}_outbox_dead_letters_present")
             if metric_summary["outbox_pending_unknown_samples"]:
                 failed_gates.append(f"{environment}_outbox_pending_count_unobserved")
-            elif metric_summary["outbox_pending_last"] is None or metric_summary["outbox_pending_last"] < 0:
+            elif metric_summary["outbox_pending_max"] is None:
                 failed_gates.append(f"{environment}_outbox_pending_count_unobserved")
-            elif metric_summary["outbox_pending_last"] > MAX_OUTBOX_PENDING_AT_WINDOW_END:
-                failed_gates.append(f"{environment}_outbox_not_drained")
+            elif metric_summary["outbox_pending_max"] > MAX_OUTBOX_PENDING_AT_WINDOW_END:
+                failed_gates.append(f"{environment}_outbox_pending_during_window")
             if metric_summary["outbox_oldest_age_unknown_samples"] or metric_summary["outbox_oldest_age_max_seconds"] is None:
                 failed_gates.append(f"{environment}_outbox_age_unobserved")
             # A passing Redis publish requires configuration, observed availability,

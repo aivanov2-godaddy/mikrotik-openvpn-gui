@@ -38,13 +38,15 @@ def acceptance_window(sample: dict[str, object]) -> list[str]:
     return records(
         sample,
         {"type": "session_transition", "observed_at": 1_728_000_300,
-         "connected": True, "visible_without_refresh": True},
+         "connected": True, "visible_without_refresh": True, "latency_ms": 180},
         {"type": "session_transition", "observed_at": 1_728_000_600,
-         "connected": False, "visible_without_refresh": True},
+         "connected": False, "visible_without_refresh": True, "latency_ms": 220},
         {"type": "traffic_update", "observed_at": 1_728_000_900,
-         "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True},
+         "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True,
+         "event_age_seconds": 0.7},
         {"type": "traffic_update", "observed_at": 1_728_000_960,
-         "rx_bytes": 1250, "tx_bytes": 460, "visible_without_refresh": True},
+         "rx_bytes": 1250, "tx_bytes": 460, "visible_without_refresh": True,
+         "event_age_seconds": 0.8},
         {
             "type": "reconnect", "recovery_seconds": 1,
             "snapshot_recovered": True, "api_interruption_tested": True,
@@ -90,13 +92,15 @@ class TelemetryAcceptanceTests(unittest.TestCase):
             records(
                 *samples,
                 {"type": "session_transition", "observed_at": 1_728_000_300,
-                 "connected": True, "visible_without_refresh": True},
+                 "connected": True, "visible_without_refresh": True, "latency_ms": 180},
                 {"type": "session_transition", "observed_at": 1_728_000_600,
-                 "connected": False, "visible_without_refresh": True},
+                 "connected": False, "visible_without_refresh": True, "latency_ms": 220},
                 {"type": "traffic_update", "observed_at": 1_728_000_900,
-                 "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True},
+                 "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True,
+                 "event_age_seconds": 0.7},
                 {"type": "traffic_update", "observed_at": 1_728_000_960,
-                 "rx_bytes": 1250, "tx_bytes": 460, "visible_without_refresh": True},
+                 "rx_bytes": 1250, "tx_bytes": 460, "visible_without_refresh": True,
+                 "event_age_seconds": 0.8},
                 {
                     "type": "reconnect",
                     "observed_at": 1_728_000_900,
@@ -161,9 +165,9 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         ]
         window.extend(records(
             {"type": "session_transition", "observed_at": 1_728_000_600,
-             "connected": False, "visible_without_refresh": True},
+             "connected": False, "visible_without_refresh": True, "latency_ms": 180},
             {"type": "session_transition", "observed_at": 1_728_000_900,
-             "connected": True, "visible_without_refresh": True},
+             "connected": True, "visible_without_refresh": True, "latency_ms": 220},
         ))
         code, result = evaluate(window, limits=LIMITS)
         self.assertEqual(code, 1)
@@ -177,9 +181,9 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         ]
         window.extend(records(
             {"type": "session_transition", "observed_at": 1_728_000_600,
-             "connected": True, "visible_without_refresh": True},
+             "connected": True, "visible_without_refresh": True, "latency_ms": 180},
             {"type": "session_transition", "observed_at": 1_728_000_600,
-             "connected": False, "visible_without_refresh": True},
+             "connected": False, "visible_without_refresh": True, "latency_ms": 220},
         ))
         code, result = evaluate(window, limits=LIMITS)
         self.assertEqual(code, 1)
@@ -514,7 +518,10 @@ class TelemetryAcceptanceTests(unittest.TestCase):
             "event_age_seconds": 0.5, "router_cpu_percent": 22,
             "router_memory_percent": 34, "router_storage_percent": 12,
         })
-        window.extend(records({"type": "sample", "event_epoch": 1, "event_sequence": 0}))
+        window.extend(records({
+            "type": "sample", "observed_at": 1_728_001_200,
+            "event_epoch": 1, "event_sequence": 0,
+        }))
 
         code, result = evaluate(window, limits=LIMITS)
 
@@ -524,6 +531,70 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertNotIn("duplicate_events", result["failed_gates"])
         self.assertEqual(result["duplicate_events"], 0)
         self.assertEqual(result["out_of_order_events"], 0)
+
+    def test_event_epoch_must_start_at_zero_and_advance_one_at_a_time(self) -> None:
+        for epochs, expected_gate in (
+            ([1], "event_epoch_must_start_at_zero"),
+            ([0, 2], "event_epoch_not_increasing"),
+            ([0, 1, 0], "event_epoch_not_increasing"),
+        ):
+            with self.subTest(epochs=epochs):
+                window = acceptance_window({
+                    "type": "sample", "observed_at": 1_728_000_000,
+                    "event_sequence": 0, "event_epoch": epochs[0],
+                })
+                for index, epoch in enumerate(epochs[1:], start=1):
+                    window.extend(records({
+                        "type": "sample", "observed_at": 1_728_000_900 + index * 60,
+                        "event_sequence": 0, "event_epoch": epoch,
+                    }))
+                code, result = evaluate(window, limits=LIMITS)
+                self.assertEqual(code, 1)
+                self.assertIn(expected_gate, result["failed_gates"])
+
+    def test_event_epoch_change_requires_timestamped_reconnect_and_snapshot(self) -> None:
+        window = acceptance_window({
+            "type": "sample", "observed_at": 1_728_000_000,
+            "event_sequence": 101, "event_epoch": 0,
+        })
+        window.extend(records({
+            "type": "sample", "observed_at": 1_728_001_200,
+            "event_sequence": 0, "event_epoch": 1,
+        }))
+        window = [
+            json.dumps({**json.loads(line), "observed_at": 1_728_001_300})
+            if json.loads(line).get("type") == "reconnect" else line
+            for line in window
+        ]
+        code, result = evaluate(window, limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("event_epoch_restart_unverified", result["failed_gates"])
+
+    def test_transition_and_traffic_measurements_are_linked_and_within_targets(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        records_by_type = [json.loads(line) for line in window]
+        for record in records_by_type:
+            if record.get("type") == "session_transition":
+                record["latency_ms"] = 1001
+            if record.get("type") == "traffic_update":
+                record["event_age_seconds"] = 2.01
+        code, result = evaluate([json.dumps(record) for record in records_by_type], limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("session_event_latency_exceeded", result["failed_gates"])
+        self.assertIn("traffic_sample_stale", result["failed_gates"])
+
+    def test_transition_and_traffic_records_without_linked_measurement_fail(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        records_by_type = [json.loads(line) for line in window]
+        for record in records_by_type:
+            if record.get("type") == "session_transition":
+                record.pop("latency_ms", None)
+            if record.get("type") == "traffic_update":
+                record.pop("event_age_seconds", None)
+        code, result = evaluate([json.dumps(record) for record in records_by_type], limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("session_event_latency_missing", result["failed_gates"])
+        self.assertIn("traffic_sample_age_missing", result["failed_gates"])
 
     def test_event_epoch_must_be_a_non_negative_integer(self) -> None:
         with self.assertRaisesRegex(ValueError, "event_epoch"):
