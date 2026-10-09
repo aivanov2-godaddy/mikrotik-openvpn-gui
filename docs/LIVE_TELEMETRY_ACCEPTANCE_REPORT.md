@@ -36,6 +36,14 @@ live-stream reconnect/snapshot recovery. No client session, user, certificate,
 CA, RouterOS policy, production container, or credential was changed during
 these read-only checks.
 
+At approximately 22:39 EEST, a fresh WinBox PPP Active Connections inspection
+again showed zero rows after the operator reported the disposable test client
+connected. This supersedes the 21:57 session-count observation only; it does
+not change the recorded image read-back above. The live-client latency,
+traffic-freshness, connect/disconnect delivery, and reconnect/snapshot gates
+remain unmeasured. No container image, VPN session, user, certificate, CA,
+RouterOS policy, or credential was changed during this inspection.
+
 ## RouterOS canary updater and VPN-session recheck — 2026-10-09 21:33 EEST (historical)
 
 The authenticated WinBox session showed the RouterOS immutable canary updater
