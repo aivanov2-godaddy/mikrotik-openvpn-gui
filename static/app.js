@@ -1912,7 +1912,16 @@ $('#profile-form')?.addEventListener('submit', async (event) => {
     await downloadResponse(response, 'openvpn-profile.zip');
     setStatus(form, 'Profile ZIP downloaded successfully.');
     toast(data.get('legacy_certificate') ? 'Replacement profile generated. Import and test it before revoking the old certificate.' : 'New device profile generated and downloaded.');
-    setTimeout(() => location.reload(), 700);
+    if (data.get('legacy_certificate')) {
+      form.closest('dialog')?.close();
+      try {
+        await refreshCertificateMigrationPanel();
+      } catch (_) {
+        toast('Replacement profile downloaded, but status could not refresh. Check Device Profiles before retiring the old certificate.', 'error');
+      }
+    } else {
+      setTimeout(() => location.reload(), 700);
+    }
   } catch (error) {
     setStatus(form, error.message, true);
     if (error.status === 409) {
