@@ -22,11 +22,12 @@ per-event revalidation. This is a published-image fact, not RouterOS deployment
 evidence. The canary-only `vpn-gui-immutable-stage-v3` updater has since staged
 this candidate. At 00:11 EEST on 2026-10-10, WinBox read-back showed the canary
 container healthy with OCI revision label
-`f8caab0432a0ac91f578f7a929c75a850f290a35`. At 00:12 EEST its stage-script
-job was still running; the bounded RouterOS readiness soak had not yet reached
-a verified terminal result. Production was not touched or promoted by this
-stage. RouterOS exposes the configured image tag/revision and health, not an
-independent cached registry digest.
+`f8caab0432a0ac91f578f7a929c75a850f290a35`. The stage-only job later completed;
+at 00:35 EEST, RouterOS logs recorded that the canary readiness soak passed and
+the candidate was staged. At 00:36 EEST, PPP Active Connections still showed
+zero sessions, so live-client acceptance remains pending. Production was not
+touched or promoted. RouterOS exposes the configured image tag/revision and
+health, not an independent cached registry digest.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
