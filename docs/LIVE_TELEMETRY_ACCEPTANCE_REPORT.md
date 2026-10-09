@@ -262,7 +262,7 @@ pass telemetry freshness, Redis delivery, session-transition, resource soak,
 reconnect, event-integrity, parity, restore,
 or rollback acceptance.
 
-## Latest canary read-back — PR #518 — 2026-10-06 12:47 UTC
+## Historical canary read-back — PR #518 — 2026-10-06 12:47 UTC
 
 The RouterOS updater's pending record showed candidate tag
 `sha-8f6f14d80619bb3ea61cade26a495a570f7b9bfd-arm64`, prior production tag
@@ -365,7 +365,7 @@ configuration change, or container operation was performed. The formal #199
 soak remains pending; neither the older stale tab nor this short live check
 alone establishes overall service availability or acceptance.
 
-## Latest published mainline candidate — PR #516 — 2026-10-06
+## Historical published mainline candidate — PR #516 — 2026-10-06
 
 PR [#516](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/516)
 merged as `2b425d70d93f22da31f84c3458166b41091c262a`. Publication workflow
