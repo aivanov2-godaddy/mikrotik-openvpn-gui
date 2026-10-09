@@ -63,9 +63,15 @@ exact-digest provenance/SBOM verification, and published-runtime smoke tests.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-23361e18a6c708b76c552783d1e234614df823be-arm64` | `sha256:6ae48e5200675f979e150a3b59811ed25abab4ee6d0051134571d8ce796a28c5` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-23361e18a6c708b76c552783d1e234614df823be-amd64` | `sha256:868e91d91df669569845fef7637645a7dea3078d3aa7651dcbb7385d5bc2ccf3` |
 
-The candidate is published and verified in CI, not yet verified on RouterOS.
-The current canary updater run has not reached a read-back result, and
-production promotion remains gated on acceptance. No new numbered release was
+The candidate is published and verified in CI, and the canary-only updater
+completed. RouterOS read-back at 21:51 EEST on 2026-10-09 showed the canary
+configured with the exact immutable ARM64 tag above and marked Healthy. The
+production container remains on
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; it was not changed. A
+21:57 EEST PPP Active Connections observation showed zero VPN sessions, so no
+live-client telemetry acceptance is claimed. RouterOS exposes the configured
+tag, not an independent cached-image digest. Sustained acceptance and
+candidate-specific rollback remain pending. No new numbered release was
 created; v2.7.0 remains the latest formal version.
 
 ### Historical published mainline candidate — PR #504 — 2026-10-06
