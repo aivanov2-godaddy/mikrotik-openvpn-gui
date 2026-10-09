@@ -14,14 +14,18 @@ stable-manifest publication. Immutable image identities:
 | RouterOS ARM64 | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-arm64` | `sha256:a657be86e2cbc078e65f4baa7e3c69a217e3bdce7b4469c50fe0339709559e64` |
 | AMD64 evaluation | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-amd64` | `sha256:0fdea4d4f749dd4315e9314a9be2a77146d1f54032ce4defd79a45f2a6c5941e` |
 
-This is publication evidence only, not deployment or acceptance evidence. The
-candidate has not been staged to RouterOS; do not infer that canary or
-production runs it. The router-local updater scheduler is disabled, so any
-staging must remain an explicit canary-only operation with exact immutable-tag
-and `/readyz` read-back. Private `/healthz` and `/readyz` probes do not require
-a public hostname. The authenticated browser/telemetry/metrics acceptance
-window additionally requires a dedicated HTTPS origin routed through the
-approved access layer to canary only; production is not a substitute. See
+This is publication evidence; deployment and acceptance are tracked
+separately. On 2026-10-09, the exact ARM64 digest above was explicitly staged
+to the isolated RouterOS canary. A filtered read-back confirmed the configured
+digest and healthy (`H`) container status. The dedicated Access-protected
+canary HTTPS origin served the candidate's RouterOS sign-in page. These checks
+verify exact-image staging, container health, and browser reachability only.
+They do not prove authenticated telemetry, Redis delivery, or acceptance; no
+production image or configuration was changed. The router-local updater
+scheduler remains disabled. Private `/healthz` and `/readyz` probes do not
+require a public hostname. The authenticated telemetry/metrics acceptance
+window requires a dedicated HTTPS origin routed through the approved access
+layer to canary only; production is not a substitute. See
 [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window).
 
 This report records the operator's 2026-10-02 acceptance of the Binary API
@@ -32,18 +36,15 @@ copied into this repository. Earlier published-candidate entries below are
 retained as historical records; the current candidate and its exact immutable
 identities are listed above.
 
-A read-only WebFig check on 2026-10-08, reconfirmed on 2026-10-09, showed
+Before staging, a read-only WebFig check on 2026-10-08 and 2026-10-09 showed
 canary and production both configured to the prior PR #539 ARM64 tag
 `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, both healthy (`H`),
-with Redis running. RouterOS reports configured tags and health, not an
-independent registry digest; PR #548 was published but not deployed at that
-read-back. Later PR #554 and PR #564 publications are likewise not deployed.
-The router-local `vpn-gui-immutable-update` scheduler is disabled. No
-candidate-specific read-back is available. A private readiness check is
-independent of public DNS, but the authenticated browser/telemetry/metrics
-window requires a dedicated HTTPS origin routed to canary only. The 30-minute
-telemetry/Redis soak and live-client, reconnect, integrity, restore, and
-rollback gates remain open.
+with Redis running. The subsequent 2026-10-09 canary-only update is recorded
+above. RouterOS reports configured references and health, not an independent
+registry digest. Production remains on its prior image. The router-local
+`vpn-gui-immutable-update` scheduler is disabled. The 30-minute
+telemetry/Redis soak and authenticated live-client, reconnect, integrity,
+restore, and rollback gates remain open.
 
 An authenticated production-dashboard observation on 2026-10-08 showed
 `Live · SOCKETIO` and one connected test client. Traffic totals increased
