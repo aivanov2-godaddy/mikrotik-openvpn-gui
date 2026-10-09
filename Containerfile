@@ -34,11 +34,16 @@ RUN set -o pipefail \
     && mkdir /rootfs \
     && tar -C / \
         --exclude=./rootfs \
+        --exclude=./dev \
         --exclude=./etc/hostname \
         --exclude=./etc/hosts \
         --exclude=./etc/resolv.conf \
+        --exclude=./proc \
+        --exclude=./run \
+        --exclude=./sys \
         -cpf - . \
-    | tar -C /rootfs -xpf -
+    | tar -C /rootfs -xpf - \
+    && mkdir -p /rootfs/dev /rootfs/proc /rootfs/run /rootfs/sys
 
 FROM scratch
 
