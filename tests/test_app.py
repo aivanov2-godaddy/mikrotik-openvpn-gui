@@ -4313,6 +4313,35 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(latest["action"], "session.terminate")
         self.assertEqual(latest["status"], "failed")
 
+    def test_session_termination_retries_transient_active_readback(self) -> None:
+        self.login()
+        session_id = next(iter(self.mock.state.active_sessions))
+        review = self.preview_session_termination(session_id)
+        router = self.server.context.router
+        active = router.list_active_ovpn_sessions(RouterOSCredentials("admin", "routerpass"))
+
+        with (
+            mock.patch.object(router, "list_active_ovpn_sessions", side_effect=[active, active, []]) as readback,
+            mock.patch("app.time.sleep"),
+        ):
+            status, _, payload = self.json_request(
+                "DELETE",
+                f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+                {
+                    "confirmation": "user-two",
+                    "reason": review["reason"],
+                    "review_token": review["review_token"],
+                },
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload), {"ok": True, "verified": True})
+        self.assertEqual(readback.call_count, 3)
+        self.assertNotIn(session_id, self.mock.state.active_sessions)
+        latest = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(latest["status"], "success")
+        self.assertEqual(json.loads(latest["details"])["verification"], "session_absent")
+
     def test_session_termination_accepts_lost_response_when_readback_confirms_disconnect(self) -> None:
         self.login()
         session_id = next(iter(self.mock.state.active_sessions))

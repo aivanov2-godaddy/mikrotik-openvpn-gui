@@ -71,6 +71,8 @@ ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "policies.read"})
 API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
+SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 1.0
+SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.1
 
 
 def _same_origin(left: str, right: str) -> bool:
@@ -5800,42 +5802,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # RouterOS may have committed the disconnect even when its response
                 # was lost. Reconcile the exact reviewed session before reporting it.
                 mutation_error = error
-            try:
-                remaining = self.server.context.router.list_active_ovpn_sessions(credentials)
-            except RouterOSError as error:
-                self.server.context.store.audit(
-                    actor=session.username,
-                    action="session.terminate",
-                    target=str(active["name"]),
-                    status="unknown",
-                    details={
-                        "verification": "unavailable",
-                        "reason": type(error).__name__,
-                        "rationale": reason,
-                        **({"mutation_response": "unknown"} if mutation_error else {}),
-                    },
-                )
-                self._json(
-                    {
-                        "code": "routeros.mutation_verification_unavailable",
-                        "error": (
-                            "The session termination outcome could not be verified. Check "
-                            "Connections before retrying."
-                        ),
-                        "verified": False,
-                    },
-                    status=HTTPStatus.BAD_GATEWAY,
-                )
-                return
             original_router_session_id = str(active.get("session_id", ""))
-            if any(
-                str(item.get("id", "")) == session_id
-                and (
-                    not original_router_session_id
-                    or str(item.get("session_id", "")) == original_router_session_id
+            verify_deadline = time.monotonic() + SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS
+            session_still_active = False
+            while True:
+                try:
+                    remaining = self.server.context.router.list_active_ovpn_sessions(credentials)
+                except RouterOSError as error:
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="session.terminate",
+                        target=str(active["name"]),
+                        status="unknown",
+                        details={
+                            "verification": "unavailable",
+                            "reason": type(error).__name__,
+                            "rationale": reason,
+                            **({"mutation_response": "unknown"} if mutation_error else {}),
+                        },
+                    )
+                    self._json(
+                        {
+                            "code": "routeros.mutation_verification_unavailable",
+                            "error": (
+                                "The session termination outcome could not be verified. Check "
+                                "Connections before retrying."
+                            ),
+                            "verified": False,
+                        },
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+                session_still_active = any(
+                    str(item.get("id", "")) == session_id
+                    and (
+                        not original_router_session_id
+                        or str(item.get("session_id", "")) == original_router_session_id
+                    )
+                    for item in remaining
                 )
-                for item in remaining
-            ):
+                if not session_still_active:
+                    break
+                remaining_time = verify_deadline - time.monotonic()
+                if remaining_time <= 0:
+                    break
+                time.sleep(min(SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS, remaining_time))
+            if session_still_active:
                 self.server.context.store.audit(
                     actor=session.username,
                     action="session.terminate",
