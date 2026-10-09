@@ -21,7 +21,9 @@
 :local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
 :local pendingFile "disk1/vpn-dashboard/routeros-update-pending.txt"
 :local historyFile "disk1/vpn-dashboard/routeros-update-history.log"
-:local pollAttempts 6
+# Allow up to three minutes for router-layer download, extraction, and app boot.
+# A 23 MB ARM64 layer took about 80 seconds to download on the target router.
+:local pollAttempts 18
 :local pollDelay 10s
 # Stage only after a sampled canary readiness window. Production promotion is
 # handled by the evidence-gated local controller, never by this scheduler.

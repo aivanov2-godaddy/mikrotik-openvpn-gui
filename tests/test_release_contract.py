@@ -159,6 +159,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("/container/set $productionId", executable)
         self.assertIn(":local canaryValidationInterval 1m", executable)
         self.assertIn(":local canaryValidationSamples 30", executable)
+        self.assertIn(":local pollAttempts 18", executable)
+        self.assertIn(":local pollDelay 10s", executable)
         self.assertIn(":if ($canaryValidationSamples < 30)", executable)
         self.assertIn(":if ($canaryValidationInterval < 1m)", executable)
         self.assertIn(":for sample from=1 to=$canaryValidationSamples do={", executable)
