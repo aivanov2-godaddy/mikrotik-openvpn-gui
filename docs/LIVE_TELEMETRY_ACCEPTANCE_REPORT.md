@@ -3,16 +3,16 @@
 Status: **TELEMETRY BASELINE ACCEPTED — CANARY READINESS SOAK PASSED; FULL ACCEPTANCE PENDING**
 
 The latest verified published candidate is main commit
-`446068934ba50a36a920772a4ab1315fcb9a6433`, merged from PR #554. Publisher
-run [37796002329](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37796002329)
+`fc8842703f5338ae1345041d8cabc44bdb860e69`, merged from PR #564. Publisher
+run [37917266068](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37917266068)
 passed release-source and rendered browser/accessibility checks, ARM64/AMD64
 builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
 stable-manifest publication. Immutable image identities:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-446068934ba50a36a920772a4ab1315fcb9a6433-arm64` | `sha256:a65026006fb3209e89b7520cf84a5131b6003c6bd9ccd913fa5ba364a73cb6e3` |
-| AMD64 evaluation | `sha-446068934ba50a36a920772a4ab1315fcb9a6433-amd64` | `sha256:e433065d1ba6261f3a647b0709230340485a99497bc216a8fa5026be20765cb1` |
+| RouterOS ARM64 | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-arm64` | `sha256:a657be86e2cbc078e65f4baa7e3c69a217e3bdce7b4469c50fe0339709559e64` |
+| AMD64 evaluation | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-amd64` | `sha256:0fdea4d4f749dd4315e9314a9be2a77146d1f54032ce4defd79a45f2a6c5941e` |
 
 This is publication evidence only, not deployment or acceptance evidence. No
 RouterOS deployment was attempted: the existing canary origin is still a
@@ -66,6 +66,17 @@ event-latency or two-second freshness targets, prove automatic client
 reconnection, or exercise the newer published candidate. The short smoke is
 not a soak or acceptance pass; private identity, address, and traffic values
 are intentionally omitted.
+
+On 2026-10-09, the operator manually reconnected the disposable client again.
+WebFig showed an active OpenVPN session, and the already-open production
+Connections view displayed the corresponding live device, traffic/packet
+graphs, and a new history entry without a page reload. This verifies another
+qualitative reconnect-to-dashboard update on the currently deployed image; it
+does not establish a one-second event-latency or two-second freshness result,
+identify which client certificate authenticated, or exercise the newly
+published PR #564 image. The candidate remains undeployed pending a valid
+canary origin and the release gates above. No private device identity,
+addresses, or traffic values are recorded here.
 
 ## Earlier read-only WinBox image/job check — 2026-10-06 (superseded)
 
