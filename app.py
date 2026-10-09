@@ -852,8 +852,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         morsel = cookie.get("vpn_session")
         return morsel.value if morsel else ""
 
-    def _session(self) -> Session | None:
-        cookie_session = self.server.context.sessions.get(self._session_id())
+    def _session(self, *, touch: bool = True) -> Session | None:
+        cookie_session = self.server.context.sessions.get(self._session_id(), touch=touch)
         if cookie_session:
             return self.server.telemetry_runtime.revalidate_session(cookie_session.session_id)
         authorization = self.headers.get("Authorization", "")
@@ -876,8 +876,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             capabilities=frozenset(str(item) for item in token.get("capabilities", [])),
         )
 
-    def _require_session(self, *, api: bool = False) -> Session | None:
-        session = self._session()
+    def _require_session(self, *, api: bool = False, touch: bool = True) -> Session | None:
+        session = self._session(touch=touch)
         if session:
             return session
         if api:
@@ -2665,7 +2665,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _events(self) -> None:
         if self._reject_live_events_origin():
             return
-        session = self._require_session(api=True)
+        session = self._require_session(api=True, touch=False)
         if not session:
             return
         if session.auth_method != "routeros":
