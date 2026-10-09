@@ -4,8 +4,8 @@ The input is newline-delimited JSON captured by an operator harness.  It is
 deliberately limited to measurements and boolean test results; RouterOS
 records, credentials, addresses, and identifiers must never be included.
 
-Accepted record types are ``sample``, ``session_transition``, ``reconnect``,
-``comparison``, ``security``, and ``verification``.  A
+Accepted record types are ``sample``, ``session_transition``, ``traffic_update``,
+``reconnect``, ``comparison``, ``security``, and ``verification``.  A
 sample may contain the fields understood by :mod:`scripts.telemetry_baseline`
 plus ``event_sequence``, ``event_lost``, ``event_duplicated``,
 ``out_of_order``, ``counter_reset``, and ``counter_reset_recovered``.
@@ -65,6 +65,7 @@ def evaluate(
 ) -> tuple[int, dict[str, Any]]:
     samples: list[str] = []
     session_transitions: list[dict[str, Any]] = []
+    traffic_updates: list[dict[str, Any]] = []
     reconnects: list[dict[str, Any]] = []
     comparisons: list[dict[str, Any]] = []
     security: list[dict[str, Any]] = []
@@ -97,7 +98,7 @@ def evaluate(
             raise ValueError("each record must be a JSON object")
         record_type = record.get("type", "sample")
         if isinstance(record_type, str) and record_type in {
-            "session_transition", "reconnect", "comparison", "security", "verification"
+            "session_transition", "traffic_update", "reconnect", "comparison", "security", "verification"
         }:
             if "observed_at" not in record:
                 failures.append(f"{record_type}_timestamp_missing")
@@ -160,16 +161,16 @@ def evaluate(
                     counter_reset_evidence += 1
         elif record_type == "session_transition":
             session_transitions.append(record)
-            for field, gate in (
-                ("test_client_connected", "test_client_session_missing"),
-                ("connect_visible_without_refresh", "connect_event_visibility"),
-                ("disconnect_visible_without_refresh", "disconnect_event_visibility"),
-                ("traffic_changed_without_refresh", "traffic_update_visibility"),
-            ):
-                if field not in record:
-                    failures.append(f"{gate}_evidence_missing")
-                elif not _boolean(record[field], field):
-                    failures.append(gate)
+            _boolean(record.get("connected"), "connected")
+            visible = _boolean(record.get("visible_without_refresh"), "visible_without_refresh")
+            if not visible:
+                failures.append("session_event_visibility")
+        elif record_type == "traffic_update":
+            traffic_updates.append(record)
+            for field in ("rx_bytes", "tx_bytes"):
+                _number(record.get(field), field)
+            if not _boolean(record.get("visible_without_refresh"), "visible_without_refresh"):
+                failures.append("traffic_update_visibility")
         elif record_type == "reconnect":
             reconnects.append(record)
             interrupted = _boolean(record.get("api_interruption_tested"), "api_interruption_tested")
@@ -205,13 +206,39 @@ def evaluate(
             verification_records.append(current)
         else:
             raise ValueError(
-                "type must be sample, session_transition, reconnect, comparison, security, or verification"
+                "type must be sample, session_transition, traffic_update, reconnect, comparison, security, or verification"
             )
 
     if not samples:
         raise ValueError("at least one sample record is required")
-    if not session_transitions:
-        failures.append("session_transition_test_missing")
+    ordered_transitions = sorted(
+        session_transitions,
+        key=lambda item: _number(item.get("observed_at"), "observed_at"),
+    )
+    transition_states = [
+        _boolean(item.get("connected"), "connected") for item in ordered_transitions
+    ]
+    if not any(transition_states):
+        failures.append("test_client_connect_observation_missing")
+    if not any(not connected for connected in transition_states):
+        failures.append("test_client_disconnect_observation_missing")
+    if not any(
+        earlier and not later
+        for earlier, later in zip(transition_states, transition_states[1:])
+    ):
+        failures.append("test_client_disconnect_transition_missing")
+    if len(traffic_updates) < 2:
+        failures.append("traffic_counter_observations_missing")
+    ordered_traffic = sorted(
+        traffic_updates,
+        key=lambda item: _number(item.get("observed_at"), "observed_at"),
+    )
+    if not any(
+        (float(earlier["rx_bytes"]) != float(later["rx_bytes"]))
+        or (float(earlier["tx_bytes"]) != float(later["tx_bytes"]))
+        for earlier, later in zip(ordered_traffic, ordered_traffic[1:])
+    ):
+        failures.append("traffic_counters_unchanged")
     if not reconnects:
         failures.append("reconnect_test_missing")
     if not security:
@@ -317,6 +344,7 @@ def evaluate(
         "failed_gates": sorted(set(failures)),
         "baseline": baseline,
         "session_transition_tests": len(session_transitions),
+        "traffic_update_tests": len(traffic_updates),
         "reconnect_tests": len(reconnects),
         "comparison_tests": len(comparisons),
         "security_tests": len(security),
