@@ -25,6 +25,7 @@ from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from security import LoginRateLimiter, SessionStore, has_capability
 from store import MetadataStore
 from templates import dashboard_page, evaluate_device_posture
+from telemetry_socketio_polling import SocketIOPollingBridge
 from tests.mock_routeros import MockRouterOS
 
 
@@ -617,6 +618,36 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, payload.decode("utf-8"))
         return {**json.loads(payload), "reason": reason}
 
+    def connect_socketio_polling(self, cookie: str | None = None) -> tuple[str, bytes]:
+        if self.server.socketio_bridge is None:
+            self.server.socketio_bridge = SocketIOPollingBridge(
+                self.server.telemetry_runtime.gateway,
+                self.server.telemetry_runtime.principal_for_session,
+            )
+        session_cookie = cookie or self.cookie
+        headers = {"Cookie": session_cookie, "Origin": self.config.public_origin}
+        status, _, handshake = self.request(
+            "GET", "/socket.io/?EIO=4&transport=polling", headers=headers,
+        )
+        self.assertEqual(status, 200, handshake.decode("utf-8"))
+        packet = json.loads(handshake[1:])
+        sid = packet["sid"]
+        status, _, posted = self.request(
+            "POST",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            body=b"40/telemetry,",
+            headers={**headers, "Content-Type": "text/plain;charset=UTF-8"},
+        )
+        self.assertEqual(status, 200, posted.decode("utf-8"))
+        status, _, namespace = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers=headers,
+        )
+        self.assertEqual(status, 200, namespace.decode("utf-8"))
+        self.assertEqual(namespace, b"40/telemetry,")
+        return sid, session_cookie
+
     def preview_bulk_action(
         self, action: str, user_ids: list[str], *, tag: str = "",
     ) -> dict[str, Any]:
@@ -631,9 +662,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         session_id = self.cookie.split("=", 1)[1]
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        logout_results: list[int] = []
 
         def revoke_after_first_event(_seconds: float) -> None:
-            self.server.context.sessions.destroy(session_id)
+            body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+            status, _, _ = self.request(
+                "POST", "/logout", body=body,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            logout_results.append(status)
 
         with mock.patch("app.time.sleep", side_effect=revoke_after_first_event):
             connection.request(
@@ -646,7 +683,109 @@ class DashboardIntegrationTests(unittest.TestCase):
             body = response.read()
         connection.close()
 
+        self.assertEqual(logout_results, [303])
         self.assertEqual(body.count(b"event: status"), 1)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
+    def test_socketio_stream_stops_after_administrator_revokes_real_session(self) -> None:
+        self.login()
+        target = self.server.context.sessions.create("admin", "routerpass", role="owner")
+        target_cookie = f"vpn_session={target.session_id}"
+        sid, target_cookie = self.connect_socketio_polling(target_cookie)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 1)
+
+        path = f"/api/admin/sessions/{urllib.parse.quote(target.session_id, safe='')}"
+        status, _, payload = self.json_request("DELETE", path, {"password": "routerpass"})
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertIsNone(self.server.context.sessions.get(target.session_id, touch=False))
+
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": target_cookie, "Origin": self.config.public_origin},
+        )
+        self.assertEqual(status, 401)
+        self.assertNotIn(b"telemetry", payload)
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+
+    def test_socketio_poll_closes_stream_after_real_idle_expiry(self) -> None:
+        self.login()
+        sid, cookie = self.connect_socketio_polling()
+        session_id = cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.server.context.sessions.idle_seconds = 1
+        session.last_seen = 0
+
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        )
+        self.assertEqual(status, 401)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+        self.assertNotIn(b"telemetry", payload)
+
+    def test_socketio_poll_closes_stream_after_real_absolute_expiry(self) -> None:
+        self.login()
+        sid, cookie = self.connect_socketio_polling()
+        session_id = cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.server.context.sessions.absolute_seconds = 1
+        session.created_at = 0
+
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        )
+        self.assertEqual(status, 401)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+        self.assertNotIn(b"telemetry", payload)
+
+    def test_socketio_stream_revalidates_routeros_role_change_on_real_session(self) -> None:
+        self.login()
+        sid, cookie = self.connect_socketio_polling()
+        session_id = cookie.split("=", 1)[1]
+
+        # A role downgrade remains authorized for live sessions because
+        # read_only retains sessions.read. It must still be revalidated by the
+        # real RouterOS-derived role resolver while the polling stream is open.
+        self.mock.state.admin_group = "read"
+        self.server.context.sessions._role_checked_at[session_id] = 0
+        status, _, packet = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        )
+        self.assertEqual(status, 200, packet.decode("utf-8"))
+        self.assertEqual(packet, b"2")
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "read_only")
+        self.assertIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 1)
+
+        # A now-disabled RouterOS account must lose its established stream on
+        # the next poll, and the gateway subscription must be released.
+        self.mock.state.admin_disabled = True
+        self.server.context.sessions._role_checked_at[session_id] = 0
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        )
+        self.assertEqual(status, 401)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+        self.assertNotIn(b"telemetry", payload)
 
     def test_sse_rejects_foreign_origin_before_router_fetch(self) -> None:
         self.login()
