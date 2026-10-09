@@ -5,7 +5,7 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
-## Current project snapshot — 2026-10-09
+## Current project snapshot — 2026-10-10
 
 Formal release **v2.7.0** remains the latest numbered release. Current `main`
 is commit `f8caab0432a0ac91f578f7a929c75a850f290a35` (PR #587). The latest
@@ -19,9 +19,14 @@ tag/digest:
 The AMD64 evaluation image was published and smoke-tested in the same run.
 PR #587 makes SSE's initial session lookup idle-neutral, matching its existing
 per-event revalidation. This is a published-image fact, not RouterOS deployment
-evidence. The last confirmed canary read-back remains the earlier PR #582 image;
-the latest candidate has not been read back on either RouterOS container.
-Production is not promoted.
+evidence. The canary-only `vpn-gui-immutable-stage-v3` updater has since staged
+this candidate. At 00:11 EEST on 2026-10-10, WinBox read-back showed the canary
+container healthy with OCI revision label
+`f8caab0432a0ac91f578f7a929c75a850f290a35`. At 00:12 EEST its stage-script
+job was still running; the bounded RouterOS readiness soak had not yet reached
+a verified terminal result. Production was not touched or promoted by this
+stage. RouterOS exposes the configured image tag/revision and health, not an
+independent cached registry digest.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
@@ -29,16 +34,12 @@ session appears without a document reload. This is repository/browser
 simulation evidence only; it does not establish RouterOS certificate or
 connected-client acceptance.
 
-The authorized canary-only updater subsequently completed. RouterOS read-back
-at 21:51 EEST showed canary configured with the PR #582 ARM64 tag and Healthy;
-production remained on its prior immutable tag. PPP Active Connections views
-at 21:57 and 22:39 EEST showed zero sessions. A later read-only WinBox view at
-about 23:24 EEST showed one OpenVPN test session and a connected log event.
-This is a point observation only: live-client latency, changing-traffic
-freshness, reconnect/snapshot recovery, and the required timed acceptance window
-remain unmeasured, and the newer PR #587 image has not been read back on the
-router. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
-Production promotion was not performed.
+The earlier PR #582 stage and its session observations below are historical.
+The current PR #587 stage and the latest PPP observation are recorded in the
+[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). Live-client latency,
+changing-traffic freshness, reconnect/snapshot recovery, and the required
+timed acceptance window remain unverified for the current candidate. Production
+promotion was not performed.
 
 ### Historical canary stage and acceptance observations — 2026-10-09
 
