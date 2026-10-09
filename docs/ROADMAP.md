@@ -1408,3 +1408,10 @@ so the failing layer is unknown. No router/container, VPN session, certificate,
 CA, policy, or persistent application state was changed. Record this as a
 failed freshness observation—not a passing reconnect/snapshot or #199 soak.
 See [LIVE_TELEMETRY_ACCEPTANCE_REPORT.md](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
+**2026-10-09 certificate-panel/live-stream regression:** a browser test now
+keeps a synthetic SSE stream open while the certificate replacement panel is
+refreshed, then verifies a later streamed session appears in Connections
+without a document reload. This covers the interaction between #194's
+certificate workflow and the always-live dashboard invariant; it is browser
+simulation evidence only, not RouterOS certificate or client acceptance.
