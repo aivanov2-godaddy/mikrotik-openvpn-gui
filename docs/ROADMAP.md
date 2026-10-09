@@ -8,26 +8,28 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-09
 
 Formal release **v2.7.0** remains the latest numbered release. Current `main`
-is commit `9ccc96ecb9cd5b2e3606f4fe9a922074c8823106` (PR #575). That change
-hardens the offline acceptance evaluator and its evidence documentation; it
-does not change the runtime image. The latest published runtime image remains
-candidate commit
-`a398364829f95511bd4c4405d6d7da7b89a577f2` (PR #573), published by workflow
-[#37940711384](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37940711384).
+is commit `23361e18a6c708b76c552783d1e234614df823be` (PR #582). The latest
+published candidate is the same commit, published by workflow
+[#37970504451](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37970504451).
 ARM64 tag/digest:
-`sha-a398364829f95511bd4c4405d6d7da7b89a577f2-arm64` /
-`sha256:94201e421de67f04c4d0693b3a40abd45e2a1d4043ec25ff67af9e5fe0998f84`.
+`sha-23361e18a6c708b76c552783d1e234614df823be-arm64` /
+`sha256:6ae48e5200675f979e150a3b59811ed25abab4ee6d0051134571d8ce796a28c5`.
 AMD64 tag/digest:
-`sha-a398364829f95511bd4c4405d6d7da7b89a577f2-amd64` /
-`sha256:4b78fb79e398049e922a276a6b87397499e70fd06789e3bf15a423ff15dbe455`.
+`sha-23361e18a6c708b76c552783d1e234614df823be-amd64` /
+`sha256:868e91d91df669569845fef7637645a7dea3078d3aa7651dcbb7385d5bc2ccf3`.
 The publisher's source/browser checks, both architecture builds, exact-digest
 provenance/SBOM verification, runtime smoke tests, and stable-manifest
-publication passed. PR #573 increases the RouterOS startup readiness window.
-PR #575 requires separately timestamped, ordered connect/disconnect
-observations and changed numeric traffic counters, each visible without page
-refresh, before the telemetry evaluator can pass. Its local and hosted checks
-passed; it does not collect those live observations automatically or create a
-new image.
+publication passed. PR #582 retries transient RouterOS session-list read-back
+before confirming a reviewed session termination. This does not claim the
+image is installed on either router container.
+
+At 21:33 EEST on 2026-10-09, the authorized canary updater job remained
+running; its latest candidate tag/health had not yet been read back. The
+read-only RouterOS PPP Active Connections view showed zero sessions despite
+the operator reporting the test client reconnected. Accordingly, live-client
+latency, traffic freshness, and event-delivery gates remain unmeasured. This
+observation is recorded in the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+Production promotion remains gated and was not performed by the canary job.
 
 On 2026-10-09, the first PR #571 canary staging attempt failed at readiness
 sample 30/30 and automatically rolled back. A retry with PR #573 then passed
