@@ -14,11 +14,15 @@ stable-manifest publication. Immutable image identities:
 | RouterOS ARM64 | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-arm64` | `sha256:a657be86e2cbc078e65f4baa7e3c69a217e3bdce7b4469c50fe0339709559e64` |
 | AMD64 evaluation | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-amd64` | `sha256:0fdea4d4f749dd4315e9314a9be2a77146d1f54032ce4defd79a45f2a6c5941e` |
 
-This is publication evidence only, not deployment or acceptance evidence. No
-RouterOS deployment was attempted: the existing canary origin is still a
-placeholder, deployment credentials are unavailable locally, and the
-router-local updater scheduler is disabled. No deployment/image read-back for
-this candidate is available; do not infer that canary or production runs it.
+This is publication evidence only, not deployment or acceptance evidence. The
+candidate has not been staged to RouterOS; do not infer that canary or
+production runs it. The router-local updater scheduler is disabled, so any
+staging must remain an explicit canary-only operation with exact immutable-tag
+and `/readyz` read-back. Private `/healthz` and `/readyz` probes do not require
+a public hostname. The authenticated browser/telemetry/metrics acceptance
+window additionally requires a dedicated HTTPS origin routed through the
+approved access layer to canary only; production is not a substitute. See
+[`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window).
 
 This report records the operator's 2026-10-02 acceptance of the Binary API
 telemetry baseline, plus later deployment observations. The operator's detailed
@@ -34,13 +38,12 @@ canary and production both configured to the prior PR #539 ARM64 tag
 with Redis running. RouterOS reports configured tags and health, not an
 independent registry digest; PR #548 was published but not deployed at that
 read-back. Later PR #554 and PR #564 publications are likewise not deployed.
-The router-local `vpn-gui-immutable-update` scheduler is disabled, the local
-REST deployment client has no credentials configured, and the existing
-canary's configured origin is a placeholder rather than a verified
-operator-facing acceptance endpoint. No deployment was attempted. These
-conditions prevent a safe canary health/login/telemetry gate from running;
-the 30-minute telemetry/Redis soak and live-client, reconnect, integrity,
-restore, and rollback gates remain open.
+The router-local `vpn-gui-immutable-update` scheduler is disabled. No
+candidate-specific read-back is available. A private readiness check is
+independent of public DNS, but the authenticated browser/telemetry/metrics
+window requires a dedicated HTTPS origin routed to canary only. The 30-minute
+telemetry/Redis soak and live-client, reconnect, integrity, restore, and
+rollback gates remain open.
 
 An authenticated production-dashboard observation on 2026-10-08 showed
 `Live · SOCKETIO` and one connected test client. Traffic totals increased
