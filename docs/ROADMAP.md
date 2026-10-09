@@ -35,6 +35,15 @@ not for PR #564's published candidate; it does not establish latency/freshness
 targets or certificate identity. The canary-first promotion gate remains in
 force.
 
+The subsequent 2026-10-09 canary test-client observation covered 30 minutes.
+The client remained listed and live traffic changed without a page reload for
+most of the window, but at about 24m51s the page changed to `Connection data
+delayed`; displayed uptime and counters then stopped advancing through the
+window end. This fails the two-second freshness gate. No refresh, restart,
+client disconnect, or production change was made. See the
+[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md) for scope and
+limitations; a fresh passing canary soak is required after diagnosis.
+
 PR [#550](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/550)
 refreshed that acceptance report; it does not claim the full soak passed. PR
 [#551](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/551)
