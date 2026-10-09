@@ -104,14 +104,27 @@ async function api(url, options = {}) {
     headers.set('Content-Type', 'application/json');
     options.body = JSON.stringify(options.body);
   }
+  const requestUrl = new URL(url, location.href);
+  const sameOriginApiRequest = requestUrl.origin === location.origin
+    && requestUrl.pathname.startsWith('/api/');
   // Status is a live telemetry endpoint.  Explicitly bypass intermediary and
   // browser caches so cumulative RouterOS counters are sampled on every poll.
   const response = await fetch(url, {
     ...options,
     headers,
     credentials: 'same-origin',
+    // Do not let fetch follow an API redirect to a Cloudflare Access challenge:
+    // the resulting cross-origin HTML is opaque to the dashboard and otherwise
+    // looks like a JSON/network failure forever. Let the browser perform the
+    // top-level request so Access can reauthenticate and return to this view.
+    ...(sameOriginApiRequest ? { redirect: 'manual' } : {}),
     ...(url === '/api/status' ? { cache: 'no-store' } : {}),
   });
+  if (sameOriginApiRequest && response.type === 'opaqueredirect') {
+    const returnPath = `${location.pathname}${location.search}${location.hash}`;
+    location.replace(returnPath);
+    throw new Error('Dashboard access expired. Reconnecting securely…');
+  }
   if (response.status === 401) {
     location.assign('/login');
     throw new Error('Your session expired. Please sign in again.');

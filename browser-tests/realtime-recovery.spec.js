@@ -118,6 +118,37 @@ test('a failed status poll remains delayed when no live snapshot has arrived', a
     .toHaveText(['Connection data delayed', 'Connection data delayed']);
 });
 
+test('returns to the top-level Access flow when an API request is redirected', async ({ page }) => {
+  let statusPolls = 0;
+  let dashboardNavigations = 0;
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame() && new URL(frame.url()).pathname === '/dashboard') {
+      dashboardNavigations += 1;
+    }
+  });
+  await page.route('**/api/status', async (route) => {
+    statusPolls += 1;
+    if (statusPolls === 1) {
+      await route.fulfill({
+        status: 302,
+        headers: { location: 'https://access.example.test/cdn-cgi/access/login' },
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect.poll(() => dashboardNavigations, { timeout: 10_000 }).toBeGreaterThan(1);
+  await expect.poll(() => statusPolls, { timeout: 10_000 }).toBeGreaterThan(1);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+});
+
 test('reconnects the live stream and applies a fresh snapshot when a sleeping tab wakes', async ({ page }) => {
   await page.addInitScript(() => {
     window.__syntheticEventSources = [];
