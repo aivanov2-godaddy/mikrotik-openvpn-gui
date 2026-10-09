@@ -55,6 +55,15 @@ test it before revoking the legacy certificate. “Replacement issued” records
 only that issuance completed; it is not evidence that the profile was imported,
 tested, or connected successfully.
 
+If local device or migration metadata cannot be finalized after RouterOS issues
+the replacement, the app attempts to revoke that exact new certificate and
+reads it back. It delivers no profile unless the local records are finalized.
+When cleanup read-back cannot verify revocation, the result is **unknown**:
+the new certificate may still be active, the previous identity is not marked
+retired, and the operator must inspect RouterOS and Device Profiles before
+retrying. A failed replacement cleanup is not proof that either identity is
+unusable.
+
 To record the connection-test step, the dashboard requires both an explicit
 operator confirmation and a read-only RouterOS observation of an active session
 for the matching VPN user at that moment. This raises the evidence bar but does

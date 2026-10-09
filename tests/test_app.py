@@ -2991,6 +2991,73 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
         self.assertEqual(self.server.context.store.recent_audit(1)[0]["action"], "profile.create.recovery")
 
+    def test_profile_migration_reports_unknown_when_replacement_cleanup_is_unverified(self) -> None:
+        self.mock.state.certificates["*OLD"] = {
+            ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-one"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        preview = self.preview_profile(
+            user["id"], "Replacement phone", delivery="ovpn",
+            legacy_certificate="legacy-user-one-phone",
+        )
+
+        with (
+            mock.patch.object(
+                self.server.context.store,
+                "record_profile_migration",
+                side_effect=OSError("injected migration storage failure"),
+            ),
+            mock.patch.object(self.server.context.router, "revoke_certificate"),
+            mock.patch.object(DashboardHandler, "_deliver_profile") as deliver_profile,
+        ):
+            status, _, payload = self.json_request(
+                "POST", path,
+                {
+                    "device_name": "Replacement phone",
+                    "reason": preview["reason"],
+                    "key_passphrase": "replacement-key-passphrase",
+                    "legacy_certificate": "legacy-user-one-phone",
+                    "delivery": "ovpn",
+                    "review_token": preview["review_token"],
+                },
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["recovery"], "unknown")
+        self.assertIn("recovery is not fully verified", response["error"])
+        self.assertNotIn("injected migration storage failure", response["error"])
+        self.assertNotIn(b"replacement-key-passphrase", payload)
+        deliver_profile.assert_not_called()
+        certificates = self.server.context.router.list_ovpn_client_certificates(
+            RouterOSCredentials("admin", "routerpass"), include_legacy=True,
+        )
+        replacement = next(
+            item for item in certificates
+            if item["name"].startswith("ovpn-ui-user-one-replacement-phone-")
+        )
+        self.assertFalse(replacement["revoked"])
+        self.assertFalse(next(
+            item for item in certificates if item["name"] == "legacy-user-one-phone"
+        )["revoked"])
+        device = self.server.context.store.device_by_certificate(replacement["name"])
+        self.assertIsNotNone(device)
+        self.assertIsNone(device["revoked_at"])
+        self.assertNotIn("legacy-user-one-phone", self.server.context.store.profile_migrations())
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["action"], "profile.create.recovery")
+        self.assertEqual(audit["status"], "unknown")
+        self.assertNotIn("replacement-key-passphrase", json.dumps(audit))
+
     def test_profile_review_is_secret_free_and_rejects_stale_policy_before_mutation(self) -> None:
         self.login()
         user = next(

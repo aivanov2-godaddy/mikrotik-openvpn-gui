@@ -217,6 +217,53 @@ test('certificate migration confirmation refreshes its panel without a full page
   expect(await page.evaluate(() => window.__unrelatedPageState)).toEqual({ preserved: true });
 });
 
+test('replacement profile issuance refreshes certificate status without interrupting the page', async ({ page }) => {
+  const navigations = [];
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.push(frame.url());
+  });
+
+  await page.evaluate(() => {
+    const panel = document.querySelector('.migration-panel');
+    panel.dataset.refreshMarker = 'before';
+    const form = document.querySelector('#profile-form');
+    form.elements.user_id.value = 'synthetic-user';
+    form.elements.delivery.value = 'zip';
+    form.elements.legacy_certificate.value = 'legacy-test-certificate';
+    form.elements.review_token.value = 'reviewed-synthetic-request';
+    form.elements.device_name.value = 'Replacement phone';
+    form.elements.reason.value = 'Operator-approved replacement test';
+    form.elements.key_passphrase.value = 'synthetic-only-passphrase';
+    document.querySelector('[data-profile-user]').textContent = 'Synthetic user';
+    document.querySelector('#profile-dialog').showModal();
+    window.__unrelatedPageState = { preserved: true };
+  });
+
+  const refreshedHtml = await page.content();
+  const markedHtml = refreshedHtml.replace('data-refresh-marker="before"', 'data-refresh-marker="after"');
+  await page.route('**/api/users/synthetic-user/profiles', (route) => route.fulfill({
+    status: 200,
+    headers: {
+      'content-type': 'application/zip',
+      'content-disposition': 'attachment; filename="synthetic-profile.zip"',
+    },
+    body: 'synthetic archive only',
+  }));
+  await page.route('**/dashboard', (route) => {
+    if (route.request().resourceType() !== 'fetch') return route.continue();
+    return route.fulfill({ status: 200, contentType: 'text/html', body: markedHtml });
+  });
+
+  const download = page.waitForEvent('download');
+  await page.locator('[data-profile-submit]').click();
+  await download;
+
+  await expect(page.locator('.migration-panel')).toHaveAttribute('data-refresh-marker', 'after');
+  await expect(page.locator('#profile-dialog')).not.toBeVisible();
+  expect(navigations).toEqual([]);
+  expect(await page.evaluate(() => window.__unrelatedPageState)).toEqual({ preserved: true });
+});
+
 for (const theme of accessibilityThemes) {
   for (const view of accessibilityViews) {
     test(`${view.name} has no serious WCAG 2.2 A/AA violations in ${theme.name} theme`, async ({ page }, testInfo) => {
