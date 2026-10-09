@@ -51,7 +51,11 @@ the runtime image or collect router observations. The evaluator now requires
 separately timestamped and strictly ordered connect/disconnect records, plus at
 least two timestamped numeric RX/TX observations whose counters differ. Each
 required observation must be marked visible without a page refresh. Missing,
-stale, out-of-order, unchanged, or refresh-dependent evidence fails closed.
+out-of-window timestamps, a stale overall sample window, non-increasing
+timestamps, a disconnect timestamp preceding the connect timestamp, unchanged
+counters, or refresh-dependent evidence fails closed. Records are evaluated
+chronologically; their file order is normalized, and individual records do not
+have a separate freshness threshold beyond the bounded sample window.
 The full local suite passed (506 passed, 1 skipped), and all hosted PR checks
 passed. These checks validate the evidence gate; they do not convert the
 readiness soak into live telemetry acceptance.
