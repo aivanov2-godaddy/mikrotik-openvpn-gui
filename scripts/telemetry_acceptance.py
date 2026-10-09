@@ -222,6 +222,11 @@ def evaluate(
         failures.append("test_client_connect_observation_missing")
     if not any(not connected for connected in transition_states):
         failures.append("test_client_disconnect_observation_missing")
+    transition_times = [
+        _number(item.get("observed_at"), "observed_at") for item in ordered_transitions
+    ]
+    if any(later <= earlier for earlier, later in zip(transition_times, transition_times[1:])):
+        failures.append("session_transition_timestamps_not_increasing")
     if not any(
         earlier and not later
         for earlier, later in zip(transition_states, transition_states[1:])
@@ -233,6 +238,11 @@ def evaluate(
         traffic_updates,
         key=lambda item: _number(item.get("observed_at"), "observed_at"),
     )
+    traffic_times = [
+        _number(item.get("observed_at"), "observed_at") for item in ordered_traffic
+    ]
+    if any(later <= earlier for earlier, later in zip(traffic_times, traffic_times[1:])):
+        failures.append("traffic_update_timestamps_not_increasing")
     if not any(
         (float(earlier["rx_bytes"]) != float(later["rx_bytes"]))
         or (float(earlier["tx_bytes"]) != float(later["tx_bytes"]))

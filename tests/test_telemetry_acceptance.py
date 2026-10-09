@@ -169,6 +169,22 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("test_client_disconnect_transition_missing", result["failed_gates"])
 
+    def test_session_transitions_require_distinct_increasing_timestamps(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        window = [
+            line for line in window
+            if json.loads(line).get("type") != "session_transition"
+        ]
+        window.extend(records(
+            {"type": "session_transition", "observed_at": 1_728_000_600,
+             "connected": True, "visible_without_refresh": True},
+            {"type": "session_transition", "observed_at": 1_728_000_600,
+             "connected": False, "visible_without_refresh": True},
+        ))
+        code, result = evaluate(window, limits=LIMITS)
+        self.assertEqual(code, 1)
+        self.assertIn("session_transition_timestamps_not_increasing", result["failed_gates"])
+
     def test_traffic_change_requires_measured_counters_and_live_visibility(self) -> None:
         for updates, expected_gate in (
             ([{"type": "traffic_update", "observed_at": 1_728_000_900,
@@ -184,6 +200,11 @@ class TelemetryAcceptanceTests(unittest.TestCase):
               {"type": "traffic_update", "observed_at": 1_728_000_960,
                "rx_bytes": 1200, "tx_bytes": 400, "visible_without_refresh": True}],
              "traffic_update_visibility"),
+            ([{"type": "traffic_update", "observed_at": 1_728_000_900,
+               "rx_bytes": 1000, "tx_bytes": 400, "visible_without_refresh": True},
+              {"type": "traffic_update", "observed_at": 1_728_000_900,
+               "rx_bytes": 1200, "tx_bytes": 400, "visible_without_refresh": True}],
+             "traffic_update_timestamps_not_increasing"),
         ):
             with self.subTest(expected_gate=expected_gate):
                 window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
