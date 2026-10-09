@@ -9,28 +9,28 @@ data, deployment runners, or production network details.
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
 published source/image candidate is main commit
-`fadd805e00d7cefd5011074baa672f3cef29aed8` (PR #571), published by workflow
-[#37933532635](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37933532635).
+`a398364829f95511bd4c4405d6d7da7b89a577f2` (PR #573), published by workflow
+[#37940711384](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37940711384).
 ARM64 tag/digest:
-`sha-fadd805e00d7cefd5011074baa672f3cef29aed8-arm64` /
-`sha256:fcffde054d3eb3e1e8a6be502b62d5d1a24d699426685773315b12c01f2202fd`.
+`sha-a398364829f95511bd4c4405d6d7da7b89a577f2-arm64` /
+`sha256:94201e421de67f04c4d0693b3a40abd45e2a1d4043ec25ff67af9e5fe0998f84`.
+AMD64 tag/digest:
+`sha-a398364829f95511bd4c4405d6d7da7b89a577f2-amd64` /
+`sha256:4b78fb79e398049e922a276a6b87397499e70fd06789e3bf15a423ff15dbe455`.
 The publisher's source/browser checks, both architecture builds, exact-digest
 provenance/SBOM verification, runtime smoke tests, and stable-manifest
-publication passed. PR #571 adds recovery when a same-origin API request is
-redirected through an authentication gateway: the browser returns to the
-top-level access flow instead of attempting to consume a redirected API body.
-This is a tested candidate behavior, not yet evidence that the deployed
-canary failure is fixed.
+publication passed. PR #573 increases the RouterOS startup readiness window.
 
-A read-only RouterOS WebFig check on 2026-10-09 still showed the prior PR #564
-ARM64 digest configured on canary and the prior production image configured
-on production; both dashboard containers and Redis were healthy. The canary
-Connections view still showed one test session with `Connection data delayed`
-and frozen displayed counters at approximately 24m51s. Thus PR #571's image
-is published but not installed on the router, the prior canary soak failed,
-and a fresh post-update soak is required. Production remains untouched and
-promotion is gated. The detailed redacted evidence and acceptance blockers are
-in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+On 2026-10-09, the first PR #571 canary staging attempt failed at readiness
+sample 30/30 and automatically rolled back. A retry with PR #573 then passed
+all 30 one-minute RouterOS readiness samples; final read-back showed the
+canary healthy on the `a398364` ARM64 tag. Production remains on
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, untouched. This
+readiness-only stage does not resolve the earlier live-traffic freshness
+failure: no VPN test client was connected during this run, so event latency,
+traffic freshness, and session-event delivery remain unverified. Promotion is
+still gated. Redacted evidence and blockers are in [the live telemetry
+acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
 On 2026-10-09, a manually reconnected disposable test client reappeared in the
 already-open production dashboard with live traffic/packet graphs and a new

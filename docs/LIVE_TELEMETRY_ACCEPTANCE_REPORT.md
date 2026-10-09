@@ -1,41 +1,48 @@
 # Live telemetry acceptance report
 
-Status: **TELEMETRY BASELINE ACCEPTED — LATEST CANARY FRESHNESS SOAK FAILED; FULL ACCEPTANCE PENDING**
+Status: **CANARY READINESS STAGED — LIVE-CLIENT FRESHNESS AND FULL ACCEPTANCE PENDING**
 
-The latest verified published candidate is main commit
-`fadd805e00d7cefd5011074baa672f3cef29aed8`, merged from PR #571. Publisher
-run [37933532635](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37933532635)
+The latest published candidate is main commit
+`a398364829f95511bd4c4405d6d7da7b89a577f2`, merged from PR #573. Publisher
+run [37940711384](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37940711384)
 passed release-source and rendered browser/accessibility checks, ARM64/AMD64
 builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
-stable-manifest publication. PR #571 adds top-level browser recovery when a
-same-origin API request receives an authentication redirect. The immutable
+stable-manifest publication. PR #573 increases the bounded RouterOS startup
+readiness window to accommodate image extraction and app boot. The immutable
 image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-fadd805e00d7cefd5011074baa672f3cef29aed8-arm64` | `sha256:fcffde054d3eb3e1e8a6be502b62d5d1a24d699426685773315b12c01f2202fd` |
-| AMD64 evaluation | `sha-fadd805e00d7cefd5011074baa672f3cef29aed8-amd64` | `sha256:63c25fc8eb3b122d3e239704d225be410bccb1139fa667b187ba56b665d9616f` |
+| RouterOS ARM64 | `sha-a398364829f95511bd4c4405d6d7da7b89a577f2-arm64` | `sha256:94201e421de67f04c4d0693b3a40abd45e2a1d4043ec25ff67af9e5fe0998f84` |
+| AMD64 evaluation | `sha-a398364829f95511bd4c4405d6d7da7b89a577f2-amd64` | `sha256:4b78fb79e398049e922a276a6b87397499e70fd06789e3bf15a423ff15dbe455` |
 
-This is publication evidence; deployment and acceptance are tracked
-separately. A read-only RouterOS WebFig check on 2026-10-09 still showed the
-prior PR #564 ARM64 digest configured on canary and the prior production image
-configured on production; both dashboard containers and Redis were healthy.
-The PR #571 ARM64 image above is therefore **published but not deployed**.
-The canary's authenticated Connections view still showed one test session but
-`Connection data delayed`, with displayed counters frozen at approximately
-24m51s. This confirms the previous soak failed its freshness gate; it does not
-identify the failing layer or demonstrate that PR #571 fixes it. No production
-image or configuration was changed. The authenticated telemetry/metrics
-acceptance window requires a dedicated HTTPS origin routed through the
-approved access layer to canary only; production is not a substitute. See
+The 2026-10-09 first staging attempt used the PR #571 candidate and failed its
+last RouterOS readiness probe (sample 30/30 returned `fetch-error`). The
+router updater automatically restored the prior canary image; production was
+unchanged. A retry with the PR #573 candidate then passed all 30 one-minute
+RouterOS `/readyz` samples and wrote a fresh canary-staged marker at 18:06:26
+RouterOS local time. A final read-back showed the canary healthy on the exact
+ARM64 tag above and production still configured to
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`. RouterOS reports the
+configured tag; the registry digest above comes from the successful publisher
+run, not an independent digest read-back from the router.
+
+This is a successful **readiness stage**, not complete telemetry acceptance.
+The authenticated canary dashboard reports `Live · SOCKETIO`, but there is no
+active test VPN client, so session-event latency, traffic freshness, and
+connect/disconnect delivery were not measured. The previous 30-minute
+test-client soak remains a freshness failure; this readiness-only run does not
+replace it. No production image/configuration, RouterOS policy, VPN account,
+certificate, or CA was changed. Do not promote until the live-client and
+remaining acceptance gates pass. See
 [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window).
 
-An authenticated canary-browser check on 2026-10-09 showed the Connections
-view reporting `Live · SOCKETIO`, zero connected devices, and no connection
-history rows. The page states that traffic graphs update automatically; with
-no live session present, this check cannot measure event latency, traffic
-freshness, or connect/disconnect delivery. No VPN client was disconnected or
-reconnected as part of this observation.
+After the retry and app reauthentication, the canary Connections view reported
+`Live · SOCKETIO`, zero active devices, and the test client's ended historical
+row. The original tab recovered to a fresh snapshot without a manual page
+reload once foregrounded. With no live test session, this demonstrates the
+dashboard route/stream is reachable but cannot measure event latency, traffic
+freshness, or connect/disconnect delivery.
 
 ## Canary test-client soak — 2026-10-09 11:57–12:28 UTC
 
