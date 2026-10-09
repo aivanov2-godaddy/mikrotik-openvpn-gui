@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.19@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6
-
 ARG VERSION=1.11.0
 ARG REVISION=unknown
 ARG SOURCE_URL=""
@@ -29,6 +27,19 @@ RUN printf '%s\n' "$VERSION" > /app/VERSION \
 RUN mkdir -p /data \
     && chmod 0700 /data
 
+# RouterOS creates these runtime identity files itself and refuses to start an
+# extracted image when they already exist in the root filesystem. Build a clean
+# rootfs copy instead of using a recent external Dockerfile frontend.
+RUN set -o pipefail \
+    && mkdir /rootfs \
+    && tar -C / \
+        --exclude=./rootfs \
+        --exclude=./etc/hostname \
+        --exclude=./etc/hosts \
+        --exclude=./etc/resolv.conf \
+        -cpf - . \
+    | tar -C /rootfs -xpf -
+
 FROM scratch
 
 ARG VERSION
@@ -42,13 +53,7 @@ LABEL org.opencontainers.image.title="MikroTik OpenVPN GUI" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-# RouterOS creates these runtime identity files itself and refuses to start an
-# extracted image when they already exist in the root filesystem.
-COPY --from=routeros-rootfs \
-    --exclude=etc/hostname \
-    --exclude=etc/hosts \
-    --exclude=etc/resolv.conf \
-    / /
+COPY --from=routeros-rootfs /rootfs/ /
 
 WORKDIR /app
 
