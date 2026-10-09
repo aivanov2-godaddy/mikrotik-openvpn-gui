@@ -1433,3 +1433,22 @@ does not itself refresh the timestamp. Other authenticated dashboard requests
 retain their existing activity semantics. This is repository evidence only;
 deployed proxy/session-expiry behavior and the independent security review in
 #200 remain unverified.
+
+**2026-10-10 PR #589 publication and canary stage:** PR #589 merged as
+`148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0`; publisher run #37997459148
+completed successfully. The ARM64 artifact digest is
+`sha256:ab4e79a4c8e24a195423832da480f3e39d4767dd3b583f48335a43df32477aeb`,
+with exact-image SBOM/provenance verification; AMD64 publication and
+attestation also succeeded. A read-only WinBox read-back around 01:37 EEST
+showed the isolated canary healthy at the matching revision. RouterOS
+readiness requests completed with HTTP 200 around 01:39 EEST, and the
+stage-only updater was still running its 30 one-minute readiness samples at
+01:43 EEST. The sample window is therefore **in progress, not passed**. The
+RouterOS PPP Active Connections view showed zero sessions around 01:40 EEST.
+The existing production dashboard showed one session but also
+`Connection data delayed`; that stale display is not evidence of an active
+tunnel. The stage-only updater does not promote or modify production, and no
+production promotion is claimed. Live-client telemetry, reconnect/snapshot,
+Redis delivery, resource, event-integrity, and rollback/restore acceptance in
+#199 remain open; device lifecycle acceptance in #194 and deployed security
+review in #200 also remain open. See [installation evidence](INSTALLATION.md).
