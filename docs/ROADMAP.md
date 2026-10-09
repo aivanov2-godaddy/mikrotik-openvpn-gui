@@ -5,24 +5,31 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
-## Current project snapshot — 2026-10-08
+## Current project snapshot — 2026-10-09
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
 verified published candidate is main commit
-`446068934ba50a36a920772a4ab1315fcb9a6433` (PR #554), published by workflow
-[#37796002329](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37796002329).
+`fc8842703f5338ae1345041d8cabc44bdb860e69` (PR #564), published by workflow
+[#37917266068](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37917266068).
 ARM64 tag/digest:
-`sha-446068934ba50a36a920772a4ab1315fcb9a6433-arm64` /
-`sha256:a65026006fb3209e89b7520cf84a5131b6003c6bd9ccd913fa5ba364a73cb6e3`.
+`sha-fc8842703f5338ae1345041d8cabc44bdb860e69-arm64` /
+`sha256:a657be86e2cbc078e65f4baa7e3c69a217e3bdce7b4469c50fe0339709559e64`.
 AMD64 tag/digest:
-`sha-446068934ba50a36a920772a4ab1315fcb9a6433-amd64` /
-`sha256:e433065d1ba6261f3a647b0709230340485a99497bc216a8fa5026be20765cb1`.
+`sha-fc8842703f5338ae1345041d8cabc44bdb860e69-amd64` /
+`sha256:0fdea4d4f749dd4315e9314a9be2a77146d1f54032ce4defd79a45f2a6c5941e`.
 Publisher checks, both architecture builds, provenance/SBOM verification, and
 runtime smoke passed. This is **published, not verified deployed**. No
 RouterOS deployment was attempted: the canary origin is a placeholder,
 deployment credentials are unavailable locally, and the router-local updater
 scheduler is disabled. The detailed redacted evidence and acceptance blockers
 are in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
+On 2026-10-09, a manually reconnected disposable test client reappeared in the
+already-open production dashboard with live traffic/packet graphs and a new
+history entry. This is qualitative evidence for the currently deployed image,
+not for PR #564's published candidate; it does not establish latency/freshness
+targets or certificate identity. The canary-first promotion gate remains in
+force.
 
 PR [#550](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/550)
 refreshed that acceptance report; it does not claim the full soak passed. PR
