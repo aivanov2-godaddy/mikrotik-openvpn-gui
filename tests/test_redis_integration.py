@@ -2,38 +2,114 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import socket
 import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from integrations import RedisStreamPublisher
 from store import MetadataStore
 
 
 class RedisOutboxRecoveryTests(unittest.TestCase):
-    """Exercise the durable outbox against a disposable real Redis container."""
+    """Exercise the durable outbox against an isolated real Redis process."""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.redis_url = os.environ.get("REDIS_TEST_URL", "")
-        cls.container = os.environ.get("REDIS_TEST_CONTAINER", "")
-        if not cls.redis_url or not cls.container:
-            raise unittest.SkipTest("requires the isolated REDIS_TEST_URL and REDIS_TEST_CONTAINER")
+        cls.redis_server = shutil.which("redis-server")
+        if not cls.redis_url or not cls.redis_server:
+            raise unittest.SkipTest("requires REDIS_TEST_URL and the redis-server executable")
         try:
             import redis
         except ImportError as error:
             raise unittest.SkipTest("optional Redis test dependency is not installed") from error
         cls.redis_errors = redis.exceptions.RedisError
+        parsed_url = urlparse(cls.redis_url)
+        if parsed_url.hostname not in {"127.0.0.1", "localhost"}:
+            raise unittest.SkipTest("integration tests only start an isolated loopback Redis server")
+        cls.redis_host = "127.0.0.1"
+        with socket.socket() as port_reserver:
+            port_reserver.bind((cls.redis_host, 0))
+            cls.redis_port = int(port_reserver.getsockname()[1])
+        cls.redis_url = f"redis://{cls.redis_host}:{cls.redis_port}{parsed_url.path or '/0'}"
+        cls.redis_dir = tempfile.TemporaryDirectory(prefix="vpn-dashboard-redis-")
+        cls.redis_process: subprocess.Popen[bytes] | None = None
         cls.client = redis.Redis.from_url(
             cls.redis_url,
             decode_responses=True,
             socket_connect_timeout=0.5,
             socket_timeout=0.5,
         )
-        cls.client.ping()
+        try:
+            cls._start_redis()
+            cls._wait_for_redis()
+        except Exception:
+            cls._stop_redis()
+            cls.redis_dir.cleanup()
+            raise
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._stop_redis()
+        if hasattr(cls, "client"):
+            cls.client.close()
+        if hasattr(cls, "redis_dir"):
+            cls.redis_dir.cleanup()
+
+    @classmethod
+    def _start_redis(cls) -> None:
+        if cls.redis_process is not None and cls.redis_process.poll() is None:
+            return
+        cls.redis_process = subprocess.Popen(
+            [
+                cls.redis_server,
+                "--bind",
+                cls.redis_host,
+                "--port",
+                str(cls.redis_port),
+                "--protected-mode",
+                "yes",
+                "--save",
+                "",
+                "--appendonly",
+                "no",
+                "--dir",
+                cls.redis_dir.name,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+
+    @classmethod
+    def _stop_redis(cls) -> None:
+        process = getattr(cls, "redis_process", None)
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+    @classmethod
+    def _wait_for_redis(cls) -> None:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            if cls.redis_process is not None and cls.redis_process.poll() is not None:
+                raise RuntimeError("isolated redis-server exited before becoming ready")
+            try:
+                if cls.client.ping():
+                    return
+            except Exception:
+                time.sleep(0.1)
+        raise RuntimeError("isolated redis-server did not become ready")
 
     def setUp(self) -> None:
         self.client.flushdb()
@@ -58,32 +134,13 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         return self.store.pending_integration_events(now=int(time.time()))[0]
 
     def _restart_redis(self) -> None:
-        subprocess.run(
-            ["docker", "restart", self.container],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            try:
-                if self.client.ping():
-                    return
-            except Exception:
-                time.sleep(0.1)
-        self.fail("disposable Redis did not become ready after restart")
+        self._start_redis()
+        self._wait_for_redis()
 
     def test_outbox_survives_redis_restart_and_drains_without_leaking_secrets(self) -> None:
         record = self._enqueue_event()
         event_id = str(record["event_id"])
-        subprocess.run(
-            ["docker", "stop", self.container],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        self._stop_redis()
         try:
             with self.assertRaises(self.redis_errors):
                 self.publisher.publish(record["payload"])
@@ -105,13 +162,7 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         self.assertEqual(self.publisher.metrics()["publish_successes"], 1)
 
     def test_large_outage_backlog_drains_in_bounded_batches_after_recovery(self) -> None:
-        subprocess.run(
-            ["docker", "stop", self.container],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        self._stop_redis()
         for index in range(45):
             self.store.audit(
                 actor="test-operator",
