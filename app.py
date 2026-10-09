@@ -2187,7 +2187,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         identity = self._client_ip()
-        if not self.server.context.limiter.allow(identity):
+        reservation = self.server.context.limiter.reserve(identity)
+        if reservation is None:
             self.server.context.store.audit(
                 actor=session.username,
                 action="admin-session.reauth.rate_limited",
@@ -2203,8 +2204,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
         except RouterOSError as error:
             rejected = error.status == HTTPStatus.UNAUTHORIZED
-            if rejected:
-                self.server.context.limiter.fail(identity)
+            self.server.context.limiter.finish(reservation, failed=True if rejected else None)
             self.server.context.store.audit(
                 actor=session.username,
                 action="admin-session.reauth.failed" if rejected else "admin-session.reauth.unavailable",
@@ -2217,7 +2217,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "RouterOS could not verify the password right now. The administrator session was not revoked."}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
-        self.server.context.limiter.success(identity)
+        except Exception:
+            self.server.context.limiter.finish(reservation, failed=None)
+            raise
+        self.server.context.limiter.finish(reservation, failed=False)
         self.server.context.store.audit(
             actor=session.username,
             action="admin-session.reauth.success",
@@ -3201,7 +3204,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _login(self) -> None:
         identity = self._client_ip()
-        if not self.server.context.limiter.allow(identity):
+        reservation = self.server.context.limiter.reserve(identity)
+        if reservation is None:
             self.server.context.store.audit(
                 actor="unknown", action="login.rate_limited", target="dashboard",
                 status="failed", details={"source": identity},
@@ -3227,7 +3231,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if role is None:
                 raise RouterOSError("RouterOS account is disabled or unavailable", 401)
         except (ValueError, RouterOSError) as error:
-            self.server.context.limiter.fail(identity)
+            self.server.context.limiter.finish(reservation, failed=True)
             self.server.context.store.audit(
                 actor=username if "username" in locals() else "unknown",
                 action="login.failure", target="dashboard", status="failed",
@@ -3246,6 +3250,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.UNAUTHORIZED,
             )
             return
+        except Exception:
+            self.server.context.limiter.finish(reservation, failed=None)
+            raise
         role = normalize_role(role)
         try:
             session = self.server.context.sessions.create(
@@ -3256,6 +3263,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 user_agent=self.headers.get("User-Agent", ""),
             )
         except ConcurrentSessionLimitReached:
+            self.server.context.limiter.finish(reservation, failed=False)
             limit = self.server.context.sessions.max_sessions_per_account
             self.server.context.store.audit(
                 actor=username,
@@ -3274,7 +3282,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.TOO_MANY_REQUESTS,
             )
             return
-        self.server.context.limiter.success(identity)
+        self.server.context.limiter.finish(reservation, failed=False)
         cookie = (
             f"vpn_session={session.session_id}; Path=/; Max-Age=28800; "
             "Secure; HttpOnly; SameSite=Strict"

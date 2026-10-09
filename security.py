@@ -338,24 +338,44 @@ class LoginRateLimiter:
         self.limit = limit
         self.window_seconds = window_seconds
         self._attempts: dict[str, list[float]] = {}
+        self._reservations: dict[str, str] = {}
         self._lock = threading.Lock()
 
-    def allow(self, identity: str, now: float | None = None) -> bool:
+    def reserve(self, identity: str, now: float | None = None) -> str | None:
+        """Atomically reserve an authentication attempt, or return ``None`` if limited.
+
+        Reservations count against the limit while RouterOS verification is in
+        flight, closing the check-then-record race between concurrent requests.
+        Call :meth:`finish` exactly once when verification completes.
+        """
         current = time.time() if now is None else now
         threshold = current - self.window_seconds
         with self._lock:
             attempts = [stamp for stamp in self._attempts.get(identity, []) if stamp > threshold]
             self._attempts[identity] = attempts
-            return len(attempts) < self.limit
+            reservations = sum(owner == identity for owner in self._reservations.values())
+            if len(attempts) + reservations >= self.limit:
+                return None
+            reservation = secrets.token_urlsafe(18)
+            self._reservations[reservation] = identity
+            return reservation
 
-    def fail(self, identity: str, now: float | None = None) -> None:
+    def finish(self, reservation: str, *, failed: bool | None, now: float | None = None) -> None:
+        """Release a reservation and optionally update the failure history.
+
+        Set ``failed=True`` for rejected credentials, ``False`` for verified
+        success, and ``None`` when verification could not be completed (for
+        example, RouterOS was unavailable).
+        """
         current = time.time() if now is None else now
         with self._lock:
-            self._attempts.setdefault(identity, []).append(current)
-
-    def success(self, identity: str) -> None:
-        with self._lock:
-            self._attempts.pop(identity, None)
+            identity = self._reservations.pop(reservation, None)
+            if identity is None:
+                return
+            if failed is True:
+                self._attempts.setdefault(identity, []).append(current)
+            elif failed is False:
+                self._attempts.pop(identity, None)
 
 
 def csrf_matches(expected: str, supplied: str) -> bool:

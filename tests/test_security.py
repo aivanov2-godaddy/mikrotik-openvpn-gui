@@ -5,7 +5,9 @@ import time
 import hashlib
 import sqlite3
 import shutil
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -241,11 +243,74 @@ class SecurityTests(unittest.TestCase):
 
     def test_rate_limit(self) -> None:
         limiter = LoginRateLimiter(limit=2, window_seconds=10)
-        self.assertTrue(limiter.allow("ip", now=1))
-        limiter.fail("ip", now=1)
-        limiter.fail("ip", now=2)
-        self.assertFalse(limiter.allow("ip", now=3))
-        self.assertTrue(limiter.allow("ip", now=12.1))
+        first = limiter.reserve("ip", now=1)
+        second = limiter.reserve("ip", now=1)
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertIsNone(limiter.reserve("ip", now=1))
+        limiter.finish(first, failed=True, now=1)
+        limiter.finish(second, failed=True, now=2)
+        self.assertIsNone(limiter.reserve("ip", now=3))
+        self.assertIsNotNone(limiter.reserve("ip", now=12.1))
+
+    def _assert_concurrent_auth_attempts_are_limited(self, operation: str) -> None:
+        limit = 3
+        concurrent_attempts = 12
+        limiter = LoginRateLimiter(limit=limit, window_seconds=60)
+        start = threading.Barrier(concurrent_attempts)
+        admitted = threading.Barrier(concurrent_attempts)
+
+        def attempt() -> bool:
+            start.wait(timeout=5)
+            reservation = limiter.reserve("shared-client", now=100)
+            # Keep admitted attempts in flight until every worker has tried to
+            # reserve, making this a deterministic check-then-record regression.
+            admitted.wait(timeout=5)
+            if reservation is not None:
+                limiter.finish(reservation, failed=True, now=100)
+            return reservation is not None
+
+        with ThreadPoolExecutor(max_workers=concurrent_attempts) as executor:
+            outcomes = list(executor.map(lambda _index: attempt(), range(concurrent_attempts)))
+
+        self.assertEqual(sum(outcomes), limit, operation)
+        self.assertIsNone(limiter.reserve("shared-client", now=101))
+
+    def test_concurrent_failed_login_admissions_are_limited_atomically(self) -> None:
+        self._assert_concurrent_auth_attempts_are_limited("login")
+
+    def test_concurrent_failed_admin_reauth_admissions_are_limited_atomically(self) -> None:
+        self._assert_concurrent_auth_attempts_are_limited("admin reauthentication")
+
+    def test_unavailable_completion_releases_reservation_and_preserves_failure_history(self) -> None:
+        limiter = LoginRateLimiter(limit=2, window_seconds=60)
+        failed = limiter.reserve("ip", now=1)
+        self.assertIsNotNone(failed)
+        limiter.finish(failed, failed=True, now=1)
+
+        unavailable = limiter.reserve("ip", now=2)
+        self.assertIsNotNone(unavailable)
+        limiter.finish(unavailable, failed=None, now=3)
+
+        next_reservation = limiter.reserve("ip", now=4)
+        self.assertIsNotNone(next_reservation)
+        limiter.finish(next_reservation, failed=True, now=4)
+        self.assertIsNone(limiter.reserve("ip", now=5))
+
+    def test_successful_completion_clears_failure_history(self) -> None:
+        limiter = LoginRateLimiter(limit=2, window_seconds=60)
+        failed = limiter.reserve("ip", now=1)
+        self.assertIsNotNone(failed)
+        limiter.finish(failed, failed=True, now=1)
+
+        successful = limiter.reserve("ip", now=2)
+        self.assertIsNotNone(successful)
+        limiter.finish(successful, failed=False, now=2)
+        first = limiter.reserve("ip", now=3)
+        second = limiter.reserve("ip", now=3)
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertIsNone(limiter.reserve("ip", now=3))
 
     def test_api_token_storage_never_returns_plaintext(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
