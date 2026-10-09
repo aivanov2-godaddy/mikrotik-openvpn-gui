@@ -1,48 +1,47 @@
 # Live telemetry acceptance report
 
-Status: **CANARY READINESS STAGED — LIVE-CLIENT FRESHNESS AND FULL ACCEPTANCE PENDING**
+Status: **PR #582 CANARY STAGED; PR #587 CANDIDATE NOT YET STAGED — LIVE-CLIENT ACCEPTANCE PENDING**
 
 The latest published candidate is main commit
-`23361e18a6c708b76c552783d1e234614df823be`, merged from PR #582. Publisher
-run [37970504451](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37970504451)
+`f8caab0432a0ac91f578f7a929c75a850f290a35`, merged from PR #587. Publisher
+run [37986262661](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37986262661)
 passed release-source and rendered browser/accessibility checks, ARM64/AMD64
 builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
-stable-manifest publication. PR #582 retries transient RouterOS session-list
-read-back before confirming a reviewed session termination. These are
-published-image facts, not RouterOS deployment evidence. The immutable image
-identities are:
+stable-manifest publication. PR #587 makes the SSE connection's initial session
+lookup idle-neutral, matching its existing per-event authorization check. These
+are published-image facts, not RouterOS deployment evidence. The immutable
+image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-23361e18a6c708b76c552783d1e234614df823be-arm64` | `sha256:6ae48e5200675f979e150a3b59811ed25abab4ee6d0051134571d8ce796a28c5` |
-| AMD64 evaluation | `sha-23361e18a6c708b76c552783d1e234614df823be-amd64` | `sha256:868e91d91df669569845fef7637645a7dea3078d3aa7651dcbb7385d5bc2ccf3` |
+| RouterOS ARM64 | `sha-f8caab0432a0ac91f578f7a929c75a850f290a35-arm64` | `sha256:c5659b5da728ee29893c07e41bfe109aadda2e311ef82be5471d49844d61de04` |
+| AMD64 evaluation | `sha-f8caab0432a0ac91f578f7a929c75a850f290a35-amd64` | `sha256:589b2511762039562f5ff4683a6521546fe6edcaee1df9fb82b6b8433a4aefd3` |
 
-## Latest RouterOS read-back — 2026-10-09 21:57 EEST
+## Latest RouterOS read-back — 2026-10-09 23:24 EEST
 
 The canary-only immutable updater completed after the 21:33 observation below.
-At 21:51 EEST, WinBox read-back showed the canary configured with
-`sha-23361e18a6c708b76c552783d1e234614df823be-arm64` and marked Healthy. The
-production container remained configured with
+At 21:51 EEST, WinBox read-back showed the canary configured with the prior
+PR #582 image, `sha-23361e18a6c708b76c552783d1e234614df823be-arm64`, and marked
+Healthy. The production container remained configured with
 `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; it was not promoted or
-restarted by this canary update. The registry digest in the table above is
-publisher evidence; RouterOS exposes the configured tag, not an independent
-cached-image digest.
+restarted by that canary update. The newer PR #587 candidate has not yet been
+read back on RouterOS. The registry digest in the table above is publisher
+evidence; RouterOS exposes the configured tag, not an independent cached-image
+digest.
 
 At 21:57 EEST, the WinBox PPP Active Connections view showed zero rows (status
-count zero). This was after the operator reported the disposable test client
-connected. Therefore the latest observation still has no active VPN session
-from which to measure session-event latency, changing traffic samples, or
-live-stream reconnect/snapshot recovery. No client session, user, certificate,
-CA, RouterOS policy, production container, or credential was changed during
-these read-only checks.
+count zero). At about 22:39 EEST, it again showed zero rows after a reported
+client reconnect. These are historical point observations and are superseded
+by the later read below; no image or configuration read-back is implied.
 
-At approximately 22:39 EEST, a fresh WinBox PPP Active Connections inspection
-again showed zero rows after the operator reported the disposable test client
-connected. This supersedes the 21:57 session-count observation only; it does
-not change the recorded image read-back above. The live-client latency,
-traffic-freshness, connect/disconnect delivery, and reconnect/snapshot gates
-remain unmeasured. No container image, VPN session, user, certificate, CA,
-RouterOS policy, or credential was changed during this inspection.
+At about 23:24 EEST, a fresh read-only WinBox inspection showed one OpenVPN
+session in PPP Active Connections, with uptime just over one minute, and the
+filtered live log showed an OpenVPN connected event. This confirms a session
+was visible at that moment, but not that its dashboard updates were delivered
+without refresh or that counters changed. No latency/freshness sample window,
+Redis delivery, resource soak, reconnect, event-integrity, restore, or rollback
+gate was measured. No container image, VPN session, user, certificate, CA,
+RouterOS policy, or credential was changed during these read-only checks.
 
 ## RouterOS canary updater and VPN-session recheck — 2026-10-09 21:33 EEST (historical)
 

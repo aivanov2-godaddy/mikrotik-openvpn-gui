@@ -8,23 +8,20 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-09
 
 Formal release **v2.7.0** remains the latest numbered release. Current `main`
-is commit `27520b9b5032a72462c4b70a0f255ab14b66ea14` (PR #585). The latest
-published runtime candidate remains commit
-`23361e18a6c708b76c552783d1e234614df823be` (PR #582); PR #585 changes browser
-regression coverage and documentation only, so it did not produce a new
-runtime image. The candidate was published by workflow
-[#37970504451](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37970504451).
-ARM64 tag/digest:
-`sha-23361e18a6c708b76c552783d1e234614df823be-arm64` /
-`sha256:6ae48e5200675f979e150a3b59811ed25abab4ee6d0051134571d8ce796a28c5`.
-AMD64 tag/digest:
-`sha-23361e18a6c708b76c552783d1e234614df823be-amd64` /
-`sha256:868e91d91df669569845fef7637645a7dea3078d3aa7651dcbb7385d5bc2ccf3`.
-The publisher's source/browser checks, both architecture builds, exact-digest
-provenance/SBOM verification, runtime smoke tests, and stable-manifest
-publication passed. PR #582 retries transient RouterOS session-list read-back
-before confirming a reviewed session termination. The canary is now read back
-on this immutable candidate and Healthy; production remains on its prior tag.
+is commit `f8caab0432a0ac91f578f7a929c75a850f290a35` (PR #587). The latest
+published runtime candidate is the same commit; its publisher workflow
+[#37986262661](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37986262661)
+passed source/browser checks, ARM64/AMD64 builds, exact-digest provenance/SBOM
+verification, runtime smoke tests, and stable-manifest publication. ARM64
+tag/digest:
+`sha-f8caab0432a0ac91f578f7a929c75a850f290a35-arm64` /
+`sha256:c5659b5da728ee29893c07e41bfe109aadda2e311ef82be5471d49844d61de04`.
+The AMD64 evaluation image was published and smoke-tested in the same run.
+PR #587 makes SSE's initial session lookup idle-neutral, matching its existing
+per-event revalidation. This is a published-image fact, not RouterOS deployment
+evidence. The last confirmed canary read-back remains the earlier PR #582 image;
+the latest candidate has not been read back on either RouterOS container.
+Production is not promoted.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
@@ -34,12 +31,14 @@ connected-client acceptance.
 
 The authorized canary-only updater subsequently completed. RouterOS read-back
 at 21:51 EEST showed canary configured with the PR #582 ARM64 tag and Healthy;
-production remained on its prior immutable tag. A fresh PPP Active Connections
-view at 21:57 EEST showed zero sessions despite the operator reporting the
-test client connected. Live-client latency, traffic freshness, and
-session-event gates therefore remain unmeasured. See the
-[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). Production promotion
-was not performed.
+production remained on its prior immutable tag. PPP Active Connections views
+at 21:57 and 22:39 EEST showed zero sessions. A later read-only WinBox view at
+about 23:24 EEST showed one OpenVPN test session and a connected log event.
+This is a point observation only: live-client latency, changing-traffic
+freshness, reconnect/snapshot recovery, and the required timed acceptance window
+remain unmeasured, and the newer PR #587 image has not been read back on the
+router. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+Production promotion was not performed.
 
 ### Historical canary stage and acceptance observations — 2026-10-09
 
