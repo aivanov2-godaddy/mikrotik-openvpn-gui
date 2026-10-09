@@ -128,6 +128,20 @@ async function resultOrError(response) {
   throw error;
 }
 
+async function refreshCertificateMigrationPanel() {
+  const currentPanel = $('.migration-panel');
+  if (!currentPanel) throw new Error('Certificate replacement panel is unavailable.');
+
+  const response = await api('/dashboard', { headers: { Accept: 'text/html' }, cache: 'no-store' });
+  if (!response.ok) throw new Error('Could not refresh certificate replacement status.');
+  const documentText = await response.text();
+  const refreshedDocument = new DOMParser().parseFromString(documentText, 'text/html');
+  const refreshedPanel = $('.migration-panel', refreshedDocument);
+  if (!refreshedPanel) throw new Error('Certificate replacement status was missing from the response.');
+
+  currentPanel.replaceWith(refreshedPanel);
+}
+
 async function downloadResponse(response, fallback) {
   const disposition = response.headers.get('content-disposition') || '';
   const match = disposition.match(/filename="([^"]+)"/);
@@ -1745,7 +1759,7 @@ document.addEventListener('click', async (event) => {
       toast(step === 'tested'
         ? 'Connection test recorded as operator-confirmed.'
         : 'Profile import recorded as operator-confirmed.');
-      setTimeout(() => location.reload(), 450);
+      await refreshCertificateMigrationPanel();
     } catch (error) {
       toast(error.message, 'error');
       button.disabled = false;
