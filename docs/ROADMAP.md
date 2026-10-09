@@ -8,8 +8,11 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-09
 
 Formal release **v2.7.0** remains the latest numbered release. Current `main`
-is commit `23361e18a6c708b76c552783d1e234614df823be` (PR #582). The latest
-published candidate is the same commit, published by workflow
+is commit `27520b9b5032a72462c4b70a0f255ab14b66ea14` (PR #585). The latest
+published runtime candidate remains commit
+`23361e18a6c708b76c552783d1e234614df823be` (PR #582); PR #585 changes browser
+regression coverage and documentation only, so it did not produce a new
+runtime image. The candidate was published by workflow
 [#37970504451](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37970504451).
 ARM64 tag/digest:
 `sha-23361e18a6c708b76c552783d1e234614df823be-arm64` /
@@ -22,6 +25,12 @@ provenance/SBOM verification, runtime smoke tests, and stable-manifest
 publication passed. PR #582 retries transient RouterOS session-list read-back
 before confirming a reviewed session termination. The canary is now read back
 on this immutable candidate and Healthy; production remains on its prior tag.
+
+PR #585 adds synthetic browser coverage that refreshing the certificate
+replacement panel preserves the active live stream and that a later streamed
+session appears without a document reload. This is repository/browser
+simulation evidence only; it does not establish RouterOS certificate or
+connected-client acceptance.
 
 The authorized canary-only updater subsequently completed. RouterOS read-back
 at 21:51 EEST showed canary configured with the PR #582 ARM64 tag and Healthy;
