@@ -1424,3 +1424,11 @@ refreshed, then verifies a later streamed session appears in Connections
 without a document reload. This covers the interaction between #194's
 certificate workflow and the always-live dashboard invariant; it is browser
 simulation evidence only, not RouterOS certificate or client acceptance.
+
+**2026-10-09 SSE idle-session check:** the SSE endpoint's initial session lookup
+now avoids updating the session idle timestamp, matching its later
+non-touching authorization revalidation. A regression verifies an SSE response
+does not itself refresh the timestamp. Other authenticated dashboard requests
+retain their existing activity semantics. This is repository evidence only;
+deployed proxy/session-expiry behavior and the independent security review in
+#200 remain unverified.

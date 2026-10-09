@@ -687,6 +687,35 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(body.count(b"event: status"), 1)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
+    def test_sse_request_does_not_refresh_session_idle_timestamp(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        last_seen = session.last_seen
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+
+        with (
+            mock.patch.object(
+                self.server.context.router,
+                "list_active_ovpn_sessions",
+                return_value=[],
+            ),
+            mock.patch("app.time.sleep", side_effect=RouterOSError("end test stream")),
+        ):
+            connection.request(
+                "GET",
+                "/api/events",
+                headers={"Cookie": self.cookie, "Origin": self.config.public_origin},
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertEqual(body.count(b"event: status"), 1)
+        self.assertEqual(session.last_seen, last_seen)
+
     def test_socketio_stream_stops_after_administrator_revokes_real_session(self) -> None:
         self.login()
         target = self.server.context.sessions.create("admin", "routerpass", role="owner")
