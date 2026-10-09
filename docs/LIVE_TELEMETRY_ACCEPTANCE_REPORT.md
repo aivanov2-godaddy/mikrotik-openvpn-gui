@@ -1,31 +1,33 @@
 # Live telemetry acceptance report
 
-Status: **TELEMETRY BASELINE ACCEPTED — CANARY READINESS SOAK PASSED; FULL ACCEPTANCE PENDING**
+Status: **TELEMETRY BASELINE ACCEPTED — LATEST CANARY FRESHNESS SOAK FAILED; FULL ACCEPTANCE PENDING**
 
 The latest verified published candidate is main commit
-`fc8842703f5338ae1345041d8cabc44bdb860e69`, merged from PR #564. Publisher
-run [37917266068](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37917266068)
+`fadd805e00d7cefd5011074baa672f3cef29aed8`, merged from PR #571. Publisher
+run [37933532635](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37933532635)
 passed release-source and rendered browser/accessibility checks, ARM64/AMD64
 builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
-stable-manifest publication. Immutable image identities:
+stable-manifest publication. PR #571 adds top-level browser recovery when a
+same-origin API request receives an authentication redirect. The immutable
+image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-arm64` | `sha256:a657be86e2cbc078e65f4baa7e3c69a217e3bdce7b4469c50fe0339709559e64` |
-| AMD64 evaluation | `sha-fc8842703f5338ae1345041d8cabc44bdb860e69-amd64` | `sha256:0fdea4d4f749dd4315e9314a9be2a77146d1f54032ce4defd79a45f2a6c5941e` |
+| RouterOS ARM64 | `sha-fadd805e00d7cefd5011074baa672f3cef29aed8-arm64` | `sha256:fcffde054d3eb3e1e8a6be502b62d5d1a24d699426685773315b12c01f2202fd` |
+| AMD64 evaluation | `sha-fadd805e00d7cefd5011074baa672f3cef29aed8-amd64` | `sha256:63c25fc8eb3b122d3e239704d225be410bccb1139fa667b187ba56b665d9616f` |
 
 This is publication evidence; deployment and acceptance are tracked
-separately. On 2026-10-09, the exact ARM64 digest above was explicitly staged
-to the isolated RouterOS canary. A filtered read-back confirmed the configured
-digest and healthy (`H`) container status. The dedicated Access-protected
-canary HTTPS origin served the candidate's RouterOS sign-in page. These checks
-verify exact-image staging, container health, and browser reachability only.
-They do not prove authenticated telemetry, Redis delivery, or acceptance; no
-production image or configuration was changed. The router-local updater
-scheduler remains disabled. Private `/healthz` and `/readyz` probes do not
-require a public hostname. The authenticated telemetry/metrics acceptance
-window requires a dedicated HTTPS origin routed through the approved access
-layer to canary only; production is not a substitute. See
+separately. A read-only RouterOS WebFig check on 2026-10-09 still showed the
+prior PR #564 ARM64 digest configured on canary and the prior production image
+configured on production; both dashboard containers and Redis were healthy.
+The PR #571 ARM64 image above is therefore **published but not deployed**.
+The canary's authenticated Connections view still showed one test session but
+`Connection data delayed`, with displayed counters frozen at approximately
+24m51s. This confirms the previous soak failed its freshness gate; it does not
+identify the failing layer or demonstrate that PR #571 fixes it. No production
+image or configuration was changed. The authenticated telemetry/metrics
+acceptance window requires a dedicated HTTPS origin routed through the
+approved access layer to canary only; production is not a substitute. See
 [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window).
 
 An authenticated canary-browser check on 2026-10-09 showed the Connections

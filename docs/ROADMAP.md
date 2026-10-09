@@ -8,25 +8,29 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-09
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
-verified published candidate is main commit
-`fc8842703f5338ae1345041d8cabc44bdb860e69` (PR #564), published by workflow
-[#37917266068](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37917266068).
+published source/image candidate is main commit
+`fadd805e00d7cefd5011074baa672f3cef29aed8` (PR #571), published by workflow
+[#37933532635](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37933532635).
 ARM64 tag/digest:
-`sha-fc8842703f5338ae1345041d8cabc44bdb860e69-arm64` /
-`sha256:a657be86e2cbc078e65f4baa7e3c69a217e3bdce7b4469c50fe0339709559e64`.
-AMD64 tag/digest:
-`sha-fc8842703f5338ae1345041d8cabc44bdb860e69-amd64` /
-`sha256:0fdea4d4f749dd4315e9314a9be2a77146d1f54032ce4defd79a45f2a6c5941e`.
-Publisher checks, both architecture builds, provenance/SBOM verification, and
-runtime smoke passed. On 2026-10-09, the exact ARM64 digest was staged to the
-isolated RouterOS canary; a filtered read-back confirmed the configured digest
-and healthy (`H`) status. The dedicated Access-protected canary origin served
-the candidate's RouterOS sign-in page. This verifies deployment, container
-health, and browser reachability only—not authenticated live telemetry, Redis
-delivery, or release acceptance. Production remains untouched and promotion
-is gated. The router-local updater scheduler is disabled. The detailed
-redacted evidence and acceptance blockers are in
-[the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+`sha-fadd805e00d7cefd5011074baa672f3cef29aed8-arm64` /
+`sha256:fcffde054d3eb3e1e8a6be502b62d5d1a24d699426685773315b12c01f2202fd`.
+The publisher's source/browser checks, both architecture builds, exact-digest
+provenance/SBOM verification, runtime smoke tests, and stable-manifest
+publication passed. PR #571 adds recovery when a same-origin API request is
+redirected through an authentication gateway: the browser returns to the
+top-level access flow instead of attempting to consume a redirected API body.
+This is a tested candidate behavior, not yet evidence that the deployed
+canary failure is fixed.
+
+A read-only RouterOS WebFig check on 2026-10-09 still showed the prior PR #564
+ARM64 digest configured on canary and the prior production image configured
+on production; both dashboard containers and Redis were healthy. The canary
+Connections view still showed one test session with `Connection data delayed`
+and frozen displayed counters at approximately 24m51s. Thus PR #571's image
+is published but not installed on the router, the prior canary soak failed,
+and a fresh post-update soak is required. Production remains untouched and
+promotion is gated. The detailed redacted evidence and acceptance blockers are
+in [the live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
 On 2026-10-09, a manually reconnected disposable test client reappeared in the
 already-open production dashboard with live traffic/packet graphs and a new
@@ -44,12 +48,14 @@ client disconnect, or production change was made. See the
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md) for scope and
 limitations; a fresh passing canary soak is required after diagnosis.
 
-PR [#550](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/550)
-refreshed that acceptance report; it does not claim the full soak passed. PR
-[#551](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/551)
-recorded a bounded handler authorization review; it is not an external
-penetration test. UX, core workflows, SQLite/Redis resilience, telemetry
-observability, compatibility/provenance, and mutation-safety roadmap issues
+PR [#570](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/570)
+records that the prior canary soak failed its freshness gate; PR
+[#571](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/571)
+adds a browser recovery path for authentication redirects. Neither is a
+passing device-backed soak. PR #551 recorded a bounded handler authorization
+review; it is not an external penetration test. UX, core workflows,
+SQLite/Redis resilience, telemetry observability, compatibility/provenance,
+and mutation-safety roadmap issues
 #188–#193 and #195–#198, #201–#204 are closed. The remaining workstreams are
 #194 device/certificate live acceptance, #199 controlled release acceptance,
 and #200 deployed security/session review. Multi-tenancy remains excluded.
