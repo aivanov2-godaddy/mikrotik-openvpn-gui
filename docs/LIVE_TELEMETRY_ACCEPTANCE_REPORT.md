@@ -28,12 +28,12 @@ copied into this repository. Earlier published-candidate entries below are
 retained as historical records; the current candidate and its exact immutable
 identities are listed above.
 
-A read-only WebFig check on 2026-10-08 showed canary and production both
-configured to the prior PR #539 ARM64 tag
+A read-only WebFig check on 2026-10-08, reconfirmed on 2026-10-09, showed
+canary and production both configured to the prior PR #539 ARM64 tag
 `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, both healthy (`H`),
 with Redis running. RouterOS reports configured tags and health, not an
 independent registry digest; PR #548 was published but not deployed at that
-read-back. The later PR #554 publication is likewise not verified deployed.
+read-back. Later PR #554 and PR #564 publications are likewise not deployed.
 The router-local `vpn-gui-immutable-update` scheduler is disabled, the local
 REST deployment client has no credentials configured, and the existing
 canary's configured origin is a placeholder rather than a verified
