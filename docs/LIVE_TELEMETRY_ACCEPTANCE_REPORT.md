@@ -37,6 +37,29 @@ certificate, or CA was changed. Do not promote until the live-client and
 remaining acceptance gates pass. See
 [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window).
 
+The final read-only RouterOS terminal view at 18:07 local time also showed
+`/ppp active print count-only` returning `0`. This corroborates the absence of
+a connected VPN test client at that observation time; it is not a failed
+router login or an application health failure.
+
+## Acceptance evaluator hardening — PR #575 — 2026-10-09
+
+PR #575 merged as main commit
+`9ccc96ecb9cd5b2e3606f4fe9a922074c8823106`. It changes the offline telemetry
+acceptance evaluator, its tests, and documentation only; it does not change
+the runtime image or collect router observations. The evaluator now requires
+separately timestamped and strictly ordered connect/disconnect records, plus at
+least two timestamped numeric RX/TX observations whose counters differ. Each
+required observation must be marked visible without a page refresh. Missing,
+out-of-window timestamps, a stale overall sample window, non-increasing
+timestamps, a disconnect timestamp preceding the connect timestamp, unchanged
+counters, or refresh-dependent evidence fails closed. Records are evaluated
+chronologically; their file order is normalized, and individual records do not
+have a separate freshness threshold beyond the bounded sample window.
+The full local suite passed (506 passed, 1 skipped), and all hosted PR checks
+passed. These checks validate the evidence gate; they do not convert the
+readiness soak into live telemetry acceptance.
+
 After the retry and app reauthentication, the canary Connections view reported
 `Live · SOCKETIO`, zero active devices, and the test client's ended historical
 row. The original tab recovered to a fresh snapshot without a manual page
