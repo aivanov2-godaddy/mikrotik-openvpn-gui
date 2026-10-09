@@ -209,7 +209,7 @@ class DeploymentPolicyTests(unittest.TestCase):
         containerfile = (Path(__file__).resolve().parents[1] / "Containerfile").read_text(encoding="utf-8")
         self.assertIn("FROM scratch", containerfile)
         for runtime_file in ("etc/hostname", "etc/hosts", "etc/resolv.conf"):
-            self.assertIn(f"--exclude={runtime_file}", containerfile)
+            self.assertIn(f"--exclude=./{runtime_file}", containerfile)
 
     def test_image_bakes_release_identity_and_checks_readiness(self) -> None:
         containerfile = (Path(__file__).resolve().parents[1] / "Containerfile").read_text(encoding="utf-8")
