@@ -28,6 +28,13 @@ window requires a dedicated HTTPS origin routed through the approved access
 layer to canary only; production is not a substitute. See
 [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window).
 
+An authenticated canary-browser check on 2026-10-09 showed the Connections
+view reporting `Live · SOCKETIO`, zero connected devices, and no connection
+history rows. The page states that traffic graphs update automatically; with
+no live session present, this check cannot measure event latency, traffic
+freshness, or connect/disconnect delivery. No VPN client was disconnected or
+reconnected as part of this observation.
+
 This report records the operator's 2026-10-02 acceptance of the Binary API
 telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
