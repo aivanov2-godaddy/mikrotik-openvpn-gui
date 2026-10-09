@@ -61,6 +61,7 @@ Every attestation timestamp below falls inside that same interval.
 
 ```json
 {"type":"sample","observed_at":1728000000,"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
+{"type":"session_transition","observed_at":1728000300,"test_client_connected":true,"connect_visible_without_refresh":true,"disconnect_visible_without_refresh":true,"traffic_changed_without_refresh":true}
 {"type":"reconnect","observed_at":1728000600,"recovery_seconds":4.2,"snapshot_recovered":true,"api_interruption_tested":true,"rest_fallback_available":true}
 {"type":"comparison","observed_at":1728000900,"binary_matches_rest":true}
 {"type":"security","observed_at":1728001200,"unauthenticated_denied":true,"secret_bearing_payload":false,"secret_free_logs":true}
@@ -72,7 +73,7 @@ python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
 ```
 
 Every sample requires `observed_at`, a non-negative Unix timestamp in seconds.
-Reconnect, comparison, security, and verification records also require
+Session-transition, reconnect, comparison, security, and verification records also require
 `observed_at`. Each such attestation must fall within the inclusive interval
 between the first and last valid sample timestamps; missing, stale, or future
 attestations fail closed. This prevents an old reconnect or security check from
@@ -88,7 +89,10 @@ Missing container-health coverage fails with
 `container_health_sample_coverage`.
 
 The command emits only aggregate metrics and failed gate names. It also
-requires at least one reconnect test, one security test, and one explicit
+requires a timestamped session-transition record proving that a disposable
+test client connected and disconnected, both changes appeared without a page
+refresh, and traffic changed without a refresh. It also requires at least one
+reconnect test, one security test, and one explicit
 verification record that itself covers every precision, reset, ordering, parity, and
 secret-scan gate. Each passing window must also contain at least one CPU,
 memory, and storage measurement; missing values fail independently with
