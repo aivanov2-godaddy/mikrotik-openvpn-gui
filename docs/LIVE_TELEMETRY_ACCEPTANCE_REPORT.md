@@ -35,6 +35,31 @@ no live session present, this check cannot measure event latency, traffic
 freshness, or connect/disconnect delivery. No VPN client was disconnected or
 reconnected as part of this observation.
 
+## Canary test-client soak — 2026-10-09 11:57–12:28 UTC
+
+After the operator reconnected the disposable test client, the authenticated
+canary Connections view showed one connected device and a new active history
+row. The test client remained listed for the 30-minute observation window;
+uptime advanced and traffic/packet rates and cumulative totals changed across
+successive observations without a page reload. The same rendered view later
+changed from `Live · SOCKETIO` to `Connection data delayed` at approximately
+24m51s of displayed session uptime. That warning and the displayed zero rates
+and byte deltas persisted through the end of the window; the view's displayed
+uptime/counters stopped advancing during the final checks. No manual refresh,
+container restart, API interruption, or client disconnect was performed.
+
+**Result: live-freshness gate failed.** The delayed-data state persisted for
+multiple minutes, exceeding the two-second traffic-freshness target by a wide
+margin. This browser-only observation does not provide exact sample-age or
+event-latency percentiles, identify whether the stale layer was the stream,
+gateway, or upstream RouterOS poll, or prove Redis delivery, event integrity,
+counter-reset handling, API reconnect/snapshot recovery, REST/Binary parity,
+resource impact, SQLite restore, or rollback. Service Health was not sampled
+as part of this soak, so no health/resource conclusion is claimed. The warning
+was not dismissed by refreshing; production was not touched. Canary
+acceptance remains failed/pending until the data path is diagnosed and a fresh
+complete evidence window passes.
+
 This report records the operator's 2026-10-02 acceptance of the Binary API
 telemetry baseline, plus later deployment observations. The operator's detailed
 acceptance evidence remains private; raw RouterOS data, addresses, account
