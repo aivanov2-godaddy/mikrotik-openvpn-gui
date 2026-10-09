@@ -3,18 +3,32 @@
 Status: **CANARY READINESS STAGED — LIVE-CLIENT FRESHNESS AND FULL ACCEPTANCE PENDING**
 
 The latest published candidate is main commit
-`a398364829f95511bd4c4405d6d7da7b89a577f2`, merged from PR #573. Publisher
-run [37940711384](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37940711384)
+`23361e18a6c708b76c552783d1e234614df823be`, merged from PR #582. Publisher
+run [37970504451](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37970504451)
 passed release-source and rendered browser/accessibility checks, ARM64/AMD64
 builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
-stable-manifest publication. PR #573 increases the bounded RouterOS startup
-readiness window to accommodate image extraction and app boot. The immutable
-image identities are:
+stable-manifest publication. PR #582 retries transient RouterOS session-list
+read-back before confirming a reviewed session termination. These are
+published-image facts, not RouterOS deployment evidence. The immutable image
+identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-a398364829f95511bd4c4405d6d7da7b89a577f2-arm64` | `sha256:94201e421de67f04c4d0693b3a40abd45e2a1d4043ec25ff67af9e5fe0998f84` |
-| AMD64 evaluation | `sha-a398364829f95511bd4c4405d6d7da7b89a577f2-amd64` | `sha256:4b78fb79e398049e922a276a6b87397499e70fd06789e3bf15a423ff15dbe455` |
+| RouterOS ARM64 | `sha-23361e18a6c708b76c552783d1e234614df823be-arm64` | `sha256:6ae48e5200675f979e150a3b59811ed25abab4ee6d0051134571d8ce796a28c5` |
+| AMD64 evaluation | `sha-23361e18a6c708b76c552783d1e234614df823be-amd64` | `sha256:868e91d91df669569845fef7637645a7dea3078d3aa7651dcbb7385d5bc2ccf3` |
+
+## RouterOS canary updater and VPN-session recheck — 2026-10-09 21:33 EEST
+
+The authenticated WinBox session showed the RouterOS immutable canary updater
+job still running after its 21:16 EEST start. The job's script is scoped to
+canary; it had not yet reached a terminal state, and the candidate tag and
+health were not read back after this run. No production promotion is claimed.
+The same read-only PPP Active Connections view showed zero active sessions.
+This conflicts with the operator's report that the test client had reconnected;
+therefore no live connect/disconnect, traffic freshness, or session-event
+acceptance is claimed from this observation. A dashboard or WinBox login is
+not evidence of an OpenVPN tunnel. The published candidate and digest above
+are registry evidence only. Production remains outside this canary run.
 
 The 2026-10-09 first staging attempt used the PR #571 candidate and failed its
 last RouterOS readiness probe (sample 30/30 returned `fetch-error`). The
@@ -248,7 +262,7 @@ pass telemetry freshness, Redis delivery, session-transition, resource soak,
 reconnect, event-integrity, parity, restore,
 or rollback acceptance.
 
-## Latest canary read-back — PR #518 — 2026-10-06 12:47 UTC
+## Historical canary read-back — PR #518 — 2026-10-06 12:47 UTC
 
 The RouterOS updater's pending record showed candidate tag
 `sha-8f6f14d80619bb3ea61cade26a495a570f7b9bfd-arm64`, prior production tag
@@ -351,7 +365,7 @@ configuration change, or container operation was performed. The formal #199
 soak remains pending; neither the older stale tab nor this short live check
 alone establishes overall service availability or acceptance.
 
-## Latest published mainline candidate — PR #516 — 2026-10-06
+## Historical published mainline candidate — PR #516 — 2026-10-06
 
 PR [#516](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/516)
 merged as `2b425d70d93f22da31f84c3458166b41091c262a`. Publication workflow
