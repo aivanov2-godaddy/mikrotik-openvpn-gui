@@ -8,26 +8,28 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-10
 
 Formal release **v2.7.0** remains the latest numbered release. Current `main`
-is commit `f8caab0432a0ac91f578f7a929c75a850f290a35` (PR #587). The latest
-published runtime candidate is the same commit; its publisher workflow
-[#37986262661](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37986262661)
+is commit `a001c9ce3b4b4d9aa88d782a8662660e29f6055a` (PR #592). PRs #591 and
+#592 add regression coverage only; they did not change the published runtime.
+The latest published runtime candidate is PR #589, commit
+`148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0`, ARM64 tag
+`sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-arm64`, digest
+`sha256:ab4e79a4c8e24a195423832da480f3e39d4767dd3b583f48335a43df32477aeb`.
+Publisher run [#37997459148](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37997459148)
 passed source/browser checks, ARM64/AMD64 builds, exact-digest provenance/SBOM
-verification, runtime smoke tests, and stable-manifest publication. ARM64
-tag/digest:
-`sha-f8caab0432a0ac91f578f7a929c75a850f290a35-arm64` /
-`sha256:c5659b5da728ee29893c07e41bfe109aadda2e311ef82be5471d49844d61de04`.
-The AMD64 evaluation image was published and smoke-tested in the same run.
-PR #587 makes SSE's initial session lookup idle-neutral, matching its existing
-per-event revalidation. This is a published-image fact, not RouterOS deployment
-evidence. The canary-only `vpn-gui-immutable-stage-v3` updater has since staged
-this candidate. At 00:11 EEST on 2026-10-10, WinBox read-back showed the canary
-container healthy with OCI revision label
-`f8caab0432a0ac91f578f7a929c75a850f290a35`. The stage-only job later completed;
-at 00:35 EEST, RouterOS logs recorded that the canary readiness soak passed and
-the candidate was staged. At 00:36 EEST, PPP Active Connections still showed
-zero sessions, so live-client acceptance remains pending. Production was not
-touched or promoted. RouterOS exposes the configured image tag/revision and
-health, not an independent cached registry digest.
+verification, runtime smoke tests, and stable-manifest publication. The last
+recorded RouterOS evidence at 01:43 EEST on 2026-10-10 showed the canary at the
+matching revision and its stage-only readiness sampling still in progress; it
+did not establish that the sample window later completed. No production
+promotion is claimed.
+
+At 02:33 EEST, the open production dashboard showed one session row together
+with `Connection data delayed`, while the canary browser tab was at its sign-in
+page and the RouterOS WebFig tab remained at `Connecting`. These are not fresh
+RouterOS/canary observations. Therefore, live-client event latency, traffic
+freshness, reconnect/snapshot recovery, and the current canary revision remain
+unverified; no new deployment or router change was made. RouterOS must expose a
+fresh read-back and an authenticated canary session before those acceptance
+claims can be made.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
@@ -35,8 +37,8 @@ session appears without a document reload. This is repository/browser
 simulation evidence only; it does not establish RouterOS certificate or
 connected-client acceptance.
 
-The earlier PR #582 stage and its session observations below are historical.
-The current PR #587 stage and the latest PPP observation are recorded in the
+The earlier PR #582 and PR #587 stage/session observations below are historical.
+The latest PR #589 stage evidence and live acceptance status are recorded in the
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). Live-client latency,
 changing-traffic freshness, reconnect/snapshot recovery, and the required
 timed acceptance window remain unverified for the current candidate. Production
