@@ -278,6 +278,47 @@ recovery, REST/Binary parity, SQLite restore, rollback, unauthenticated access,
 or secret-free logs. Those remain real-router/operator measurements and must be
 recorded in the input evidence; a successful HTTP probe is not a substitute.
 
+For repeatable RouterOS resource and container measurements, use the separate
+local-only `scripts/collect_routeros_acceptance.py` sampler from a trusted
+workstation that can reach the router's TLS Binary API. It accepts credentials
+only from process environment variables (with a masked password prompt as the
+fallback), uses normal TLS certificate validation, and issues only these
+allowlisted read commands with narrow `.proplist` fields:
+`/system/resource/print`, `/container/print`, and `/ppp/active/print`. Use a
+dedicated RouterOS account with only the `read` and `api` policies. Never enable
+insecure TLS or expose the API port to the Internet. The output contains CPU,
+memory, and storage peaks, aggregate active-session counts, named canary and
+production health, and recognized immutable source revisions; it omits host,
+username, session identities/addresses, IDs, container paths, environment
+lists, mounts, full image strings, and raw RouterOS replies. Keep the report
+private and join its values with the corresponding deployment records locally.
+It is not an end-to-end event-latency or reconnect test, and its sample does
+not replace the app-level collector or the required controlled API interruption
+and rollback exercises.
+
+Example PowerShell setup (enter the password only at the hidden prompt):
+
+```powershell
+$env:ROUTEROS_ACCEPTANCE_HOST = '<router DNS name covered by its API TLS certificate>'
+$env:ROUTEROS_ACCEPTANCE_USERNAME = '<dedicated read-only API user>'
+python scripts/collect_routeros_acceptance.py `
+  --output private-routeros-window.json `
+  --canary-revision <full-canary-commit-sha> `
+  --production-revision <full-production-commit-sha> `
+  --duration-seconds 1800 --interval-seconds 60
+Remove-Item Env:ROUTEROS_ACCEPTANCE_HOST, Env:ROUTEROS_ACCEPTANCE_USERNAME -ErrorAction SilentlyContinue
+```
+
+For a private CA, set `ROUTEROS_ACCEPTANCE_CA_FILE` to its trusted PEM file for
+the process. The collector fails closed on TLS errors, absent containers,
+malformed capacity readings, missing/changed immutable revisions, sample
+failures, incomplete windows, or gaps over two minutes. The source revision is
+reported only when the container image matches this repository's immutable
+ARM64 tag format, and each observation is checked against the expected
+canary/production revision supplied on the command line; the router's locally
+cached image digest remains unverified. It also fails if peak CPU exceeds 80%,
+memory exceeds 90%, or storage exceeds 90%.
+
 ### Evidence-gated RouterOS promotion
 
 The installed RouterOS scheduler must use the reviewed stage-only updater from

@@ -7,9 +7,9 @@ data, deployment runners, or production network details.
 
 ## Current project snapshot — 2026-10-10
 
-Formal release **v2.7.0** remains the latest numbered release. Current `main`
-is commit `a001c9ce3b4b4d9aa88d782a8662660e29f6055a` (PR #592). PRs #591 and
-#592 add regression coverage only; they did not change the published runtime.
+Formal release **v2.7.0** remains the latest numbered release. Later changes
+on `main` update tests, documentation, and acceptance tooling; they have not
+produced a published runtime image newer than the candidate recorded below.
 The latest published runtime candidate is PR #589, commit
 `148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0`, ARM64 tag
 `sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-arm64`, digest
