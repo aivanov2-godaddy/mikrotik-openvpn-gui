@@ -3916,31 +3916,37 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
         active_session_observed = False
-        if step == "tested":
+        active_session_ids: list[str] = []
+        if step in {"imported", "tested"}:
             try:
                 active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
             except RouterOSError:
                 self._json(
-                    {"error": "RouterOS live-session state is unavailable; no migration test was recorded"},
+                    {"error": "RouterOS live-session state is unavailable; no migration progress was recorded"},
                     status=HTTPStatus.BAD_GATEWAY,
                 )
                 return
-            active_session_observed = any(
-                str(item.get("name", "")) == str(migration.get("vpn_user", ""))
+            active_session_ids = [
+                str(item.get(".id", item.get("id", "")))
                 for item in active_sessions
-            )
-            if not active_session_observed:
-                self._json(
-                    {"error": "RouterOS does not currently show an active session for this VPN user; no migration test was recorded"},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
+                if str(item.get("name", "")) == str(migration.get("vpn_user", ""))
+                and str(item.get(".id", item.get("id", "")))
+            ]
+            if step == "tested":
+                active_session_observed = bool(active_session_ids)
+                if not active_session_observed:
+                    self._json(
+                        {"error": "RouterOS does not currently show an identifiable active session for this VPN user; no migration test was recorded"},
+                        status=HTTPStatus.CONFLICT,
+                    )
+                    return
         try:
             updated = self.server.context.store.record_profile_migration_step(
                 legacy_certificate_name=legacy_certificate_name,
                 step=step,
                 actor=session.username,
                 active_session_observed=active_session_observed,
+                active_session_ids=active_session_ids,
             )
         except (KeyError, ValueError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.CONFLICT)

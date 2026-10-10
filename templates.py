@@ -799,7 +799,7 @@ def dashboard_page(
                     migration_detail = (
                         f'<small class="table-secondary">Replacement: {replacement_name}. '
                         f'Import marked by {html.escape(str(migration.get("imported_by") or "operator"))}. '
-                        "Connect with the replacement profile, then confirm while RouterOS shows this VPN user online. The session certificate remains unverified.</small>"
+                        "After marking the import, reconnect with the replacement profile, then confirm while RouterOS shows a new session for this VPN user. Existing sessions do not count; RouterOS still cannot identify the session certificate.</small>"
                     )
                     migration_action = (
                         f'<button type="button" class="table-action" data-migration-step="tested" '
