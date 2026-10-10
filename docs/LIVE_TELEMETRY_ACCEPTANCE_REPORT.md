@@ -1,34 +1,30 @@
 # Live telemetry acceptance report
 
-Status: **PR #589 PUBLISHED; LAST RECORDED CANARY STAGE SOAK WAS IN PROGRESS — CURRENT ROUTER/CANARY STATE AND LIVE-CLIENT ACCEPTANCE UNVERIFIED**
+Status: **PR #596 PUBLISHED AND ATTESTED; CURRENT CANARY DEPLOYMENT AND LIVE-CLIENT ACCEPTANCE UNVERIFIED**
 
-The latest published runtime candidate is PR #589, commit
-`148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0`. Publisher run
-[#37997459148](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37997459148)
-passed release-source and rendered browser/accessibility checks, ARM64/AMD64
-builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
-stable-manifest publication. Later changes on `main` update tests,
-documentation, and acceptance tooling; they have not produced a published
-runtime image newer than this candidate.
-These are published-image facts, not current RouterOS deployment evidence. The
-latest published immutable image identities are:
+The latest published runtime candidate is PR #596, commit
+`62be540ee5c4730b56e74f82e31f5c2467b2ccb7`. Publisher run
+[#38040824536](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38040824536)
+completed successfully, publishing ARM64/AMD64 images, verifying exact-digest
+provenance and SPDX SBOM attestations, and passing runtime smoke tests. These
+are published-image facts, not current RouterOS deployment evidence. The latest
+published immutable image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-arm64` | `sha256:ab4e79a4c8e24a195423832da480f3e39d4767dd3b583f48335a43df32477aeb` |
-| AMD64 evaluation | `sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-amd64` | `sha256:d810d620bec734942712ff1fea6a94c63a9996579b3a9dfe389169c3658dc2c8` |
+| RouterOS ARM64 | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-arm64` | `sha256:d253861cfef8f865fd55730a95c625525602efd6ebfaa4d01aeb43995df47564` |
+| AMD64 evaluation | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-amd64` | `sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861` |
 
-## Latest authenticated observation — 2026-10-10 02:33 EEST
+## Latest authenticated dashboard observation — 2026-10-10 12:53 EEST
 
-This observation does **not** constitute a fresh RouterOS read-back. The
-already-open production Connections dashboard showed one session row but also
-`Connection data delayed`; its row is not accepted as proof of a current live
-tunnel. The canary tab was at its sign-in page, and the already-open RouterOS
-WebFig tab remained at `Connecting`. No authenticated canary session or current
-router state was available in this observation. Consequently, no live-client
-latency/freshness, reconnect, snapshot-recovery, or current canary-revision
-result is claimed. No router settings, certificates, VPN sessions, or deployed
-containers were changed.
+The authenticated **production** dashboard showed `Live · SOCKETIO`,
+operational service health, zero connected VPN users, CPU 45%, memory 35%, and
+storage 25%. The canary browser tab was still at its sign-in page. This is a
+point-in-time dashboard observation, not a RouterOS container read-back or a
+live-client canary test. It establishes neither that PR #596 is deployed nor
+that any latency, freshness, reconnect, snapshot-recovery, Redis-delivery,
+resource-soak, or timed acceptance gate passed. No container, router setting,
+VPN session, certificate, CA, or policy was changed in this observation.
 
 The last recorded RouterOS observation is below. Its readiness sample window
 was still in progress at the recorded time; completion must not be inferred.
