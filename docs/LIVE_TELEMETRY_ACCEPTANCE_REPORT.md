@@ -15,16 +15,16 @@ published immutable image identities are:
 | RouterOS ARM64 | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-arm64` | `sha256:d253861cfef8f865fd55730a95c625525602efd6ebfaa4d01aeb43995df47564` |
 | AMD64 evaluation | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-amd64` | `sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861` |
 
-## Latest authenticated dashboard observation — 2026-10-10 12:53 EEST
+## Latest browser observation — 2026-10-10
 
-The authenticated **production** dashboard showed `Live · SOCKETIO`,
-operational service health, zero connected VPN users, CPU 45%, memory 35%, and
-storage 25%. The canary browser tab was still at its sign-in page. This is a
-point-in-time dashboard observation, not a RouterOS container read-back or a
-live-client canary test. It establishes neither that PR #596 is deployed nor
-that any latency, freshness, reconnect, snapshot-recovery, Redis-delivery,
-resource-soak, or timed acceptance gate passed. No container, router setting,
-VPN session, certificate, CA, or policy was changed in this observation.
+The authenticated browser check was against **production**, not the canary, so
+it is not a RouterOS container read-back or a live-client canary test. It does
+not establish that PR #596 is deployed or that any latency, freshness,
+reconnect, snapshot-recovery, Redis-delivery, resource-soak, or timed
+acceptance gate passed. Deployment-specific runtime metrics and router state
+are intentionally omitted from this public report; retain them only in the
+private operator acceptance record. No router or deployment change was made
+based on that dashboard login.
 
 The last recorded RouterOS observation is below. Its readiness sample window
 was still in progress at the recorded time; completion must not be inferred.
