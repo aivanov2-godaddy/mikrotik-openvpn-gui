@@ -7,8 +7,9 @@ The latest published runtime candidate is PR #589, commit
 [#37997459148](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37997459148)
 passed release-source and rendered browser/accessibility checks, ARM64/AMD64
 builds, exact-digest provenance/SBOM verification, runtime smoke tests, and
-stable-manifest publication. Current `main` is newer at `a001c9c` because PRs
-#591 and #592 added test-only changes; neither produced a new runtime image.
+stable-manifest publication. Later changes on `main` update tests,
+documentation, and acceptance tooling; they have not produced a published
+runtime image newer than this candidate.
 These are published-image facts, not current RouterOS deployment evidence. The
 latest published immutable image identities are:
 
