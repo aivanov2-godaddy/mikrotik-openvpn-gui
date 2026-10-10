@@ -17,14 +17,21 @@ current product does not satisfy the requirement; `N/A` is a documented
 product-scope exclusion; and `EXTERNAL` requires evidence from the deployed
 proxy, RouterOS, or host. External and partial results are not passes.
 
+The rationale for the configured idle and absolute session limits is recorded
+in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md). The V7.1.1
+summary below predates that rationale; its statement that no rationale is
+recorded is superseded. V7.1.1 remains partial pending independent validation.
+V7.3.1�V7.3.2 remain partial because deployed Cloudflare Access coordination
+and production timing are external acceptance items.
+
 | ASVS 5.0.0 control | Status | Scoped finding and evidence |
 | --- | --- | --- |
-| V7.1.1 | PARTIAL | Idle and absolute lifetimes are documented and tested, but the risk-based rationale for the selected values is not recorded. See V7.3.1–V7.3.2 below. |
+| V7.1.1 | PARTIAL | The 30-minute idle and 8-hour absolute defaults have a documented risk rationale and deterministic expiry tests. Independent validation remains outstanding. |
 | V7.1.2 | TESTED | At most eight active dashboard sessions are allowed per RouterOS account in this single-process deployment. A valid login above the limit is denied with HTTP 429 and recovery guidance; existing sessions are never evicted. Expired sessions are purged before admission. |
 | V7.1.3 | EXTERNAL | Cloudflare Access is an independent edge-authentication layer; its session lifetime/termination relationship to the app session has not been verified from deployment configuration. |
 | V7.2.1–V7.2.3 | TESTED | Backend reference-session validation and CSPRNG token generation are covered by `test_session_tokens_are_fresh_csprng_reference_values` and login-boundary tests. |
 | V7.2.4 | PARTIAL | Each successful login creates a new server-side reference session. There is no app-session re-authentication flow that rotates the session token and terminates the prior session; the operation-specific password step-up in PR #548 does not re-authenticate or rotate the app session. |
-| V7.3.1–V7.3.2 | PARTIAL | 30-minute idle and 8-hour absolute defaults and in-process expiry/live-delivery behavior are tested. Risk justification and production/proxy timing remain unverified. |
+| V7.3.1–V7.3.2 | PARTIAL | The 30-minute idle and 8-hour absolute defaults, documented rationale, and in-process expiry/live-delivery behavior are tested. Production/proxy timing and Cloudflare Access coordination remain unverified. |
 | V7.4.1 | TESTED | Logout, expiry, and server-side revocation stop subsequent session use and live delivery in deterministic tests. The real Socket.IO polling regressions queue a synthetic event before each transition, then verify it is withheld and the subscription is cleaned up. This remains repository evidence, not a deployed-router timing result. |
 | V7.4.2 | TESTED | Disabled/missing RouterOS account regressions revoke the corresponding existing dashboard session. |
 | V7.4.3 | N/A | The dashboard does not change authentication factors for its operator accounts; RouterOS credential/factor lifecycle is outside this app session-management scope. |
