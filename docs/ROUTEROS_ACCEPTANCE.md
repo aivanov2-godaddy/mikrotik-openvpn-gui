@@ -319,6 +319,12 @@ canary/production revision supplied on the command line; the router's locally
 cached image digest remains unverified. It also fails if peak CPU exceeds 80%,
 memory exceeds 90%, or storage exceeds 90%.
 
+Each completed report is atomically replaced. If setup or collection fails, the
+requested output is replaced with a sanitized `collected: false`,
+`passed: false` failure report and the command exits nonzero. This prevents a
+prior successful report at the same path from being mistaken for the latest
+run.
+
 ### Evidence-gated RouterOS promotion
 
 The installed RouterOS scheduler must use the reviewed stage-only updater from

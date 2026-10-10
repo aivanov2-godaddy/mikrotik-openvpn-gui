@@ -49,30 +49,34 @@ historical/rollback reference. v2.7.0 remains the latest numbered release.
 
 ## Published images
 
-### Latest published mainline candidate — PR #582 — 2026-10-09
+### Latest published mainline candidate — PR #589 — 2026-10-10
 
-PR [#582](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/582)
+PR [#589](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/589)
 merged to main as
-`23361e18a6c708b76c552783d1e234614df823be`. Publication workflow
-[#37970504451](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37970504451)
+`148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0`. Publisher run
+[#37997459148](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37997459148)
 passed source and rendered-browser checks, ARM64/AMD64 publication,
-exact-digest provenance/SBOM verification, and published-runtime smoke tests.
+exact-digest provenance and SPDX SBOM attestation generation and verification,
+and published-runtime smoke tests.
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-23361e18a6c708b76c552783d1e234614df823be-arm64` | `sha256:6ae48e5200675f979e150a3b59811ed25abab4ee6d0051134571d8ce796a28c5` |
-| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-23361e18a6c708b76c552783d1e234614df823be-amd64` | `sha256:868e91d91df669569845fef7637645a7dea3078d3aa7651dcbb7385d5bc2ccf3` |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-arm64` | `sha256:ab4e79a4c8e24a195423832da480f3e39d4767dd3b583f48335a43df32477aeb` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-amd64` | `sha256:d810d620bec734942712ff1fea6a94c63a9996579b3a9dfe389169c3658dc2c8` |
 
-The candidate is published and verified in CI, and the canary-only updater
-completed. RouterOS read-back at 21:51 EEST on 2026-10-09 showed the canary
-configured with the exact immutable ARM64 tag above and marked Healthy. The
-production container remains on
-`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; it was not changed. A
-21:57 EEST PPP Active Connections observation showed zero VPN sessions, so no
-live-client telemetry acceptance is claimed. RouterOS exposes the configured
-tag, not an independent cached-image digest. Sustained acceptance and
-candidate-specific rollback remain pending. No new numbered release was
-created; v2.7.0 remains the latest formal version.
+The exact image digests above were each verified against the repository's
+`container.yml` signer workflow, source commit, and both provenance and SPDX
+predicates. The last recorded RouterOS canary read-back (around 01:37 EEST on
+2026-10-10) showed the canary healthy at the matching configured revision; its
+one-minute readiness sample window was still in progress at 01:43 EEST, so
+completion is not established. The canary had zero active VPN sessions at the
+last recorded RouterOS check. A browser inspection at 03:15 EEST on 2026-10-10
+found the canary at its sign-in screen and WebFig still connecting; an
+authenticated production view showed `Connection data delayed`. These are not
+passing canary telemetry evidence. Production promotion, sustained live acceptance, and
+candidate-specific rollback remain pending. RouterOS exposes the configured
+tag/revision, not an independent digest of its cached image. No new numbered
+release was created; v2.7.0 remains the latest formal version.
 
 ### Historical published mainline candidate — PR #504 — 2026-10-06
 

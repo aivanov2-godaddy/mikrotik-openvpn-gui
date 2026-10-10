@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import io
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
 import unittest
-from unittest.mock import Mock
+from contextlib import redirect_stdout
+from unittest.mock import Mock, patch
 
 from routeros_binary import RouterOSReply
 from scripts.collect_routeros_acceptance import (
     CONTAINER_NAMES,
     _snapshot,
     collect,
+    main,
 )
 
 
@@ -93,6 +101,46 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             _snapshot(connection)
+
+    def test_cli_failure_replaces_stale_pass_report_with_redacted_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "acceptance.json"
+            output.write_text('{"passed": true, "failed_gates": []}\n', encoding="utf-8")
+            argv = [
+                "collect_routeros_acceptance.py",
+                "--output",
+                str(output),
+                "--canary-revision",
+                "a" * 40,
+                "--production-revision",
+                "b" * 40,
+            ]
+            environment = {
+                "ROUTEROS_ACCEPTANCE_HOST": "router-secret.invalid",
+                "ROUTEROS_ACCEPTANCE_USERNAME": "acceptance-reader",
+                "ROUTEROS_ACCEPTANCE_PASSWORD": "password-must-not-leak",
+            }
+            stdout = io.StringIO()
+            with (
+                patch.object(sys, "argv", argv),
+                patch.dict(os.environ, environment, clear=True),
+                patch("scripts.collect_routeros_acceptance.RouterOSBinaryConnection", side_effect=OSError("router-secret.invalid password-must-not-leak")),
+                redirect_stdout(stdout),
+            ):
+                exit_code = main()
+
+            report_text = output.read_text(encoding="utf-8")
+            report = json.loads(report_text)
+            self.assertEqual(exit_code, 2)
+            self.assertFalse(report["collected"])
+            self.assertFalse(report["passed"])
+            self.assertEqual(report["failed_gates"], ["collection_failed"])
+            self.assertEqual(report["error"], "OSError")
+            self.assertFalse(report["credentials_or_raw_router_data_written"])
+            self.assertNotIn("router-secret.invalid", report_text)
+            self.assertNotIn("password-must-not-leak", report_text)
+            self.assertNotIn("router-secret.invalid", stdout.getvalue())
+            self.assertNotIn("password-must-not-leak", stdout.getvalue())
 
 
 if __name__ == "__main__":
