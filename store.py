@@ -165,6 +165,7 @@ class MetadataStore:
                     tested_at INTEGER,
                     tested_by TEXT NOT NULL DEFAULT '',
                     tested_with_active_session INTEGER NOT NULL DEFAULT 0,
+                    imported_session_ids TEXT NOT NULL DEFAULT '[]',
                     retirement_state TEXT NOT NULL DEFAULT '',
                     reconnect_tested_at INTEGER,
                     reconnect_tested_by TEXT NOT NULL DEFAULT '',
@@ -267,6 +268,7 @@ class MetadataStore:
                 "tested_at": "INTEGER",
                 "tested_by": "TEXT NOT NULL DEFAULT ''",
                 "tested_with_active_session": "INTEGER NOT NULL DEFAULT 0",
+                "imported_session_ids": "TEXT NOT NULL DEFAULT '[]'",
                 "retirement_state": "TEXT NOT NULL DEFAULT ''",
                 "reconnect_tested_at": "INTEGER",
                 "reconnect_tested_by": "TEXT NOT NULL DEFAULT ''",
@@ -1088,6 +1090,7 @@ class MetadataStore:
                     tested_at=NULL,
                     tested_by='',
                     tested_with_active_session=0,
+                    imported_session_ids='[]',
                     retirement_state='',
                     reconnect_tested_at=NULL,
                     reconnect_tested_by='',
@@ -1109,6 +1112,7 @@ class MetadataStore:
     def record_profile_migration_step(
         self, *, legacy_certificate_name: str, step: str, actor: str,
         active_session_observed: bool = False,
+        active_session_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Record an operator-attested migration step, never a RouterOS claim."""
         now = int(time.time())
@@ -1116,6 +1120,7 @@ class MetadataStore:
             raise ValueError("Unsupported profile migration step")
         if step == "tested" and active_session_observed is not True:
             raise ValueError("Observe an active VPN-user session before recording the replacement test")
+        session_ids = sorted({str(item)[:128] for item in (active_session_ids or []) if str(item)})
         with self._lock, self._connection() as connection:
             row = connection.execute(
                 "SELECT * FROM profile_migrations WHERE legacy_certificate_name=?",
@@ -1127,10 +1132,13 @@ class MetadataStore:
                 raise ValueError("Confirm the replacement import before recording its test")
             if step == "imported":
                 connection.execute(
-                    "UPDATE profile_migrations SET imported_at=COALESCE(imported_at, ?), imported_by=CASE WHEN imported_at IS NULL THEN ? ELSE imported_by END WHERE legacy_certificate_name=?",
-                    (now, str(actor)[:128], legacy_certificate_name),
+                    "UPDATE profile_migrations SET imported_at=COALESCE(imported_at, ?), imported_by=CASE WHEN imported_at IS NULL THEN ? ELSE imported_by END, imported_session_ids=CASE WHEN imported_at IS NULL THEN ? ELSE imported_session_ids END WHERE legacy_certificate_name=?",
+                    (now, str(actor)[:128], json.dumps(session_ids, separators=(",", ":")), legacy_certificate_name),
                 )
             else:
+                imported_session_ids = set(json.loads(row["imported_session_ids"] or "[]"))
+                if not any(item not in imported_session_ids for item in session_ids):
+                    raise ValueError("Reconnect after confirming the replacement import; an existing session cannot satisfy the replacement test")
                 connection.execute(
                     "UPDATE profile_migrations SET tested_at=?, tested_by=?, tested_with_active_session=1 WHERE legacy_certificate_name=?",
                     (now, str(actor)[:128], legacy_certificate_name),

@@ -1043,6 +1043,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             step="tested",
             actor="operator",
             active_session_observed=True,
+            active_session_ids=["*TEST-SESSION"],
         )
         return f"/api/profile-migrations/{legacy_name}/revoke", legacy_name
 
@@ -3991,6 +3992,59 @@ class DashboardIntegrationTests(unittest.TestCase):
             store.profile_migrations()["legacy-user-one-phone"]["tested_at"]
         )
 
+    def test_profile_migration_test_requires_session_new_since_import_checkpoint(self) -> None:
+        self.mock.state.certificates["*OLD"] = {
+            ".id": "*OLD", "name": "legacy-user-one-phone", "common-name": "user-one-phone",
+            "fingerprint": "OLD:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+            "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+            "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+        }
+        self.mock.state.certificates["*REPLACEMENT"] = {
+            ".id": "*REPLACEMENT", "name": "user-one-phone-current",
+            "common-name": "user-one-phone-current", "fingerprint": "NEW:FAKE",
+            "issuer": "vpn-ca", "ca": "vpn-ca", "trusted": "yes", "revoked": "no",
+            "key-usage": "tls-client", "invalid-after": "2030-08-03 00:00:00",
+            "expires-after": "208w",
+        }
+        self.mock.state.active_sessions["*A1"] = {
+            ".id": "*A1", "name": "user-one", "service": "ovpn",
+            "caller-id": "198.51.100.41", "address": "198.18.0.49",
+            "uptime": "20m", "encoding": "AES-256-GCM/[user-one-digest]",
+        }
+        store = self.server.context.store
+        store.record_profile_migration(
+            legacy_certificate_name="legacy-user-one-phone", vpn_user="user-one",
+            replacement_certificate_name="user-one-phone-current",
+        )
+        self.login()
+
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/imported", {},
+        )
+        self.assertEqual(status, 200)
+        migration = store.profile_migrations()["legacy-user-one-phone"]
+        self.assertEqual(json.loads(migration["imported_session_ids"]), ["*A1"])
+
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("Reconnect after confirming", json.loads(payload)["error"])
+        self.assertIsNone(store.profile_migrations()["legacy-user-one-phone"]["tested_at"])
+
+        self.mock.state.active_sessions.pop("*A1")
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2", "name": "user-one", "service": "ovpn",
+            "caller-id": "198.51.100.41", "address": "198.18.0.49",
+            "uptime": "1m", "encoding": "AES-256-GCM/[user-one-digest]",
+        }
+        status, _, payload = self.json_request(
+            "POST", "/api/profile-migrations/legacy-user-one-phone/steps/tested", {},
+        )
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertTrue(json.loads(payload)["active_user_session_observed"])
+        self.assertFalse(json.loads(payload)["certificate_attribution_verified"])
+
     def test_reissuing_a_replacement_clears_prior_live_test_attestation(self) -> None:
         store = self.server.context.store
         store.record_profile_migration(
@@ -4002,7 +4056,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         store.record_profile_migration_step(
             legacy_certificate_name="legacy-user-one-phone", step="tested", actor="operator",
-            active_session_observed=True,
+            active_session_observed=True, active_session_ids=["*TEST-SESSION"],
         )
         store.record_profile_migration_retirement(
             legacy_certificate_name="legacy-user-one-phone", state="verified",
@@ -4675,7 +4729,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         store.record_profile_migration_step(
             legacy_certificate_name=old_certificate_name, step="tested", actor="operator",
-            active_session_observed=True,
+            active_session_observed=True, active_session_ids=["*TEST-SESSION"],
         )
 
         status, _, payload = self.json_request(
@@ -4711,7 +4765,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         store.record_profile_migration_step(
             legacy_certificate_name=old_certificate_name, step="tested", actor="operator",
-            active_session_observed=True,
+            active_session_observed=True, active_session_ids=["*TEST-SESSION"],
         )
         request = {
             "confirmation": "Managed test phone",
