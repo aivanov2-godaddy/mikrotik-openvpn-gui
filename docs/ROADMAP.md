@@ -19,15 +19,12 @@ exact-digest provenance and SPDX SBOM attestations:
 | RouterOS ARM64 | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-arm64` | `sha256:d253861cfef8f865fd55730a95c625525602efd6ebfaa4d01aeb43995df47564` |
 | AMD64 evaluation | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-amd64` | `sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861` |
 
-At 12:53 EEST on 2026-10-10, the authenticated **production** dashboard showed
-`Live · SOCKETIO`, operational service health, zero connected VPN users, CPU
-45%, memory 35%, and storage 25%. This is a point-in-time production dashboard
-observation, not a live-client or canary acceptance run. The canary tab was
-still at its sign-in page. No fresh RouterOS container read-back was captured;
-therefore deployment of the PR #596 image, canary readiness, production
-promotion, live-client latency/freshness, and reconnect/snapshot recovery are
-not claimed. No router change or deployment was made based on this dashboard
-login.
+The latest browser verification was authenticated to **production**, not the
+canary, and therefore does not constitute live-client or canary acceptance.
+No fresh RouterOS container read-back was captured; deployment of the PR #596
+image, canary readiness, production promotion, live-client latency/freshness,
+and reconnect/snapshot recovery are not claimed. Deployment-specific runtime
+metrics and router observations are kept out of this public roadmap.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
@@ -1460,7 +1457,7 @@ completed successfully. ARM64 digest:
 AMD64 digest:
 `sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861`.
 Both exact-image provenance and SPDX SBOM attestations were verified, and
-runtime smoke tests passed. This is registry/CI evidence only. At 12:53 EEST,
-the production dashboard was live and operational but showed zero connected
-VPN users; the canary browser remained at sign-in. No RouterOS image read-back,
-canary acceptance, or production promotion was performed in this observation.
+runtime smoke tests passed. This is registry/CI evidence only. A later
+authenticated browser check was against production, not canary; it did not
+establish a RouterOS image read-back, canary acceptance, or production
+promotion. No deployment-specific router state is recorded here.
