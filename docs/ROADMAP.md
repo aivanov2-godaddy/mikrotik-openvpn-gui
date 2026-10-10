@@ -694,13 +694,17 @@ The next roadmap is tracked as [epic #205](https://github.com/aivanov2-godaddy/m
 - [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202) Standardize preview, apply, verify, and recovery for mutations.
 - [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) Publish verifiable SBOM/provenance and a tested RouterOS compatibility policy.
 
-### Execution status — 2026-10-05
+### Execution status — 2026-10-10
 
 This table retains the delivery evidence for roadmap issues #188–#204, including
-issues already closed for their repository implementation. Issues #192, #194,
-#199, and #200 remain open as standalone issues; the epic #205 tracks
+issues already closed for their repository implementation. GitHub currently
+lists #194, #199, and #200 as open standalone issues; epic #205 tracks the
 cross-cutting acceptance still requiring human, physical-router, or external
-review evidence.
+review evidence. Issue #192 was closed on 2026-10-06 after its repository and
+browser-regression work merged, but the five-task operator study and
+assistive-technology review remain follow-up gaps. Its closed state is not a
+claim that those human evaluations were completed or that the application
+conforms to WCAG.
 The entries below are not claims that every listed issue remains open or that
 point-in-time/device-independent checks complete live acceptance:
 
