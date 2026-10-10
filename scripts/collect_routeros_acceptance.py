@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 import time
 from typing import Any, Callable, Iterable, Mapping
 
@@ -296,13 +297,49 @@ def main() -> int:
             duration_seconds=args.duration_seconds,
             interval_seconds=args.interval_seconds,
         )
-        Path(args.output).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_report(Path(args.output), report)
         print(json.dumps({key: value for key, value in report.items() if key not in {"containers"}}, sort_keys=True))
         return 0 if report["passed"] else 1
     except (OSError, ValueError, RouterOSBinaryError) as error:
         # Exception text can contain private endpoints or RouterOS response data.
-        print(json.dumps({"collected": False, "error": type(error).__name__}, sort_keys=True))
+        failure_report = {
+            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "collected": False,
+            "collected_at": _utc_now().isoformat(),
+            "passed": False,
+            "failed_gates": ["collection_failed"],
+            "error": type(error).__name__,
+            "credentials_or_raw_router_data_written": False,
+        }
+        try:
+            _write_report(Path(args.output), failure_report)
+        except OSError:
+            # Preserve the failure exit even when the requested output is unwritable.
+            pass
+        print(json.dumps({key: value for key, value in failure_report.items() if key != "collected_at"}, sort_keys=True))
         return 2
+
+
+def _write_report(path: Path, report: Mapping[str, Any]) -> None:
+    """Atomically replace a report so readers never observe partial JSON."""
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
