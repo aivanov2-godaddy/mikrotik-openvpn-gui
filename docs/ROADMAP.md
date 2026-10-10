@@ -7,29 +7,27 @@ data, deployment runners, or production network details.
 
 ## Current project snapshot — 2026-10-10
 
-Formal release **v2.7.0** remains the latest numbered release. Later changes
-on `main` update tests, documentation, and acceptance tooling; they have not
-produced a published runtime image newer than the candidate recorded below.
-The latest published runtime candidate is PR #589, commit
-`148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0`, ARM64 tag
-`sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-arm64`, digest
-`sha256:ab4e79a4c8e24a195423832da480f3e39d4767dd3b583f48335a43df32477aeb`.
-Publisher run [#37997459148](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37997459148)
-passed source/browser checks, ARM64/AMD64 builds, exact-digest provenance/SBOM
-verification, runtime smoke tests, and stable-manifest publication. The last
-recorded RouterOS evidence at 01:43 EEST on 2026-10-10 showed the canary at the
-matching revision and its stage-only readiness sampling still in progress; it
-did not establish that the sample window later completed. No production
-promotion is claimed.
+Formal release **v2.7.0** remains the latest numbered release. The latest
+published runtime candidate is PR #596, commit
+`62be540ee5c4730b56e74f82e31f5c2467b2ccb7`. Publisher run
+[#38040824536](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38040824536)
+completed successfully, publishing ARM64 and AMD64 images and verifying their
+exact-digest provenance and SPDX SBOM attestations:
 
-At 02:33 EEST, the open production dashboard showed one session row together
-with `Connection data delayed`, while the canary browser tab was at its sign-in
-page and the RouterOS WebFig tab remained at `Connecting`. These are not fresh
-RouterOS/canary observations. Therefore, live-client event latency, traffic
-freshness, reconnect/snapshot recovery, and the current canary revision remain
-unverified; no new deployment or router change was made. RouterOS must expose a
-fresh read-back and an authenticated canary session before those acceptance
-claims can be made.
+| Platform | Immutable tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-arm64` | `sha256:d253861cfef8f865fd55730a95c625525602efd6ebfaa4d01aeb43995df47564` |
+| AMD64 evaluation | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-amd64` | `sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861` |
+
+At 12:53 EEST on 2026-10-10, the authenticated **production** dashboard showed
+`Live · SOCKETIO`, operational service health, zero connected VPN users, CPU
+45%, memory 35%, and storage 25%. This is a point-in-time production dashboard
+observation, not a live-client or canary acceptance run. The canary tab was
+still at its sign-in page. No fresh RouterOS container read-back was captured;
+therefore deployment of the PR #596 image, canary readiness, production
+promotion, live-client latency/freshness, and reconnect/snapshot recovery are
+not claimed. No router change or deployment was made based on this dashboard
+login.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
@@ -37,12 +35,12 @@ session appears without a document reload. This is repository/browser
 simulation evidence only; it does not establish RouterOS certificate or
 connected-client acceptance.
 
-The earlier PR #582 and PR #587 stage/session observations below are historical.
-The latest PR #589 stage evidence and live acceptance status are recorded in the
-[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). Live-client latency,
-changing-traffic freshness, reconnect/snapshot recovery, and the required
-timed acceptance window remain unverified for the current candidate. Production
-promotion was not performed.
+Earlier PR #582, #587, and #589 stage/session observations below are historical.
+The latest PR #596 published-image evidence and current live acceptance status
+are recorded in the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+Live-client latency, changing-traffic freshness, reconnect/snapshot recovery,
+and the required timed acceptance window remain unverified for the current
+candidate. Production promotion was not performed.
 
 ### Historical canary stage and acceptance observations — 2026-10-09
 
@@ -1454,3 +1452,15 @@ production promotion is claimed. Live-client telemetry, reconnect/snapshot,
 Redis delivery, resource, event-integrity, and rollback/restore acceptance in
 #199 remain open; device lifecycle acceptance in #194 and deployed security
 review in #200 also remain open. See [installation evidence](INSTALLATION.md).
+
+**2026-10-10 PR #596 publication:** PR #596 merged as
+`62be540ee5c4730b56e74f82e31f5c2467b2ccb7`; publisher run #38040824536
+completed successfully. ARM64 digest:
+`sha256:d253861cfef8f865fd55730a95c625525602efd6ebfaa4d01aeb43995df47564`;
+AMD64 digest:
+`sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861`.
+Both exact-image provenance and SPDX SBOM attestations were verified, and
+runtime smoke tests passed. This is registry/CI evidence only. At 12:53 EEST,
+the production dashboard was live and operational but showed zero connected
+VPN users; the canary browser remained at sign-in. No RouterOS image read-back,
+canary acceptance, or production promotion was performed in this observation.
