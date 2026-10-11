@@ -80,10 +80,12 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_routeros_resource_evidence_is_preserved_only_when_it_matches_the_soak(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["collection"]["routeros_resource_evidence"] = {
-            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "format": "vpn-dashboard-routeros-acceptance-v2",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
+            "rest_parity_successful_sample_count": 31,
+            "rest_parity_failed_sample_count": 0,
             "max_sample_gap_seconds": 60,
             "resource_peaks": {
                 "router_cpu_peak_percent": 25,
@@ -97,9 +99,30 @@ class ReleaseAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(report["routeros_resource_evidence"]["sample_count"], 31)
+        self.assertEqual(report["routeros_resource_evidence"]["rest_parity_successful_sample_count"], 31)
         self.assertEqual(report["routeros_resource_evidence"]["resource_peaks"]["router_cpu_peak_percent"], 25)
 
         evidence["collection"]["routeros_resource_evidence"]["observation_ended_at"] = "2026-10-02T10:31:11Z"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("routeros_resource_evidence_invalid", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["routeros_resource_evidence"] = {
+            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "observation_started_at": "2026-10-02T10:00:10Z",
+            "observation_ended_at": "2026-10-02T10:30:10Z",
+            "sample_count": 31,
+            "rest_parity_successful_sample_count": 30,
+            "rest_parity_failed_sample_count": 1,
+            "max_sample_gap_seconds": 60,
+            "resource_peaks": {
+                "router_cpu_peak_percent": 25,
+                "router_memory_peak_percent": 40,
+                "router_storage_peak_percent": 20,
+            },
+            "container_revisions_matched": True,
+        }
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("routeros_resource_evidence_invalid", report["failed_gates"])

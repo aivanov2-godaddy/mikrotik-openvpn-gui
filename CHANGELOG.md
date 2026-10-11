@@ -8,6 +8,8 @@ semantic-version style release tags.
 
 ### Added
 
+- Require a privacy-safe, TLS-verified RouterOS REST/Binary snapshot parity
+  check in formal hardware acceptance; mismatches and REST failures fail closed.
 - Join the private read-only RouterOS resource/container soak report to the app
   release-acceptance collection, failing closed on mismatched windows, health,
   or immutable revisions.

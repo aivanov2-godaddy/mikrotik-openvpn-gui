@@ -94,7 +94,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "format": "vpn-dashboard-routeros-acceptance-v2",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -104,6 +104,9 @@ class ReleaseCollectionTests(unittest.TestCase):
             "sample_count": 31,
             "successful_sample_count": 31,
             "failed_sample_count": 0,
+            "rest_parity_successful_sample_count": 31,
+            "rest_parity_failed_sample_count": 0,
+            "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
             "max_sample_gap_seconds": 60,
             "router_cpu_peak_percent": 24,
             "router_memory_peak_percent": 35,
@@ -139,7 +142,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "format": "vpn-dashboard-routeros-acceptance-v2",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -149,6 +152,9 @@ class ReleaseCollectionTests(unittest.TestCase):
             "sample_count": 30,
             "successful_sample_count": 30,
             "failed_sample_count": 0,
+            "rest_parity_successful_sample_count": 30,
+            "rest_parity_failed_sample_count": 0,
+            "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
             "max_sample_gap_seconds": 60,
             "router_cpu_peak_percent": 24,
             "router_memory_peak_percent": 35,
@@ -163,8 +169,18 @@ class ReleaseCollectionTests(unittest.TestCase):
         }
         mismatch = deepcopy(routeros_report)
         mismatch["containers"]["canary"]["observed_source_revisions"] = ["c" * 40]
+        parity_gap = deepcopy(routeros_report)
+        parity_gap["rest_parity_successful_sample_count"] -= 1
+        parity_failure = deepcopy(routeros_report)
+        parity_failure["rest_parity_failed_sample_count"] = 1
 
-        for report in (mismatch, {**routeros_report, "observation_started_at": "2026-10-01T00:02:00Z"}):
+        for report in (
+            mismatch,
+            {**routeros_report, "observation_started_at": "2026-10-01T00:02:00Z"},
+            parity_gap,
+            parity_failure,
+            {key: value for key, value in routeros_report.items() if key != "read_only_rest_paths"},
+        ):
             with self.subTest(report=report["observation_started_at"]):
                 with self.assertRaises(ValueError):
                     attach_routeros_resource_evidence(deepcopy(app_evidence), report)

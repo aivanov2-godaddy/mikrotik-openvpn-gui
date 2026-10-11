@@ -172,7 +172,7 @@ def _evidence_timestamp(value: Any, name: str) -> datetime:
 
 def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -> None:
     """Join a redacted RouterOS sample window to matching app-soak evidence."""
-    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v1":
+    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v2":
         raise ValueError("RouterOS evidence format is invalid")
     if routeros.get("passed") is not True or routeros.get("failed_gates") != []:
         raise ValueError("RouterOS evidence did not pass its acceptance gates")
@@ -182,10 +182,15 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
     sample_count = routeros.get("sample_count")
     successful_count = routeros.get("successful_sample_count")
     failed_count = routeros.get("failed_sample_count")
+    rest_successful_count = routeros.get("rest_parity_successful_sample_count")
+    rest_failed_count = routeros.get("rest_parity_failed_sample_count")
     if (
         isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count < 30
         or isinstance(successful_count, bool) or successful_count != sample_count
         or isinstance(failed_count, bool) or failed_count != 0
+        or isinstance(rest_successful_count, bool) or rest_successful_count != sample_count
+        or isinstance(rest_failed_count, bool) or rest_failed_count != 0
+        or routeros.get("read_only_rest_paths") != ["/rest/system/resource", "/rest/container", "/rest/ppp/active"]
     ):
         raise ValueError("RouterOS evidence sample coverage is incomplete")
     max_gap = routeros.get("max_sample_gap_seconds")
@@ -244,10 +249,12 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
         record.update(resources)
 
     collection["routeros_resource_evidence"] = {
-        "format": "vpn-dashboard-routeros-acceptance-v1",
+        "format": "vpn-dashboard-routeros-acceptance-v2",
         "observation_started_at": router_started.isoformat(),
         "observation_ended_at": router_ended.isoformat(),
         "sample_count": sample_count,
+        "rest_parity_successful_sample_count": rest_successful_count,
+        "rest_parity_failed_sample_count": rest_failed_count,
         "max_sample_gap_seconds": float(max_gap),
         "resource_peaks": resources,
         "container_revisions_matched": True,

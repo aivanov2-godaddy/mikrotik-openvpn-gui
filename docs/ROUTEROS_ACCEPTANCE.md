@@ -272,44 +272,61 @@ image bytes: the current RouterOS container status exposes the configured tag,
 not its local OCI digest. The report therefore explicitly records
 `router_runtime_digest_verified: false`. Keep the output local or redact it
 before sharing.
-The collector cannot independently prove router CPU/memory/storage, VPN event
-latency/freshness, event loss/ordering, API interruption/recovery, snapshot
-recovery, REST/Binary parity, SQLite restore, rollback, unauthenticated access,
-or secret-free logs. Those remain real-router/operator measurements and must be
-recorded in the input evidence; a successful HTTP probe is not a substitute.
+The app-level collector cannot independently prove router CPU/memory/storage,
+VPN event latency/freshness, event loss/ordering, API interruption/recovery,
+snapshot recovery, SQLite restore, rollback, unauthenticated access, or
+secret-free logs. REST/Binary snapshot parity is measured by the separate
+RouterOS sampler below. Other listed checks remain real-router/operator
+measurements and must be recorded in the input evidence; a successful HTTP
+probe is not a substitute.
 
 For repeatable RouterOS resource and container measurements, use the separate
 local-only `scripts/collect_routeros_acceptance.py` sampler from a trusted
-workstation that can reach the router's TLS Binary API. It accepts credentials
-only from process environment variables (with a masked password prompt as the
-fallback), uses normal TLS certificate validation, and issues only these
-allowlisted read commands with narrow `.proplist` fields:
-`/system/resource/print`, `/container/print`, and `/ppp/active/print`. Use a
-dedicated RouterOS account with only the `read` and `api` policies. Never enable
-insecure TLS or expose the API port to the Internet. The output contains CPU,
-memory, and storage peaks, aggregate active-session counts, named canary and
-production health, and recognized immutable source revisions; it omits host,
-username, session identities/addresses, IDs, container paths, environment
-lists, mounts, full image strings, and raw RouterOS replies. Keep the report
+workstation that can reach both the router's TLS Binary API and private HTTPS
+REST service. Every sample reads the same narrowly allowlisted resource,
+container, and active-session fields over both transports; it fails acceptance
+if either read fails or the normalized snapshots disagree. CPU readings allow
+at most a 10 percentage-point difference to account for sequential sampling;
+memory and storage percentages allow at most 1 point; active-session counts,
+container state, and immutable revisions must match exactly. The REST reader
+uses only HTTPS GET requests to `/rest/system/resource`, `/rest/container`,
+and `/rest/ppp/active`, with `.proplist` restrictions, normal certificate
+validation, no redirects, a 10-second timeout, and a 1 MiB response limit.
+Never enable insecure TLS or expose either API to the Internet. Use a dedicated
+read-only RouterOS account with only the `read`, `api`, and `rest-api` policies;
+do not grant `write`, `policy`, or `sensitive`.
+
+The sampler accepts Binary API and REST credentials only from process
+environment variables, with separate masked password prompts as fallback. Set
+the REST URL as a credential-free HTTPS origin (no `/rest` suffix is required).
+The output contains CPU, memory, and storage peaks, aggregate active-session
+counts, named canary and production health, recognized immutable source
+revisions, and REST-parity sample counts. It omits host, username, session
+identities/addresses, IDs, container paths, environment lists, mounts, full
+image strings, raw replies, and individual mismatching values. Keep the report
 private and join its values with the corresponding deployment records locally.
-It is not an end-to-end event-latency or reconnect test, and its sample does
-not replace the app-level collector or the required controlled API interruption
-and rollback exercises.
+REST/Binary parity is a snapshot consistency check, not an end-to-end event
+latency or reconnect test; it does not replace the app-level collector or
+controlled API interruption and rollback exercises.
 
 Example PowerShell setup (enter the password only at the hidden prompt):
 
 ```powershell
 $env:ROUTEROS_ACCEPTANCE_HOST = '<router DNS name covered by its API TLS certificate>'
 $env:ROUTEROS_ACCEPTANCE_USERNAME = '<dedicated read-only API user>'
+$env:ROUTEROS_ACCEPTANCE_REST_URL = 'https://<router DNS name covered by its HTTPS certificate>'
+$env:ROUTEROS_ACCEPTANCE_REST_USERNAME = '<dedicated read-only REST user>'
 python scripts/collect_routeros_acceptance.py `
   --output private-routeros-window.json `
   --canary-revision <full-canary-commit-sha> `
   --production-revision <full-production-commit-sha> `
   --duration-seconds 1800 --interval-seconds 60
-Remove-Item Env:ROUTEROS_ACCEPTANCE_HOST, Env:ROUTEROS_ACCEPTANCE_USERNAME -ErrorAction SilentlyContinue
+Remove-Item Env:ROUTEROS_ACCEPTANCE_HOST, Env:ROUTEROS_ACCEPTANCE_USERNAME, `
+  Env:ROUTEROS_ACCEPTANCE_REST_URL, Env:ROUTEROS_ACCEPTANCE_REST_USERNAME -ErrorAction SilentlyContinue
 ```
 
-For a private CA, set `ROUTEROS_ACCEPTANCE_CA_FILE` to its trusted PEM file for
+For private CAs, set `ROUTEROS_ACCEPTANCE_CA_FILE` and
+`ROUTEROS_ACCEPTANCE_REST_CA_FILE` to their respective trusted PEM files for
 the process. The collector fails closed on TLS errors, absent containers,
 malformed capacity readings, missing/changed immutable revisions, sample
 failures, incomplete windows, or gaps over two minutes. The source revision is
