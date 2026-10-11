@@ -498,6 +498,125 @@ class RouterOSClientTests(unittest.TestCase):
                 "temporary certificate/key/profile files must be removed",
             )
 
+    def test_profile_provisioning_requires_exact_current_certificate_readback(self) -> None:
+        invalid_readbacks = (
+            ("__duplicate__", "duplicate", "Could not verify the generated RouterOS certificate identity"),
+            (".id", "*DECOY", "Could not verify the generated RouterOS certificate identity"),
+            ("name", "different-name", "Could not verify the generated RouterOS certificate identity"),
+            ("common-name", "different-common-name", "Could not verify the generated RouterOS certificate identity"),
+            ("fingerprint", "  ", "did not return a fingerprint"),
+            ("fingerprint", None, "did not return a fingerprint"),
+            ("trusted", "no", "not confirm that the generated certificate is trusted"),
+            ("revoked", "2026-10-01 12:00:00", "certificate is revoked"),
+            ("revoked", "", "certificate is revoked"),
+            ("invalid-after", "not-a-date", "invalid certificate expiry"),
+            ("expires-after", "0s", "certificate is expired"),
+            ("expires-after", "not-a-duration", "invalid certificate validity period"),
+        )
+        for field, value, expected_error in invalid_readbacks:
+            with self.subTest(field=field, value=value), MockRouterOS() as mock:
+                client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+                credentials = RouterOSCredentials("admin", "routerpass")
+                request = client._request
+
+                def alter_readback(method, path, *args, **kwargs):
+                    result = request(method, path, *args, **kwargs)
+                    query = kwargs.get("query", {})
+                    if (
+                        method == "GET"
+                        and path == "/certificate"
+                        and str(query.get("name", "")).startswith("ovpn-ui-")
+                        and "fingerprint" in str(query.get(".proplist", ""))
+                        and isinstance(result, list)
+                        and result
+                    ):
+                        if field == "__duplicate__":
+                            result.append(dict(result[0]))
+                        else:
+                            result[0][field] = value
+                    return result
+
+                with patch.object(client, "_request", side_effect=alter_readback):
+                    with self.assertRaisesRegex(RouterOSError, expected_error):
+                        client.provision_profile(
+                            credentials,
+                            vpn_user="user-one",
+                            device_name="Readback test",
+                            key_passphrase="private-passphrase",
+                        )
+
+                self.assertEqual(len(mock.state.certificates), 3, "partial issued certificate must be removed")
+                self.assertEqual(
+                    sorted(mock.state.files),
+                    ["vpn-ca.crt"],
+                    "temporary certificate/key/profile files must be removed after read-back failure",
+                )
+
+    def test_profile_provisioning_accepts_routeros_without_optional_status_fields(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def omit_optional_status(method, path, *args, **kwargs):
+                result = request(method, path, *args, **kwargs)
+                query = kwargs.get("query", {})
+                if (
+                    method == "GET"
+                    and path == "/certificate"
+                    and str(query.get("name", "")).startswith("ovpn-ui-")
+                    and "fingerprint" in str(query.get(".proplist", ""))
+                    and isinstance(result, list)
+                    and result
+                ):
+                    for field in ("trusted", "revoked", "invalid-after", "expires-after"):
+                        result[0].pop(field, None)
+                return result
+
+            with patch.object(client, "_request", side_effect=omit_optional_status):
+                profile = client.provision_profile(
+                    credentials,
+                    vpn_user="user-one",
+                    device_name="Optional status test",
+                    key_passphrase="private-passphrase",
+                )
+
+            self.assertTrue(profile.fingerprint)
+            self.assertIn(profile.certificate_id, mock.state.certificates)
+            self.assertEqual(sorted(mock.state.files), ["vpn-ca.crt"])
+
+    def test_profile_provisioning_uses_relative_expiry_not_router_local_absolute_date(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def set_router_local_date(method, path, *args, **kwargs):
+                result = request(method, path, *args, **kwargs)
+                query = kwargs.get("query", {})
+                if (
+                    method == "GET"
+                    and path == "/certificate"
+                    and str(query.get("name", "")).startswith("ovpn-ui-")
+                    and "fingerprint" in str(query.get(".proplist", ""))
+                    and isinstance(result, list)
+                    and result
+                ):
+                    result[0]["invalid-after"] = "2000-01-01 00:00:00"
+                return result
+
+            with patch.object(client, "_request", side_effect=set_router_local_date):
+                profile = client.provision_profile(
+                    credentials,
+                    vpn_user="user-one",
+                    device_name="Router-local expiry test",
+                    key_passphrase="private-passphrase",
+                )
+
+            self.assertTrue(profile.fingerprint)
+            self.assertIn(profile.certificate_id, mock.state.certificates)
+            self.assertEqual(sorted(mock.state.files), ["vpn-ca.crt"])
+
     def test_failed_profile_cleanup_reports_unremoved_certificate(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
