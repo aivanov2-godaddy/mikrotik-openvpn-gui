@@ -8,6 +8,9 @@ semantic-version style release tags.
 
 ### Added
 
+- Join the private read-only RouterOS resource/container soak report to the app
+  release-acceptance collection, failing closed on mismatched windows, health,
+  or immutable revisions.
 - Offer staged same-CA renewal for expiring or expired dashboard-managed device
   certificates; retain the old certificate until the replacement is imported,
   tested, and separately retired through the existing review and read-back flow.

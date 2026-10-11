@@ -332,6 +332,58 @@ def evaluate(
             )
         ):
             failures.append("prepromotion_production_not_on_prior_image")
+    routeros_resource_evidence: dict[str, Any] | None = None
+    raw_routeros_evidence = collection.get("routeros_resource_evidence") if isinstance(collection, dict) else None
+    if raw_routeros_evidence is not None:
+        resource_names = (
+            "router_cpu_peak_percent",
+            "router_memory_peak_percent",
+            "router_storage_peak_percent",
+        )
+        if not isinstance(raw_routeros_evidence, dict):
+            failures.append("routeros_resource_evidence_invalid")
+        else:
+            try:
+                routeros_started = _timestamp(raw_routeros_evidence, "observation_started_at")
+                routeros_ended = _timestamp(raw_routeros_evidence, "observation_ended_at")
+                sample_count = _count(raw_routeros_evidence, "sample_count")
+                max_gap = _number(raw_routeros_evidence, "max_sample_gap_seconds")
+                resource_values = raw_routeros_evidence.get("resource_peaks")
+                if (
+                    raw_routeros_evidence.get("format") != "vpn-dashboard-routeros-acceptance-v1"
+                    or raw_routeros_evidence.get("container_revisions_matched") is not True
+                    or sample_count < MIN_HEALTH_SAMPLES
+                    or max_gap > 120
+                    or (routeros_ended - routeros_started).total_seconds() < MIN_SOAK_SECONDS
+                    or collection_started is None
+                    or collection_ended is None
+                    or abs((routeros_started - collection_started).total_seconds()) > 60
+                    or abs((routeros_ended - collection_ended).total_seconds()) > 60
+                    or not isinstance(resource_values, dict)
+                    or set(resource_values) != set(resource_names)
+                ):
+                    raise ValueError("invalid RouterOS resource evidence")
+                resource_numbers = {
+                    name: _number(resource_values, name)
+                    for name in resource_names
+                }
+                for index, deployment in enumerate(safe_records):
+                    if collection_phase == "canary-prepromotion" and index == 1:
+                        continue
+                    for name, expected_value in resource_numbers.items():
+                        if deployment[name] != expected_value:
+                            raise ValueError("RouterOS resource values do not match deployment evidence")
+                routeros_resource_evidence = {
+                    "format": "vpn-dashboard-routeros-acceptance-v1",
+                    "observation_started_at": routeros_started.isoformat(),
+                    "observation_ended_at": routeros_ended.isoformat(),
+                    "sample_count": sample_count,
+                    "max_sample_gap_seconds": max_gap,
+                    "resource_peaks": resource_numbers,
+                    "container_revisions_matched": True,
+                }
+            except ValueError:
+                failures.append("routeros_resource_evidence_invalid")
     report = {
         "format": "vpn-dashboard-release-acceptance-report-v2",
         "phase": collection_phase,
@@ -343,6 +395,7 @@ def evaluate(
             "candidate-canary-only" if collection_phase == "canary-prepromotion" else "canary-and-production"
         ),
         "router_runtime_digest_verified": False,
+        "routeros_resource_evidence": routeros_resource_evidence,
         "failed_gates": sorted(set(failures)),
         "deployments": safe_records,
     }
