@@ -37,9 +37,11 @@ class TelemetryRuntime:
         api_ssl_port: int,
         requested_transport: str,
         role_resolver: Callable[[Any], str | None] | None = None,
+        on_session_snapshot: Callable[[list[dict[str, Any]]], None] | None = None,
     ) -> None:
         self.sessions = sessions
         self.role_resolver = role_resolver
+        self.on_session_snapshot = on_session_snapshot
         self.requested_transport = requested_transport
         self.enabled = requested_transport in {"binary", "auto"}
         parsed = urlsplit(rest_url)
@@ -160,6 +162,19 @@ class TelemetryRuntime:
         if not events:
             return
         self.gateway.publish(events)
+        history_error = False
+        if self.on_session_snapshot is not None:
+            for event in events:
+                if event.name != "telemetry.snapshot":
+                    continue
+                payload = event.payload if isinstance(event.payload, dict) else {}
+                sessions = payload.get("sessions", [])
+                if not isinstance(sessions, list):
+                    continue
+                try:
+                    self.on_session_snapshot(sessions)
+                except Exception:  # noqa: BLE001 - persistence must not stop live delivery
+                    history_error = True
         session_events = sum(
             event.name.startswith("vpn.session.") or event.name == "telemetry.snapshot"
             for event in events
@@ -169,6 +184,8 @@ class TelemetryRuntime:
                 session_events,
                 reconciliation=any(event.name == "telemetry.snapshot" for event in events),
             )
+        if history_error:
+            self.state.mark_error("session_history_unavailable")
 
     def _run_sampler(self) -> None:
         assert self.sampler is not None
