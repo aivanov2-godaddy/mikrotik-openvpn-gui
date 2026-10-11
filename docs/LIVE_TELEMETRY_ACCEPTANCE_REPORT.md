@@ -48,6 +48,16 @@ release acceptance. No image/container restart, VPN disconnect, or RouterOS
 configuration change was performed. Configuration values and credentials are
 intentionally excluded from this record.
 
+A follow-up read-only inspection of the already-open canary page found that the
+test client was still listed, but the live-data warning and zero rates remained.
+The browser's sanitized client warning indicated that a status request had
+been redirected to the dashboard-access flow and the page treated its session
+as expired. Displayed uptime and the RouterOS status timestamp were stale; no
+fresh telemetry sample was available to measure. This is a failed freshness
+observation, not evidence that the VPN tunnel dropped. No page reload,
+reauthentication, client disconnect, router/container operation, or policy
+change was performed during this check.
+
 Historical RouterOS observations below remain context only and do not override
 the 2026-10-11 read-back or establish acceptance for PR #604.
 

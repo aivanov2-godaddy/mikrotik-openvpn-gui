@@ -1508,3 +1508,14 @@ and no router, container, VPN, certificate, CA, or policy state was changed.
 Treat this as a failed freshness observation, not a passing session-stream
 sample or soak. The PR #604 candidate remains unverified on RouterOS, and the
 live canary, recovery, rollback, and production acceptance gates remain open.
+
+**2026-10-11 canary access-expiry follow-up:** a later read-only inspection of
+the existing authenticated canary page found the disposable client still
+listed, but live rates remained zero and the displayed uptime/status timestamp
+were stale. A sanitized browser warning indicated the status request had been
+redirected to the dashboard-access flow and was treated as an expired access
+session. This explains why that page cannot currently provide acceptance
+samples; it does not establish that the VPN tunnel disconnected. No page reload,
+reauthentication, VPN disconnect, RouterOS/container operation, or policy
+change was performed. A user must reauthenticate to canary before telemetry
+freshness, the soak window, or the security expiry/reconnect checks can resume.
