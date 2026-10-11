@@ -1,10 +1,10 @@
 # Live telemetry acceptance report
 
-Status: **PR #596 PUBLISHED AND ATTESTED; CURRENT CANARY DEPLOYMENT AND LIVE-CLIENT ACCEPTANCE UNVERIFIED**
+Status: **PR #602 PUBLISHED AND ATTESTED; NOT DEPLOYED; LIVE-CLIENT ACCEPTANCE UNVERIFIED**
 
-The latest published runtime candidate is PR #596, commit
-`62be540ee5c4730b56e74f82e31f5c2467b2ccb7`. Publisher run
-[#38040824536](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38040824536)
+The latest published runtime candidate is PR #602, commit
+`ee322a0c9b28bec101e8217ca14d5c1efef7bef6`. Publisher run
+[#38132626122](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38132626122)
 completed successfully, publishing ARM64/AMD64 images, verifying exact-digest
 provenance and SPDX SBOM attestations, and passing runtime smoke tests. These
 are published-image facts, not current RouterOS deployment evidence. The latest
@@ -12,22 +12,24 @@ published immutable image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-arm64` | `sha256:d253861cfef8f865fd55730a95c625525602efd6ebfaa4d01aeb43995df47564` |
-| AMD64 evaluation | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-amd64` | `sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861` |
+| RouterOS ARM64 | `sha-ee322a0c9b28bec101e8217ca14d5c1efef7bef6-arm64` | `sha256:41e50135c34ee151a1e83b5530ae502329bc838f172930489c014293b7b311da` |
+| AMD64 evaluation | `sha-ee322a0c9b28bec101e8217ca14d5c1efef7bef6-amd64` | `sha256:8092d901e1ae0e985cd2f2d4626050fa7ed96a165b16d5b4e5d9d0429cc659e3` |
 
-## Latest browser observation — 2026-10-10
+## Latest authenticated canary observation — 2026-10-11
 
-The authenticated browser check was against **production**, not the canary, so
-it is not a RouterOS container read-back or a live-client canary test. It does
-not establish that PR #596 is deployed or that any latency, freshness,
-reconnect, snapshot-recovery, Redis-delivery, resource-soak, or timed
-acceptance gate passed. Deployment-specific runtime metrics and router state
-are intentionally omitted from this public report; retain them only in the
-private operator acceptance record. No router or deployment change was made
-based on that dashboard login.
+The authenticated read-only browser check was against **canary**. The dashboard
+reported operational service health and a connected live transport, but zero
+active VPN clients. A separate read-only RouterOS container-table inspection
+showed that PR #602 is not yet deployed to canary or production. Therefore no
+live-client latency/freshness, session-event delivery, reconnect/snapshot
+recovery, Redis soak, resource-soak, or timed canary acceptance gate has passed
+for this candidate. A read-only access review completed and surfaced findings
+for follow-up; no RouterOS account, service, firewall, certificate, VPN policy,
+container, or image was changed. Configuration details and deployment-specific
+measurements are intentionally omitted from this public report.
 
-The last recorded RouterOS observation is below. Its readiness sample window
-was still in progress at the recorded time; completion must not be inferred.
+Historical RouterOS observations below remain context only and do not override
+the 2026-10-11 read-back or establish acceptance for PR #602.
 
 ## Last RouterOS read-back — 2026-10-10 00:36 EEST
 

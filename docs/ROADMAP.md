@@ -5,26 +5,31 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
-## Current project snapshot — 2026-10-10
+## Current project snapshot — 2026-10-11
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
-published runtime candidate is PR #596, commit
-`62be540ee5c4730b56e74f82e31f5c2467b2ccb7`. Publisher run
-[#38040824536](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38040824536)
-completed successfully, publishing ARM64 and AMD64 images and verifying their
-exact-digest provenance and SPDX SBOM attestations:
+published runtime candidate is PR #602, commit
+`ee322a0c9b28bec101e8217ca14d5c1efef7bef6`. Publisher run
+[#38132626122](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38132626122)
+completed successfully, publishing ARM64 and AMD64 images, verifying their
+exact-digest provenance and SPDX SBOM attestations, and passing published-image
+runtime smoke tests:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-arm64` | `sha256:d253861cfef8f865fd55730a95c625525602efd6ebfaa4d01aeb43995df47564` |
-| AMD64 evaluation | `sha-62be540ee5c4730b56e74f82e31f5c2467b2ccb7-amd64` | `sha256:0ba1c605ab1c3aa20af2438c01f3097c6a924565fc1c969bcd1f60605b088861` |
+| RouterOS ARM64 | `sha-ee322a0c9b28bec101e8217ca14d5c1efef7bef6-arm64` | `sha256:41e50135c34ee151a1e83b5530ae502329bc838f172930489c014293b7b311da` |
+| AMD64 evaluation | `sha-ee322a0c9b28bec101e8217ca14d5c1efef7bef6-amd64` | `sha256:8092d901e1ae0e985cd2f2d4626050fa7ed96a165b16d5b4e5d9d0429cc659e3` |
 
-The latest browser verification was authenticated to **production**, not the
-canary, and therefore does not constitute live-client or canary acceptance.
-No fresh RouterOS container read-back was captured; deployment of the PR #596
-image, canary readiness, production promotion, live-client latency/freshness,
-and reconnect/snapshot recovery are not claimed. Deployment-specific runtime
-metrics and router observations are kept out of this public roadmap.
+On 2026-10-11, an authenticated read-only canary dashboard check showed the
+service health as operational and the live transport as connected, but there
+were zero active VPN clients. A separate RouterOS container-table read-back
+showed that neither environment had been updated to PR #602. Therefore the
+candidate remains published but undeployed; canary soak, live-client
+latency/freshness, reconnect/snapshot recovery, and production promotion are
+not claimed. A read-only access review surfaced warnings for follow-up; no
+RouterOS account, service, firewall, certificate, or VPN policy was changed.
+Deployment-specific configuration and runtime measurements remain out of this
+public roadmap.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
