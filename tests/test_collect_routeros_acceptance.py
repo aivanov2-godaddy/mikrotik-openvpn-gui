@@ -9,11 +9,14 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from urllib.parse import urlsplit, parse_qs
 from unittest.mock import Mock, patch
 
 from routeros_binary import RouterOSReply
 from scripts.collect_routeros_acceptance import (
     CONTAINER_NAMES,
+    PARITY_TOLERANCE,
+    RouterOSRestAcceptanceReader,
     _snapshot,
     collect,
     main,
@@ -47,6 +50,21 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         connection.execute.side_effect = execute
         return connection
 
+    def _fake_rest_reader(self, *, mismatch=False):
+        reader = Mock()
+        revision = "a" * 40
+        reader.snapshot.return_value = {
+            "router_cpu_percent": 23 if not mismatch else 99,
+            "router_memory_used_percent": 40.0,
+            "router_storage_used_percent": 30.0,
+            "active_vpn_sessions": 1,
+            "containers": {
+                name: {"healthy": True, "revision": revision}
+                for name in CONTAINER_NAMES
+            },
+        }
+        return reader
+
     def test_snapshot_only_returns_allowlisted_aggregate_values(self):
         report = _snapshot(self._fake_connection())
         self.assertEqual(report["router_cpu_percent"], 23)
@@ -58,10 +76,12 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
 
     def test_collector_closes_connection_and_redacts_raw_router_data(self):
         connection = self._fake_connection()
+        rest_reader = self._fake_rest_reader()
         now = datetime(2026, 10, 10, tzinfo=timezone.utc)
         elapsed = [0.0]
         report = collect(
             connection,
+            rest_reader=rest_reader,
             username="reader",
             password="do-not-log",
             expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
@@ -79,12 +99,96 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertTrue(all(item["healthy_for_all_successful_samples"] for item in report["containers"].values()))
         self.assertEqual(report["failed_gates"], [])
         connection.close.assert_called_once_with()
+        rest_reader.close.assert_called_once_with()
+        self.assertEqual(report["rest_parity_successful_sample_count"], report["sample_count"])
+        self.assertEqual(report["rest_parity_failed_sample_count"], 0)
+
+    def test_rest_binary_mismatch_fails_acceptance_without_payload_data(self):
+        connection = self._fake_connection()
+        rest_reader = self._fake_rest_reader(mismatch=True)
+        now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+        elapsed = [0.0]
+        report = collect(
+            connection,
+            rest_reader=rest_reader,
+            username="reader",
+            password="do-not-log",
+            expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            duration_seconds=1800,
+            interval_seconds=60,
+            clock=lambda: now + timedelta(seconds=elapsed[0]),
+            monotonic=lambda: elapsed[0],
+            sleep=lambda delay: elapsed.__setitem__(0, elapsed[0] + delay),
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("routeros_rest_parity_unavailable_or_mismatched", report["failed_gates"])
+        self.assertEqual(report["rest_parity_failed_sample_count"], report["sample_count"])
+        self.assertNotIn("99", repr(report))
+        self.assertNotIn("private-user", repr(report))
+
+    def test_rest_reader_rejects_non_https_and_embedded_credentials(self):
+        for url in ("http://router.example", "https://reader:secret@router.example", "https://router.example/rest?x=1"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                RouterOSRestAcceptanceReader(url, "reader", "secret")
+
+    def test_rest_reader_uses_only_bounded_allowlisted_gets(self):
+        reader = RouterOSRestAcceptanceReader("https://router.example/rest", "reader", "secret")
+        opener = Mock()
+        payloads = {
+            "/rest/system/resource": [{
+                "cpu-load": "23", "total-memory": "1000", "free-memory": "600",
+                "total-hdd-space": "10000", "free-hdd-space": "7000", "uptime": "1d",
+            }],
+            "/rest/container": [
+                {"name": name, "status": "running", "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64"}
+                for name in CONTAINER_NAMES.values()
+            ],
+            "/rest/ppp/active": [{".id": "*1", "name": "private-user", "address": "10.0.0.2"}],
+        }
+
+        def open_request(request, *, timeout):
+            self.assertEqual(timeout, 10)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(request.get_header("Accept"), "application/json")
+            self.assertEqual(request.get_header("Authorization"), "Basic cmVhZGVyOnNlY3JldA==")
+            parsed = urlsplit(request.full_url)
+            self.assertEqual(parsed.scheme, "https")
+            query = parse_qs(parsed.query)
+            self.assertEqual(len(query), 1)
+            expected_proplist = {
+                "/rest/system/resource": "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime",
+                "/rest/container": "name,status,remote-image",
+                "/rest/ppp/active": ".id",
+            }[parsed.path]
+            self.assertEqual(query, {".proplist": [expected_proplist]})
+            self.assertIn(parsed.path, payloads)
+            response = Mock()
+            response.status = 200
+            response.__enter__ = Mock(return_value=response)
+            response.__exit__ = Mock(return_value=False)
+            response.read.return_value = json.dumps(payloads[parsed.path]).encode()
+            return response
+
+        opener.open.side_effect = open_request
+        reader._opener = opener
+        snapshot = reader.snapshot()
+        self.assertEqual(snapshot["active_vpn_sessions"], 1)
+        self.assertNotIn("private-user", repr(snapshot))
+        self.assertEqual(opener.open.call_count, 3)
+        reader.close()
+        self.assertEqual(reader._authorization, "")
+
+    def test_parity_tolerances_are_small_and_explicit(self):
+        self.assertEqual(PARITY_TOLERANCE["router_cpu_percent"], 10.0)
+        self.assertEqual(PARITY_TOLERANCE["router_memory_used_percent"], 1.0)
+        self.assertEqual(PARITY_TOLERANCE["router_storage_used_percent"], 1.0)
 
     def test_bad_window_is_rejected(self):
         connection = self._fake_connection()
         with self.assertRaises(ValueError):
             collect(
                 connection,
+                rest_reader=self._fake_rest_reader(),
                 username="reader",
                 password="secret",
                 expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
@@ -119,6 +223,9 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 "ROUTEROS_ACCEPTANCE_HOST": "router-secret.invalid",
                 "ROUTEROS_ACCEPTANCE_USERNAME": "acceptance-reader",
                 "ROUTEROS_ACCEPTANCE_PASSWORD": "password-must-not-leak",
+                "ROUTEROS_ACCEPTANCE_REST_URL": "https://router-secret.invalid",
+                "ROUTEROS_ACCEPTANCE_REST_USERNAME": "acceptance-reader",
+                "ROUTEROS_ACCEPTANCE_REST_PASSWORD": "password-must-not-leak",
             }
             stdout = io.StringIO()
             with (

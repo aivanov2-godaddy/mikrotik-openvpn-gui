@@ -10,6 +10,7 @@ container configuration are never written to the output.
 from __future__ import annotations
 
 import argparse
+import base64
 from datetime import datetime, timezone
 import getpass
 import json
@@ -17,10 +18,13 @@ import math
 import os
 from pathlib import Path
 import re
+import ssl
 import sys
 import tempfile
 import time
 from typing import Any, Callable, Iterable, Mapping
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
+from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_opener
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -41,6 +45,19 @@ PROJECT_IMAGE = re.compile(
 )
 RESOURCE_PROPLIST = "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime"
 CONTAINER_PROPLIST = "name,status,remote-image"
+SESSION_PROPLIST = ".id"
+MAX_REST_RESPONSE_BYTES = 1_048_576
+REST_TIMEOUT_SECONDS = 10
+PARITY_TOLERANCE = {
+    "router_cpu_percent": 10.0,
+    "router_memory_used_percent": 1.0,
+    "router_storage_used_percent": 1.0,
+}
+REST_PATHS = {
+    "resource": ("system/resource", RESOURCE_PROPLIST),
+    "containers": ("container", CONTAINER_PROPLIST),
+    "sessions": ("ppp/active", SESSION_PROPLIST),
+}
 
 
 def _utc_now() -> datetime:
@@ -74,11 +91,11 @@ def _percent(used: float, total: float) -> float:
     return round(100.0 * used / total, 2)
 
 
-def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
-    """Read only the allowlisted aggregate fields; discard every raw reply."""
-    resource = _single_record(connection.execute(
-        "/system/resource/print", query=(f".proplist={RESOURCE_PROPLIST}",)
-    ))
+def _snapshot_from_records(
+    resource: Mapping[str, str],
+    containers: Iterable[Mapping[str, str]],
+    active_sessions: int,
+) -> dict[str, Any]:
     cpu = _number(resource, "cpu-load", integer=True)
     total_memory = _number(resource, "total-memory", integer=True)
     free_memory = _number(resource, "free-memory", integer=True)
@@ -87,9 +104,7 @@ def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
     if cpu > 100 or free_memory > total_memory or free_storage > total_storage:
         raise ValueError("invalid RouterOS resource fields")
 
-    containers = _records(connection.execute(
-        "/container/print", query=(f".proplist={CONTAINER_PROPLIST}",)
-    ))
+    containers = list(containers)
     result_containers: dict[str, dict[str, Any]] = {}
     for environment, expected_name in CONTAINER_NAMES.items():
         matching = [row for row in containers if row.get("name") == expected_name]
@@ -102,11 +117,6 @@ def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
             "revision": image_match.group("revision") if image_match else None,
         }
 
-    # Read .id values only to count active sessions. IDs, usernames, addresses,
-    # and other RouterOS attributes are deliberately discarded.
-    active_sessions = len(_records(connection.execute(
-        "/ppp/active/print", query=(".proplist=.id",)
-    )))
     return {
         "router_cpu_percent": int(cpu),
         "router_memory_used_percent": _percent(total_memory - free_memory, total_memory),
@@ -116,9 +126,126 @@ def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
     }
 
 
+def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
+    """Read only the allowlisted aggregate fields; discard every raw reply."""
+    resource = _single_record(connection.execute(
+        "/system/resource/print", query=(f".proplist={RESOURCE_PROPLIST}",)
+    ))
+    containers = _records(connection.execute(
+        "/container/print", query=(f".proplist={CONTAINER_PROPLIST}",)
+    ))
+    # Read .id values only to count active sessions. IDs, usernames, addresses,
+    # and other RouterOS attributes are deliberately discarded.
+    active_sessions = len(_records(connection.execute(
+        "/ppp/active/print", query=(f".proplist={SESSION_PROPLIST}",)
+    )))
+    return _snapshot_from_records(resource, containers, active_sessions)
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class RouterOSRestAcceptanceReader:
+    """Narrow HTTPS-only REST reader for independent snapshot parity."""
+
+    def __init__(
+        self,
+        base_url: str,
+        username: str,
+        password: str,
+        *,
+        ca_file: str | None = None,
+        timeout: float = REST_TIMEOUT_SECONDS,
+    ) -> None:
+        parsed = urlsplit(base_url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/", "/rest"}
+            or not username
+            or not password
+        ):
+            raise ValueError("REST acceptance requires a credential-free HTTPS origin and credentials")
+        if not math.isfinite(timeout) or not 1 <= timeout <= 30:
+            raise ValueError("REST timeout is outside the allowed range")
+        host = parsed.hostname.encode("idna").decode("ascii").lower()
+        netloc = f"[{host}]" if ":" in host else host
+        if parsed.port is not None:
+            netloc += f":{parsed.port}"
+        self._origin = urlunsplit(("https", netloc, "", "", ""))
+        self._authorization = "Basic " + base64.b64encode(
+            f"{username}:{password}".encode("utf-8")
+        ).decode("ascii")
+        self._timeout = timeout
+        context = ssl.create_default_context(cafile=ca_file)
+        self._opener = build_opener(HTTPSHandler(context=context), _NoRedirectHandler())
+
+    def _get_records(self, path_key: str) -> list[dict[str, str]]:
+        if path_key not in REST_PATHS:
+            raise ValueError("REST path is not allowlisted")
+        path, proplist = REST_PATHS[path_key]
+        query = urlencode({".proplist": proplist}, safe=".,")
+        url = f"{self._origin}/rest/{quote(path, safe='/')}?{query}"
+        request = Request(
+            url,
+            headers={"Authorization": self._authorization, "Accept": "application/json"},
+            method="GET",
+        )
+        with self._opener.open(request, timeout=self._timeout) as response:
+            if response.status != 200:
+                raise ValueError("unexpected RouterOS REST status")
+            body = response.read(MAX_REST_RESPONSE_BYTES + 1)
+        if len(body) > MAX_REST_RESPONSE_BYTES:
+            raise ValueError("RouterOS REST response exceeded the size limit")
+        decoded = json.loads(body)
+        if not isinstance(decoded, list) or any(
+            not isinstance(record, dict)
+            or any(not isinstance(key, str) or not isinstance(value, str) for key, value in record.items())
+            for record in decoded
+        ):
+            raise ValueError("unexpected RouterOS REST response shape")
+        return decoded
+
+    def snapshot(self) -> dict[str, Any]:
+        resource_records = self._get_records("resource")
+        if len(resource_records) != 1:
+            raise ValueError("unexpected RouterOS REST resource response shape")
+        containers = self._get_records("containers")
+        sessions = self._get_records("sessions")
+        return _snapshot_from_records(resource_records[0], containers, len(sessions))
+
+    def close(self) -> None:
+        self._authorization = ""
+
+
+def _snapshot_mismatches(binary: Mapping[str, Any], rest: Mapping[str, Any]) -> list[str]:
+    """Return safe field labels only; never retain or report either payload."""
+    mismatches = []
+    for field, tolerance in PARITY_TOLERANCE.items():
+        left, right = binary.get(field), rest.get(field)
+        if (
+            isinstance(left, bool) or not isinstance(left, (int, float))
+            or isinstance(right, bool) or not isinstance(right, (int, float))
+            or abs(left - right) > tolerance
+        ):
+            mismatches.append(field)
+    if binary.get("active_vpn_sessions") != rest.get("active_vpn_sessions"):
+        mismatches.append("active_vpn_sessions")
+    if binary.get("containers") != rest.get("containers"):
+        mismatches.append("containers")
+    return mismatches
+
+
 def collect(
     connection: RouterOSBinaryConnection,
     *,
+    rest_reader: RouterOSRestAcceptanceReader,
     username: str,
     password: str,
     expected_revisions: Mapping[str, str],
@@ -151,10 +278,20 @@ def collect(
             at = clock()
             tick = monotonic()
             try:
-                values = _snapshot(connection)
-                sample: dict[str, Any] = {"at": at.isoformat(), "_tick": tick, **values, "ok": True}
+                binary_values = _snapshot(connection)
+                rest_values = rest_reader.snapshot()
+                mismatches = _snapshot_mismatches(binary_values, rest_values)
+                sample = {
+                    "at": at.isoformat(), "_tick": tick, **binary_values,
+                    "ok": not mismatches, "rest_parity_ok": not mismatches,
+                    "rest_mismatches": mismatches,
+                }
             except Exception as error:  # Fail closed; never retain RouterOS response text.
-                sample = {"at": at.isoformat(), "_tick": tick, "ok": False, "error": type(error).__name__}
+                sample = {
+                    "at": at.isoformat(), "_tick": tick, "ok": False,
+                    "rest_parity_ok": False, "rest_mismatches": [],
+                    "error": type(error).__name__,
+                }
             samples.append(sample)
             remaining = deadline - monotonic()
             if remaining <= 0:
@@ -164,6 +301,7 @@ def collect(
         end_tick = monotonic()
     finally:
         connection.close()
+        rest_reader.close()
 
     wall_gaps = [
         (datetime.fromisoformat(right["at"]) - datetime.fromisoformat(left["at"])).total_seconds()
@@ -198,6 +336,8 @@ def collect(
         failed.append("successful_samples_insufficient")
     if len(successful) != len(samples):
         failed.append("routeros_sample_failures")
+    if any(not sample["rest_parity_ok"] for sample in samples):
+        failed.append("routeros_rest_parity_unavailable_or_mismatched")
     if max(gaps, default=0) > MAX_SAMPLE_GAP_SECONDS:
         failed.append("sample_gap_exceeded")
     if any(
@@ -225,7 +365,7 @@ def collect(
         failed.append("router_storage_threshold_exceeded")
 
     return {
-        "format": "vpn-dashboard-routeros-acceptance-v1",
+        "format": "vpn-dashboard-routeros-acceptance-v2",
         "collected_at": ended.isoformat(),
         "observation_started_at": started.isoformat(),
         "observation_ended_at": ended.isoformat(),
@@ -234,6 +374,9 @@ def collect(
         "sample_count": len(samples),
         "successful_sample_count": len(successful),
         "failed_sample_count": len(samples) - len(successful),
+        "rest_parity_successful_sample_count": sum(sample["rest_parity_ok"] for sample in samples),
+        "rest_parity_failed_sample_count": sum(not sample["rest_parity_ok"] for sample in samples),
+        "rest_parity_numeric_tolerances": PARITY_TOLERANCE,
         "max_sample_gap_seconds": round(max(gaps, default=0), 3),
         "router_cpu_peak_percent": max(cpu_values, default=None),
         "router_memory_peak_percent": max(memory_values, default=None),
@@ -257,6 +400,7 @@ def collect(
         "passed": not failed,
         "failed_gates": sorted(set(failed)),
         "read_only_api_paths": ["/system/resource/print", "/container/print", "/ppp/active/print"],
+        "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
         "credentials_or_raw_router_data_written": False,
     }
 
@@ -268,6 +412,10 @@ def main() -> int:
     parser.add_argument("--username-env", default="ROUTEROS_ACCEPTANCE_USERNAME")
     parser.add_argument("--password-env", default="ROUTEROS_ACCEPTANCE_PASSWORD")
     parser.add_argument("--ca-file-env", default="ROUTEROS_ACCEPTANCE_CA_FILE")
+    parser.add_argument("--rest-url-env", default="ROUTEROS_ACCEPTANCE_REST_URL")
+    parser.add_argument("--rest-username-env", default="ROUTEROS_ACCEPTANCE_REST_USERNAME")
+    parser.add_argument("--rest-password-env", default="ROUTEROS_ACCEPTANCE_REST_PASSWORD")
+    parser.add_argument("--rest-ca-file-env", default="ROUTEROS_ACCEPTANCE_REST_CA_FILE")
     parser.add_argument("--port", type=int, default=8729)
     parser.add_argument("--canary-revision", required=True, help="expected full immutable canary source commit")
     parser.add_argument("--production-revision", required=True, help="expected full immutable production source commit")
@@ -278,7 +426,10 @@ def main() -> int:
         host = os.environ.get(args.host_env, "")
         username = os.environ.get(args.username_env, "")
         password = os.environ.get(args.password_env, "") or getpass.getpass("RouterOS read-only API password: ")
-        if not host or not username or not 1 <= args.port <= 65535:
+        rest_url = os.environ.get(args.rest_url_env, "")
+        rest_username = os.environ.get(args.rest_username_env, "")
+        rest_password = os.environ.get(args.rest_password_env, "") or getpass.getpass("RouterOS read-only REST password: ")
+        if not host or not username or not rest_url or not rest_username or not 1 <= args.port <= 65535:
             raise ValueError("required connection settings are missing")
         connection = RouterOSBinaryConnection(
             host,
@@ -288,6 +439,12 @@ def main() -> int:
         )
         report = collect(
             connection,
+            rest_reader=RouterOSRestAcceptanceReader(
+                rest_url,
+                rest_username,
+                rest_password,
+                ca_file=os.environ.get(args.rest_ca_file_env) or None,
+            ),
             username=username,
             password=password,
             expected_revisions={
@@ -303,7 +460,7 @@ def main() -> int:
     except (OSError, ValueError, RouterOSBinaryError) as error:
         # Exception text can contain private endpoints or RouterOS response data.
         failure_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "format": "vpn-dashboard-routeros-acceptance-v2",
             "collected": False,
             "collected_at": _utc_now().isoformat(),
             "passed": False,
