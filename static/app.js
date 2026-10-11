@@ -22,6 +22,7 @@ let realtimeReconnectTimer = null;
 let realtimeTransport = 'sse';
 let socketIoEngine = 'polling';
 let pageReloadScheduled = false;
+let terminationAttempt = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -761,6 +762,7 @@ function updateLiveSnapshot(payload) {
   lastLiveSnapshotAt = timestamp;
   reconcileConnectionHistory(payload.sessions);
   syncActiveSessions(payload.sessions, timestamp);
+  reconcileTerminationAttempt(payload.sessions);
   $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
   $$('[data-nav-session-count]').forEach((item) => { item.textContent = payload.sessions.length; });
   const activeUsers = new Set(payload.sessions.map((session) => session.name)).size;
@@ -775,6 +777,24 @@ function updateLiveSnapshot(payload) {
     $('span', indicator).textContent = 'Live · updated now';
   });
   updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
+}
+
+function reconcileTerminationAttempt(sessions) {
+  const attempt = terminationAttempt;
+  if (!attempt || attempt.observedInactive) return;
+  const stillActive = sessions.some((session) => String(session.id || '') === attempt.sessionId);
+  if (stillActive) return;
+
+  attempt.observedInactive = true;
+  const dialog = getDialog('terminate-dialog');
+  const form = $('#terminate-form');
+  if (!dialog?.open || !form) return;
+
+  setBusy(form, true);
+  form.elements.review_token.value = '';
+  setStatus(form, 'Live telemetry confirms this session is no longer active.');
+  toast('VPN session is no longer active.');
+  setTimeout(() => { if (dialog.open) dialog.close(); }, 450);
 }
 
 function scheduleRealtimeReconnect() {
@@ -1370,6 +1390,9 @@ $$('dialog').forEach((modal) => {
   modal.addEventListener('click', (event) => {
     if (event.target === modal) modal.close();
   });
+  if (modal.id === 'terminate-dialog') {
+    modal.addEventListener('close', () => { terminationAttempt = null; });
+  }
 });
 
 $('[data-open-add]')?.addEventListener('click', () => {
@@ -2209,14 +2232,23 @@ $('#terminate-form')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const data = new FormData(form);
   const sessionId = data.get('session_id');
+  const attempt = { sessionId: String(sessionId || ''), observedInactive: false };
+  terminationAttempt = attempt;
   setBusy(form, true);
   setStatus(form, 'Disconnecting the device…');
   try {
     await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), reason: data.get('reason'), review_token: data.get('review_token') } }));
+    if (attempt.observedInactive) return;
     setStatus(form, 'Session terminated.');
     toast('OpenVPN session terminated.');
     setTimeout(() => { getDialog('terminate-dialog').close(); pollStatus(); }, 450);
-  } catch (error) { form.review_token.value = ''; $('button[type="submit"]', form).disabled = true; setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) {
+    if (attempt.observedInactive) return;
+    form.review_token.value = '';
+    $('button[type="submit"]', form).disabled = true;
+    setStatus(form, error.message, true);
+    setBusy(form, false);
+  }
 });
 
 $('#terminate-form')?.addEventListener('input', (event) => {

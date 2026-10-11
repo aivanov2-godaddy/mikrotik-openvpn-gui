@@ -204,6 +204,40 @@ test('Connections termination-review prompt renders consistently', async ({ page
   });
 });
 
+test('live snapshot resolves a termination warning after the session ends asynchronously', async ({ page }) => {
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
+  const card = page.locator('.session-card').first();
+  await card.locator('[data-terminate]').click();
+
+  const dialog = page.locator('#terminate-dialog');
+  await dialog.getByLabel('Reason for disconnecting').fill('Canary live session acceptance test');
+  await dialog.locator('[name="confirmation"]').fill(await dialog.locator('[data-confirm-target]').textContent());
+  await dialog.getByRole('button', { name: 'Review impact' }).click();
+
+  await page.route('**/api/sessions/**', async (route) => {
+    if (route.request().method() === 'DELETE') {
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'routeros.mutation_verification_failed',
+          error: 'RouterOS still reports this session as active. Check its current state before retrying.',
+          verified: false,
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await dialog.getByRole('button', { name: 'Terminate session' }).click();
+  await expect(dialog.locator('.form-status')).toContainText('RouterOS still reports this session as active');
+  await page.evaluate(() => updateLiveSnapshot({ sessions: [] }));
+
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.toast-region')).toContainText('VPN session is no longer active.');
+});
+
 test('certificate migration confirmation refreshes its panel without a full page reload', async ({ page }) => {
   const navigations = [];
   page.on('dialog', (dialog) => dialog.accept());
