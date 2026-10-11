@@ -153,6 +153,48 @@ test('returns to the top-level Access flow when an API request is redirected', a
   await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
 });
 
+test('returns to sign-in automatically when the dashboard session expires', async ({ page }) => {
+  let statusPolls = 0;
+  let initialStatusLoaded = false;
+  await page.route('**/api/status', async (route) => {
+    statusPolls += 1;
+    if (statusPolls === 1) {
+      const response = await route.fetch();
+      await route.fulfill({ response });
+      initialStatusLoaded = true;
+      return;
+    }
+    // A real expired session no longer has a valid login cookie. Mirror that
+    // server-side state so /login does not immediately bounce back to dashboard.
+    await page.context().clearCookies();
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'session expired' }),
+    });
+  });
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect.poll(() => initialStatusLoaded).toBe(true);
+  // Let the first poll finish its finally block before simulating a visible-tab
+  // wake, which requests a fresh snapshot immediately.
+  await page.waitForTimeout(100);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => statusPolls).toBeGreaterThan(1);
+
+  await expect(page).toHaveURL(/\/login$/, { timeout: 10_000 });
+  await expect(page.getByRole('heading', { name: 'Connect to VPN Dashboard' })).toBeVisible();
+  await expect(page.locator('.session-card')).toHaveCount(0);
+});
+
 test('reconnects the live stream and applies a fresh snapshot when a sleeping tab wakes', async ({ page }) => {
   await page.addInitScript(() => {
     window.__syntheticEventSources = [];
