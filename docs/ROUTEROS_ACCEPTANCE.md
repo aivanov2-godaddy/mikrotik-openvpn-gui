@@ -325,6 +325,31 @@ requested output is replaced with a sanitized `collected: false`,
 prior successful report at the same path from being mistaken for the latest
 run.
 
+To join RouterOS CPU/memory/storage and container observations to the app-level
+soak automatically, run the RouterOS sampler concurrently with the app
+collector, then pass its completed private report using `--routeros-report`:
+
+```powershell
+python scripts/collect_release_acceptance.py `
+  --input private-release-evidence.json `
+  --output private-release-collection.json `
+  --routeros-report private-routeros-window.json `
+  --canary-url https://<private-canary-origin> `
+  --production-url https://<private-production-origin> `
+  --canary-metrics-url https://<private-canary-origin> `
+  --phase canary-prepromotion
+```
+
+The join fails closed unless both reports cover the same 30-minute window
+(within one minute), all RouterOS samples succeeded, both named containers
+stayed healthy, and their observed immutable source revisions match the app
+collector's revision tags. The release evaluator rechecks that joined metadata
+and that the resource peaks match the deployment records. The RouterOS report
+is read locally and its raw contents are not copied to console output; keep
+both input and output files private. This join adds resource/container
+evidence only—it does not infer event latency, reconnect, event integrity, or
+any other operator-only acceptance result.
+
 ### Evidence-gated RouterOS promotion
 
 The installed RouterOS scheduler must use the reviewed stage-only updater from

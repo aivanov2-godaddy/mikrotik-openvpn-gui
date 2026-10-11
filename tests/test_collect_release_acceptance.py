@@ -79,6 +79,96 @@ class FakeTime:
 
 
 class ReleaseCollectionTests(unittest.TestCase):
+    def test_routeros_resource_evidence_joins_only_matching_healthy_revisions(self) -> None:
+        from scripts.collect_release_acceptance import attach_routeros_resource_evidence
+
+        revision = "a" * 40
+        app_evidence = {
+            "collection": {
+                "started_at": "2026-10-01T00:00:00Z",
+                "ended_at": "2026-10-01T00:30:00Z",
+            },
+            "deployments": [
+                {"environment": environment, "image": f"ghcr.io/example/vpn:sha-{revision}-arm64"}
+                for environment in ("canary", "production")
+            ],
+        }
+        routeros_report = {
+            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "passed": True,
+            "failed_gates": [],
+            "credentials_or_raw_router_data_written": False,
+            "observation_started_at": "2026-10-01T00:00:10Z",
+            "observation_ended_at": "2026-10-01T00:30:10Z",
+            "duration_seconds": 1800,
+            "sample_count": 31,
+            "successful_sample_count": 31,
+            "failed_sample_count": 0,
+            "max_sample_gap_seconds": 60,
+            "router_cpu_peak_percent": 24,
+            "router_memory_peak_percent": 35,
+            "router_storage_peak_percent": 18,
+            "containers": {
+                environment: {
+                    "healthy_for_all_successful_samples": True,
+                    "observed_source_revisions": [revision],
+                }
+                for environment in ("canary", "production")
+            },
+        }
+
+        attach_routeros_resource_evidence(app_evidence, routeros_report)
+
+        self.assertEqual(app_evidence["deployments"][0]["router_cpu_peak_percent"], 24.0)
+        self.assertEqual(app_evidence["deployments"][1]["router_memory_peak_percent"], 35.0)
+        self.assertTrue(app_evidence["collection"]["routeros_resource_evidence"]["container_revisions_matched"])
+
+    def test_routeros_resource_evidence_rejects_window_or_revision_mismatch(self) -> None:
+        from copy import deepcopy
+        from scripts.collect_release_acceptance import attach_routeros_resource_evidence
+
+        revision = "a" * 40
+        app_evidence = {
+            "collection": {
+                "started_at": "2026-10-01T00:00:00Z",
+                "ended_at": "2026-10-01T00:30:00Z",
+            },
+            "deployments": [
+                {"environment": environment, "image": f"ghcr.io/example/vpn:sha-{revision}-arm64"}
+                for environment in ("canary", "production")
+            ],
+        }
+        routeros_report = {
+            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "passed": True,
+            "failed_gates": [],
+            "credentials_or_raw_router_data_written": False,
+            "observation_started_at": "2026-10-01T00:00:00Z",
+            "observation_ended_at": "2026-10-01T00:30:00Z",
+            "duration_seconds": 1800,
+            "sample_count": 30,
+            "successful_sample_count": 30,
+            "failed_sample_count": 0,
+            "max_sample_gap_seconds": 60,
+            "router_cpu_peak_percent": 24,
+            "router_memory_peak_percent": 35,
+            "router_storage_peak_percent": 18,
+            "containers": {
+                environment: {
+                    "healthy_for_all_successful_samples": True,
+                    "observed_source_revisions": [revision],
+                }
+                for environment in ("canary", "production")
+            },
+        }
+        mismatch = deepcopy(routeros_report)
+        mismatch["containers"]["canary"]["observed_source_revisions"] = ["c" * 40]
+
+        for report in (mismatch, {**routeros_report, "observation_started_at": "2026-10-01T00:02:00Z"}):
+            with self.subTest(report=report["observation_started_at"]):
+                with self.assertRaises(ValueError):
+                    attach_routeros_resource_evidence(deepcopy(app_evidence), report)
+
     def test_collection_failure_atomically_replaces_a_stale_passing_report(self) -> None:
         from scripts import collect_release_acceptance as collector
 

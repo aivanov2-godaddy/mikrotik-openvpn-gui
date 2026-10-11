@@ -119,6 +119,11 @@ METRIC_LINE = re.compile(
     r'(?P<value>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|NaN|[+-]?Inf)(?:\s+\d+)?$'
 )
 REVISION_IN_IMAGE = re.compile(r":sha-(?P<revision>[0-9a-f]{40})(?:-(?:arm64|amd64))?$")
+ROUTEROS_RESOURCE_FIELDS = {
+    "router_cpu_peak_percent": ("router_cpu_peak_percent", 80),
+    "router_memory_peak_percent": ("router_memory_peak_percent", 90),
+    "router_storage_peak_percent": ("router_storage_peak_percent", 90),
+}
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -151,6 +156,102 @@ def _write_json_atomically(path: Path, document: dict[str, Any]) -> None:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+
+
+def _evidence_timestamp(value: Any, name: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a timezone-aware ISO-8601 timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{name} must be a timezone-aware ISO-8601 timestamp") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{name} must be a timezone-aware ISO-8601 timestamp")
+    return parsed
+
+
+def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -> None:
+    """Join a redacted RouterOS sample window to matching app-soak evidence."""
+    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v1":
+        raise ValueError("RouterOS evidence format is invalid")
+    if routeros.get("passed") is not True or routeros.get("failed_gates") != []:
+        raise ValueError("RouterOS evidence did not pass its acceptance gates")
+    if routeros.get("credentials_or_raw_router_data_written") is not False:
+        raise ValueError("RouterOS evidence privacy attestation is missing")
+
+    sample_count = routeros.get("sample_count")
+    successful_count = routeros.get("successful_sample_count")
+    failed_count = routeros.get("failed_sample_count")
+    if (
+        isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count < 30
+        or isinstance(successful_count, bool) or successful_count != sample_count
+        or isinstance(failed_count, bool) or failed_count != 0
+    ):
+        raise ValueError("RouterOS evidence sample coverage is incomplete")
+    max_gap = routeros.get("max_sample_gap_seconds")
+    duration = routeros.get("duration_seconds")
+    if (
+        isinstance(max_gap, bool) or not isinstance(max_gap, (int, float))
+        or not math.isfinite(max_gap) or max_gap < 0 or max_gap > 120
+        or isinstance(duration, bool) or not isinstance(duration, (int, float))
+        or not math.isfinite(duration) or duration < MIN_SOAK_SECONDS
+    ):
+        raise ValueError("RouterOS evidence window is incomplete")
+    router_started = _evidence_timestamp(routeros.get("observation_started_at"), "RouterOS start")
+    router_ended = _evidence_timestamp(routeros.get("observation_ended_at"), "RouterOS end")
+    if (router_ended - router_started).total_seconds() < MIN_SOAK_SECONDS:
+        raise ValueError("RouterOS evidence observation window is too short")
+
+    collection = evidence.get("collection")
+    deployments = evidence.get("deployments")
+    if not isinstance(collection, dict) or not isinstance(deployments, list) or len(deployments) != 2:
+        raise ValueError("app evidence is missing its collection window or deployments")
+    app_started = _evidence_timestamp(collection.get("started_at"), "app start")
+    app_ended = _evidence_timestamp(collection.get("ended_at"), "app end")
+    if (
+        abs((router_started - app_started).total_seconds()) > 60
+        or abs((router_ended - app_ended).total_seconds()) > 60
+    ):
+        raise ValueError("RouterOS and app evidence windows do not align")
+
+    containers = routeros.get("containers")
+    if not isinstance(containers, dict) or set(containers) != set(ENVIRONMENTS):
+        raise ValueError("RouterOS evidence is missing named container observations")
+    resources: dict[str, float] = {}
+    for output_field, (source_field, threshold) in ROUTEROS_RESOURCE_FIELDS.items():
+        value = routeros.get(source_field)
+        if (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value < 0 or value > threshold
+        ):
+            raise ValueError("RouterOS resource evidence is invalid or exceeds its threshold")
+        resources[output_field] = float(value)
+
+    for environment, record in zip(ENVIRONMENTS, deployments):
+        if not isinstance(record, dict) or record.get("environment") != environment:
+            raise ValueError("app deployments must be ordered canary then production")
+        image_match = IMAGE.fullmatch(str(record.get("image", "")))
+        if image_match is None:
+            raise ValueError("app deployment image must use a full immutable revision tag")
+        observed = containers[environment]
+        expected_revision = image_match.group("revision")
+        if (
+            not isinstance(observed, dict)
+            or observed.get("healthy_for_all_successful_samples") is not True
+            or observed.get("observed_source_revisions") != [expected_revision]
+        ):
+            raise ValueError("RouterOS container health or revision does not match app evidence")
+        record.update(resources)
+
+    collection["routeros_resource_evidence"] = {
+        "format": "vpn-dashboard-routeros-acceptance-v1",
+        "observation_started_at": router_started.isoformat(),
+        "observation_ended_at": router_ended.isoformat(),
+        "sample_count": sample_count,
+        "max_sample_gap_seconds": float(max_gap),
+        "resource_peaks": resources,
+        "container_revisions_matched": True,
+    }
 
 
 def _probe_url(base_url: str, path: str) -> str:
@@ -847,6 +948,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, help="private, redacted v2 evidence JSON with RouterOS-only fields")
     parser.add_argument("--output", required=True, help="output path for collected evidence JSON")
+    parser.add_argument(
+        "--routeros-report",
+        help="optional completed redacted report from collect_routeros_acceptance.py; must cover the same soak",
+    )
     parser.add_argument("--canary-url", required=True, help="private app origin, without path")
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
     parser.add_argument("--canary-metrics-url", required=True, help="canary app origin for authenticated /metrics")
@@ -900,6 +1005,9 @@ def main() -> int:
             timeout_seconds=args.timeout_seconds,
             phase=args.phase,
         )
+        if args.routeros_report:
+            routeros_report = json.loads(Path(args.routeros_report).read_text(encoding="utf-8"))
+            attach_routeros_resource_evidence(summary["evidence"], routeros_report)
         _write_json_atomically(Path(args.output), summary["evidence"])
         public_summary = {key: value for key, value in summary.items() if key != "evidence"}
         print(json.dumps(public_summary, sort_keys=True, indent=2))

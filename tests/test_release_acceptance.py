@@ -77,6 +77,33 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertTrue(report["registry_tag_digests_verified"])
         self.assertFalse(report["router_runtime_digest_verified"])
 
+    def test_routeros_resource_evidence_is_preserved_only_when_it_matches_the_soak(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["routeros_resource_evidence"] = {
+            "format": "vpn-dashboard-routeros-acceptance-v1",
+            "observation_started_at": "2026-10-02T10:00:10Z",
+            "observation_ended_at": "2026-10-02T10:30:10Z",
+            "sample_count": 31,
+            "max_sample_gap_seconds": 60,
+            "resource_peaks": {
+                "router_cpu_peak_percent": 25,
+                "router_memory_peak_percent": 40,
+                "router_storage_peak_percent": 20,
+            },
+            "container_revisions_matched": True,
+        }
+
+        code, report = evaluate(evidence, now=self.NOW)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(report["routeros_resource_evidence"]["sample_count"], 31)
+        self.assertEqual(report["routeros_resource_evidence"]["resource_peaks"]["router_cpu_peak_percent"], 25)
+
+        evidence["collection"]["routeros_resource_evidence"]["observation_ended_at"] = "2026-10-02T10:31:11Z"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("routeros_resource_evidence_invalid", report["failed_gates"])
+
     def test_failed_live_collection_cannot_be_overridden_by_deployment_claims(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["collection"] = {
