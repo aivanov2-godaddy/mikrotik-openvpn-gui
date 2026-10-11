@@ -1,10 +1,10 @@
 # Live telemetry acceptance report
 
-Status: **PR #604 PUBLISHED AND ATTESTED; NOT DEPLOYED; LIVE-CLIENT ACCEPTANCE PENDING**
+Status: **PR #616 PUBLISHED, ATTESTED, AND STAGED ON CANARY; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
 
-The latest published runtime candidate is PR #604, commit
-`d876c4bf53b75728e681160a57a98caae04eba76`. Publisher run
-[#38135941556](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38135941556)
+The latest published runtime candidate is PR [#616](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/616),
+commit `54a4c2b7f47058ea42afe8e4f0196f7ce7622a70`. Publisher run
+[#38172476063](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38172476063)
 completed successfully, publishing ARM64/AMD64 images, verifying exact-digest
 provenance and SPDX SBOM attestations, and passing runtime smoke tests. These
 are published-image facts, not current RouterOS deployment evidence. The latest
@@ -12,54 +12,50 @@ published immutable image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-d876c4bf53b75728e681160a57a98caae04eba76-arm64` | `sha256:467b9b62cd954b119bb94f133ac819cff12f96d2cb6f9be785fb0eace6dfa0e7` |
-| AMD64 evaluation | `sha-d876c4bf53b75728e681160a57a98caae04eba76-amd64` | `sha256:2ce61cfaa9e03f3fb5cde135ece41babc6e5eecff9b84a8353f2bc0272ecfe28` |
+| RouterOS ARM64 | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-arm64` | `sha256:0e8d23fd5762dffb7b1aac88e3176d94a6ba3ea742421525d4039c5c99aceb78` |
+| AMD64 evaluation | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-amd64` | See publisher workflow #38172476063 |
 
 ## Latest authenticated canary observation — 2026-10-11
 
-The authenticated read-only browser check was against **canary**. The dashboard
-reported operational service health, a connected Socket.IO transport, and one
-connected disposable VPN client. This is a point observation on the existing
-canary build, not the PR #604 candidate. The latest read-only deployment
-evidence does not show PR #604 deployed to canary or production. Therefore no
-candidate-specific live-client latency/freshness, session-event delivery,
-reconnect/snapshot recovery, Redis soak, resource-soak, or timed canary
-acceptance gate has passed. A read-only access review completed and surfaced
-findings for follow-up; no RouterOS account, service, firewall, certificate, VPN
-policy, container, or image was changed. Configuration details and
-deployment-specific measurements are intentionally omitted from this public
-report.
+The canary-only RouterOS immutable updater staged PR #616's ARM64 candidate.
+The RouterOS Jobs view showed `vpn-gui-immutable-stage-v3` still running at
+approximately 00:00 EEST on 2026-10-12, so its 30 one-minute readiness soak
+was not yet complete at that read-back. A fresh authenticated canary dashboard
+session reported operational service health and Socket.IO. One disposable
+client appeared as connected; live
+traffic counters changed and the active session appeared in history without a
+page reload. This is a qualitative observation, not a measured latency or
+freshness SLO.
+
+A reviewed termination of that test client was reflected without a page reload:
+the connected count became zero and the history row changed to Ended. The
+operation response initially still reported the session active; a later
+RouterOS-backed snapshot reconciled it. The client did not automatically
+reconnect during the subsequent 15-second observation. The test client is now
+disconnected. No candidate-specific reconnect/snapshot recovery, API restart,
+event-loss/order/counter-reset, REST/Binary parity, Redis/outbox, sustained
+resource, SQLite restore, or rollback acceptance was completed. Production
+remains on its previous image and was not touched. No RouterOS account,
+firewall, certificate, CA, VPN policy, or persistent data was changed.
+Deployment-specific configuration and measurements remain private.
 
 ## Latest RouterOS image read-back — 2026-10-11
 
-A read-only WebFig container view showed the canary configured with PR #589
-(`148355fc0f40…`) and production with PR #539 (`7efeff74a79d…`); both dashboard
-containers reported healthy status, and the separate Redis container reported
-running status. These are configured tags and point-in-time health markers,
-not an independent verification of the cached registry digest. PR #604 remains
-published but was not deployed to canary or production.
+The canary was configured with PR #616's immutable ARM64 tag and showed healthy
+status after staging. Production remained configured with PR #539's prior
+immutable image and was unchanged. The Redis container remained separate.
+RouterOS exposes the configured image tag and point-in-time health marker, not
+an independent verification of the cached registry digest. Publisher digest
+and attestation verification are recorded above; they do not substitute for
+RouterOS runtime acceptance.
 
-The authenticated canary dashboard listed one test client but reported delayed
-connection data, zero live rates, and an older RouterOS status timestamp. The
-production dashboard listed zero clients and also reported delayed data and an
-older RouterOS status timestamp. This contradicts a passing live-freshness
-claim and does not establish a 30-minute soak, event latency, recovery, or
-release acceptance. No image/container restart, VPN disconnect, or RouterOS
-configuration change was performed. Configuration values and credentials are
-intentionally excluded from this record.
-
-A follow-up read-only inspection of the already-open canary page found that the
-test client was still listed, but the live-data warning and zero rates remained.
-The browser's sanitized client warning indicated that a status request had
-been redirected to the dashboard-access flow and the page treated its session
-as expired. Displayed uptime and the RouterOS status timestamp were stale; no
-fresh telemetry sample was available to measure. This is a failed freshness
-observation, not evidence that the VPN tunnel dropped. No page reload,
-reauthentication, client disconnect, router/container operation, or policy
-change was performed during this check.
+The canary readiness soak remained in progress at the latest Jobs read-back
+(approximately 00:00 EEST on 2026-10-12).
+Production was not promoted. Historical observations below are not evidence
+for PR #616 and do not override this current status.
 
 Historical RouterOS observations below remain context only and do not override
-the 2026-10-11 read-back or establish acceptance for PR #604.
+the 2026-10-11 read-back or establish acceptance for PR #616.
 
 ## Last RouterOS read-back — 2026-10-10 00:36 EEST
 
