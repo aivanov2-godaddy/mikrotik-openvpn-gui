@@ -937,6 +937,42 @@ function renderServiceHealth(payload) {
   });
 }
 
+function markServiceHealthUnavailable() {
+  const list = $('[data-service-health-list]');
+  if (list) {
+    let rows = [...list.querySelectorAll('.service-health-check')];
+    if (!rows.length) {
+      renderServiceHealth({
+        overall: 'unavailable',
+        checks: [{
+          name: 'Latest health check',
+          status: 'unavailable',
+          impact: 'Current service health could not be verified.',
+          remediation: 'Retry when the dashboard connection is available.',
+        }],
+      });
+      rows = [...list.querySelectorAll('.service-health-check')];
+    }
+    rows.forEach((row) => {
+      row.classList.remove('healthy', 'warning');
+      row.classList.add('unavailable');
+      const impact = row.querySelector('small');
+      if (impact) impact.textContent = 'Not verified on the latest refresh; previous result is stale.';
+      const next = row.querySelector('p');
+      if (next) next.textContent = 'Previous results are stale and must not be treated as current.';
+    });
+    const unavailable = rows.length;
+    ['healthy', 'warning', 'unavailable'].forEach((status) => {
+      const counter = $(`[data-service-health-count="${status}"]`);
+      if (counter) counter.textContent = status === 'unavailable' ? String(unavailable) : '0';
+    });
+  }
+  const overall = $('[data-service-health-overall]');
+  if (overall) overall.textContent = 'Unavailable';
+  const checked = $('[data-service-health-checked]');
+  if (checked) checked.textContent = 'Latest refresh failed · previous results are stale';
+}
+
 function formatObservationTime(value) {
   const timestamp = Number(value) * 1000;
   if (!Number.isFinite(timestamp) || timestamp <= 0) return '—';
@@ -1194,13 +1230,21 @@ async function refreshServiceHealth() {
   const button = $('[data-service-health-refresh]');
   if (button) button.disabled = true;
   try {
-    const response = await resultOrError(await api('/api/service-health'));
-    renderServiceHealth(await response.json());
-    const observability = await resultOrError(await api('/api/observability'));
-    renderObservability({ observability: await observability.json() });
-    toast('Service health checks refreshed.');
-  } catch (error) {
-    toast(error.message, 'error');
+    try {
+      const response = await resultOrError(await api('/api/service-health'));
+      renderServiceHealth(await response.json());
+    } catch (error) {
+      markServiceHealthUnavailable();
+      toast(error.message, 'error');
+      return;
+    }
+    try {
+      const observability = await resultOrError(await api('/api/observability'));
+      renderObservability({ observability: await observability.json() });
+      toast('Service health checks refreshed.');
+    } catch (error) {
+      toast('Service health refreshed; deployment observability could not be refreshed.', 'error');
+    }
   } finally {
     if (button) button.disabled = false;
   }

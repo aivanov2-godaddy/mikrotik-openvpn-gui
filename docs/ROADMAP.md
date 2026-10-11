@@ -1465,3 +1465,11 @@ runtime smoke tests passed. This is registry/CI evidence only. A later
 authenticated browser check was against production, not canary; it did not
 establish a RouterOS image read-back, canary acceptance, or production
 promotion. No deployment-specific router state is recorded here.
+
+**2026-10-11 service-health failure-state correction:** a failed fresh health
+request now changes the summary and cached checks to **Unavailable**, clearly
+labels the previous results stale, and clears healthy/warning counts. A
+separate observability-refresh failure no longer invalidates successfully
+refreshed health. Browser regressions cover desktop, tablet, and mobile, with
+an accessibility scan of the unavailable state. This is UI/test evidence;
+live RouterOS acceptance and release promotion remain outstanding.
