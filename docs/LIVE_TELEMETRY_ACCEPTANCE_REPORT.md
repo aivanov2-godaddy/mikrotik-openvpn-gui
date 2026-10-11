@@ -15,31 +15,68 @@ published immutable image identities are:
 | RouterOS ARM64 | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-arm64` | `sha256:0e8d23fd5762dffb7b1aac88e3176d94a6ba3ea742421525d4039c5c99aceb78` |
 | AMD64 evaluation | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-amd64` | See publisher workflow #38172476063 |
 
-## Latest authenticated canary observation — 2026-10-11
+## Latest canary stage and live-client observation — 2026-10-12
 
-The canary-only RouterOS immutable updater staged PR #616's ARM64 candidate.
-The RouterOS Jobs view showed `vpn-gui-immutable-stage-v3` still running at
-approximately 00:00 EEST on 2026-10-12, so its 30 one-minute readiness soak
-was not yet complete at that read-back. A fresh authenticated canary dashboard
-session reported operational service health and Socket.IO. One disposable
-client appeared as connected; live
-traffic counters changed and the active session appeared in history without a
-page reload. This is a qualitative observation, not a measured latency or
-freshness SLO.
+The RouterOS-local, canary-only immutable updater staged PR #616's ARM64 image.
+At 00:14:19 EEST, RouterOS logged `canary readiness soak passed samples=30`
+and a canary-staged marker. The production container remained unchanged. This
+is a readiness-stage result; RouterOS reports the configured immutable tag
+and health, not an independently read-back registry digest.
 
-A reviewed termination of that test client was reflected without a page reload:
-the connected count became zero and the history row changed to Ended. The
-operation response initially still reported the session active; a later
-RouterOS-backed snapshot reconciled it. The client did not automatically
-reconnect during the subsequent 15-second observation. The test client is now
-disconnected. No candidate-specific reconnect/snapshot recovery, API restart,
-event-loss/order/counter-reset, REST/Binary parity, Redis/outbox, sustained
-resource, SQLite restore, or rollback acceptance was completed. Production
-remains on its previous image and was not touched. No RouterOS account,
-firewall, certificate, CA, VPN policy, or persistent data was changed.
-Deployment-specific configuration and measurements remain private.
+From about 00:11 through 00:42 EEST, an authenticated canary Connections page
+showed the disposable test client connected for more than 30 minutes. The page
+was not reloaded. Socket.IO remained indicated, uptime advanced, and rates,
+packet rates, and cumulative totals changed across successive observations.
+Sparse dashboard health snapshots during this interval showed service health
+as Operational, CPU readings between 14% and 31%, memory at 35%, storage at
+25%, and no bad storage blocks. These snapshots are not a continuous resource
+measurement and do not meet the acceptance collector's 30-sample telemetry,
+latency, or freshness requirements.
 
-## Latest RouterOS image read-back — 2026-10-11
+There were two unresolved live-data inconsistencies: one displayed traffic-rate
+sample briefly peaked near 190 Mbps and then returned to zero without an
+obviously corresponding cumulative-total increase; and a session-card sample
+briefly showed zero byte totals while the separately loaded overview retained
+nonzero totals. Later streamed values recovered without a page reload. This
+prevents treating the observation as proof of accurate rate/counter handling.
+No exact session-event latency or traffic-sample age was measured, and the
+counter-reset test was not intentionally exercised.
+
+At about 00:42 EEST, the reviewed termination flow was used for the disposable
+client. The first operation response still reported the session active; a
+later live RouterOS-backed snapshot changed the connected count to zero and
+the history row to Ended without a page reload. The client did not reconnect
+automatically during the following 30 seconds. This is qualitative disconnect
+and reconciliation evidence, not a measured sub-second event result or an
+automatic client reconnect test.
+
+Unauthenticated requests to canary `/api/status`, `/api/events`, and `/metrics`
+returned HTTP 302, with no telemetry body collected. This is evidence that the
+unauthenticated requests were redirected, not a full deployed authorization,
+session-expiry, or role-revocation assessment. RouterOS API interruption and
+supervisor reconnect/snapshot recovery, event loss/order/duplication, explicit
+counter-reset recovery, REST/Binary parity, Redis/outbox delivery and health,
+SQLite restore, canary rollback, certificate lifecycle, and independent
+external security review remain unaccepted. Production remains on its prior
+image and was not touched. No RouterOS account, firewall, certificate, CA, VPN
+policy, or persistent application data was changed. Deployment-specific
+identifiers and configuration remain private.
+
+After that test session ended, the user first reported reconnecting, but a
+read-only RouterOS PPP > Active Connections check showed zero entries and the
+canary still showed zero connected devices. After the user reported connecting
+again, a later RouterOS check showed one active OpenVPN PPP session, and the
+canary live page changed from zero to one connected device without a reload.
+Canary uptime advanced across subsequent live observations (12, 34, then 79
+seconds); displayed traffic rate and byte counters remained zero during those
+samples. This confirms that a user-initiated reconnect/session event appeared
+in the candidate's live view. It does not test reconnect after RouterOS/API
+interruption or full-snapshot recovery, nor provide traffic freshness or event
+latency evidence. The production page's separate delayed-data indicator was
+not used as acceptance evidence. No production or RouterOS configuration was
+changed.
+
+## Latest RouterOS image read-back — 2026-10-12
 
 The canary was configured with PR #616's immutable ARM64 tag and showed healthy
 status after staging. Production remained configured with PR #539's prior
@@ -49,13 +86,12 @@ an independent verification of the cached registry digest. Publisher digest
 and attestation verification are recorded above; they do not substitute for
 RouterOS runtime acceptance.
 
-The canary readiness soak remained in progress at the latest Jobs read-back
-(approximately 00:00 EEST on 2026-10-12).
-Production was not promoted. Historical observations below are not evidence
-for PR #616 and do not override this current status.
+RouterOS logged that the readiness soak passed at 00:14:19 EEST. Production
+was not promoted. Historical observations below do not override this current
+status.
 
 Historical RouterOS observations below remain context only and do not override
-the 2026-10-11 read-back or establish acceptance for PR #616.
+the 2026-10-12 read-back or establish complete acceptance for PR #616.
 
 ## Last RouterOS read-back — 2026-10-10 00:36 EEST
 
