@@ -30,6 +30,24 @@ policy, container, or image was changed. Configuration details and
 deployment-specific measurements are intentionally omitted from this public
 report.
 
+## Latest RouterOS image read-back — 2026-10-11
+
+A read-only WebFig container view showed the canary configured with PR #589
+(`148355fc0f40…`) and production with PR #539 (`7efeff74a79d…`); both dashboard
+containers reported healthy status, and the separate Redis container reported
+running status. These are configured tags and point-in-time health markers,
+not an independent verification of the cached registry digest. PR #604 remains
+published but was not deployed to canary or production.
+
+The authenticated canary dashboard listed one test client but reported delayed
+connection data, zero live rates, and an older RouterOS status timestamp. The
+production dashboard listed zero clients and also reported delayed data and an
+older RouterOS status timestamp. This contradicts a passing live-freshness
+claim and does not establish a 30-minute soak, event latency, recovery, or
+release acceptance. No image/container restart, VPN disconnect, or RouterOS
+configuration change was performed. Configuration values and credentials are
+intentionally excluded from this record.
+
 Historical RouterOS observations below remain context only and do not override
 the 2026-10-11 read-back or establish acceptance for PR #604.
 

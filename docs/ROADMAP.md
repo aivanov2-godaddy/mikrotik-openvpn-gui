@@ -31,6 +31,18 @@ read-only access review surfaced warnings for follow-up; no RouterOS account,
 service, firewall, certificate, or VPN policy was changed. Deployment-specific
 configuration and runtime measurements remain out of this public roadmap.
 
+**2026-10-11 RouterOS image read-back:** a read-only WebFig container view
+showed the canary configured with PR #589 (`148355fc0f40…`) and production
+with PR #539 (`7efeff74a79d…`); both dashboard containers showed healthy status,
+and the separate Redis container showed running status. These are configured
+image tags and point-in-time health markers; RouterOS does not independently
+verify the cached registry digest. PR #604 remains published but was not
+deployed to either environment. The canary dashboard still listed one test
+client while reporting delayed connection data, zero live rates, and an older
+RouterOS status timestamp; production listed zero clients and also showed
+delayed data. This is a failed live-freshness observation, not acceptance.
+No image, container, VPN session, or RouterOS configuration was changed.
+
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
 session appears without a document reload. This is repository/browser
