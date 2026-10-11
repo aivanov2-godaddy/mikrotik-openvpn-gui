@@ -58,6 +58,27 @@ and production timing are external acceptance items.
 | V4.4.2 | TESTED | Same-origin checks cover the Socket.IO polling path; ASGI handshake tests reject foreign WebSocket origins. Deployed proxy behavior is unverified. |
 | V4.4.3–V4.4.4 | N/A | Live connections use the standard authenticated app session rather than a separate WebSocket token; separate-token acquisition/validation requirements are therefore not applicable to the implemented path. |
 
+## Field-level disclosure contract (selected sensitive read surfaces)
+
+This is an explicit, test-backed field inventory for the sensitive observability
+and reporting surfaces below; it is not a claim that every application response
+has received a complete field-level authorization review. Tests compare exact
+key/header sets so an added field requires an intentional contract update.
+
+| Surface | Allowed response fields / columns | Capability boundary and limit |
+| --- | --- | --- |
+| `GET /api/observability` | Top level: `current`, `deployments`, `health_timeline`, `operations_timeline`, `rollback`, `generated_at`. `current`: `version`, `revision`, `status`. `rollback`: `available`, `revision`, `version`, `message`, `data_preserved`. | Requires `health.read`. The operations timeline includes dashboard audit and status-only integration delivery events only with `audit.read`, and session-snapshot events only with `sessions.read`; session events omit RouterOS session IDs and peer/VPN addresses. Deployment and health rows are bounded status summaries. |
+| `GET /api/operations-timeline.json` | Root: `events`, `generated_at`, `coverage`; coverage: `complete`, `message`. Event fields are the tested allowlist: `id`, `occurred_at`, `source`, `type`, `actor`, `target`, `outcome`, `severity`, `summary`, `clock_skew_seconds`, `age_seconds`, `related_events`, `relationship_summary`; only session rows add `timestamp_quality`. Relationship fields: `event_id`, `source`, `relation`, `delta_seconds`. | Requires both `audit.read` and `sessions.read`. The report deliberately omits raw audit details, integration payloads, database/session IDs, and source/VPN addresses; correlation is context, not proof of cause. |
+| `GET /api/connections.csv` | `user`, `connected`, `disconnected`, `source_ip`, `vpn_ip`, `encryption`, `received_bytes`, `sent_bytes`, `received_packets`, `sent_packets`. | Requires `sessions.read`; addresses and usernames are intentionally present, so treat the export as sensitive. |
+| `GET /api/usage.csv` | `user`, `period_start`, `connections`, `received_bytes`, `sent_bytes`, `total_bytes`, `quota_mb`, `last_seen`. | Requires `sessions.read`; contains per-user usage and quota information. |
+| `GET /api/reports/compliance.zip` | `summary.json`: `format`, `version`, `generated_at`, `range` (`from`, `to`), `counts` (`audit_entries`, `connection_entries`, `failed_audit_entries`), `redaction`; `audit.csv`: `timestamp`, `operator`, `action`, `target`, `result`, `details`; `connections.csv`: `user`, `connected`, `disconnected`, `source_ip`, `vpn_ip`, `encryption`, `received_bytes`, `sent_bytes`. | Requires both `audit.read` and `sessions.read`. The CSVs intentionally contain identifying operational data described in the redaction notice; they are not anonymous. |
+
+The exact contract is guarded by
+`OperationsTimelineTests.test_sensitive_timeline_fields_match_the_allowlisted_contract`
+and `DashboardIntegrationTests.test_sensitive_exports_disclose_their_real_data_scope`.
+This inventory supplements, but does not replace, the broader independent
+handler/field review and deployment checks listed below.
+
 The `N/A` entries are limited to the stated product boundary; they are not
 claims that an external proxy, RouterOS, or the whole deployment satisfies
 those controls. The gaps and external checks above remain open acceptance work.

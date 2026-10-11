@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import csv
 import hashlib
 import http.client
 import io
@@ -87,6 +88,34 @@ class ProfileShareStoreTests(unittest.TestCase):
 
 
 class OperationsTimelineTests(unittest.TestCase):
+    def test_sensitive_timeline_fields_match_the_allowlisted_contract(self) -> None:
+        result = operations_timeline(
+            [{"id": 7, "created_at": 98, "actor": "operator", "action": "user.update", "target": "alice", "status": "success", "details": {"password": "must-not-escape"}}],
+            [{"id": 4, "created_at": 99, "version": "1.2.3", "revision": "abc", "status": "running", "channel": "canary", "details": {"token": "must-not-escape"}}],
+            [{"id": 8, "created_at": 100, "overall": "healthy", "healthy_count": 3, "warning_count": 0, "unavailable_count": 0, "checks": [{"private": "must-not-escape"}]}],
+            integrations=[{"source_id": 7, "event_type": "audit", "created_at": 99, "delivered_at": 101, "attempts": 1, "payload": "must-not-escape"}],
+            connections=[{"id": 12, "vpn_user": "alice", "connected_at": 100, "disconnected_at": 0, "session_id": "must-not-escape", "source_address": "192.0.2.8"}],
+            now=110,
+        )
+
+        self.assertEqual(set(result), {"events", "generated_at", "coverage"})
+        self.assertEqual(set(result["coverage"]), {"complete", "message"})
+        expected_event_fields = {
+            "id", "occurred_at", "source", "type", "actor", "target", "outcome",
+            "severity", "summary", "clock_skew_seconds", "age_seconds", "related_events",
+            "relationship_summary",
+        }
+        event_types = {item["type"] for item in result["events"]}
+        self.assertEqual(event_types, {"change", "deployment", "health", "integration", "session"})
+        for event in result["events"]:
+            expected = expected_event_fields | ({"timestamp_quality"} if event["type"] == "session" else set())
+            self.assertEqual(set(event), expected, event["type"])
+            for relation in event["related_events"]:
+                self.assertEqual(set(relation), {"event_id", "source", "relation", "delta_seconds"})
+        serialized = json.dumps(result)
+        for forbidden in ("must-not-escape", "192.0.2.8", "session_id", "source_address", "payload", "details"):
+            self.assertNotIn(forbidden, serialized)
+
     def test_session_rows_are_redacted_and_linked_as_noncausal_context(self) -> None:
         result = operations_timeline(
             [{"id": 7, "created_at": 98, "actor": "operator", "action": "user.update", "target": "alice", "status": "success"}],
@@ -430,6 +459,20 @@ class DashboardIntegrationTests(unittest.TestCase):
             details={"source": "203.0.113.88"},
         )
 
+        status, _, observability_payload = self.request("GET", "/api/observability")
+        self.assertEqual(status, 200)
+        observability = json.loads(observability_payload)
+        self.assertEqual(
+            set(observability),
+            {"current", "deployments", "health_timeline", "operations_timeline", "rollback", "generated_at"},
+        )
+        self.assertEqual(set(observability["current"]), {"version", "revision", "status"})
+        self.assertEqual(
+            set(observability["rollback"]),
+            {"available", "revision", "version", "message", "data_preserved"},
+        )
+        self.assertEqual(set(observability["operations_timeline"]), {"events", "generated_at", "coverage"})
+
         status, _, connection_csv = self.request("GET", "/api/connections.csv")
         self.assertEqual(status, 200)
         self.assertIn(b"source_ip,vpn_ip", connection_csv)
@@ -443,6 +486,24 @@ class DashboardIntegrationTests(unittest.TestCase):
             compliance_summary = json.loads(archive.read("summary.json"))
             compliance_audit = archive.read("audit.csv")
             compliance_csv = archive.read("connections.csv")
+        self.assertEqual(
+            set(compliance_summary),
+            {"format", "version", "generated_at", "range", "counts", "redaction"},
+        )
+        self.assertEqual(set(compliance_summary["range"]), {"from", "to"})
+        self.assertEqual(
+            set(compliance_summary["counts"]),
+            {"audit_entries", "connection_entries", "failed_audit_entries"},
+        )
+        self.assertEqual(
+            next(csv.reader(io.StringIO(compliance_audit.decode("utf-8-sig")))),
+            ["timestamp", "operator", "action", "target", "result", "details"],
+        )
+        self.assertEqual(
+            next(csv.reader(io.StringIO(compliance_csv.decode("utf-8-sig")))),
+            ["user", "connected", "disconnected", "source_ip", "vpn_ip", "encryption",
+             "received_bytes", "sent_bytes"],
+        )
         self.assertIn("source_ip", compliance_csv.decode("utf-8"))
         self.assertIn(b"203.0.113.77", compliance_csv)
         self.assertIn(b"10.8.0.77", compliance_csv)
@@ -1299,12 +1360,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "text/csv; charset=utf-8")
         self.assertIn("vpn-connection-history.csv", headers["content-disposition"])
+        self.assertEqual(
+            next(csv.reader(io.StringIO(payload.decode("utf-8-sig")))),
+            ["user", "connected", "disconnected", "source_ip", "vpn_ip", "encryption",
+             "received_bytes", "sent_bytes", "received_packets", "sent_packets"],
+        )
         self.assertIn(b"user-two", payload)
 
         status, headers, payload = self.request("GET", "/api/usage.csv")
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "text/csv; charset=utf-8")
         self.assertIn("vpn-monthly-usage.csv", headers["content-disposition"])
+        self.assertEqual(
+            next(csv.reader(io.StringIO(payload.decode("utf-8-sig")))),
+            ["user", "period_start", "connections", "received_bytes", "sent_bytes",
+             "total_bytes", "quota_mb", "last_seen"],
+        )
         self.assertIn(b"total_bytes", payload)
         self.assertIn(b"user-two", payload)
 
