@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -127,6 +128,29 @@ class _NoRedirect(HTTPRedirectHandler):
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _write_json_atomically(path: Path, document: dict[str, Any]) -> None:
+    """Replace an evidence report atomically so partial/stale JSON is never left behind."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(json.dumps(document, sort_keys=True, indent=2) + "\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _probe_url(base_url: str, path: str) -> str:
@@ -876,12 +900,26 @@ def main() -> int:
             timeout_seconds=args.timeout_seconds,
             phase=args.phase,
         )
-        Path(args.output).write_text(json.dumps(summary["evidence"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        _write_json_atomically(Path(args.output), summary["evidence"])
         public_summary = {key: value for key, value in summary.items() if key != "evidence"}
         print(json.dumps(public_summary, sort_keys=True, indent=2))
     except (OSError, json.JSONDecodeError, ValueError) as error:
         # Do not emit input, URL, response, credentials, or exception details.
-        print(json.dumps({"collected": False, "error": type(error).__name__}))
+        failure_report = {
+            "format": "vpn-dashboard-release-collection-failure-v1",
+            "collected": False,
+            "collected_at": _utc_now().isoformat(),
+            "passed": False,
+            "failed_gates": ["collection_failed"],
+            "error": type(error).__name__,
+        }
+        output_replaced = False
+        try:
+            _write_json_atomically(Path(args.output), failure_report)
+            output_replaced = True
+        except OSError:
+            pass
+        print(json.dumps({"collected": False, "output_replaced": output_replaced, "error": type(error).__name__}))
         return 2
     return code
 
