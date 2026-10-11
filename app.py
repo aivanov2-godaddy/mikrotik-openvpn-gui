@@ -674,6 +674,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
             role_resolver=lambda session: context.router.get_admin_role(
                 RouterOSCredentials(session.username, session.password)
             ),
+            on_session_snapshot=context.store.observe_sessions,
         )
         self.context.telemetry_runtime = self.telemetry_runtime
         self.context.telemetry_state = self.telemetry_runtime.state

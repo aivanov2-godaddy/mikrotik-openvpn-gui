@@ -526,8 +526,9 @@ def dashboard_page(
         end_text = "Connected now" if live else time.strftime("%d %b %Y · %H:%M", time.localtime(disconnected_at))
         traffic = int(item.get("rx_bytes", 0) or 0) + int(item.get("tx_bytes", 0) or 0)
         search_text = f"{username} {source_address} {vpn_address} {encoding} {connected_text} {end_text}"
+        session_id = html.escape(str(item.get("session_id", "")), quote=True)
         connection_rows.append(
-            f"""<tr data-connection-row data-connection-search="{html.escape(search_text.lower(), quote=True)}">
+            f"""<tr data-connection-row data-router-session-id="{session_id}" data-history-live="{'true' if live else 'false'}" data-connected-at="{connected_at}" data-connection-search="{html.escape(search_text.lower(), quote=True)}">
               <td><span class="history-action"><i class="audit-icon{' live' if live else ''}"></i><strong>{html.escape(username)}</strong></span></td>
               <td><time>{html.escape(connected_text)}</time><small class="table-secondary">{html.escape(end_text)}</small></td>
               <td>{html.escape(_duration(ended_at - connected_at))}</td>

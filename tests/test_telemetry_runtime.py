@@ -7,6 +7,27 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class TelemetryRuntimeFreshnessTests(unittest.TestCase):
+    def test_authoritative_session_snapshot_updates_history_observer(self) -> None:
+        config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
+        observed = []
+        runtime = TelemetryRuntime(
+            sessions=SessionStore(),
+            rest_url=config.routeros_rest_url,
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=config.routeros_api_ssl_port,
+            requested_transport=config.live_transport,
+            on_session_snapshot=observed.append,
+        )
+        active = [{"id": "*1", "name": "test-user", "rx_bytes": 12}]
+
+        runtime._publish([
+            TelemetryEvent("vpn.session.disconnected", 1, 100, {"name": "test-user"}),
+            TelemetryEvent("telemetry.snapshot", 2, 101, {"sessions": active}),
+        ])
+
+        self.assertEqual(observed, [active])
+
     def test_event_publish_does_not_misrepresent_events_as_counter_samples(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         runtime = TelemetryRuntime(

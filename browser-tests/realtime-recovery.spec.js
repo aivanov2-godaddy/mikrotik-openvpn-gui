@@ -90,6 +90,10 @@ test('a failed status poll does not mark a recent Socket.IO snapshot as delayed'
   }));
   const indicators = page.locator('[data-live-indicator]');
   await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
+  const staleHistoryRow = page.locator('[data-router-session-id="*A1"]');
+  await expect(staleHistoryRow.locator('.history-status')).toHaveText('Ended');
+  await expect(staleHistoryRow.locator('td:nth-child(2) small')).toHaveText('Ended · syncing history');
 
   await expect.poll(() => statusPolls, { timeout: 8000 }).toBeGreaterThan(1);
   await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);

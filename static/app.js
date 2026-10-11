@@ -540,6 +540,9 @@ function renderConnectionHistory(connections = []) {
     const searchText = `${username} ${source} ${vpnAddress} ${encoding} ${connectedText} ${endText}`.toLocaleLowerCase();
     const row = node('tr');
     row.dataset.connectionRow = '';
+    row.dataset.routerSessionId = String(item.session_id || '');
+    row.dataset.historyLive = String(!disconnectedAt);
+    row.dataset.connectedAt = String(connectedAt);
     row.dataset.connectionSearch = searchText;
     const user = node('td');
     const action = node('span', 'history-action');
@@ -568,6 +571,32 @@ function renderConnectionHistory(connections = []) {
   }
   history.dataset.openCount = String(connections.filter((item) => !item.disconnected_at).length);
   applyConnectionSearch();
+}
+
+function reconcileConnectionHistory(sessions = []) {
+  const history = $('[data-connection-history]');
+  if (!history) return;
+  const activeIds = new Set(sessions.map((session) => String(session.id || '')).filter(Boolean));
+  let openCount = 0;
+  $$('[data-connection-row]', history).forEach((row) => {
+    if (row.dataset.historyLive !== 'true') return;
+    const sessionId = row.dataset.routerSessionId;
+    if (sessionId && activeIds.has(sessionId)) {
+      openCount += 1;
+      return;
+    }
+    if (!sessionId) return;
+    row.dataset.historyLive = 'false';
+    $('.history-action .audit-icon', row)?.classList.remove('live');
+    const endTime = $('td:nth-child(2) small', row);
+    if (endTime) endTime.textContent = 'Ended · syncing history';
+    const status = $('.history-status', row);
+    if (status) {
+      status.classList.remove('connected');
+      status.textContent = 'Ended';
+    }
+  });
+  history.dataset.openCount = String(openCount);
 }
 
 function renderAlerts(alerts = []) {
@@ -730,6 +759,7 @@ function updateLiveSnapshot(payload) {
   // appear to have happened in a few milliseconds.
   const timestamp = Date.now();
   lastLiveSnapshotAt = timestamp;
+  reconcileConnectionHistory(payload.sessions);
   syncActiveSessions(payload.sessions, timestamp);
   $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
   $$('[data-nav-session-count]').forEach((item) => { item.textContent = payload.sessions.length; });
