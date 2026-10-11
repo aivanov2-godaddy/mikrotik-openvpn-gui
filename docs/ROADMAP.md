@@ -8,40 +8,44 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-11
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
-published runtime candidate is PR #604, commit
-`d876c4bf53b75728e681160a57a98caae04eba76`. Publisher run
-[#38135941556](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38135941556)
+published runtime candidate is PR [#616](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/616),
+commit `54a4c2b7f47058ea42afe8e4f0196f7ce7622a70`. Publisher run
+[#38172476063](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38172476063)
 completed successfully, publishing ARM64 and AMD64 images, verifying their
 exact-digest provenance and SPDX SBOM attestations, and passing published-image
 runtime smoke tests:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-d876c4bf53b75728e681160a57a98caae04eba76-arm64` | `sha256:467b9b62cd954b119bb94f133ac819cff12f96d2cb6f9be785fb0eace6dfa0e7` |
-| AMD64 evaluation | `sha-d876c4bf53b75728e681160a57a98caae04eba76-amd64` | `sha256:2ce61cfaa9e03f3fb5cde135ece41babc6e5eecff9b84a8353f2bc0272ecfe28` |
+| RouterOS ARM64 | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-arm64` | `sha256:0e8d23fd5762dffb7b1aac88e3176d94a6ba3ea742421525d4039c5c99aceb78` |
+| AMD64 evaluation | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-amd64` | Verified by publisher workflow #38172476063 |
 
-On 2026-10-11, an authenticated canary dashboard observation showed the
-operator's disposable VPN client connected and the live transport reporting
-Socket.IO. This is a point observation on the existing canary build, not on the
-PR #604 candidate. The latest read-only deployment evidence does not show PR
-#604 deployed to RouterOS; the candidate remains published but undeployed.
-Canary soak, candidate-specific live-client latency/freshness,
-reconnect/snapshot recovery, and production promotion are not claimed. A
-read-only access review surfaced warnings for follow-up; no RouterOS account,
-service, firewall, certificate, or VPN policy was changed. Deployment-specific
-configuration and runtime measurements remain out of this public roadmap.
+On 2026-10-11, the candidate was staged to the canary by the RouterOS-local,
+canary-only immutable updater. A fresh authenticated dashboard session showed
+the candidate operating with Socket.IO live updates and one connected
+disposable client; traffic counters changed and the session appeared in history
+without a page reload. After a reviewed test-client termination, the live
+connection count fell to zero and the history row changed to Ended without a
+page reload. The first termination response still reported the session active;
+the later RouterOS-backed snapshot reconciled it. This is qualitative
+candidate-specific stream/reconciliation evidence, not a measured latency SLO.
 
-**2026-10-11 RouterOS image read-back:** a read-only WebFig container view
-showed the canary configured with PR #589 (`148355fc0f40…`) and production
-with PR #539 (`7efeff74a79d…`); both dashboard containers showed healthy status,
-and the separate Redis container showed running status. These are configured
-image tags and point-in-time health markers; RouterOS does not independently
-verify the cached registry digest. PR #604 remains published but was not
-deployed to either environment. The canary dashboard still listed one test
-client while reporting delayed connection data, zero live rates, and an older
-RouterOS status timestamp; production listed zero clients and also showed
-delayed data. This is a failed live-freshness observation, not acceptance.
-No image, container, VPN session, or RouterOS configuration was changed.
+The updater's 30 one-minute readiness soak was still running at the latest
+RouterOS Jobs read-back (approximately 00:00 EEST on 2026-10-12), and the test
+client had not reconnected.
+Therefore a complete candidate acceptance window, event latency/freshness,
+automatic API reconnect/snapshot recovery, Redis/resource soak, event integrity,
+restore/rollback drills, and production promotion are **not** claimed.
+Production remains on its prior immutable image and was not modified. No
+RouterOS account, firewall, certificate, CA, or VPN policy was changed.
+
+**2026-10-11 RouterOS image read-back:** the canary is configured with PR #616's
+immutable ARM64 tag and was reported healthy after staging; production remains
+on PR #539 (`7efeff74a79d…`) and was untouched. The separate Redis container
+remains separate. RouterOS exposes configured tags and health markers, not an
+independent verification of the cached registry digest. See the current
+[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md) for the incomplete
+readiness soak and live-client observations.
 
 PR #585 adds synthetic browser coverage that refreshing the certificate
 replacement panel preserves the active live stream and that a later streamed
@@ -49,12 +53,13 @@ session appears without a document reload. This is repository/browser
 simulation evidence only; it does not establish RouterOS certificate or
 connected-client acceptance.
 
-Earlier PR #582, #587, and #589 stage/session observations below are historical.
-The latest PR #604 published-image evidence and current live acceptance status
-are recorded in the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
-Live-client latency, changing-traffic freshness, reconnect/snapshot recovery,
-and the required timed acceptance window remain unverified for the current
-candidate. Production promotion was not performed.
+Earlier PR #582, #587, #589, and #604 stage/session observations below are
+historical. The latest PR #616 published-image evidence and current live
+acceptance status are recorded in the
+[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). Live-client latency,
+changing-traffic freshness, reconnect/snapshot recovery, and the required timed
+acceptance window remain unverified for the current candidate. Production
+promotion was not performed.
 
 ### Historical canary stage and acceptance observations — 2026-10-09
 
