@@ -4613,7 +4613,17 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         def commit_then_lose_response(credentials: Any, *, certificate_id: str) -> None:
             revoke(credentials, certificate_id=certificate_id)
-            raise RouterOSError("private simulated response loss", 503)
+            # A same-name certificate must not satisfy read-back for the
+            # reviewed RouterOS id if the actual mutation response is lost.
+            self.mock.state.certificates["*OLD-DECOY"] = {
+                ".id": "*OLD-DECOY", "name": legacy_name, "common-name": "user-one-phone",
+                "fingerprint": "DECOY:FAKE", "issuer": "legacy-ca", "ca": "legacy-ca",
+                "trusted": "yes", "revoked": "no", "key-usage": "tls-client",
+                "invalid-after": "2030-08-03 00:00:00", "expires-after": "208w",
+            }
+            # A transport timeout has no HTTP status: the mutation may have
+            # committed even though its response never reached the client.
+            raise RouterOSError("private simulated response loss", failure_kind="timeout")
 
         with mock.patch.object(
             self.server.context.router,
@@ -4626,6 +4636,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, payload.decode("utf-8"))
         self.assertTrue(result["verified"])
         self.assertTrue(self.mock.state.certificates["*OLD"]["revoked"])
+        self.assertEqual(self.mock.state.certificates["*OLD-DECOY"]["revoked"], "no")
         self.assertEqual(self.mock.state.certificates["*REPLACEMENT"]["revoked"], "no")
         self.assertEqual(
             self.server.context.store.profile_migrations()[legacy_name]["retirement_state"],
@@ -4635,7 +4646,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(audit["status"], "success")
         details = json.loads(audit["details"])
         self.assertEqual(details["verification"], "routeros_revoked")
-        self.assertEqual(details["mutation_response"], "error")
+        self.assertEqual(details["mutation_response"], "lost")
         self.assertNotIn("private simulated response loss", payload.decode("utf-8"))
 
     def test_unmanaged_legacy_revoke_rejects_changed_replacement_after_review(self) -> None:
@@ -4860,7 +4871,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(response["verified"])
         self.assertIsNotNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
-        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "success")
+        latest = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(latest["status"], "success")
+        self.assertEqual(json.loads(latest["details"])["mutation_response"], "error")
 
     def test_device_revoke_does_not_mark_local_state_when_routeros_readback_mismatches(self) -> None:
         path, device_id = self._managed_device_revoke_request()

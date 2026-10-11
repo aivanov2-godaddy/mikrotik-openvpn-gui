@@ -5587,14 +5587,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "device.revoke"):
                 return
-            mutation_error: RouterOSError | None = None
+            mutation_response = "ok"
             try:
                 self.server.context.router.revoke_certificate(credentials, certificate_id=certificate_id)
             except RouterOSError as error:
                 # A lost REST response does not tell us whether RouterOS
                 # committed the revocation. The exact certificate read-back is
                 # authoritative before changing local device state.
-                mutation_error = error
+                mutation_response = "lost" if error.status is None else "error"
             try:
                 certificates = self.server.context.router.list_ovpn_client_certificates(
                     credentials, include_legacy=True
@@ -5632,7 +5632,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     status="failed",
                     details={
                         "verification": "mismatch",
-                        "mutation_response": "error" if mutation_error else "ok",
+                        "mutation_response": mutation_response,
                     },
                 )
                 self._json(
@@ -5693,7 +5693,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         details={
                             "verification": "source_revoked_replacement_unverified",
                             "reason": replacement_problem or "replacement_changed_after_review",
-                            "mutation_response": "error" if mutation_error else "ok",
+                            "mutation_response": mutation_response,
                         },
                     )
                     self._json(
@@ -5729,7 +5729,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "vpn_user": vpn_user,
                     "certificate": certificate_name,
                     "verification": "routeros_revoked",
-                    "mutation_response": "error" if mutation_error else "ok",
+                    "mutation_response": mutation_response,
                     "active_session_termination_verified": False,
                     "client_rejection_verified": False,
                 },
