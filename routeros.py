@@ -1086,11 +1086,12 @@ class RouterOSClient:
             invalid_after = str(certificate.get("invalid-after", "")).strip()
             if invalid_after:
                 try:
-                    expiry = datetime.strptime(invalid_after, "%Y-%m-%d %H:%M:%S")
+                    datetime.strptime(invalid_after, "%Y-%m-%d %H:%M:%S")
                 except ValueError:
                     raise RouterOSError("RouterOS returned an invalid certificate expiry") from None
-                if expiry <= datetime.now():
-                    raise RouterOSError("RouterOS reports that the generated certificate is expired")
+                # RouterOS reports this absolute value in its local timezone;
+                # the app container may use a different timezone. Use the
+                # relative expires-after value below for an expiry decision.
             expires_after = str(certificate.get("expires-after", "")).strip()
             if expires_after:
                 remaining = _certificate_remaining_seconds(expires_after)

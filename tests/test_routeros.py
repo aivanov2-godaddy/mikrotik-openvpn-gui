@@ -509,7 +509,6 @@ class RouterOSClientTests(unittest.TestCase):
             ("trusted", "no", "not confirm that the generated certificate is trusted"),
             ("revoked", "2026-10-01 12:00:00", "certificate is revoked"),
             ("revoked", "", "certificate is revoked"),
-            ("invalid-after", "2000-01-01 00:00:00", "certificate is expired"),
             ("invalid-after", "not-a-date", "invalid certificate expiry"),
             ("expires-after", "0s", "certificate is expired"),
             ("expires-after", "not-a-duration", "invalid certificate validity period"),
@@ -579,6 +578,38 @@ class RouterOSClientTests(unittest.TestCase):
                     credentials,
                     vpn_user="user-one",
                     device_name="Optional status test",
+                    key_passphrase="private-passphrase",
+                )
+
+            self.assertTrue(profile.fingerprint)
+            self.assertIn(profile.certificate_id, mock.state.certificates)
+            self.assertEqual(sorted(mock.state.files), ["vpn-ca.crt"])
+
+    def test_profile_provisioning_uses_relative_expiry_not_router_local_absolute_date(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def set_router_local_date(method, path, *args, **kwargs):
+                result = request(method, path, *args, **kwargs)
+                query = kwargs.get("query", {})
+                if (
+                    method == "GET"
+                    and path == "/certificate"
+                    and str(query.get("name", "")).startswith("ovpn-ui-")
+                    and "fingerprint" in str(query.get(".proplist", ""))
+                    and isinstance(result, list)
+                    and result
+                ):
+                    result[0]["invalid-after"] = "2000-01-01 00:00:00"
+                return result
+
+            with patch.object(client, "_request", side_effect=set_router_local_date):
+                profile = client.provision_profile(
+                    credentials,
+                    vpn_user="user-one",
+                    device_name="Router-local expiry test",
                     key_passphrase="private-passphrase",
                 )
 
