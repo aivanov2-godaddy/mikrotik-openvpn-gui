@@ -1371,3 +1371,27 @@ result was captured. This note supersedes the earlier published-candidate
 reference for #199, but does not satisfy its canary soak or the live-router
 authorization checks in #200. No router policy, account, certificate, or VPN
 session was changed.
+
+## PR #604 release candidate and canary session observation — 2026-10-11
+
+PR #604 merged to `main` as `d876c4bf53b75728e681160a57a98caae04eba76`.
+Publisher workflow [#38135941556](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38135941556)
+completed successfully for AMD64 and ARM64, verified the exact-digest image
+provenance and SPDX SBOM attestations, and passed each published-runtime smoke
+test. The immutable artifacts are:
+
+| Architecture | Immutable tag | Published manifest digest |
+| --- | --- | --- |
+| AMD64 | `sha-d876c4bf53b75728e681160a57a98caae04eba76-amd64` | `sha256:2ce61cfaa9e03f3fb5cde135ece41babc6e5eecff9b84a8353f2bc0272ecfe28` |
+| ARM64 | `sha-d876c4bf53b75728e681160a57a98caae04eba76-arm64` | `sha256:467b9b62cd954b119bb94f133ac819cff12f96d2cb6f9be785fb0eace6dfa0e7` |
+
+An authenticated canary dashboard observation showed the operator's disposable
+VPN client connected and the live transport indicator reporting Socket.IO.
+This is a point observation on the already-running canary, not a measurement of
+the new PR #604 image: the candidate has not been deployed to RouterOS. It does
+not establish event latency/freshness, reconnect or snapshot recovery, event
+integrity, Redis delivery, resource impact, or the required 30-minute soak.
+The deployment tool's dedicated RouterOS REST credential variables were not
+available in this environment, so no router container, RouterOS policy, VPN
+session, certificate, CA, production image, or persistent data was changed.
+Production promotion and candidate rollback rehearsal are not claimed.
