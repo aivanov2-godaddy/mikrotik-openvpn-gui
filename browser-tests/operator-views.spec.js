@@ -81,6 +81,37 @@ for (const view of views) {
   });
 }
 
+test('failed service-health refresh marks cached checks unavailable and stale', async ({ page }, testInfo) => {
+  await page.getByRole('link', { name: 'Service Health', exact: true }).click();
+  await page.route('**/api/service-health', (route) => route.abort('failed'));
+  await page.getByRole('button', { name: 'Refresh checks' }).click();
+
+  await expect(page.locator('[data-service-health-overall]')).toHaveText('Unavailable');
+  await expect(page.locator('[data-service-health-checked]'))
+    .toHaveText('Latest refresh failed · previous results are stale');
+  const checks = page.locator('[data-service-health-list] .service-health-check');
+  await expect(checks).not.toHaveCount(0);
+  await expect(page.locator('[data-service-health-list] .service-health-check.healthy')).toHaveCount(0);
+  await expect(page.locator('[data-service-health-list] .service-health-check.warning')).toHaveCount(0);
+  await expect(page.locator('[data-service-health-list] .service-health-check.unavailable'))
+    .toHaveCount(await checks.count());
+  await expect(checks.first()).toContainText('previous result is stale');
+  await expect(page.getByRole('button', { name: 'Refresh checks' })).toBeEnabled();
+  await expectNoSeriousAxeViolations(page, testInfo, 'service-health-unavailable');
+});
+
+test('observability failure does not invalidate freshly updated service health', async ({ page }) => {
+  await page.getByRole('link', { name: 'Service Health', exact: true }).click();
+  await page.route('**/api/observability', (route) => route.abort('failed'));
+  await page.getByRole('button', { name: 'Refresh checks' }).click();
+
+  await expect(page.locator('[data-service-health-overall]')).not.toHaveText('Unavailable');
+  await expect(page.locator('[data-service-health-checked]')).toHaveText(/checks completed just now/);
+  await expect(page.getByText('Service health refreshed; deployment observability could not be refreshed.'))
+    .toBeVisible();
+  await expect(page.getByRole('button', { name: 'Refresh checks' })).toBeEnabled();
+});
+
 test('OpenVPN dashboard logo stays within a narrow mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 });
   const logo = page.getByRole('img', { name: 'OpenVPN', exact: true });
