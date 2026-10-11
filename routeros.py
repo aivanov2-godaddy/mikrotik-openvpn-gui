@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from config import ConfigurationError, OpenVPNTopology
 
 
@@ -1048,17 +1049,55 @@ class RouterOSClient:
                     credentials,
                     query={
                         "name": certificate_name,
-                        ".proplist": ".id,name,fingerprint,ca",
+                        ".proplist": (
+                            ".id,name,common-name,fingerprint,ca,trusted,revoked,"
+                            "invalid-after,expires-after"
+                        ),
                     },
                 )
             )
-            fingerprint = certificate_records[0].get("fingerprint") if certificate_records else None
-            certificate_ca = str(certificate_records[0].get("ca", "")) if certificate_records else ""
+            if len(certificate_records) != 1:
+                raise RouterOSError("Could not verify the generated RouterOS certificate identity")
+            certificate = certificate_records[0]
+            if (
+                str(certificate.get(".id", "")) != str(certificate_id)
+                or str(certificate.get("name", "")) != certificate_name
+                or str(certificate.get("common-name", "")) != common_name
+            ):
+                raise RouterOSError("Could not verify the generated RouterOS certificate identity")
+            fingerprint = str(certificate.get("fingerprint") or "").strip()
+            if not fingerprint:
+                raise RouterOSError("RouterOS did not return a fingerprint for the generated certificate")
+            certificate_ca = str(certificate.get("ca", ""))
             if certificate_ca != self.ovpn_ca:
                 raise RouterOSError(
                     f"Generated client certificate is signed by {certificate_ca or 'an unknown CA'}, "
                     f"not the configured OpenVPN CA {self.ovpn_ca}"
                 )
+            if "trusted" in certificate and not _yes(certificate.get("trusted")):
+                raise RouterOSError("RouterOS did not confirm that the generated certificate is trusted")
+            if "revoked" in certificate:
+                revoked_value = certificate.get("revoked")
+                confirmed_unrevoked = (
+                    isinstance(revoked_value, bool) and not revoked_value
+                ) or str(revoked_value or "").strip().casefold() in {"no", "false", "0"}
+                if not confirmed_unrevoked or _certificate_is_revoked(revoked_value):
+                    raise RouterOSError("RouterOS reports that the generated certificate is revoked")
+            invalid_after = str(certificate.get("invalid-after", "")).strip()
+            if invalid_after:
+                try:
+                    expiry = datetime.strptime(invalid_after, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    raise RouterOSError("RouterOS returned an invalid certificate expiry") from None
+                if expiry <= datetime.now():
+                    raise RouterOSError("RouterOS reports that the generated certificate is expired")
+            expires_after = str(certificate.get("expires-after", "")).strip()
+            if expires_after:
+                remaining = _certificate_remaining_seconds(expires_after)
+                if remaining is None:
+                    raise RouterOSError("RouterOS returned an invalid certificate validity period")
+                if remaining <= 0:
+                    raise RouterOSError("RouterOS reports that the generated certificate is expired")
             succeeded = True
             return ProvisionedProfile(
                 profile=hardened.encode("utf-8"),
