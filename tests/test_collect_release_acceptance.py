@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 from contextlib import redirect_stdout
 from io import StringIO
 import json
+from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -77,6 +79,41 @@ class FakeTime:
 
 
 class ReleaseCollectionTests(unittest.TestCase):
+    def test_collection_failure_atomically_replaces_a_stale_passing_report(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        with tempfile.TemporaryDirectory() as directory:
+            input_path = Path(directory) / "input.json"
+            output_path = Path(directory) / "report.json"
+            input_path.write_text(json.dumps(evidence()), encoding="utf-8")
+            output_path.write_text('{"passed": true, "old": "stale"}\n', encoding="utf-8")
+            output = StringIO()
+            arguments = [
+                "collect_release_acceptance.py",
+                "--input", str(input_path),
+                "--output", str(output_path),
+                "--canary-url", "https://canary.example",
+                "--production-url", "https://production.example",
+                "--canary-metrics-url", "https://canary.example",
+                "--phase", "canary-prepromotion",
+            ]
+            with (
+                patch.object(sys, "argv", arguments),
+                patch.object(collector, "collect", side_effect=ValueError("private-router.invalid password-secret")),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(collector.main(), 2)
+
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["format"], "vpn-dashboard-release-collection-failure-v1")
+            self.assertFalse(report["collected"])
+            self.assertFalse(report["passed"])
+            self.assertEqual(report["failed_gates"], ["collection_failed"])
+            self.assertEqual(report["error"], "ValueError")
+            self.assertNotIn("stale", output_path.read_text(encoding="utf-8"))
+            self.assertNotIn("private-router", output_path.read_text(encoding="utf-8"))
+            self.assertNotIn("password-secret", output.getvalue())
+
     def test_production_metrics_origin_is_optional_for_pre_promotion_cli(self) -> None:
         from scripts import collect_release_acceptance as collector
 
