@@ -1425,3 +1425,29 @@ The deployment tool's dedicated RouterOS REST credential variables were not
 available in this environment, so no router container, RouterOS policy, VPN
 session, certificate, CA, production image, or persistent data was changed.
 Production promotion and candidate rollback rehearsal are not claimed.
+
+## Reconnected client and live-counter follow-up — 2026-10-11
+
+After the operator reconnected the disposable VPN client, authenticated
+read-only Connections views on both `vpn-dev.wanted.sx` and `vpn.wanted.sx`
+showed one connected device and `Live · SOCKETIO`. On the canary, two
+observations 11 seconds apart showed the connected-device count unchanged and
+one traffic direction's displayed counter increasing; no page reload or
+session termination was used. This confirms that the currently deployed
+canary page can render a changing traffic sample while the client is
+connected. It does not measure RouterOS-to-browser event latency or sample
+age, establish ordered connect/disconnect delivery, or satisfy the required
+30-minute soak.
+
+A read-only RouterOS container-list observation during this check showed the
+canary configured with
+`sha-148355fc0f40d9e7d17faa0baf8e4bd1d6dc73c0-arm64` and production with
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; neither matched the
+published PR #604 candidate
+`sha-d876c4bf53b75728e681160a57a98caae04eba76-arm64`. The app containers
+reported healthy in RouterOS. No image, container, RouterOS policy, account,
+certificate, CA, or persistent data was changed, and production was not
+promoted. The read-only automated RouterOS collector/deployer could not run
+because the required dedicated API credential environment variables were
+absent. Candidate-specific canary acceptance and all later release gates
+remain open.
