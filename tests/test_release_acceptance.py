@@ -10,6 +10,24 @@ from scripts.release_acceptance import evaluate
 class ReleaseAcceptanceTests(unittest.TestCase):
     NOW = datetime(2026, 10, 2, 10, 31, tzinfo=timezone.utc)
 
+    @staticmethod
+    def _routeros_resource_evidence() -> dict[str, object]:
+        return {
+            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "observation_started_at": "2026-10-02T10:00:10Z",
+            "observation_ended_at": "2026-10-02T10:30:10Z",
+            "sample_count": 31,
+            "rest_parity_successful_sample_count": 31,
+            "rest_parity_failed_sample_count": 0,
+            "max_sample_gap_seconds": 60,
+            "resource_peaks": {
+                "router_cpu_peak_percent": 25,
+                "router_memory_peak_percent": 40,
+                "router_storage_peak_percent": 20,
+            },
+            "container_revisions_matched": True,
+        }
+
     def setUp(self) -> None:
         revision = "a" * 40
         self.evidence = {
@@ -31,6 +49,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     }
                     for environment in ("canary", "production")
                 ],
+                "routeros_resource_evidence": self._routeros_resource_evidence(),
             },
             "deployments": [
                 {
@@ -76,6 +95,17 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertNotIn("details", report["deployments"][0])
         self.assertTrue(report["registry_tag_digests_verified"])
         self.assertFalse(report["router_runtime_digest_verified"])
+
+    def test_passing_collection_requires_joined_routeros_soak_evidence(self) -> None:
+        evidence = deepcopy(self.evidence)
+        del evidence["collection"]["routeros_resource_evidence"]
+
+        code, report = evaluate(evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertFalse(report["promotion_eligible"])
+        self.assertFalse(report["production_accepted"])
+        self.assertIn("routeros_resource_evidence_missing", report["failed_gates"])
 
     def test_routeros_resource_evidence_is_preserved_only_when_it_matches_the_soak(self) -> None:
         evidence = deepcopy(self.evidence)
@@ -155,6 +185,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "started_at": "2026-10-02T10:00:00Z",
             "ended_at": "2026-10-02T10:30:00Z",
             "registry_digest_verification": deepcopy(self.evidence["collection"]["registry_digest_verification"]),
+            "routeros_resource_evidence": self._routeros_resource_evidence(),
         }
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 0)

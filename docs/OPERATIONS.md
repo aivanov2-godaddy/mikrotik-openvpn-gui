@@ -294,14 +294,17 @@ For release acceptance, copy the schema shown by
 to a private local file and fill only the RouterOS/operator-exercise evidence.
 Do not enter deployment health, image-digest, or telemetry claims by hand; the
 read-only collector owns those fields. Keep both files outside the repository.
-Run the collector first, then pass its output—not the example or uncollected
-input—to the evaluator. The pre-promotion phase keeps production on its
-recorded prior image:
+Run the RouterOS read-only sampler and app collector concurrently so their
+30-minute windows align, then pass the joined app-collector output—not the
+example or uncollected input—to the evaluator. A passing release report now
+requires the joined RouterOS evidence. The pre-promotion phase keeps production
+on its recorded prior image:
 
 ```powershell
 python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
+  --routeros-report private-routeros-window.json `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
   --canary-metrics-url https://<approved-canary-origin> `

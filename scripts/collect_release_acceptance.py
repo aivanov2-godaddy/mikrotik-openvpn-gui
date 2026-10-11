@@ -957,7 +957,8 @@ def main() -> int:
     parser.add_argument("--output", required=True, help="output path for collected evidence JSON")
     parser.add_argument(
         "--routeros-report",
-        help="optional completed redacted report from collect_routeros_acceptance.py; must cover the same soak",
+        required=True,
+        help="completed redacted report from collect_routeros_acceptance.py; must cover the same soak",
     )
     parser.add_argument("--canary-url", required=True, help="private app origin, without path")
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
@@ -1012,9 +1013,8 @@ def main() -> int:
             timeout_seconds=args.timeout_seconds,
             phase=args.phase,
         )
-        if args.routeros_report:
-            routeros_report = json.loads(Path(args.routeros_report).read_text(encoding="utf-8"))
-            attach_routeros_resource_evidence(summary["evidence"], routeros_report)
+        routeros_report = json.loads(Path(args.routeros_report).read_text(encoding="utf-8"))
+        attach_routeros_resource_evidence(summary["evidence"], routeros_report)
         _write_json_atomically(Path(args.output), summary["evidence"])
         public_summary = {key: value for key, value in summary.items() if key != "evidence"}
         print(json.dumps(public_summary, sort_keys=True, indent=2))

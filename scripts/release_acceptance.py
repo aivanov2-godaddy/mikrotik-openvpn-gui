@@ -334,7 +334,10 @@ def evaluate(
             failures.append("prepromotion_production_not_on_prior_image")
     routeros_resource_evidence: dict[str, Any] | None = None
     raw_routeros_evidence = collection.get("routeros_resource_evidence") if isinstance(collection, dict) else None
-    if raw_routeros_evidence is not None:
+    if raw_routeros_evidence is None:
+        if isinstance(collection, dict) and collection.get("passed") is True:
+            failures.append("routeros_resource_evidence_missing")
+    else:
         resource_names = (
             "router_cpu_peak_percent",
             "router_memory_peak_percent",
