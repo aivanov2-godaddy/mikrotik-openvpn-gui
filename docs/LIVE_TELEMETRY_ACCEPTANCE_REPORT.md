@@ -1525,3 +1525,35 @@ promoted. The read-only automated RouterOS collector/deployer could not run
 because the required dedicated API credential environment variables were
 absent. Candidate-specific canary acceptance and all later release gates
 remain open.
+
+## PR #633 reauthentication runtime candidate — 2026-10-12
+
+PR #633 merged to `main` as
+`febbdd6c90c763c34a130cb6cc1be977b8d8612a`. It adds an authenticated
+RouterOS reauthentication action that revalidates the current account and
+role, rotates the dashboard session and CSRF token, and revokes the old
+session without navigating the page or interrupting the live transport.
+The PR's required Python 3.13/3.14, pre-commit, browser/accessibility,
+ARM64 smoke, Redis recovery, secret, dependency, and Socket.IO origin checks
+passed. An independent source-and-test review found no code issues; that
+review did not exercise RouterOS, the proxy, or production.
+
+Publisher run
+[#38278708288](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38278708288)
+completed successfully on attempt 2. Attempt 1 reported HTTP 422 because the
+stable release asset name already existed; read-back confirmed that the asset
+already contained this run's exact manifest, and attempt 2 completed all
+publisher jobs. SLSA provenance was verified with the source commit constrained
+to this `main` revision:
+
+| Architecture | Immutable tag | Registry manifest digest |
+| --- | --- | --- |
+| ARM64 | `sha-febbdd6c90c763c34a130cb6cc1be977b8d8612a-arm64` | `sha256:a4410a88956d02d3244c4e229c814c54696490ad37c1be6b77d04879ea1cff60` |
+| AMD64 | `sha-febbdd6c90c763c34a130cb6cc1be977b8d8612a-amd64` | `sha256:42ba95d6980de03c6966875088d9706c4d8faf5a60df17fd2da595ef2a62fd4b` |
+
+This is repository and registry evidence only. No authenticated RouterOS
+read-back or live reauthentication test was available for this candidate, so
+neither canary staging nor production deployment is claimed. No RouterOS
+policy, account, certificate, VPN session, or persistent application data was
+changed. Issue #200's deployed authorization/security review and issue #199's
+candidate-specific acceptance remain open.
