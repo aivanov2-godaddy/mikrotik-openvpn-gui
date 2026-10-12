@@ -1,35 +1,33 @@
 # Live telemetry acceptance report
 
-Status: **LATEST RUNTIME PUBLISHED; CANARY-ONLY STAGE RETRY IN PROGRESS; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #641 RUNTIME PUBLISHED AND CONFIGURED ON CANARY; READINESS RETRY IN PROGRESS; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
 As of 2026-10-13, the latest published runtime image is built from commit
-`19ac2e19f9eed48117fa63d1ad9bf905da33ba15` (PR #638), published by run
-[#38313003800](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38313003800).
+`960cee6445cf77e6947d146a7f8dcee7842cd9e0` (PR #641), published by run
+[#38321283657](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38321283657).
 The ARM64 digest is
-`sha256:3a4db55e43af00895639c61a55d24d9893ee6b924b857136e53080d9e310f4a6`;
-the AMD64 digest is
-`sha256:52ef26cf96e3fd6cab029980528fa1368239c47004a0354e1544da6e56faae01`.
-PR #639 (`43061f3`) updates only acceptance scripts/tests/docs, so it did not
+`sha256:2734ec707470f0a1791600a2f369c18c5a94a451b30edb3ee10b86e0c04b66ce`;
+the run verified provenance and SPDX SBOM and passed the published-runtime
+smoke. PR #642 (`ffd47ed`) changes only acceptance evaluator/tests and did not
 trigger a runtime image build.
 
-The most recent RouterOS read-back before the current stage retry showed the
-canary configured with the PR #638 immutable ARM64 tag and healthy, while
-production remained healthy on its prior PR #539 tag
-(`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`). After finding an
-orphaned updater lock and no active updater job, the lock was cleared and the
-canary-only stage script was rerun. At approximately 01:40 EEST it had not
-returned a staged marker or updated the stage-state file. This retry is not a
-readiness pass; production was not touched.
+At 02:48 EEST, RouterOS read-back showed the canary configured with PR #641's
+immutable ARM64 tag and `healthcheck-status=good`. Production remained healthy
+on its prior `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64` image. The
+canary-only stage updater had been running since 02:33 EEST, its lock remained
+held, and `/ppp active` reported one disposable test session. At that check,
+there was no 30-sample readiness-pass log or staged marker. The run is still
+in progress; do not count elapsed time or individual `/readyz` HTTP 200s as a
+completed soak. Production was not touched.
 
-At approximately 01:40 EEST, RouterOS `/ppp active` and the authenticated
-canary Connections view both reported zero active VPN sessions; the dashboard also indicated connection
-data delayed. Therefore the session-change, reconnect/snapshot, event-latency,
-and traffic-freshness gates are not currently measured. Previously recorded
-30-minute qualitative observations and older readiness passes remain
-historical and do not substitute for the current candidate's evidence. The
-merged #639 evaluator now requires positive reset-free reconnect/snapshot
-counters, ordered in-window supervisor timestamps, and session-event
-observation age no greater than two seconds; missing evidence fails closed.
+The authenticated canary dashboard reported `Live · SOCKETIO`; its traffic
+counters changed between observations without a manual page refresh. This is
+qualitative proof that the current page receives streaming updates, not a
+numeric event-latency or sample-freshness measurement. The merged #639/#642
+evaluator requires in-window ordered RouterOS-supervisor reconnect and full
+snapshot timestamps, reset-free evidence, and session-event observation age
+no greater than two seconds; missing evidence fails closed. No new measured
+reconnect/snapshot acceptance window has been collected yet.
 
 Read-only RouterOS certificate settings showed CRL download/use disabled. No
 CA, certificate, VPN policy, or production configuration was changed; actual
