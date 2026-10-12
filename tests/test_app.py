@@ -768,6 +768,170 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(body.count(b"event: status"), 1)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
+    def test_sse_stops_emitting_when_session_is_rotated_by_reauthentication(self) -> None:
+        self.login()
+        old_cookie = self.cookie
+        old_csrf = self.csrf
+        old_session_id = old_cookie.split("=", 1)[1]
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        reauth_results: list[tuple[int, dict[str, str], bytes]] = []
+
+        def rotate_after_first_event(_seconds: float) -> None:
+            reauth_results.append(self.request(
+                "POST",
+                "/api/auth/reauthenticate",
+                body=json.dumps({"password": "routerpass"}).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": old_cookie,
+                    "X-CSRF-Token": old_csrf,
+                    "Origin": self.config.public_origin,
+                },
+            ))
+
+        with mock.patch("app.time.sleep", side_effect=rotate_after_first_event):
+            connection.request(
+                "GET",
+                "/api/events",
+                headers={"Cookie": old_cookie, "Origin": self.config.public_origin},
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertEqual(len(reauth_results), 1)
+        self.assertEqual(reauth_results[0][0], 200, reauth_results[0][2].decode())
+        self.cookie = reauth_results[0][1]["set-cookie"].split(";", 1)[0]
+        self.csrf = json.loads(reauth_results[0][2])["csrf_token"]
+        self.assertEqual(body.count(b"event: status"), 1)
+        self.assertIsNone(self.server.context.sessions.get(old_session_id, touch=False))
+        status, _, payload = self.request("GET", "/api/telemetry", headers={"Cookie": old_cookie})
+        self.assertEqual(status, 401, payload.decode())
+        status, _, payload = self.request("GET", "/api/telemetry")
+        self.assertEqual(status, 200, payload.decode())
+
+    def test_reauthentication_rotates_cookie_csrf_and_uses_current_routeros_capabilities(self) -> None:
+        self.login()
+        old_cookie = self.cookie
+        old_csrf = self.csrf
+        old_session_id = old_cookie.split("=", 1)[1]
+
+        with mock.patch.object(self.server.context.router, "get_admin_role", return_value="read"):
+            status, headers, payload = self.request(
+                "POST",
+                "/api/auth/reauthenticate",
+                body=json.dumps({"password": "routerpass"}).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": old_cookie,
+                    "X-CSRF-Token": old_csrf,
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 200, payload.decode())
+        result = json.loads(payload)
+        self.assertEqual(result["role"], "read_only")
+        self.assertNotEqual(result["csrf_token"], old_csrf)
+        self.assertIn("Secure", headers["set-cookie"])
+        self.assertIn("HttpOnly", headers["set-cookie"])
+        self.assertIn("SameSite=Strict", headers["set-cookie"])
+        self.cookie = headers["set-cookie"].split(";", 1)[0]
+        self.csrf = result["csrf_token"]
+        new_session_id = self.cookie.split("=", 1)[1]
+        self.assertNotEqual(new_session_id, old_session_id)
+        self.assertIsNone(self.server.context.sessions.get(old_session_id, touch=False))
+        self.assertEqual(self.server.context.sessions.get(new_session_id, touch=False).role, "read_only")
+
+        status, _, payload = self.request("GET", "/api/telemetry", headers={"Cookie": old_cookie})
+        self.assertEqual(status, 401, payload.decode())
+        status, _, payload = self.request("GET", "/api/telemetry")
+        self.assertEqual(status, 200, payload.decode())
+        status, _, payload = self.request("GET", "/api/admin/api-tokens")
+        self.assertEqual(status, 403, payload.decode())
+        self.assertIn(b"security.manage", payload)
+
+        with mock.patch.object(self.server.context.router, "verify_credentials") as verify:
+            status, _, payload = self.request(
+                "POST",
+                "/api/auth/reauthenticate",
+                body=json.dumps({"password": "routerpass"}).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": self.cookie,
+                    "X-CSRF-Token": old_csrf,
+                    "Origin": self.config.public_origin,
+                },
+            )
+        self.assertEqual(status, 403)
+        self.assertIn(b"CSRF", payload)
+        verify.assert_not_called()
+
+    def test_reauthentication_rejects_foreign_or_unverifiable_origins_before_router_auth(self) -> None:
+        self.login()
+        cookie = self.cookie
+        csrf = self.csrf
+        session_id = cookie.split("=", 1)[1]
+        body = json.dumps({"password": "routerpass"}).encode()
+
+        with mock.patch.object(self.server.context.router, "verify_credentials") as verify:
+            status, _, payload = self.request(
+                "POST",
+                "/api/auth/reauthenticate",
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": cookie,
+                    "X-CSRF-Token": csrf,
+                    "Origin": "https://attacker.example",
+                },
+            )
+            self.assertEqual(status, 403, payload.decode())
+
+            status, _, payload = self.request(
+                "POST",
+                "/api/auth/reauthenticate",
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": cookie,
+                    "X-CSRF-Token": csrf,
+                },
+            )
+            self.assertEqual(status, 403, payload.decode())
+            verify.assert_not_called()
+
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+
+    def test_reauthentication_failure_keeps_session_and_rate_limits_bad_passwords(self) -> None:
+        self.login()
+        old_cookie = self.cookie
+        old_csrf = self.csrf
+        session_id = old_cookie.split("=", 1)[1]
+        headers = {
+            "Content-Type": "application/json",
+            "Cookie": old_cookie,
+            "X-CSRF-Token": old_csrf,
+            "Origin": self.config.public_origin,
+        }
+        for _ in range(5):
+            status, _, payload = self.request(
+                "POST", "/api/auth/reauthenticate",
+                body=json.dumps({"password": "wrong-password"}).encode(),
+                headers=headers,
+            )
+            self.assertEqual(status, 401, payload.decode())
+            self.assertNotIn(b"wrong-password", payload)
+            self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+        status, _, payload = self.request(
+            "POST", "/api/auth/reauthenticate",
+            body=json.dumps({"password": "routerpass"}).encode(),
+            headers=headers,
+        )
+        self.assertEqual(status, 429, payload.decode())
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+
     def test_sse_reconnect_rejects_revoked_or_expired_cookie_before_router_read(self) -> None:
         for state in ("revoked", "expired"):
             with self.subTest(state=state):
@@ -852,6 +1016,41 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(queued_marker.encode(), payload)
         self.assertNotIn(sid, self.server.socketio_bridge._clients)
         self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+
+    def test_socketio_stream_stops_after_session_reauthentication_rotates_cookie(self) -> None:
+        self.login()
+        old_cookie = self.cookie
+        old_csrf = self.csrf
+        sid, _ = self.connect_socketio_polling(old_cookie)
+        queued_marker = self.queue_socketio_test_event(sid)
+
+        status, headers, payload = self.request(
+            "POST",
+            "/api/auth/reauthenticate",
+            body=json.dumps({"password": "routerpass"}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Cookie": old_cookie,
+                "X-CSRF-Token": old_csrf,
+                "Origin": self.config.public_origin,
+            },
+        )
+        self.assertEqual(status, 200, payload.decode())
+        self.cookie = headers["set-cookie"].split(";", 1)[0]
+        self.csrf = json.loads(payload)["csrf_token"]
+
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": old_cookie, "Origin": self.config.public_origin},
+        )
+        self.assertEqual(status, 401)
+        self.assertNotIn(queued_marker.encode(), payload)
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+
+        status, _, payload = self.request("GET", "/api/telemetry")
+        self.assertEqual(status, 200, payload.decode())
 
     def test_socketio_stream_stops_after_real_logout_with_queued_telemetry(self) -> None:
         self.login()
@@ -1557,7 +1756,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/usage.csv", "/metrics", "/api/events",
         )
         write_routes = (
-            "/api/users", "/api/users/preview", "/api/users/test-user/preview", "/api/bulk/preview",
+            "/api/auth/reauthenticate", "/api/users", "/api/users/preview", "/api/users/test-user/preview", "/api/bulk/preview",
             "/api/bulk/apply", "/api/bulk/views", "/api/setup-plan",
             "/api/openvpn-foundation-plan", "/api/admin/api-tokens",
             "/api/admin/break-glass/plan", "/api/network/segment-plan",
@@ -1892,6 +2091,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         # intentionally RouterOS-session/CSRF-only routes. Bulk action routes
         # have separate rows because their required capability is action-bound.
         route_cases = [
+            ("POST", literal("/api/auth/reauthenticate"), "/api/auth/reauthenticate", (), {}),
             ("GET", literal("/api/events"), "/api/events", ("sessions.read",), {}),
             ("GET", literal("/api/telemetry"), "/api/telemetry", (), {}),
             ("GET", literal("/api/admin/sessions"), "/api/admin/sessions", ("sessions.read",), {}),
@@ -2002,7 +2202,11 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.cookie = ""
             self.csrf = ""
             self.login()
-            headers = {"Content-Type": "application/json", "X-CSRF-Token": self.csrf}
+            headers = {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": self.csrf,
+                "Origin": self.config.public_origin,
+            }
             for method, form, path, required, body in route_cases:
                 missing = {capability for capability in required if not has_capability(group, capability)}
                 # /api/events is an intentionally long-lived SSE response.

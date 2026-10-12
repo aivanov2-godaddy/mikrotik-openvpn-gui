@@ -6,6 +6,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendLiveUpdateContractTests(unittest.TestCase):
+    def test_session_reauthentication_ui_and_route_authorization_mapping(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        template = (ROOT / "templates.py").read_text(encoding="utf-8")
+        authorization = (ROOT / "docs" / "ROUTE_AUTHORIZATION.md").read_text(encoding="utf-8")
+        browser = (ROOT / "browser-tests" / "session-reauth.spec.js").read_text(encoding="utf-8")
+        self.assertIn("let csrf = document.querySelector", source)
+        self.assertIn("api('/api/auth/reauthenticate'", source)
+        self.assertIn("csrfMeta.content = csrf", source)
+        self.assertIn("form.elements.password.value = ''", source)
+        self.assertIn("data-open-session-reauth", template)
+        self.assertIn("session-reauthenticate-dialog", template)
+        self.assertIn("Verify and revoke session", template)
+        self.assertIn("POST /api/auth/reauthenticate", authorization)
+        self.assertIn("test_reauthentication_rotates_cookie_csrf", authorization)
+        self.assertIn("browser-tests/session-reauth.spec.js", authorization)
+        self.assertIn("expectNoDocumentReload", browser)
+
     def test_policy_template_apply_requires_the_current_review_receipt(self) -> None:
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("form.dataset.policyReviewToken = payload.review_token || ''", source)

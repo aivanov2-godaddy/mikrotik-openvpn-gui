@@ -777,9 +777,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             extra=extra,
         )
 
-    def _json(self, value: Any, status: int = 200) -> None:
+    def _json(
+        self,
+        value: Any,
+        status: int = 200,
+        extra: dict[str, str] | None = None,
+    ) -> None:
         payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
-        self._bytes(payload, status=status, content_type="application/json; charset=utf-8")
+        self._bytes(
+            payload,
+            status=status,
+            content_type="application/json; charset=utf-8",
+            extra=extra,
+        )
 
     def _json_download(self, filename: str, value: Any) -> None:
         payload = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
@@ -1868,6 +1878,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 alerts=self.server.context.store.recent_alerts(20),
                 policy_templates=self.server.context.store.list_policy_templates(),
                 admin_role=session.role,
+                can_reauthenticate=session.auth_method == "routeros",
                 router=router,
                 dashboard_name=self.server.context.config.dashboard_name,
                 router_display_name=self.server.context.config.router_display_name,
@@ -1900,6 +1911,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._login()
+            return
+        if path == "/api/auth/reauthenticate":
+            self._reauthenticate()
             return
         if path == "/logout":
             self._logout()
@@ -3331,6 +3345,119 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.server.context.sessions.destroy(session.session_id)
         cookie = "vpn_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict"
         self._redirect("/login", cookie=cookie)
+
+    def _reauthenticate(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_routeros_session(session):
+            return
+        if not self._require_csrf(session):
+            return
+        if not self._login_origin_allowed():
+            self._json(
+                {"error": "Re-authentication request origin could not be verified."},
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return
+        try:
+            data = self._read_json()
+            password = data.get("password")
+            if not isinstance(password, str) or not password or len(password) > 256:
+                raise ValueError("Enter your RouterOS password to re-authenticate")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        identity = self._client_ip()
+        reservation = self.server.context.limiter.reserve(identity)
+        if reservation is None:
+            self.server.context.store.audit(
+                actor=session.username,
+                action="session.reauth.rate_limited",
+                target="dashboard",
+                status="denied",
+                details={"source": identity},
+            )
+            self._json(
+                {"error": "Too many authentication attempts. Try again later."},
+                status=HTTPStatus.TOO_MANY_REQUESTS,
+            )
+            return
+
+        credentials = RouterOSCredentials(session.username, password)
+        try:
+            self.server.context.router.verify_credentials(credentials)
+            role = self.server.context.router.get_admin_role(credentials)
+            if role is None:
+                self.server.context.limiter.finish(reservation, failed=True)
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="session.reauth.failed",
+                    target="dashboard",
+                    status="denied",
+                    details={"source": identity, "reason": "account_unavailable"},
+                )
+                self._json(
+                    {"error": "RouterOS could not confirm this account is enabled."},
+                    status=HTTPStatus.UNAUTHORIZED,
+                )
+                return
+        except RouterOSError as error:
+            rejected = error.status == HTTPStatus.UNAUTHORIZED
+            self.server.context.limiter.finish(reservation, failed=True if rejected else None)
+            self.server.context.store.audit(
+                actor=session.username,
+                action="session.reauth.failed" if rejected else "session.reauth.unavailable",
+                target="dashboard",
+                status="denied" if rejected else "unavailable",
+                details={"source": identity, "reason": type(error).__name__},
+            )
+            if rejected:
+                self._json(
+                    {"error": "Authentication failed. The dashboard session was not changed."},
+                    status=HTTPStatus.UNAUTHORIZED,
+                )
+            else:
+                self._json(
+                    {"error": "RouterOS could not verify the password right now. The dashboard session was not changed."},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            return
+        except Exception:
+            self.server.context.limiter.finish(reservation, failed=None)
+            raise
+
+        self.server.context.limiter.finish(reservation, failed=False)
+        replacement = self.server.context.sessions.rotate(
+            session.session_id,
+            password,
+            role=role,
+        )
+        if replacement is None:
+            self._json(
+                {"error": "The dashboard session expired or changed during re-authentication."},
+                status=HTTPStatus.UNAUTHORIZED,
+            )
+            return
+
+        self.server.context.store.audit(
+            actor=replacement.username,
+            action="session.reauthenticated",
+            target="dashboard",
+            status="success",
+            details={"role": normalize_role(replacement.role), "source": identity},
+        )
+        cookie = (
+            f"vpn_session={replacement.session_id}; Path=/; Max-Age=28800; "
+            "Secure; HttpOnly; SameSite=Strict"
+        )
+        self._json(
+            {
+                "ok": True,
+                "role": normalize_role(replacement.role),
+                "csrf_token": replacement.csrf_token,
+            },
+            extra={"Set-Cookie": cookie},
+        )
 
     def _find_user(self, credentials: RouterOSCredentials, user_id: str) -> dict[str, Any]:
         for user in self.server.context.router.list_ovpn_users(credentials):

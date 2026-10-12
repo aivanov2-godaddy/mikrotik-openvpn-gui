@@ -99,6 +99,38 @@ class SecurityTests(unittest.TestCase):
         self.assertNotEqual(first.session_id, second.session_id)
         self.assertEqual(token.call_args_list, [mock.call(32), mock.call(32), mock.call(32), mock.call(32)])
 
+    def test_session_reauthentication_rotates_tokens_atomically_at_account_limit(self) -> None:
+        store = SessionStore(max_sessions_per_account=1)
+        original = store.create(
+            "admin", "old-password", role="owner", source_address="192.0.2.5",
+            user_agent="dashboard-test", now=100,
+        )
+
+        rotated = store.rotate(original.session_id, "new-password", role="read_only", now=110)
+
+        self.assertIsNotNone(rotated)
+        assert rotated is not None
+        self.assertNotEqual(rotated.session_id, original.session_id)
+        self.assertNotEqual(rotated.csrf_token, original.csrf_token)
+        self.assertEqual(rotated.password, "new-password")
+        self.assertEqual(rotated.role, "read_only")
+        self.assertEqual((rotated.created_at, rotated.last_seen), (110, 110))
+        self.assertEqual((rotated.source_address, rotated.user_agent), ("192.0.2.5", "dashboard-test"))
+        self.assertIsNone(store.get(original.session_id, now=110, touch=False))
+        self.assertIs(store.get(rotated.session_id, now=110, touch=False), rotated)
+        self.assertEqual(len(store.active(now=110)), 1)
+
+    def test_session_rotation_fails_closed_for_expired_or_non_routeros_sessions(self) -> None:
+        store = SessionStore(idle_seconds=10, absolute_seconds=30)
+        expired = store.create("admin", "secret", now=100)
+        self.assertIsNone(store.rotate(expired.session_id, "new-secret", role="owner", now=111))
+        self.assertIsNone(store.get(expired.session_id, now=111, touch=False))
+
+        token_session = store.create("api-actor", "", now=200)
+        token_session.auth_method = "api_token"
+        self.assertIsNone(store.rotate(token_session.session_id, "new-secret", role="owner", now=201))
+        self.assertIs(store.get(token_session.session_id, now=201, touch=False), token_session)
+
     def test_session_limit_is_per_account_and_expired_sessions_free_a_slot(self) -> None:
         store = SessionStore(
             idle_seconds=10,

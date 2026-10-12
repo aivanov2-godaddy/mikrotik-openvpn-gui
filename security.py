@@ -180,6 +180,56 @@ class SessionStore:
                 session.last_seen = current
             return session
 
+    def rotate(
+        self,
+        session_id: str,
+        password: str,
+        *,
+        role: str,
+        now: float | None = None,
+    ) -> Session | None:
+        """Replace a live RouterOS session after successful re-authentication.
+
+        The old reference and CSRF tokens are invalidated in the same critical
+        section that installs the replacement, so rotation works even when an
+        account is already at its concurrent-session limit.
+        """
+        if not session_id:
+            return None
+        current = time.time() if now is None else now
+        with self._lock:
+            existing = self._sessions.get(session_id)
+            if existing is None:
+                return None
+            if existing.auth_method != "routeros":
+                return None
+            if (
+                current - existing.last_seen > self.idle_seconds
+                or current - existing.created_at > self.absolute_seconds
+            ):
+                self._sessions.pop(session_id, None)
+                self._role_checked_at.pop(session_id, None)
+                self._role_check_locks.pop(session_id, None)
+                return None
+
+            replacement = Session(
+                session_id=secrets.token_urlsafe(32),
+                username=existing.username,
+                password=password,
+                csrf_token=secrets.token_urlsafe(32),
+                created_at=current,
+                last_seen=current,
+                role=normalize_role(role),
+                source_address=existing.source_address,
+                user_agent=existing.user_agent,
+            )
+            self._sessions.pop(session_id, None)
+            self._role_checked_at.pop(session_id, None)
+            self._role_check_locks.pop(session_id, None)
+            self._sessions[replacement.session_id] = replacement
+            self._role_checked_at[replacement.session_id] = current
+            return replacement
+
     @staticmethod
     def _role_is_subset(left: str, right: str) -> bool:
         left_capabilities = role_capabilities(left)
