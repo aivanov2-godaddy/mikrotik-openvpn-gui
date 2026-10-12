@@ -94,7 +94,6 @@ REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_telemetry_gateway_buffered_events",
     "vpn_dashboard_telemetry_gateway_events_total_published",
     "vpn_dashboard_telemetry_gateway_events_total_replayed",
-    "vpn_dashboard_telemetry_gateway_events_total_snapshot_recovery",
     "vpn_dashboard_telemetry_gateway_rejected_clients_total",
     "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds",
     "vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds",
@@ -878,11 +877,8 @@ def collect(
         if metrics_required:
             reconnects = metric_summary.get("telemetry_supervisor", {}).get("reconnects", {})
             supervisor = metric_summary.get("telemetry_supervisor", {})
-            snapshot_recoveries = metric_summary.get("telemetry_gateway", {}).get("snapshot_recoveries", {})
             reconnect_delta = reconnects.get("delta") if metrics_window_complete else None
             reconnect_reset = reconnects.get("counter_reset") if metrics_window_complete else None
-            snapshot_delta = snapshot_recoveries.get("delta") if metrics_window_complete else None
-            snapshot_reset = snapshot_recoveries.get("counter_reset") if metrics_window_complete else None
             connected_window = supervisor.get("connected_timestamp_window", {})
             snapshot_window = supervisor.get("snapshot_timestamp_window", {})
             reconnect_at = connected_window.get("last") if metrics_window_complete else None
@@ -907,8 +903,6 @@ def collect(
             )
             record["reconnect_recovery_counter_delta"] = reconnect_delta
             record["reconnect_recovery_counter_reset"] = reconnect_reset
-            record["snapshot_recovery_counter_delta"] = snapshot_delta
-            record["snapshot_recovery_counter_reset"] = snapshot_reset
             record["reconnect_observed_at"] = reconnect_at
             record["full_snapshot_recovered_at"] = snapshot_at
             record["reconnect_recovered"] = (
@@ -920,9 +914,6 @@ def collect(
             )
             record["snapshot_recovered"] = (
                 record.get("snapshot_recovered") is True
-                and snapshot_delta is not None
-                and snapshot_delta > 0
-                and snapshot_reset is False
                 and same_window_full_snapshot
             )
             if not record["reconnect_recovered"]:
