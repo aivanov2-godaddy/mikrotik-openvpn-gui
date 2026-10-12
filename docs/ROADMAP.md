@@ -28,6 +28,11 @@ was confirmed connected in RouterOS PPP Active Connections at 16:30 EEST;
 this is a point-in-time session observation, not proof that the candidate is
 deployed or that its live telemetry passed.
 
+Issue #199 was automatically closed by PR #626's `Fixes #199` keyword even
+though the PR body and acceptance criteria leave deployment evidence outstanding.
+It was reopened on 2026-10-12 so the paired RouterOS/app soak, recovery, restore,
+rollback, and promotion evidence remain tracked to completion.
+
 On 2026-10-12, RouterOS logged that the canary-only updater staged PR #616's
 immutable ARM64 candidate and passed its 30-sample readiness soak at 00:14
 EEST. An authenticated, no-refresh canary observation then kept the
