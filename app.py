@@ -1095,12 +1095,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
         values = []
         for user in self.server.context.router.list_ovpn_users(credentials):
             username = str(user.get("name", ""))
+            # Keep the browser response independent of the RouterOS adapter's
+            # returned fields. RouterOS records can grow over time; only expose
+            # the fields the VPN-user UI is designed to consume.
+            public_user = {
+                "id": user.get("id", ""),
+                "name": username,
+                "profile": user.get("profile", ""),
+                "comment": user.get("comment", ""),
+                "disabled": user.get("disabled", False),
+            }
             controls = self.server.context.store.user_controls(username)
             controls["quota_used_bytes"] = self.server.context.store.quota_usage(username, period_start)
             assignment = assignments.get(username)
             template = templates.get(str(assignment.get("template_id", ""))) if assignment else None
             values.append({
-                **user, "email": emails.get(username, ""), "controls": controls,
+                **public_user, "email": emails.get(username, ""), "controls": controls,
                 "tags": tags_by_user.get(username, []),
                 "template": ({"id": template["id"], "name": template["name"],
                               "group_name": template["group_name"], "overrides": assignment["overrides"]}

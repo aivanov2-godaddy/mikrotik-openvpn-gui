@@ -1491,6 +1491,35 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(payload)["compatible"])
 
+    def test_user_list_api_drops_unapproved_routeros_fields(self) -> None:
+        self.login()
+        router_user = {
+            "id": "*SECRET",
+            "name": "least-privilege-user",
+            "profile": "default-encryption",
+            "comment": "test account",
+            "disabled": False,
+            "service": "ovpn",
+            "password": "must-not-leak",
+            "private_key": "must-not-leak",
+            "future_routeros_field": "must-not-leak",
+        }
+        with mock.patch.object(
+            self.server.context.router, "list_ovpn_users", return_value=[router_user]
+        ):
+            status, _, payload = self.request("GET", "/api/users")
+
+        self.assertEqual(status, 200)
+        user = json.loads(payload)["users"][0]
+        self.assertEqual(
+            set(user),
+            {"id", "name", "profile", "comment", "disabled", "email", "controls", "tags", "template"},
+        )
+        self.assertEqual(user["id"], "*SECRET")
+        self.assertEqual(user["name"], "least-privilege-user")
+        self.assertNotIn("must-not-leak", payload.decode("utf-8"))
+        self.assertNotIn("service", user)
+
     def test_filtered_timeline_export_has_no_references_to_omitted_events(self) -> None:
         self.login()
         start_at = 1767312000  # 2026-01-02 00:00:00 UTC
