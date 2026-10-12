@@ -23,6 +23,7 @@ let realtimeTransport = 'sse';
 let socketIoEngine = 'polling';
 let pageReloadScheduled = false;
 let terminationAttempt = null;
+let sessionReauthentication = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -100,8 +101,9 @@ function toast(message, type = 'success') {
 
 async function api(url, options = {}) {
   const { preserveSessionOnUnauthorized = false, ...requestOptions } = options;
+  const requestCsrf = csrf;
   const headers = new Headers(requestOptions.headers || {});
-  headers.set('X-CSRF-Token', csrf);
+  headers.set('X-CSRF-Token', requestCsrf);
   if (requestOptions.body && typeof requestOptions.body !== 'string') {
     headers.set('Content-Type', 'application/json');
     requestOptions.body = JSON.stringify(requestOptions.body);
@@ -111,7 +113,7 @@ async function api(url, options = {}) {
     && requestUrl.pathname.startsWith('/api/');
   // Status is a live telemetry endpoint.  Explicitly bypass intermediary and
   // browser caches so cumulative RouterOS counters are sampled on every poll.
-  const response = await fetch(url, {
+  const fetchOptions = {
     ...requestOptions,
     headers,
     credentials: 'same-origin',
@@ -121,11 +123,24 @@ async function api(url, options = {}) {
     // top-level request so Access can reauthenticate and return to this view.
     ...(sameOriginApiRequest ? { redirect: 'manual' } : {}),
     ...(url === '/api/status' ? { cache: 'no-store' } : {}),
-  });
+  };
+  let response = await fetch(url, fetchOptions);
   if (sameOriginApiRequest && response.type === 'opaqueredirect') {
     const returnPath = `${location.pathname}${location.search}${location.hash}`;
     location.replace(returnPath);
     throw new Error('Dashboard access expired. Reconnecting securely…');
+  }
+  if (response.status === 401 && !preserveSessionOnUnauthorized) {
+    // Session rotation invalidates the old cookie immediately. A telemetry
+    // request already in flight can therefore receive 401 while reauth is
+    // replacing that cookie. Wait for the rotation and retry that stale
+    // request once with the new cookie and CSRF token instead of navigating
+    // away and aborting the successful reauthentication response.
+    if (sessionReauthentication) await sessionReauthentication;
+    if (csrf !== requestCsrf) {
+      headers.set('X-CSRF-Token', csrf);
+      response = await fetch(url, fetchOptions);
+    }
   }
   if (response.status === 401 && !preserveSessionOnUnauthorized) {
     location.assign('/login');
@@ -2776,6 +2791,9 @@ $('#session-reauthenticate-form')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const password = form.elements.password.value;
   if (!password) return;
+  let finishReauthentication;
+  const reauthentication = new Promise((resolve) => { finishReauthentication = resolve; });
+  sessionReauthentication = reauthentication;
   setBusy(form, true);
   setStatus(form, 'Verifying your RouterOS account and rotating this dashboard session…');
   try {
@@ -2791,12 +2809,16 @@ $('#session-reauthenticate-form')?.addEventListener('submit', async (event) => {
     csrf = payload.csrf_token;
     const csrfMeta = document.querySelector('meta[name="csrf-token"]');
     if (csrfMeta) csrfMeta.content = csrf;
+    finishReauthentication(true);
     form.closest('dialog')?.close();
     toast('Dashboard session re-authenticated.');
   } catch (error) {
+    finishReauthentication(false);
     setStatus(form, error.message, true);
     form.elements.password.focus();
   } finally {
+    finishReauthentication(false);
+    if (sessionReauthentication === reauthentication) sessionReauthentication = null;
     form.elements.password.value = '';
     setBusy(form, false);
   }
