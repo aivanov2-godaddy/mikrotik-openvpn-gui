@@ -1565,3 +1565,23 @@ samples; it does not establish that the VPN tunnel disconnected. No page reload,
 reauthentication, VPN disconnect, RouterOS/container operation, or policy
 change was performed. A user must reauthenticate to canary before telemetry
 freshness, the soak window, or the security expiry/reconnect checks can resume.
+
+**2026-10-12 canary candidate staging:** after the user resumed the acceptance
+work, RouterOS WebFig showed the canary on the previous immutable image and
+healthy. The canary was stopped, pointed at the verified ARM64 artifact for
+`cf03f0a956da23b25bd76b3157ae1d89d6ba1e22`, updated, and started. RouterOS
+then reported the candidate tag
+`sha-cf03f0a956da23b25bd76b3157ae1d89d6ba1e22-arm64` and `HEALTHY`; its
+existing root directory, mount list, and environment-list reference were left
+unchanged. Production was not changed (its last observed tag remains
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`). After the restart, the
+canary app showed its RouterOS sign-in page, and unauthenticated public
+`/healthz` and `/readyz` requests received Cloudflare Access HTTP 302, not app
+health/readiness JSON. The observed canary dashboard had zero active VPN
+sessions before staging. Therefore this establishes candidate deployment and
+RouterOS container health only; it is **not** a passing authenticated
+readiness check, telemetry/Redis observation, session-latency/freshness sample,
+30-minute soak, rollback drill, or production promotion. Reauthentication and
+a connected disposable test client are required to resume those checks.
+Registry digest/provenance for this exact candidate are recorded above in the
+release evidence; RouterOS does not expose a verified registry manifest digest.
