@@ -33,10 +33,17 @@ def evidence() -> dict[str, object]:
                 "redis_publish_verified": False,
                 "reconnect_recovered": True,
                 "snapshot_recovered": True,
+                "reconnect_recovery_counter_delta": 1,
+                "reconnect_recovery_counter_reset": False,
+                "snapshot_recovery_counter_delta": 1,
+                "snapshot_recovery_counter_reset": False,
+                "reconnect_observed_at": 1790935500,
+                "full_snapshot_recovered_at": 1790935800,
                 "sqlite_restore_verified": True,
                 "rollback_drill_passed": environment == "canary",
                 "production_untouched_on_canary_failure": True,
                 "session_event_p95_ms": 400,
+                "session_event_max_age_seconds": 0.5,
                 "traffic_sample_age_seconds": 1,
                 "observation_started_at": "2026-10-01T00:00:00Z",
                 "observation_ended_at": "2026-10-01T00:30:00Z",
@@ -473,12 +480,14 @@ class ReleaseCollectionTests(unittest.TestCase):
         include_production_metrics: bool = True,
         preclaim_redis: bool = False,
         traffic_sample_age: float = 0.75,
+        session_event_age: float = 0.25,
         gateway_delivery_p95: float = 0.5,
         gateway_delivery_observations: int = 8,
         supervisor_status: str = "healthy",
         supervisor_enabled: int = 1,
         reconnect_counter_delta: int = 1,
         snapshot_recovery_counter_delta: int = 1,
+        advance_recovery_timestamps: bool = True,
         outbox_pending: int = 0,
         outbox_pending_sequence: list[int] | None = None,
         outbox_dead_lettered: int = 0,
@@ -499,6 +508,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         seen: list[tuple[str, str | None, str | None]] = []
         metrics_observations = 0
         metrics_observations_by_environment = {"canary": 0, "production": 0}
+        recovery_timestamp_bases: dict[str, float] = {}
         source = evidence()
         if production_revision is not None:
             production = source["deployments"][1]
@@ -562,6 +572,16 @@ class ReleaseCollectionTests(unittest.TestCase):
                 )
                 pending_value = outbox_pending_sequence[pending_index]
             now = time.clock().timestamp()
+            recovery_timestamp_bases.setdefault(environment, now)
+            recovery_time_base = recovery_timestamp_bases[environment]
+            recovery_observed = metrics_observations_by_environment[environment] > 1
+            reconnect_timestamp = recovery_time_base - 0.25 + (
+                reconnect_counter_delta if recovery_observed and advance_recovery_timestamps else 0
+            )
+            full_snapshot_timestamp = recovery_time_base - 0.5 + (
+                snapshot_recovery_counter_delta + 0.4
+                if recovery_observed and advance_recovery_timestamps else 0
+            )
             payload = (
                 "vpn_dashboard_redis_configured 1\n"
                 "vpn_dashboard_redis_last_observed_available 1\n"
@@ -571,8 +591,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 f"vpn_dashboard_integration_outbox_pending {-1 if sample_is_unknown else pending_value}\n"
                 f"vpn_dashboard_integration_outbox_dead_lettered {-1 if sample_is_unknown else outbox_dead_lettered}\n"
                 f"vpn_dashboard_integration_outbox_oldest_age_seconds {-1 if sample_is_unknown else outbox_oldest_age}\n"
-                f"vpn_dashboard_telemetry_session_event_age_seconds {-1 if sample_is_unknown else 0.25}\n"
-                f"vpn_dashboard_telemetry_session_event_timestamp_seconds {-1 if sample_is_unknown else now - 0.25}\n"
+                f"vpn_dashboard_telemetry_session_event_age_seconds {-1 if sample_is_unknown else session_event_age}\n"
+                f"vpn_dashboard_telemetry_session_event_timestamp_seconds {-1 if sample_is_unknown else now - session_event_age}\n"
                 "vpn_dashboard_telemetry_session_events_total 4\n"
                 f"vpn_dashboard_telemetry_traffic_sample_age_seconds {-1 if sample_is_unknown else traffic_sample_age}\n"
                 f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {-1 if sample_is_unknown else now - traffic_sample_age}\n"
@@ -599,9 +619,11 @@ class ReleaseCollectionTests(unittest.TestCase):
                 f"{2 + (reconnect_counter_delta if metrics_observations_by_environment[environment] > 1 else 0)}\n"
                 "vpn_dashboard_telemetry_supervisor_failures_total 1\n"
                 "vpn_dashboard_telemetry_supervisor_events_total 20\n"
-                f"vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds {now - 1}\n"
+                "vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds "
+                f"{reconnect_timestamp}\n"
                 f"vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds {now - 0.25}\n"
-                f"vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds {now - 2}\n"
+                "vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds "
+                f"{full_snapshot_timestamp}\n"
                 "vpn_dashboard_telemetry_supervisor_backoff_seconds 1\n"
                 "vpn_dashboard_info{revision=\"private-label\"} 1\n"
             )
@@ -731,6 +753,29 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("production_gateway_delivery_latency_exceeded", report["failed_gates"])
         self.assertIn("canary_telemetry_supervisor_not_healthy", report["failed_gates"])
         self.assertIn("production_telemetry_supervisor_not_healthy", report["failed_gates"])
+
+    def test_stale_session_event_age_fails_closed(self) -> None:
+        code, report, _ = self.run_collection(session_event_age=2.01)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_session_event_stale", report["failed_gates"])
+        self.assertIn("production_session_event_stale", report["failed_gates"])
+
+    def test_reconnect_and_full_snapshot_timestamps_must_advance_in_window(self) -> None:
+        code, report, _ = self.run_collection(
+            reconnect_counter_delta=0,
+            snapshot_recovery_counter_delta=0,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_not_observed", report["failed_gates"])
+        self.assertIn("canary_snapshot_recovery_not_observed", report["failed_gates"])
+        canary = report["evidence"]["deployments"][0]
+        self.assertFalse(canary["reconnect_recovered"])
+        self.assertFalse(canary["snapshot_recovered"])
+
+        code, report, _ = self.run_collection(advance_recovery_timestamps=False)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_not_observed", report["failed_gates"])
+        self.assertIn("canary_snapshot_recovery_not_observed", report["failed_gates"])
 
     def test_reconnect_and_snapshot_claims_require_positive_counter_deltas(self) -> None:
         code, report, _ = self.run_collection(reconnect_counter_delta=0)
@@ -967,6 +1012,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                     deployment.update({
                         "observation_started_at": started,
                         "observation_ended_at": ended,
+                        "reconnect_observed_at": 1790937000,
+                        "full_snapshot_recovered_at": 1790937001,
                         "health_sample_count": 30,
                         "max_sample_gap_seconds": 60,
                     })

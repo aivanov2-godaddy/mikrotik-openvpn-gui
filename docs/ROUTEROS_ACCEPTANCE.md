@@ -172,6 +172,20 @@ fail closed and clear any caller-supplied Redis success claim.
 Process-observation ages for session events and traffic samples are not
 end-to-end RouterOS-to-browser latency.
 
+The collector also fails the release gate when any known session-event
+process-observation age exceeds 2 seconds; unknown ages fail separately. This
+2-second freshness bound applies to the process observation-age signal only
+and does not replace the separate 1-second session-change delivery target.
+Reconnect acceptance requires a positive, reset-free supervisor reconnect
+counter delta during the collection window plus an observed last-connected
+timestamp in that window. Full RouterOS snapshot recovery additionally
+requires the supervisor's last-full-snapshot timestamp to be observed in the
+same window at or after that reconnect. The dashboard gateway's client
+snapshot-recovery counter is retained as corroborating evidence, but cannot by
+itself establish RouterOS full-snapshot recovery. Caller-provided booleans do
+not override missing, zero, reset, out-of-window, or incorrectly ordered
+measurements.
+
 Use `--phase canary-prepromotion` for a candidate soak before promotion. The
 evidence records the candidate image/revision for canary and production's
 separately recorded prior image/revision. The collector checks each deployment

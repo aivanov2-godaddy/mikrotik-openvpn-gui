@@ -28,6 +28,8 @@ MIN_SOAK_SECONDS = 1800
 MIN_HEALTH_SAMPLES = 30
 MAX_COLLECTION_AGE_SECONDS = 900
 MAX_FUTURE_SKEW_SECONDS = 300
+MAX_SESSION_EVENT_AGE_SECONDS = 2.0
+MAX_EVIDENCE_CLOCK_SKEW_SECONDS = 5
 
 
 def _boolean(record: dict[str, Any], field: str) -> bool:
@@ -199,12 +201,21 @@ def evaluate(
         snapshot_counter_reset = _optional_boolean(
             record, "snapshot_recovery_counter_reset", optional=True
         )
+        reconnect_observed_at = _optional_number(
+            record, "reconnect_observed_at", optional=True
+        )
+        full_snapshot_recovered_at = _optional_number(
+            record, "full_snapshot_recovered_at", optional=True
+        )
         backup_restore = _optional_boolean(record, "sqlite_restore_verified", optional=prior_production_baseline)
         rollback = _optional_boolean(record, "rollback_drill_passed", optional=prior_production_baseline)
         production_protected = _optional_boolean(
             record, "production_untouched_on_canary_failure", optional=prior_production_baseline
         )
         latency = _optional_number(record, "session_event_p95_ms", optional=prior_production_baseline)
+        session_event_age = _optional_number(
+            record, "session_event_max_age_seconds", optional=True
+        )
         sample_age = _optional_number(record, "traffic_sample_age_seconds", optional=prior_production_baseline)
         started = _timestamp(record, "observation_started_at")
         ended = _timestamp(record, "observation_ended_at")
@@ -226,6 +237,18 @@ def evaluate(
                 "router_storage_peak_percent",
             )
         }
+        observation_start_epoch = started.timestamp()
+        observation_end_epoch = ended.timestamp()
+        reconnect_timestamp_in_window = (
+            reconnect_observed_at is not None
+            and observation_start_epoch <= reconnect_observed_at <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
+        )
+        full_snapshot_after_reconnect = (
+            full_snapshot_recovered_at is not None
+            and reconnect_observed_at is not None
+            and observation_start_epoch <= full_snapshot_recovered_at <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
+            and full_snapshot_recovered_at >= reconnect_observed_at
+        )
 
         if not healthy:
             failures.append(f"{expected_environment}_container_unhealthy")
@@ -244,12 +267,18 @@ def evaluate(
             or snapshot_counter_delta is None
             or snapshot_counter_delta < 1
             or snapshot_counter_reset is not False
+            or not reconnect_timestamp_in_window
+            or not full_snapshot_after_reconnect
         ):
             failures.append(f"{expected_environment}_reconnect_recovery_failed")
         if not prior_production_baseline and not backup_restore:
             failures.append(f"{expected_environment}_sqlite_restore_unverified")
         if not prior_production_baseline and latency is not None and latency > 1000:
             failures.append(f"{expected_environment}_session_event_latency_exceeded")
+        if not prior_production_baseline and (
+            session_event_age is None or session_event_age > MAX_SESSION_EVENT_AGE_SECONDS
+        ):
+            failures.append(f"{expected_environment}_session_event_stale")
         if not prior_production_baseline and sample_age is not None and sample_age > 2:
             failures.append(f"{expected_environment}_traffic_sample_stale")
         if soak_seconds < MIN_SOAK_SECONDS:
@@ -294,8 +323,11 @@ def evaluate(
             "reconnect_recovery_counter_reset": None if prior_production_baseline else reconnect_counter_reset,
             "snapshot_recovery_counter_delta": None if prior_production_baseline else snapshot_counter_delta,
             "snapshot_recovery_counter_reset": None if prior_production_baseline else snapshot_counter_reset,
+            "reconnect_observed_at": None if prior_production_baseline else reconnect_observed_at,
+            "full_snapshot_recovered_at": None if prior_production_baseline else full_snapshot_recovered_at,
             "sqlite_restore_verified": None if prior_production_baseline else backup_restore,
             "session_event_p95_ms": None if prior_production_baseline else latency,
+            "session_event_max_age_seconds": None if prior_production_baseline else session_event_age,
             "traffic_sample_age_seconds": None if prior_production_baseline else sample_age,
             "observation_started_at": started.isoformat(),
             "observation_ended_at": ended.isoformat(),
