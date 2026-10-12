@@ -1578,10 +1578,14 @@ unchanged. Production was not changed (its last observed tag remains
 canary app showed its RouterOS sign-in page, and unauthenticated public
 `/healthz` and `/readyz` requests received Cloudflare Access HTTP 302, not app
 health/readiness JSON. The observed canary dashboard had zero active VPN
-sessions before staging. Therefore this establishes candidate deployment and
-RouterOS container health only; it is **not** a passing authenticated
-readiness check, telemetry/Redis observation, session-latency/freshness sample,
-30-minute soak, rollback drill, or production promotion. Reauthentication and
-a connected disposable test client are required to resume those checks.
+sessions before staging. The user subsequently reauthenticated and connected
+the disposable client. The authenticated canary showed one active client and
+`Live · SOCKETIO`. On the Connections page, traffic counters, current rates,
+uptime, and graph samples changed during a 10-second observation with no page
+reload. This is a short live-UI smoke check only; it does not measure
+RouterOS-to-browser latency, prove event completeness/order, or satisfy the
+30-minute soak. The collector still lacks the RouterOS API credentials needed
+for its redacted dual-environment sample, and the API-interruption recovery,
+Redis/outbox window, rollback drill, and promotion remain unverified.
 Registry digest/provenance for this exact candidate are recorded above in the
 release evidence; RouterOS does not expose a verified registry manifest digest.

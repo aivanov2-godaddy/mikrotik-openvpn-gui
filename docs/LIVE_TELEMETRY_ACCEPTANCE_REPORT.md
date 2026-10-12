@@ -1602,11 +1602,15 @@ preserved. Production was not changed; its last observed tag is
 
 The app's browser session was no longer authenticated after restart. Public
 unauthenticated requests to `/healthz` and `/readyz` returned Cloudflare Access
-HTTP 302, so they did not establish application readiness. The canary dashboard
-had zero active VPN sessions before staging. This is point-in-time deployment
-and RouterOS health evidence only—not an authenticated app check, telemetry or
-Redis delivery sample, session-event latency/freshness measurement, stable
-30-minute soak, rollback drill, or production promotion. Resume those checks
-after canary reauthentication and connection of the disposable VPN test
-client. No production container, RouterOS policy, account, certificate, CA, or
+HTTP 302, so they did not establish application readiness. The user then
+reauthenticated to the canary and connected the disposable VPN client. The
+authenticated dashboard showed one active client and `Live · SOCKETIO`. A
+10-second no-reload observation on Connections showed the active-session
+uptime, byte counters, current rates, and graph samples advancing. This is a
+short authenticated live-UI smoke check; it is not an end-to-end latency or
+event-integrity measurement, a complete Redis/outbox observation, or the
+required 30-minute soak. The RouterOS API credentials required by the redacted
+collector are unavailable in this environment, so no automated RouterOS
+window, API-interruption recovery, rollback drill, or production promotion is
+claimed. No production container, RouterOS policy, account, certificate, CA, or
 VPN-user data was changed.
