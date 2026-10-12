@@ -33,6 +33,12 @@ evidence for the new image. The earlier PR #616 acceptance limitations below
 remain applicable; no RouterOS policy, certificate, CA, user, or production
 configuration was changed.
 
+At 16:31 EEST, the already-authenticated production Connections page showed
+one active device and `Live · SOCKETIO` without a document reload, but displayed
+zero current rates and byte totals. This is a production point observation on
+the prior image, not candidate-specific evidence; it also reinforces that the
+current traffic-counter accuracy/freshness question remains open.
+
 ## Latest canary stage and live-client observation — 2026-10-12
 
 The RouterOS-local, canary-only immutable updater staged PR #616's ARM64 image.
