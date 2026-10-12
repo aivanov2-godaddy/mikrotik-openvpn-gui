@@ -768,6 +768,38 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(body.count(b"event: status"), 1)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
+    def test_sse_reconnect_rejects_revoked_or_expired_cookie_before_router_read(self) -> None:
+        for state in ("revoked", "expired"):
+            with self.subTest(state=state):
+                self.login()
+                session_id = self.cookie.split("=", 1)[1]
+                session = self.server.context.sessions.get(session_id, touch=False)
+                self.assertIsNotNone(session)
+
+                if state == "revoked":
+                    self.server.context.sessions.destroy(session_id)
+                else:
+                    self.server.context.sessions.idle_seconds = 1
+                    session.last_seen = 0
+
+                with mock.patch.object(
+                    self.server.context.router,
+                    "list_active_ovpn_sessions",
+                    side_effect=AssertionError("unauthorized SSE reconnect reached RouterOS"),
+                ) as list_sessions:
+                    status, _, payload = self.request(
+                        "GET",
+                        "/api/events",
+                        headers={
+                            "Cookie": self.cookie,
+                            "Origin": self.config.public_origin,
+                        },
+                    )
+
+                self.assertEqual(status, 401)
+                self.assertNotIn(b"event: status", payload)
+                list_sessions.assert_not_called()
+
     def test_sse_request_does_not_refresh_session_idle_timestamp(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
