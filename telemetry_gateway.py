@@ -46,6 +46,7 @@ _SESSION_FIELDS = frozenset(
         "tx_bytes",
         "rx_packets",
         "tx_packets",
+        "counter_complete",
     }
 )
 
