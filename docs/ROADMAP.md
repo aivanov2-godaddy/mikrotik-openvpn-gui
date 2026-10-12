@@ -1589,3 +1589,12 @@ for its redacted dual-environment sample, and the API-interruption recovery,
 Redis/outbox window, rollback drill, and promotion remain unverified.
 Registry digest/provenance for this exact candidate are recorded above in the
 release evidence; RouterOS does not expose a verified registry manifest digest.
+
+**2026-10-12 canary disconnect-event smoke:** the disposable canary session was
+terminated through the dashboard's confirmation flow. Without reloading the
+document, the live connection count changed to zero and the ended session
+appeared in history. This confirms only the UI-visible disconnect transition.
+The client did not reconnect during a brief five-second observation, and no
+VPN client window was available to initiate reconnect; client/API reconnect,
+snapshot recovery, event timing/integrity, and the formal soak remain unverified.
+Production and RouterOS policy/certificate/account state were not changed.
