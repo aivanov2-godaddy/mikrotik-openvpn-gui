@@ -495,7 +495,7 @@ class SecurityTests(unittest.TestCase):
 
             with (
                 mock.patch.object(store, "_connect", side_effect=fail_once),
-                mock.patch("store.time.monotonic", side_effect=(100.0, 100.0, 100.0)),
+                mock.patch("store.time.monotonic", return_value=100.0),
             ):
                 with self.assertRaises(RuntimeError):
                     store.verify_readiness()
@@ -505,7 +505,7 @@ class SecurityTests(unittest.TestCase):
 
             with (
                 mock.patch.object(store, "_connect", wraps=real_connect) as connect,
-                mock.patch("store.time.monotonic", side_effect=(110.1, 110.1)),
+                mock.patch("store.time.monotonic", return_value=110.1),
             ):
                 store.verify_readiness()
 
