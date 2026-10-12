@@ -1,4 +1,4 @@
-const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+let csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 const counters = new Map();
 const histories = new Map();
 const HISTORY_LIMIT = 60;
@@ -99,11 +99,12 @@ function toast(message, type = 'success') {
 }
 
 async function api(url, options = {}) {
-  const headers = new Headers(options.headers || {});
+  const { preserveSessionOnUnauthorized = false, ...requestOptions } = options;
+  const headers = new Headers(requestOptions.headers || {});
   headers.set('X-CSRF-Token', csrf);
-  if (options.body && typeof options.body !== 'string') {
+  if (requestOptions.body && typeof requestOptions.body !== 'string') {
     headers.set('Content-Type', 'application/json');
-    options.body = JSON.stringify(options.body);
+    requestOptions.body = JSON.stringify(requestOptions.body);
   }
   const requestUrl = new URL(url, location.href);
   const sameOriginApiRequest = requestUrl.origin === location.origin
@@ -111,7 +112,7 @@ async function api(url, options = {}) {
   // Status is a live telemetry endpoint.  Explicitly bypass intermediary and
   // browser caches so cumulative RouterOS counters are sampled on every poll.
   const response = await fetch(url, {
-    ...options,
+    ...requestOptions,
     headers,
     credentials: 'same-origin',
     // Do not let fetch follow an API redirect to a Cloudflare Access challenge:
@@ -126,7 +127,7 @@ async function api(url, options = {}) {
     location.replace(returnPath);
     throw new Error('Dashboard access expired. Reconnecting securely…');
   }
-  if (response.status === 401) {
+  if (response.status === 401 && !preserveSessionOnUnauthorized) {
     location.assign('/login');
     throw new Error('Your session expired. Please sign in again.');
   }
@@ -1822,6 +1823,11 @@ document.addEventListener('click', async (event) => {
     form.reset();
     openDialog('admin-session-reauth-dialog');
     $('#admin-session-reauth-password')?.focus();
+  } else if (button.matches('[data-open-session-reauth]')) {
+    const form = $('#session-reauthenticate-form');
+    form?.reset();
+    openDialog('session-reauthenticate-dialog');
+    $('#session-reauthenticate-password')?.focus();
   } else if (button.matches('[data-alert-ack]')) {
     button.disabled = true;
     try {
@@ -2761,6 +2767,37 @@ $('#admin-session-reauth-form')?.addEventListener('submit', async (event) => {
     setStatus(form, error.message, true);
     form.elements.password.focus();
   } finally {
+    setBusy(form, false);
+  }
+});
+
+$('#session-reauthenticate-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const password = form.elements.password.value;
+  if (!password) return;
+  setBusy(form, true);
+  setStatus(form, 'Verifying your RouterOS account and rotating this dashboard session…');
+  try {
+    const response = await resultOrError(await api('/api/auth/reauthenticate', {
+      method: 'POST',
+      body: { password },
+      preserveSessionOnUnauthorized: true,
+    }));
+    const payload = await response.json();
+    if (payload.ok !== true || typeof payload.csrf_token !== 'string' || !payload.csrf_token) {
+      throw new Error('The dashboard session could not be refreshed.');
+    }
+    csrf = payload.csrf_token;
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    if (csrfMeta) csrfMeta.content = csrf;
+    form.closest('dialog')?.close();
+    toast('Dashboard session re-authenticated.');
+  } catch (error) {
+    setStatus(form, error.message, true);
+    form.elements.password.focus();
+  } finally {
+    form.elements.password.value = '';
     setBusy(form, false);
   }
 });
