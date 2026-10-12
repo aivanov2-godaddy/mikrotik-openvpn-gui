@@ -144,7 +144,11 @@ Never expose the container port directly. If the dedicated route is not ready,
 continue private readiness checks where possible and mark the authenticated
 acceptance window incomplete; do not send canary probes to production.
 
-`scripts/collect_release_acceptance.py` samples `GET /healthz` and
+`scripts/collect_release_acceptance.py` requires a completed redacted report
+from `scripts/collect_routeros_acceptance.py` via `--routeros-report` for any
+passing release-acceptance phase. Run both samplers concurrently; omitting,
+failing, or window-mismatching RouterOS evidence prevents a passing result.
+The app collector samples `GET /healthz` and
 `GET /readyz` on both private app origins. Post-promotion collection also
 samples authenticated aggregate `GET /metrics` in both environments. During
 `canary-prepromotion`, it samples metrics only from canary; production is checked
@@ -235,6 +239,7 @@ try {
 python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
+  --routeros-report private-routeros-window.json `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
   --canary-metrics-url https://<approved-canary-origin> `
@@ -344,7 +349,8 @@ run.
 
 To join RouterOS CPU/memory/storage and container observations to the app-level
 soak automatically, run the RouterOS sampler concurrently with the app
-collector, then pass its completed private report using `--routeros-report`:
+collector, then pass its completed private report using the required
+`--routeros-report`:
 
 ```powershell
 python scripts/collect_release_acceptance.py `

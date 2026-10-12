@@ -198,6 +198,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "collect_release_acceptance.py",
                 "--input", str(input_path),
                 "--output", str(output_path),
+                "--routeros-report", str(Path(directory) / "routeros.json"),
                 "--canary-url", "https://canary.example",
                 "--production-url", "https://production.example",
                 "--canary-metrics-url", "https://canary.example",
@@ -232,6 +233,25 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("[--production-metrics-url PRODUCTION_METRICS_URL]", output.getvalue())
         self.assertIn("--canary-api-token-env", output.getvalue())
         self.assertIn("--production-api-token-env", output.getvalue())
+
+    def test_routeros_soak_report_is_required_before_app_collection_starts(self) -> None:
+        from scripts import collect_release_acceptance as collector
+
+        arguments = [
+            "collect_release_acceptance.py",
+            "--input", "private-evidence.json",
+            "--output", "private-collected-evidence.json",
+            "--canary-url", "https://canary.example",
+            "--production-url", "https://production.example",
+            "--canary-metrics-url", "https://canary.example",
+            "--phase", "canary-prepromotion",
+        ]
+        with patch.object(sys, "argv", arguments), patch.object(collector, "collect") as collect:
+            with self.assertRaises(SystemExit) as raised:
+                collector.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        collect.assert_not_called()
 
     def test_http_probe_sends_api_token_as_bearer_without_cookie(self) -> None:
         from scripts import collect_release_acceptance as collector
@@ -931,6 +951,38 @@ class ReleaseCollectionTests(unittest.TestCase):
                         "health_sample_count": 30,
                         "max_sample_gap_seconds": 60,
                     })
+                from scripts.collect_release_acceptance import attach_routeros_resource_evidence
+
+                routeros_report = {
+                    "format": "vpn-dashboard-routeros-acceptance-v2",
+                    "passed": True,
+                    "failed_gates": [],
+                    "credentials_or_raw_router_data_written": False,
+                    "observation_started_at": "2026-10-02T10:25:10Z",
+                    "observation_ended_at": "2026-10-02T10:55:10Z",
+                    "duration_seconds": 1800,
+                    "sample_count": 31,
+                    "successful_sample_count": 31,
+                    "failed_sample_count": 0,
+                    "rest_parity_successful_sample_count": 31,
+                    "rest_parity_failed_sample_count": 0,
+                    "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
+                    "max_sample_gap_seconds": 60,
+                    "router_cpu_peak_percent": 20,
+                    "router_memory_peak_percent": 25,
+                    "router_storage_peak_percent": 30,
+                    "containers": {
+                        "canary": {
+                            "healthy_for_all_successful_samples": True,
+                            "observed_source_revisions": [REVISION],
+                        },
+                        "production": {
+                            "healthy_for_all_successful_samples": True,
+                            "observed_source_revisions": ["c" * 40],
+                        },
+                    },
+                }
+                attach_routeros_resource_evidence(collected_evidence, routeros_report)
                 accepted, final_report = evaluate(
                     collected_evidence,
                     now=datetime(2026, 10, 2, 11, tzinfo=timezone.utc),
