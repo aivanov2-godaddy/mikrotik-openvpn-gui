@@ -39,6 +39,7 @@ MIN_SOAK_SECONDS = 1800
 MIN_HEALTH_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
 MAX_TRAFFIC_SAMPLE_AGE_SECONDS = 2.0
+MAX_SESSION_EVENT_AGE_SECONDS = 2.0
 MAX_GATEWAY_DELIVERY_P95_SECONDS = 1.0
 MAX_OUTBOX_PENDING_AT_WINDOW_END = 0
 MAX_OUTBOX_DEAD_LETTERED = 0
@@ -524,6 +525,16 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
             "unknown_samples": sum(value < 0 for value in values),
         }
 
+    def timestamp_window(metric_name: str) -> dict[str, Any]:
+        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
+        observed = [value for value in values if value > 0]
+        return {
+            "first": observed[0] if observed else None,
+            "last": observed[-1] if observed else None,
+            "observed_samples": len(observed),
+            "unknown_samples": len(values) - len(observed),
+        }
+
     session_event_age = observation_age(
         "vpn_dashboard_telemetry_session_event_age_seconds",
         "vpn_dashboard_telemetry_session_event_timestamp_seconds",
@@ -601,10 +612,16 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
             "last_connected_timestamp_seconds": last.get(
                 "vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds"
             ),
+            "connected_timestamp_window": timestamp_window(
+                "vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds"
+            ),
             "last_event_timestamp_seconds": last.get(
                 "vpn_dashboard_telemetry_supervisor_last_event_timestamp_seconds"
             ),
             "last_snapshot_timestamp_seconds": last.get(
+                "vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds"
+            ),
+            "snapshot_timestamp_window": timestamp_window(
                 "vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds"
             ),
             "backoff_seconds_last": last.get("vpn_dashboard_telemetry_supervisor_backoff_seconds"),
@@ -612,6 +629,7 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         },
         "telemetry_slo": {
             "session_event_unknown_samples": session_event_age["unknown_samples"],
+            "session_event_max_age_seconds": session_event_age["max_seconds"],
             "traffic_sample_max_age_seconds": traffic_sample_age["max_seconds"],
             "traffic_sample_unknown_samples": traffic_sample_age["unknown_samples"],
             "gateway_delivery_p95_max_seconds": gateway_delivery_age["max"],
@@ -859,26 +877,53 @@ def collect(
         metric_summary = _metric_window(metrics_samples, began_epoch, ended.timestamp())
         if metrics_required:
             reconnects = metric_summary.get("telemetry_supervisor", {}).get("reconnects", {})
+            supervisor = metric_summary.get("telemetry_supervisor", {})
             snapshot_recoveries = metric_summary.get("telemetry_gateway", {}).get("snapshot_recoveries", {})
             reconnect_delta = reconnects.get("delta") if metrics_window_complete else None
             reconnect_reset = reconnects.get("counter_reset") if metrics_window_complete else None
             snapshot_delta = snapshot_recoveries.get("delta") if metrics_window_complete else None
             snapshot_reset = snapshot_recoveries.get("counter_reset") if metrics_window_complete else None
+            connected_window = supervisor.get("connected_timestamp_window", {})
+            snapshot_window = supervisor.get("snapshot_timestamp_window", {})
+            reconnect_at = connected_window.get("last") if metrics_window_complete else None
+            snapshot_at = snapshot_window.get("last") if metrics_window_complete else None
+            same_window_reconnect = (
+                reconnect_at is not None
+                and connected_window.get("first") is not None
+                and connected_window.get("unknown_samples") == 0
+                and connected_window.get("observed_samples") == len(metrics_samples)
+                and reconnect_at > connected_window["first"]
+                and begun.timestamp() <= reconnect_at <= ended.timestamp() + MAX_CLOCK_DRIFT_SECONDS
+            )
+            same_window_full_snapshot = (
+                snapshot_at is not None
+                and snapshot_window.get("first") is not None
+                and snapshot_window.get("unknown_samples") == 0
+                and snapshot_window.get("observed_samples") == len(metrics_samples)
+                and snapshot_at > snapshot_window["first"]
+                and begun.timestamp() <= snapshot_at <= ended.timestamp() + MAX_CLOCK_DRIFT_SECONDS
+                and same_window_reconnect
+                and snapshot_at >= reconnect_at
+            )
             record["reconnect_recovery_counter_delta"] = reconnect_delta
             record["reconnect_recovery_counter_reset"] = reconnect_reset
             record["snapshot_recovery_counter_delta"] = snapshot_delta
             record["snapshot_recovery_counter_reset"] = snapshot_reset
+            record["reconnect_observed_at"] = reconnect_at
+            record["full_snapshot_recovered_at"] = snapshot_at
             record["reconnect_recovered"] = (
                 record.get("reconnect_recovered") is True
                 and reconnect_delta is not None
                 and reconnect_delta > 0
                 and reconnect_reset is False
+                and same_window_reconnect
             )
             record["snapshot_recovered"] = (
                 record.get("snapshot_recovered") is True
                 and snapshot_delta is not None
                 and snapshot_delta > 0
                 and snapshot_reset is False
+                and same_window_full_snapshot
             )
             if not record["reconnect_recovered"]:
                 failed_gates.append(f"{environment}_reconnect_recovery_not_observed")
@@ -890,9 +935,15 @@ def collect(
         record["redis_publish_verified"] = False
         if metric_summary["available"] and (metrics_required or metrics_window_complete):
             telemetry_slo = metric_summary["telemetry_slo"]
+            session_event_age = telemetry_slo["session_event_max_age_seconds"]
+            record["session_event_max_age_seconds"] = session_event_age
             traffic_age = telemetry_slo["traffic_sample_max_age_seconds"]
             if telemetry_slo["session_event_unknown_samples"]:
                 failed_gates.append(f"{environment}_session_event_freshness_incomplete")
+            if session_event_age is None:
+                failed_gates.append(f"{environment}_session_event_freshness_unobserved")
+            elif session_event_age > MAX_SESSION_EVENT_AGE_SECONDS:
+                failed_gates.append(f"{environment}_session_event_stale")
             if telemetry_slo["traffic_sample_unknown_samples"]:
                 failed_gates.append(f"{environment}_traffic_freshness_incomplete")
             if traffic_age is None:

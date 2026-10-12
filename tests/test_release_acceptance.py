@@ -68,10 +68,13 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     "reconnect_recovery_counter_reset": False,
                     "snapshot_recovery_counter_delta": 1,
                     "snapshot_recovery_counter_reset": False,
+                    "reconnect_observed_at": 1790935500,
+                    "full_snapshot_recovered_at": 1790935801,
                     "sqlite_restore_verified": True,
                     "rollback_drill_passed": True,
                     "production_untouched_on_canary_failure": True,
                     "session_event_p95_ms": 450,
+                    "session_event_max_age_seconds": 0.5,
                     "traffic_sample_age_seconds": 1.2,
                     "observation_started_at": "2026-10-02T10:00:00Z",
                     "observation_ended_at": "2026-10-02T10:30:00Z",
@@ -250,6 +253,34 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
+
+    def test_recovery_claims_require_same_window_ordered_timestamps(self) -> None:
+        evidence = deepcopy(self.evidence)
+        del evidence["deployments"][0]["reconnect_observed_at"]
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["full_snapshot_recovered_at"] = 1790935499
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["reconnect_observed_at"] = 1790934000
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
+
+    def test_stale_or_missing_session_event_age_fails_closed(self) -> None:
+        for age in (2.01, None):
+            with self.subTest(age=age):
+                evidence = deepcopy(self.evidence)
+                evidence["deployments"][0]["session_event_max_age_seconds"] = age
+                code, report = evaluate(evidence, now=self.NOW)
+                self.assertEqual(code, 1)
+                self.assertIn("canary_session_event_stale", report["failed_gates"])
 
     def test_unverified_registry_digest_fails_closed(self) -> None:
         verification = self.evidence["collection"]["registry_digest_verification"][0]
