@@ -1,10 +1,11 @@
 # Live telemetry acceptance report
 
-Status: **LATEST MAIN PUBLISHED AND ATTESTED; NEW CANARY STAGED AND READINESS-SOAK PASSED; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
+Status: **LATEST MAIN PUBLISHED AND ATTESTED; NEWER CANARY STAGE NOT YET READ BACK; ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
 The latest published runtime candidate is `main` commit
-`7bf9f77549e8667e156801dd180d5b0d4d91f060`. Publisher run
-[#38253481433](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38253481433)
+`6b1ab55c0e55e0a4a7108f46485c847014ca523f`, including PR #628's explicit
+allowlist for the `/api/users` response. Publisher run
+[#38263302619](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38263302619)
 completed successfully, publishing ARM64/AMD64 images, verifying exact-digest
 provenance and SPDX SBOM attestations, and passing runtime smoke tests. These
 are published-image facts, not current RouterOS deployment evidence. The latest
@@ -12,8 +13,22 @@ published immutable image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-arm64` | `sha256:fe8bc41d3629c160d8a5a8c4e71e94491c01f779f1b761b74607e50052f0363b` |
-| AMD64 evaluation | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-amd64` | See publisher workflow #38253481433 |
+| RouterOS ARM64 | `sha-6b1ab55c0e55e0a4a7108f46485c847014ca523f-arm64` | `sha256:521433e71dc86a48008144d496a46423f51c4795b42dd085158946dbe7906735` |
+| AMD64 evaluation | `sha-6b1ab55c0e55e0a4a7108f46485c847014ca523f-amd64` | `sha256:b6284e50db8c3e12c8835d4aeca32d4a72c72219781a5c18bd77f7748f9d8ea7` |
+
+The previous `7bf9f775` readiness soak does not apply to this newer image. As of
+17:40 EEST on 2026-10-12, no RouterOS read-back of the `6b1ab55` image had been
+collected. Production promotion remains gated on candidate-specific canary and
+full acceptance evidence.
+
+## Latest authenticated canary browser observation — 2026-10-12, approximately 17:30 EEST
+
+The canary dashboard was authenticated and displayed `Live · SOCKETIO`, one
+connected session, and Operational service health. This is a point-in-time
+observation only: the running image revision was not read back during this
+observation, and no numeric event-latency or sample-freshness measurement,
+reconnect exercise, or full acceptance window was collected. It therefore does
+not establish acceptance for `6b1ab55` or replace the required canary collector.
 
 ## Latest candidate staging follow-up — 2026-10-12 16:54 EEST
 
