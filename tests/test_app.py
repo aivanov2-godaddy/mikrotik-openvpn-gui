@@ -2043,6 +2043,68 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertGreater(allowed_count, 0)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+    def test_admin_session_response_fields_are_capability_gated_at_http_boundary(self) -> None:
+        self.login()
+        owner_cookie = self.cookie
+        owner = self.server.context.sessions.get(owner_cookie.split("=", 1)[1], touch=False)
+        self.assertIsNotNone(owner)
+        viewer = self.server.context.sessions.create(
+            "viewer",
+            "viewer-password",
+            role="read_only",
+            source_address="203.0.113.41",
+            user_agent="Synthetic read-only browser",
+        )
+
+        # Query parameters cannot opt a sessions.read-only caller into raw
+        # bearer session identifiers; identifier disclosure is server-side
+        # and requires session.manage.
+        status, _, payload = self.request(
+            "GET",
+            "/api/admin/sessions?include_identifiers=true",
+            headers={"Cookie": f"vpn_session={viewer.session_id}"},
+        )
+        self.assertEqual(status, 200)
+        viewer_response = json.loads(payload)
+        self.assertEqual(
+            set(viewer_response),
+            {"sessions", "idle_timeout_seconds", "absolute_timeout_seconds", "generated_at"},
+        )
+        expected_session_fields = {
+            "id",
+            "id_hash",
+            "username",
+            "role",
+            "created_at",
+            "last_seen",
+            "idle_seconds",
+            "idle_remaining",
+            "absolute_remaining",
+            "source_address",
+            "user_agent",
+            "auth_method",
+            "current",
+        }
+        for item in viewer_response["sessions"]:
+            self.assertEqual(set(item), expected_session_fields)
+            self.assertEqual(item["id"], "")
+        serialized_viewer = json.dumps(viewer_response)
+        self.assertNotIn(owner.session_id, serialized_viewer)
+        self.assertNotIn(viewer.session_id, serialized_viewer)
+        self.assertNotIn("viewer-password", serialized_viewer)
+        self.assertNotIn(viewer.csrf_token, serialized_viewer)
+
+        status, _, payload = self.request(
+            "GET",
+            "/api/admin/sessions",
+            headers={"Cookie": owner_cookie},
+        )
+        self.assertEqual(status, 200)
+        owner_response = json.loads(payload)
+        disclosed_ids = {item["id"] for item in owner_response["sessions"]}
+        self.assertIn(owner.session_id, disclosed_ids)
+        self.assertIn(viewer.session_id, disclosed_ids)
+
     def test_admin_session_revocation_is_csrf_protected_scoped_and_audited(self) -> None:
         self.login()
         current_session_id = self.cookie.split("=", 1)[1]
@@ -4524,6 +4586,31 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertIn(session_id, self.mock.state.active_sessions)
+
+    def test_session_termination_review_receipt_is_bound_to_issuing_session(self) -> None:
+        self.login()
+        target_id = next(iter(self.mock.state.active_sessions))
+        review = self.preview_session_termination(target_id)
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        # A second equally privileged browser session must not be able to use
+        # a receipt issued to the first session, even for the same target and
+        # unchanged RouterOS state.
+        self.login()
+        status, _, payload = self.json_request(
+            "DELETE",
+            f"/api/sessions/{urllib.parse.quote(target_id, safe='*')}",
+            {
+                "confirmation": "user-two",
+                "reason": review["reason"],
+                "review_token": review["review_token"],
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
+        self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+        self.assertIn(target_id, self.mock.state.active_sessions)
 
     def test_session_termination_rejects_missing_rationale_before_routeros_read(self) -> None:
         self.login()
