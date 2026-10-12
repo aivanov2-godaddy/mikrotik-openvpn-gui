@@ -15,14 +15,15 @@ published immutable image identities are:
 | RouterOS ARM64 | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-arm64` | `sha256:fe8bc41d3629c160d8a5a8c4e71e94491c01f779f1b761b74607e50052f0363b` |
 | AMD64 evaluation | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-amd64` | See publisher workflow #38253481433 |
 
-## Latest candidate staging follow-up — 2026-10-12 16:30 EEST
+## Latest candidate staging follow-up — 2026-10-12 16:34 EEST
 
 The RouterOS-local, canary-only stage script for `7bf9f775` was started at
-16:22 EEST and was still running readiness sampling at the last job check.
-The script's log showed successful private canary `/readyz` responses, but no
-final 30-sample pass marker or final image/revision read-back had yet been
-observed. Therefore this report does not claim the new candidate is staged.
-The production container remains untouched.
+16:22 EEST. At 16:34 EEST, RouterOS showed canary configured with the expected
+immutable ARM64 tag and healthy; its script job was still running, and no final
+30-sample pass marker had appeared. This confirms the candidate image and
+point-in-time health on canary, but the readiness soak is not complete. The
+production container remains on its prior image and untouched. RouterOS reports
+the configured tag, not a registry digest read-back.
 
 At 16:30 EEST, RouterOS PPP Active Connections showed one disposable test
 client connected, with uptime about 1m35s. This confirms a current VPN session
