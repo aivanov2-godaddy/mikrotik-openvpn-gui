@@ -2886,6 +2886,102 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, _ = self.json_request("POST", "/api/openvpn-foundation-plan", payload)
         self.assertEqual(status, 400)
 
+    def test_openvpn_foundation_plan_redacts_routeros_inventory_errors(self) -> None:
+        self.login()
+        payload = {
+            "endpoint": "vpn.example.test",
+            "lan": "192.0.2.0/24",
+            "vpn_subnet": "10.254.0.0/24",
+            "dns_server": "192.0.2.1",
+            "port": "1194",
+            "ca_name": "ovpn-bootstrap-ca",
+            "server_certificate": "ovpn-bootstrap-server",
+            "server_name": "ovpn-bootstrap",
+            "ppp_profile": "ovpn-bootstrap",
+            "pool_name": "ovpn-bootstrap-pool",
+        }
+        with mock.patch.object(
+            self.server.context.router,
+            "get_bootstrap_inventory",
+            side_effect=RouterOSError("private RouterOS response marker", 503),
+        ):
+            status, _, payload_bytes = self.json_request(
+                "POST", "/api/openvpn-foundation-plan", payload,
+            )
+
+        response = json.loads(payload_bytes)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["code"], "routeros.request_failed")
+        self.assertNotIn("private RouterOS response marker", payload_bytes.decode())
+
+    def test_profile_creation_redacts_routeros_provisioning_errors(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            ) if item["name"] == "user-one"
+        )
+        review = self.preview_profile(user["id"], "Redaction test phone")
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        with mock.patch.object(
+            self.server.context.router,
+            "provision_profile",
+            side_effect=RouterOSError("private RouterOS profile detail", 503),
+        ):
+            status, _, payload = self.json_request(
+                "POST", path,
+                {
+                    "device_name": "Redaction test phone",
+                    "reason": review["reason"],
+                    "key_passphrase": "test-profile-passphrase",
+                    "delivery": "zip",
+                    "review_token": review["review_token"],
+                },
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["code"], "routeros.request_failed")
+        self.assertNotIn("private RouterOS profile detail", payload.decode())
+        self.assertNotIn("test-profile-passphrase", payload.decode())
+
+    def test_user_provision_redacts_routeros_error_after_verified_cleanup(self) -> None:
+        self.login()
+        intent = {
+            "username": "redacted-provision",
+            "email": "redacted-provision@example.test",
+            "device_name": "Test phone",
+            "delivery": "ovpn",
+            "policy": "full-tunnel",
+            "reason": "Approved redaction regression test for profile creation",
+        }
+        review = self.preview_user_provision(intent)
+        with mock.patch.object(
+            self.server.context.router,
+            "provision_profile",
+            side_effect=RouterOSError("private RouterOS provision detail", 503),
+        ):
+            status, _, payload = self.json_request(
+                "POST", "/api/users",
+                {
+                    **intent,
+                    "password": "redacted-provision-password",
+                    "key_passphrase": "redacted-provision-private-key",
+                    "review_token": review["review_token"],
+                },
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(response["code"], "routeros.request_failed")
+        self.assertNotIn("private RouterOS provision detail", payload.decode())
+        self.assertNotIn("redacted-provision-password", payload.decode())
+        self.assertNotIn("redacted-provision-private-key", payload.decode())
+        self.assertNotIn(
+            "redacted-provision",
+            [item["name"] for item in self.mock.state.users.values()],
+        )
+
     def test_setup_plan_accepts_ipv6_without_materialising_the_network(self) -> None:
         self.login()
         payload = {

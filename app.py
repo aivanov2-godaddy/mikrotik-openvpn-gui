@@ -3000,7 +3000,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             credentials = self._credentials(session)
             inventory = self.server.context.router.get_bootstrap_inventory(credentials)
         except RouterOSError as error:
-            self._json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
             return
         existing_servers = inventory.get("ovpn_servers") or []
         existing_profiles = {str(item.get("name", "")) for item in inventory.get("ppp_profiles") or []}
@@ -3749,7 +3749,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "rate_profile_recovery": rate_profile_recovery,
                 }, status=HTTPStatus.BAD_GATEWAY)
                 return
-            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            if isinstance(error, RouterOSError):
+                self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
+            else:
+                self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
     def _user_provision_review_context(
         self, session: Session, data: dict[str, Any], *, source_id: str = "",
@@ -4294,8 +4297,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._deliver_profile(profile, f"{user['name']}-{device_name}.ovpn", delivery)
-        except (ValueError, RouterOSError) as error:
+        except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+        except RouterOSError as error:
+            self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
 
     def _update_user(self, user_id: str, *, preview: bool = False) -> None:
         session = self._require_session(api=True)

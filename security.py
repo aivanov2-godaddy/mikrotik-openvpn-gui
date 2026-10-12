@@ -384,9 +384,18 @@ class SessionStore:
 
 
 class LoginRateLimiter:
-    def __init__(self, limit: int = 5, window_seconds: int = 300) -> None:
+    def __init__(
+        self,
+        limit: int = 5,
+        window_seconds: int = 300,
+        *,
+        max_tracked_identities: int = 4096,
+        max_in_flight: int = 256,
+    ) -> None:
         self.limit = limit
         self.window_seconds = window_seconds
+        self.max_tracked_identities = max(1, int(max_tracked_identities))
+        self.max_in_flight = max(1, int(max_in_flight))
         self._attempts: dict[str, list[float]] = {}
         self._reservations: dict[str, str] = {}
         self._lock = threading.Lock()
@@ -401,8 +410,24 @@ class LoginRateLimiter:
         current = time.time() if now is None else now
         threshold = current - self.window_seconds
         with self._lock:
+            tracked_identities = set(self._reservations.values())
+            for tracked_identity, history in tuple(self._attempts.items()):
+                recent = [stamp for stamp in history if stamp > threshold]
+                if recent:
+                    self._attempts[tracked_identity] = recent
+                    tracked_identities.add(tracked_identity)
+                else:
+                    self._attempts.pop(tracked_identity, None)
+
+            if len(self._reservations) >= self.max_in_flight:
+                return None
+            if (
+                identity not in tracked_identities
+                and len(tracked_identities) >= self.max_tracked_identities
+            ):
+                return None
+
             attempts = [stamp for stamp in self._attempts.get(identity, []) if stamp > threshold]
-            self._attempts[identity] = attempts
             reservations = sum(owner == identity for owner in self._reservations.values())
             if len(attempts) + reservations >= self.limit:
                 return None
