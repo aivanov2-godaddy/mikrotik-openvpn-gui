@@ -45,7 +45,7 @@ and production timing are external acceptance items.
 | V8.1.1 | TESTED | Function/data authorization rules are documented in [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md) and exercised by route/capability matrices. |
 | V8.1.2 | PARTIAL | Capability-filtered fields and export scopes have targeted tests, but no exhaustive field-by-field authorization inventory has been independently reviewed. |
 | V8.1.3–V8.1.4 | N/A | The app does not make adaptive risk decisions from location, time, device posture, or similar environmental context. Edge-provider policy is outside this repository's evidence. |
-| V8.2.1 | PARTIAL | Every current literal/regex API dispatch form is bound to a role/capability inventory, and the declared gates are exercised across all five dashboard roles. The route/method/token-scope cross-product, query/resource-state combinations, and independent review are not exhaustive. |
+| V8.2.1 | PARTIAL | Every current literal/regex API dispatch form is bound to a role/capability inventory, and declared gates are exercised across all five dashboard roles. The route/role dispatch matrix and grantable-scope combinations for current literal GET API routes are exhaustively tested against their declared inventories; query/resource-state combinations and independent review are not exhaustive. |
 | V8.2.2 | PARTIAL | Resource ownership/state checks exist on sensitive mutations, but data-specific authorization has not received an exhaustive independent review. |
 | V8.2.3 | PARTIAL | Selected API/export fields are capability-filtered and tested; an exhaustive read/write field-level map is not available. |
 | V8.2.4 | N/A | Adaptive environmental/contextual authorization is not a product feature; no Level 3 adaptive-control claim is made. |

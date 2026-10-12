@@ -1,10 +1,10 @@
 # Live telemetry acceptance report
 
-Status: **PR #616 PUBLISHED, ATTESTED, AND STAGED ON CANARY; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
+Status: **LATEST MAIN PUBLISHED AND ATTESTED; NEW CANARY STAGED AND READINESS-SOAK PASSED; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
 
-The latest published runtime candidate is PR [#616](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/616),
-commit `54a4c2b7f47058ea42afe8e4f0196f7ce7622a70`. Publisher run
-[#38172476063](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38172476063)
+The latest published runtime candidate is `main` commit
+`7bf9f77549e8667e156801dd180d5b0d4d91f060`. Publisher run
+[#38253481433](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38253481433)
 completed successfully, publishing ARM64/AMD64 images, verifying exact-digest
 provenance and SPDX SBOM attestations, and passing runtime smoke tests. These
 are published-image facts, not current RouterOS deployment evidence. The latest
@@ -12,10 +12,36 @@ published immutable image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-arm64` | `sha256:0e8d23fd5762dffb7b1aac88e3176d94a6ba3ea742421525d4039c5c99aceb78` |
-| AMD64 evaluation | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-amd64` | See publisher workflow #38172476063 |
+| RouterOS ARM64 | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-arm64` | `sha256:fe8bc41d3629c160d8a5a8c4e71e94491c01f779f1b761b74607e50052f0363b` |
+| AMD64 evaluation | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-amd64` | See publisher workflow #38253481433 |
 
-## Latest canary stage and live-client observation — 2026-10-12
+## Latest candidate staging follow-up — 2026-10-12 16:54 EEST
+
+The RouterOS-local, canary-only stage script for `7bf9f775` was started at
+16:22 EEST. At 16:54:59 EEST, RouterOS logged
+`canary readiness soak passed samples=30` and that the canary was staged with
+the expected immutable ARM64 tag. The per-sample `/readyz` requests returned
+HTTP 200. This passes the updater's 30-sample readiness gate only; it does not
+pass the separate live telemetry acceptance. The production container remains
+on its prior image and untouched. RouterOS reports the configured tag, not a
+registry digest read-back.
+
+At 16:30 EEST, RouterOS PPP Active Connections showed one disposable test
+client connected, with uptime about 1m35s. This confirms a current VPN session
+only. No corresponding authenticated canary dashboard
+observation, candidate-specific live event, traffic freshness sample, or
+latency measurement was collected in this check. Do not count it as acceptance
+evidence for the new image. The earlier PR #616 acceptance limitations below
+remain applicable; no RouterOS policy, certificate, CA, user, or production
+configuration was changed.
+
+At 16:31 EEST, the already-authenticated production Connections page showed
+one active device and `Live · SOCKETIO` without a document reload, but displayed
+zero current rates and byte totals. This is a production point observation on
+the prior image, not candidate-specific evidence; it also reinforces that the
+current traffic-counter accuracy/freshness question remains open.
+
+## Earlier PR #616 canary stage and live-client observation — 2026-10-12 00:14 EEST
 
 The RouterOS-local, canary-only immutable updater staged PR #616's ARM64 image.
 At 00:14:19 EEST, RouterOS logged `canary readiness soak passed samples=30`
@@ -76,7 +102,7 @@ latency evidence. The production page's separate delayed-data indicator was
 not used as acceptance evidence. No production or RouterOS configuration was
 changed.
 
-## Latest RouterOS image read-back — 2026-10-12
+## Earlier PR #616 RouterOS image read-back — 2026-10-12 00:14 EEST (historical)
 
 The canary was configured with PR #616's immutable ARM64 tag and showed healthy
 status after staging. Production remained configured with PR #539's prior
