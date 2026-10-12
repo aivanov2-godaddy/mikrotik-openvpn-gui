@@ -33,6 +33,8 @@ semantic-version style release tags.
 
 ### Fixed
 
+- Preflight RouterOS release-journal create, multiline update, and read-back
+  before changing canary, with a clear failure before the readiness soak.
 - Keep the live-telemetry indicator governed by recent stream snapshots instead
   of letting a failed five-second full-status poll overwrite a fresh SSE or
   Socket.IO update. The delayed state remains visible when no recent stream
