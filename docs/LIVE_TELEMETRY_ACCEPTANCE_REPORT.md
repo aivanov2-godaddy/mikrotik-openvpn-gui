@@ -1,10 +1,10 @@
 # Live telemetry acceptance report
 
-Status: **PR #616 PUBLISHED, ATTESTED, AND STAGED ON CANARY; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
+Status: **LATEST MAIN PUBLISHED AND ATTESTED; NEW CANARY STAGE IN PROGRESS; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
 
-The latest published runtime candidate is PR [#616](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/616),
-commit `54a4c2b7f47058ea42afe8e4f0196f7ce7622a70`. Publisher run
-[#38172476063](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38172476063)
+The latest published runtime candidate is `main` commit
+`7bf9f77549e8667e156801dd180d5b0d4d91f060`. Publisher run
+[#38253481433](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38253481433)
 completed successfully, publishing ARM64/AMD64 images, verifying exact-digest
 provenance and SPDX SBOM attestations, and passing runtime smoke tests. These
 are published-image facts, not current RouterOS deployment evidence. The latest
@@ -12,8 +12,26 @@ published immutable image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-arm64` | `sha256:0e8d23fd5762dffb7b1aac88e3176d94a6ba3ea742421525d4039c5c99aceb78` |
-| AMD64 evaluation | `sha-54a4c2b7f47058ea42afe8e4f0196f7ce7622a70-amd64` | See publisher workflow #38172476063 |
+| RouterOS ARM64 | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-arm64` | `sha256:fe8bc41d3629c160d8a5a8c4e71e94491c01f779f1b761b74607e50052f0363b` |
+| AMD64 evaluation | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-amd64` | See publisher workflow #38253481433 |
+
+## Latest candidate staging follow-up — 2026-10-12 16:30 EEST
+
+The RouterOS-local, canary-only stage script for `7bf9f775` was started at
+16:22 EEST and was still running readiness sampling at the last job check.
+The script's log showed successful private canary `/readyz` responses, but no
+final 30-sample pass marker or final image/revision read-back had yet been
+observed. Therefore this report does not claim the new candidate is staged.
+The production container remains untouched.
+
+At 16:30 EEST, RouterOS PPP Active Connections showed one disposable test
+client connected, with uptime about 1m35s. This confirms a current VPN session
+only. No corresponding authenticated canary dashboard
+observation, candidate-specific live event, traffic freshness sample, or
+latency measurement was collected in this check. Do not count it as acceptance
+evidence for the new image. The earlier PR #616 acceptance limitations below
+remain applicable; no RouterOS policy, certificate, CA, user, or production
+configuration was changed.
 
 ## Latest canary stage and live-client observation — 2026-10-12
 
