@@ -495,6 +495,77 @@ class ASGIContractTests(unittest.TestCase):
         self.assertNotIn(session.session_id, repr(principal))
         self.assertNotIn("router-password-marker", repr(principal))
 
+    def test_live_pump_revalidates_routeros_role_changes_on_the_active_asgi_stream(self) -> None:
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "router-password-marker", role="owner")
+        routeros_state = {"role": "owner", "enabled": True}
+
+        def resolve_role(_session) -> str | None:
+            return routeros_state["role"] if routeros_state["enabled"] else None
+
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url="https://router.example.test",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="binary",
+            role_resolver=resolve_role,
+        )
+        sessions._role_checked_at[session.session_id] = 0
+        principal = runtime.principal_for_session(session.session_id)
+        self.assertIsNotNone(principal)
+        self.assertTrue(principal.may_stream)
+        subscription = runtime.gateway.open(principal)
+        runtime._publish(runtime.broker.reconcile([
+            {
+                ".id": "*test-session",
+                "name": "vpn-test-user",
+                "address": "10.8.0.2",
+                "caller-id": "192.0.2.10",
+                "uptime": "1m",
+                "encoding": "AES-256-GCM/[null-digest]",
+                "service": "ovpn",
+            },
+        ], now=100))
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.emitted: list[int] = []
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def emit(self, _event, payload, *, to, namespace) -> None:
+                self.emitted.append(int(payload["sequence"]))
+                if len(self.emitted) == 1:
+                    # The RouterOS-derived downgrade removes write/admin
+                    # permissions but intentionally retains sessions.read.
+                    routeros_state["role"] = "read_only"
+                    sessions._role_checked_at[session.session_id] = 0
+                else:
+                    # Once RouterOS no longer resolves the account, the same
+                    # established stream must be closed before another frame.
+                    routeros_state["enabled"] = False
+                    sessions._role_checked_at[session.session_id] = 0
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = FakeServer()
+        native._subscriptions = {"socket-role-change": subscription}
+        native._session_ids = {"socket-role-change": session.session_id}
+        native._events_emitted_total = 0
+
+        asyncio.run(native._pump("socket-role-change", subscription))
+
+        self.assertEqual(session.role, "read_only")
+        self.assertEqual(native.server.emitted, [1, 2])
+        self.assertEqual(native.server.disconnected, [("socket-role-change", "/telemetry")])
+        self.assertEqual(native._events_emitted_total, 2)
+
     def test_live_pump_stops_a_polled_batch_when_session_is_revoked_mid_send(self) -> None:
         from asgi import NativeSocketIO
 
