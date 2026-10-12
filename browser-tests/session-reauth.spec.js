@@ -50,6 +50,26 @@ test('failed re-authentication clears password and preserves the live dashboard 
 test('successful re-authentication adopts rotated CSRF and keeps the page in place', async ({ page }) => {
   const navigations = { count: 0 };
   await signIn(page);
+  let releaseStaleStatus;
+  let signalStaleStatus;
+  let holdNextStatus = true;
+  const staleStatusGate = new Promise((resolve) => { releaseStaleStatus = resolve; });
+  const staleStatusCaptured = new Promise((resolve) => { signalStaleStatus = resolve; });
+  const statusResponses = [];
+  page.on('response', (response) => {
+    if (new URL(response.url()).pathname === '/api/status') statusResponses.push(response.status());
+  });
+  await page.route('**/api/status', async (route) => {
+    if (!holdNextStatus) {
+      await route.continue();
+      return;
+    }
+    holdNextStatus = false;
+    signalStaleStatus();
+    await staleStatusGate;
+    await route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"expired"}' });
+  });
+  await staleStatusCaptured;
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigations.count += 1;
   });
@@ -72,6 +92,9 @@ test('successful re-authentication adopts rotated CSRF and keeps the page in pla
   };
 
   await authenticate();
+  const statusResponseCount = statusResponses.length;
+  releaseStaleStatus();
+  await expect.poll(() => statusResponses.slice(statusResponseCount).includes(200)).toBe(true);
   const rotatedCsrf = await page.locator('meta[name="csrf-token"]').getAttribute('content');
   expect(rotatedCsrf).toBeTruthy();
   expect(rotatedCsrf).not.toBe(originalCsrf);
