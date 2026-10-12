@@ -143,6 +143,17 @@ that local failure marker before retrying it. The example also keeps a bounded
 `routeros-update-history.log` on the router's external storage for review and
 incident recovery; it never uploads this journal to GitHub.
 
+Before the updater changes canary, it runs the same journal helper against a
+short-lived probe in the configured local state directory, including both
+create and multiline update/read-back. The example defaults to
+`disk1/vpn-dashboard`; set `stateDirectory` to the actual existing directory
+on the target router (for example, `vpn-dashboard` at the file-store root) when
+needed. The updater derives its state, pending, and history filenames from that
+single setting. Configure the local promotion controller's `--pending-file`,
+`--state-file`, and `--failure-file` to use the same effective directory. A
+missing or unusable directory/file-update path now stops staging before either
+container is changed, rather than surfacing only after the readiness soak.
+
 To restrict canary staging to a maintenance window, set
 `maintenanceWindowEnabled` to `true` in the reviewed local script and choose
 `maintenanceStartHour`/`maintenanceEndHour` in RouterOS local time. The start

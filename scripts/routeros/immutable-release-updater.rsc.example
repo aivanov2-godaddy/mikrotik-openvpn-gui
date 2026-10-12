@@ -18,9 +18,13 @@
 # private container network. The release manifest itself always remains HTTPS
 # with certificate validation; local HTTP must never point to a public host.
 :local canaryReadyUrl "http://192.168.250.2:8080/readyz"
-:local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
-:local pendingFile "disk1/vpn-dashboard/routeros-update-pending.txt"
-:local historyFile "disk1/vpn-dashboard/routeros-update-history.log"
+# Point this at an existing RouterOS directory on the target router. Some
+# installations use disk1/vpn-dashboard; routers without disk1 may use the
+# root-level vpn-dashboard directory. Keep it aligned with the local promoter.
+:local stateDirectory "disk1/vpn-dashboard"
+:local stateFile ($stateDirectory . "/routeros-update-state.txt")
+:local pendingFile ($stateDirectory . "/routeros-update-pending.txt")
+:local historyFile ($stateDirectory . "/routeros-update-history.log")
 # Allow up to three minutes for router-layer download, extraction, and app boot.
 # A 23 MB ARM64 layer took about 80 seconds to download on the target router.
 :local pollAttempts 18
@@ -276,6 +280,27 @@
         # Validate policy before even changing the isolated canary.
         :if ($canaryValidationSamples < 30) do={ :error "canary requires at least 30 readiness samples" }
         :if ($canaryValidationInterval < 1m) do={ :error "canary readiness samples must be at least one minute apart" }
+        # Exercise the same add/update helper used for the real journals before
+        # any container mutation. This catches missing paths and RouterOS file
+        # update errors (including multiline contents) before the readiness
+        # soak. The short-lived random probe contains no private data.
+        :local stateProbeFile ($stateDirectory . "/.vpn-gui-write-check-" . [:rndnum from=100000 to=999999] . ".tmp")
+        :local stateProbeContents "probe=updated\nmultiline=yes"
+        :local stateProbeFailed false
+        :local stateProbeId
+        :do {
+            $writeState $stateProbeFile "probe=created"
+            $writeState $stateProbeFile $stateProbeContents
+            :set stateProbeId [/file/find where name=$stateProbeFile]
+            :if (([:len $stateProbeId] != 1) || ([/file/get $stateProbeId contents] != $stateProbeContents)) do={ :set stateProbeFailed true }
+            :if ([:len $stateProbeId] = 1) do={ /file/remove $stateProbeId }
+        } on-error={
+            :set stateProbeFailed true
+            :do { :set stateProbeId [/file/find where name=$stateProbeFile]; :if ([:len $stateProbeId] = 1) do={ /file/remove $stateProbeId } } on-error={}
+        }
+        :if ($stateProbeFailed) do={
+            :error ("router-local state directory is missing or not writable: " . $stateDirectory . "; no container changed")
+        }
     }
 
     # The script only changes the isolated canary image/lifecycle and local

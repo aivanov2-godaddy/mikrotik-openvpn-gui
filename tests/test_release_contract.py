@@ -154,7 +154,12 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('event=" . $event', executable)
         self.assertIn('$recordHistory "canary-staged"', updater)
         self.assertIn('candidate already staged; production unchanged', executable)
-        self.assertIn(':local pendingFile "disk1/vpn-dashboard/routeros-update-pending.txt"', executable)
+        self.assertIn(':local stateDirectory "disk1/vpn-dashboard"', executable)
+        self.assertIn(':local pendingFile ($stateDirectory . "/routeros-update-pending.txt")', executable)
+        self.assertIn('router-local state directory is missing or not writable:', executable)
+        self.assertIn('$writeState $stateProbeFile "probe=created"', executable)
+        self.assertIn('$writeState $stateProbeFile $stateProbeContents', executable)
+        self.assertIn('[/file/get $stateProbeId contents] != $stateProbeContents', executable)
         self.assertNotIn('$recordHistory "promoted"', executable)
         self.assertNotIn("/container/stop $productionId", executable)
         self.assertNotIn("/container/set $productionId", executable)
@@ -198,6 +203,10 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertLess(
             executable.index(":if ($canaryValidationInterval < 1m)"),
+            executable.index("/container/stop $canaryId"),
+        )
+        self.assertLess(
+            executable.index('$writeState $stateProbeFile "probe=created"'),
             executable.index("/container/stop $canaryId"),
         )
         self.assertIn('$recordFailure $image', executable)
