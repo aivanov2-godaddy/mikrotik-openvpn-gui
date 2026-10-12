@@ -1,35 +1,44 @@
 # Live telemetry acceptance report
 
-Status: **LATEST MAIN PUBLISHED AND SLSA-ATTESTED; LATEST MAIN IMAGE NOT READ BACK ON ROUTER; ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **LATEST RUNTIME PUBLISHED; CANARY-ONLY STAGE RETRY IN PROGRESS; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
-As of 2026-10-13, the latest published runtime is `main` commit
-`eed05460d412d571d75506b27b316951c2c15660` (PR #636). Publisher run
-[#38304985400](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38304985400)
-completed successfully. ARM64 and AMD64 builds, runtime smoke tests, stable
-immutable manifest publication, and exact-digest provenance/SBOM verification
-passed. These are published-artifact facts, not current RouterOS deployment
-evidence. The latest published immutable image identities are:
+As of 2026-10-13, the latest published runtime image is built from commit
+`19ac2e19f9eed48117fa63d1ad9bf905da33ba15` (PR #638), published by run
+[#38313003800](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38313003800).
+The ARM64 digest is
+`sha256:3a4db55e43af00895639c61a55d24d9893ee6b924b857136e53080d9e310f4a6`;
+the AMD64 digest is
+`sha256:52ef26cf96e3fd6cab029980528fa1368239c47004a0354e1544da6e56faae01`.
+PR #639 (`43061f3`) updates only acceptance scripts/tests/docs, so it did not
+trigger a runtime image build.
 
-| Platform | Immutable tag | Published registry digest |
-| --- | --- | --- |
-| RouterOS ARM64 | `sha-eed05460d412d571d75506b27b316951c2c15660-arm64` | `sha256:3dbbfc627ed6ce82b5458afc9e60dfd97826ffdc9fe1f97645471589578f93b7` |
-| AMD64 evaluation | `sha-eed05460d412d571d75506b27b316951c2c15660-amd64` | `sha256:4b136dee5942b4aa8f3b80acb06a81703569e3c6824c2d8964343f6396d51fd5` |
+The most recent RouterOS read-back before the current stage retry showed the
+canary configured with the PR #638 immutable ARM64 tag and healthy, while
+production remained healthy on its prior PR #539 tag
+(`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`). After finding an
+orphaned updater lock and no active updater job, the lock was cleared and the
+canary-only stage script was rerun. At approximately 01:40 EEST it had not
+returned a staged marker or updated the stage-state file. This retry is not a
+readiness pass; production was not touched.
 
-The last recorded RouterOS canary read-back in this report is the older
-`sha-cf03f0a956da23b25bd76b3157ae1d89d6ba1e22-arm64` candidate (PR #634),
-staged on 2026-10-12. The newer #636 image has not been read back on the router.
-No production promotion of #636 is claimed. The recovery acceptance collector
-now also requires measured positive reconnect and snapshot-recovery counter
-deltas, with no counter reset, in addition to the operator's event-exercise
-claims; a claim without those observations fails closed. Historical sections
-below retain the evidence and limitations recorded at their original times.
+At approximately 01:40 EEST, RouterOS `/ppp active` and the authenticated
+canary Connections view both reported zero active VPN sessions; the dashboard also indicated connection
+data delayed. Therefore the session-change, reconnect/snapshot, event-latency,
+and traffic-freshness gates are not currently measured. Previously recorded
+30-minute qualitative observations and older readiness passes remain
+historical and do not substitute for the current candidate's evidence. The
+merged #639 evaluator now requires positive reset-free reconnect/snapshot
+counters, ordered in-window supervisor timestamps, and session-event
+observation age no greater than two seconds; missing evidence fails closed.
 
-The previous `7bf9f775` readiness soak does not apply to either newer image. No
-RouterOS read-back of the `3dc33ec` image has been collected. Production
-promotion remains gated on candidate-specific canary and full acceptance
-evidence.
+Read-only RouterOS certificate settings showed CRL download/use disabled. No
+CA, certificate, VPN policy, or production configuration was changed; actual
+certificate-revocation rejection remains unverified. Production promotion
+remains gated on candidate-specific readiness, a fresh measured live-client
+window, the other #199 acceptance checks, and issue #200's deployed security
+review. Historical sections below preserve evidence as it was recorded.
 
-## Latest authenticated canary browser observation — 2026-10-12, approximately 17:30 EEST
+## Prior authenticated canary browser observation — 2026-10-12, approximately 17:30 EEST
 
 The canary dashboard was authenticated and displayed `Live · SOCKETIO`, one
 connected session, and Operational service health. This is a point-in-time

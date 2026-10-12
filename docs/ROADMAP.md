@@ -5,102 +5,44 @@ and released here before an operator optionally evaluates them in a private
 canary. This source repository never receives router credentials, live user
 data, deployment runners, or production network details.
 
-## Current project snapshot — 2026-10-12
+## Current project snapshot — 2026-10-13
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
-published `main` image set corresponds to commit
-`cf03f0a956da23b25bd76b3157ae1d89d6ba1e22` (PR #634). PR #634 hardens the
-stable-manifest publisher with idempotent reconciliation and exact remote
-read-back; the included application runtime contains PR #633's RouterOS
-reauthentication and session/CSRF token rotation. Publisher run
-[#38282621575](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38282621575)
-completed successfully on attempt 1: source/rendered-browser checks,
-ARM64/AMD64 publication, and stable-manifest read-back all passed. The public
-manifest was independently downloaded and confirmed to name this commit and
-run. GitHub CLI verified SLSA provenance for both images with the source digest
-constrained to this `main` commit:
+published runtime image is built from commit
+`19ac2e19f9eed48117fa63d1ad9bf905da33ba15` (PR #638), published by run
+[#38313003800](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38313003800).
+The verified ARM64 and AMD64 artifacts are:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-cf03f0a956da23b25bd76b3157ae1d89d6ba1e22-arm64` | `sha256:f3d52f98a6c8d9d49362b9585f924ba3896ffdb733804382cd7c9dd41261b4c1` |
-| AMD64 evaluation | `sha-cf03f0a956da23b25bd76b3157ae1d89d6ba1e22-amd64` | `sha256:f1216219e0dc713726debab62e75112bfa7cd5dd6fba02f6d475392a78bfd060` |
+| RouterOS ARM64 | `sha-19ac2e19f9eed48117fa63d1ad9bf905da33ba15-arm64` | `sha256:3a4db55e43af00895639c61a55d24d9893ee6b924b857136e53080d9e310f4a6` |
+| AMD64 evaluation | `sha-19ac2e19f9eed48117fa63d1ad9bf905da33ba15-amd64` | `sha256:52ef26cf96e3fd6cab029980528fa1368239c47004a0354e1544da6e56faae01` |
 
-These are published artifact identities, **not RouterOS deployment evidence**.
-The previously staged `7bf9f775` candidate predates this newer `cf03f0a` image.
-No RouterOS read-back of the `cf03f0a` tag has been collected. Production
-promotion remains gated on a fresh canary stage and the full acceptance
-evidence below.
+PR #639 is now merged as `43061f3`; it tightens the acceptance collector and
+evaluator but changes only scripts, tests, and documentation. The runtime image
+therefore remains the PR #638 image; no image publication or deployment was
+triggered by #639.
 
-For an earlier `main` candidate, the RouterOS-local canary-only stage script
-was started at 16:22 EEST on 2026-10-12. At 16:54:59 EEST, RouterOS logged
-`canary readiness soak passed samples=30` and recorded the `7bf9f775` immutable
-ARM64 image as staged on canary. Per-sample `/readyz` requests returned HTTP
-200. Production remains untouched. This is the minimum readiness gate only;
-the separate live telemetry acceptance has not passed. One disposable test
-client was confirmed connected in RouterOS PPP Active Connections at 16:30
-EEST; this is a point-in-time session observation, not proof that candidate
-telemetry passed.
+**Live deployment remains gated.** The last RouterOS container read-back before
+the current retry showed the canary on the #638 immutable ARM64 tag and
+production on the prior `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`
+tag; both containers were healthy. At approximately 01:40 EEST, the canary-only
+stage updater had been retried after a stale lock was found, but no new
+30-sample staged marker or updated state-file read-back had yet been observed.
+Production was not changed. At that live check RouterOS reported zero active PPP sessions and the
+authenticated canary Connections view reported zero connected devices with
+connection data delayed. Thus no current reconnect/event-latency/freshness
+acceptance is claimed.
 
-Issue #199 was automatically closed by PR #626's `Fixes #199` keyword even
-though the PR body and acceptance criteria leave deployment evidence outstanding.
-It was reopened on 2026-10-12 so the paired RouterOS/app soak, recovery, restore,
-rollback, and promotion evidence remain tracked to completion.
+Read-only certificate settings showed CRL download/use disabled. No CA,
+certificate, VPN policy, or production configuration was changed; revocation
+rejection remains unaccepted. Open roadmap issues are #194 (device/certificate
+acceptance), #199 (release acceptance), #200 (deployed security assurance),
+and tracking epic #205. Multi-tenancy remains explicitly out of scope.
 
-On 2026-10-12, RouterOS logged that the canary-only updater staged PR #616's
-immutable ARM64 candidate and passed its 30-sample readiness soak at 00:14
-EEST. An authenticated, no-refresh canary observation then kept the
-disposable test client connected for more than 30 minutes. Socket.IO remained
-visible; uptime, rates, and totals changed across observations. Point-in-time
-health snapshots showed RouterOS CPU between 14% and 31%, memory at 35%,
-storage at 25%, and no bad storage blocks. These are sparse UI observations,
-not a continuous resource or telemetry SLO measurement.
-
-The live view also produced a brief rate peak near 190 Mbps followed by zero
-rates without an obviously corresponding cumulative-total increase, and one
-session-card sample briefly showed zero byte totals while the overview retained
-nonzero totals. Later streamed values recovered without a page reload. Treat
-this as an unresolved live rate/counter consistency anomaly: the 30-minute
-qualitative observation is **not** a full acceptance pass, and no exact event
-latency or traffic-sample age was measured. A reviewed test-client termination
-at about 00:42 EEST first returned “still active”; a later live snapshot changed
-the count to zero and the history row to Ended, without a page reload. The
-client did not reconnect automatically during the following 30 seconds.
-
-Unauthenticated requests to canary `/api/status`, `/api/events`, and `/metrics`
-returned HTTP 302, so those requests did not expose telemetry. API interruption
-and automatic telemetry-supervisor reconnect/snapshot recovery, Redis/outbox
-delivery, event ordering/loss, counter-reset recovery, Binary/REST parity,
-SQLite restore, rollback, device/certificate lifecycle, and the deployed
-independent security review remain unaccepted. Production remains on its prior
-immutable image and was not modified. No RouterOS account, firewall,
-certificate, CA, or VPN policy was changed.
-
-**2026-10-12 RouterOS image read-back:** PR #616's canary stage previously
-passed for the then-current `7bf9f775` candidate. That observation does not
-verify the currently published PR #634 image `cf03f0a`; its candidate-specific
-readiness soak and full acceptance remain pending. The most recent recorded
-production image is PR #539 (`7efeff74a79d…`); no production promotion was
-performed for PR #628. The separate Redis container remains separate. RouterOS
-exposes configured tags and health markers, not an independent verification of
-the cached registry digest. See the current
-[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md) for the incomplete
-formal acceptance gates and live-client observations. The 30-sample readiness
-soak passed; the separate live acceptance remains incomplete.
-
-PR #585 adds synthetic browser coverage that refreshing the certificate
-replacement panel preserves the active live stream and that a later streamed
-session appears without a document reload. This is repository/browser
-simulation evidence only; it does not establish RouterOS certificate or
-connected-client acceptance.
-
-Earlier PR #582, #587, #589, and #604 stage/session observations below are
-historical. The latest PR #616 published-image evidence and current live
-acceptance status are recorded in the
-[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). Live-client latency,
-measured changing-traffic freshness, reconnect/snapshot recovery, and the
-acceptance collector's numeric SLO gates remain unverified for the current
-candidate. A qualitative 30-minute window was observed, but live rate/counter
-inconsistencies prevent acceptance. Production promotion was not performed.
+Earlier observations below are historical evidence only and do not supersede
+this current snapshot. See the [live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
+for detailed gates, results, and limitations.
 
 ### Historical canary stage and acceptance observations — 2026-10-09
 
