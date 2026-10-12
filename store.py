@@ -16,6 +16,9 @@ from typing import Any, Callable, Iterator
 from event_safety import sanitize_payload
 
 
+_monotonic = time.monotonic
+
+
 ALERT_DEDUP_WINDOW_SECONDS = 3600
 ALERT_RATE_LIMIT_WINDOW_SECONDS = 60
 ALERT_RATE_LIMIT_MAX = 10
@@ -354,7 +357,7 @@ class MetadataStore:
     def verify_readiness(self) -> None:
         """Raise unless SQLite passes a quick check and a rolled-back write."""
         with self._lock:
-            if time.monotonic() < self._readiness_valid_until:
+            if _monotonic() < self._readiness_valid_until:
                 return
             connection = self._connect()
             transaction_started = False
@@ -376,7 +379,7 @@ class MetadataStore:
                 if transaction_started:
                     connection.rollback()
                 connection.close()
-            self._readiness_valid_until = time.monotonic() + 10.0
+            self._readiness_valid_until = _monotonic() + 10.0
 
     def checkpoint_wal(self, mode: str = "PASSIVE") -> dict[str, int | str]:
         """Run a bounded SQLite WAL checkpoint and return its counters."""
