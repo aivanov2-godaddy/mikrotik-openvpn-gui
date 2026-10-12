@@ -66,8 +66,6 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     "snapshot_recovered": True,
                     "reconnect_recovery_counter_delta": 1,
                     "reconnect_recovery_counter_reset": False,
-                    "snapshot_recovery_counter_delta": 1,
-                    "snapshot_recovery_counter_reset": False,
                     "reconnect_observed_at": 1790935500,
                     "full_snapshot_recovered_at": 1790935801,
                     "sqlite_restore_verified": True,
@@ -233,16 +231,15 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("canary_production_digest_mismatch", report["failed_gates"])
 
-    def test_operator_recovery_claims_cannot_override_missing_or_zero_counters(self) -> None:
+    def test_operator_recovery_claims_cannot_override_missing_reconnect_counter(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["deployments"][0]["reconnect_recovery_counter_delta"] = 0
-        evidence["deployments"][0]["snapshot_recovery_counter_delta"] = 0
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
 
         evidence = deepcopy(self.evidence)
-        del evidence["deployments"][0]["snapshot_recovery_counter_delta"]
+        del evidence["deployments"][0]["reconnect_recovery_counter_delta"]
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])

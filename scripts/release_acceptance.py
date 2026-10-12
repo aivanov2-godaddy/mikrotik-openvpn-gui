@@ -195,12 +195,6 @@ def evaluate(
         reconnect_counter_reset = _optional_boolean(
             record, "reconnect_recovery_counter_reset", optional=True
         )
-        snapshot_counter_delta = _optional_count(
-            record, "snapshot_recovery_counter_delta", optional=True
-        )
-        snapshot_counter_reset = _optional_boolean(
-            record, "snapshot_recovery_counter_reset", optional=True
-        )
         reconnect_observed_at = _optional_number(
             record, "reconnect_observed_at", optional=True
         )
@@ -264,9 +258,6 @@ def evaluate(
             or reconnect_counter_delta is None
             or reconnect_counter_delta < 1
             or reconnect_counter_reset is not False
-            or snapshot_counter_delta is None
-            or snapshot_counter_delta < 1
-            or snapshot_counter_reset is not False
             or not reconnect_timestamp_in_window
             or not full_snapshot_after_reconnect
         ):
@@ -321,8 +312,6 @@ def evaluate(
             "snapshot_recovered": None if prior_production_baseline else snapshot,
             "reconnect_recovery_counter_delta": None if prior_production_baseline else reconnect_counter_delta,
             "reconnect_recovery_counter_reset": None if prior_production_baseline else reconnect_counter_reset,
-            "snapshot_recovery_counter_delta": None if prior_production_baseline else snapshot_counter_delta,
-            "snapshot_recovery_counter_reset": None if prior_production_baseline else snapshot_counter_reset,
             "reconnect_observed_at": None if prior_production_baseline else reconnect_observed_at,
             "full_snapshot_recovered_at": None if prior_production_baseline else full_snapshot_recovered_at,
             "sqlite_restore_verified": None if prior_production_baseline else backup_restore,

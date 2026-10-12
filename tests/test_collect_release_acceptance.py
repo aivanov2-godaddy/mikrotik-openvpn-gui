@@ -579,7 +579,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 reconnect_counter_delta if recovery_observed and advance_recovery_timestamps else 0
             )
             full_snapshot_timestamp = recovery_time_base - 0.5 + (
-                snapshot_recovery_counter_delta + 0.4
+                1.4
                 if recovery_observed and advance_recovery_timestamps else 0
             )
             payload = (
@@ -777,7 +777,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("canary_reconnect_recovery_not_observed", report["failed_gates"])
         self.assertIn("canary_snapshot_recovery_not_observed", report["failed_gates"])
 
-    def test_reconnect_and_snapshot_claims_require_positive_counter_deltas(self) -> None:
+    def test_reconnect_requires_counter_delta_but_full_snapshot_uses_supervisor_timestamp(self) -> None:
         code, report, _ = self.run_collection(reconnect_counter_delta=0)
         self.assertEqual(code, 1)
         self.assertIn("canary_reconnect_recovery_not_observed", report["failed_gates"])
@@ -785,12 +785,17 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertFalse(canary["reconnect_recovered"])
         self.assertEqual(canary["reconnect_recovery_counter_delta"], 0)
 
+        # Gateway snapshot_recovery counts stale client-cursor replay, not the
+        # RouterOS supervisor's full snapshot after API reconnect. A zero delta
+        # there must not invalidate a directly observed supervisor snapshot.
         code, report, _ = self.run_collection(snapshot_recovery_counter_delta=0)
-        self.assertEqual(code, 1)
-        self.assertIn("canary_snapshot_recovery_not_observed", report["failed_gates"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("canary_snapshot_recovery_not_observed", report["failed_gates"])
         canary = report["evidence"]["deployments"][0]
-        self.assertFalse(canary["snapshot_recovered"])
-        self.assertEqual(canary["snapshot_recovery_counter_delta"], 0)
+        self.assertTrue(canary["snapshot_recovered"])
+        self.assertGreaterEqual(
+            canary["full_snapshot_recovered_at"], canary["reconnect_observed_at"]
+        )
 
     def test_unobserved_telemetry_slo_fails_closed(self) -> None:
         code, report, _ = self.run_collection(
