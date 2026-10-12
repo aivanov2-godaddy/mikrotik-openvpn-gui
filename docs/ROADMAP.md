@@ -9,25 +9,26 @@ data, deployment runners, or production network details.
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
 published `main` runtime is commit
-`6b1ab55c0e55e0a4a7108f46485c847014ca523f`, which includes merged PR #628's
-explicit `/api/users` response-field allowlist. Publisher run
-[#38263302619](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38263302619)
-completed successfully, publishing ARM64 and AMD64 images, verifying exact-
-digest provenance and SPDX SBOM attestations, and passing published-image
-runtime smoke tests:
+`3dc33ec93a997f8b74b35b6ce2f7f3af6caacaac` (PR #631), which adds updater
+journal-storage preflight checks. Publisher run
+[#38273334553](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38273334553)
+completed successfully: source and rendered-browser checks, ARM64/AMD64 image
+publication, and immutable manifest publication all passed. GitHub CLI verified
+SLSA provenance for both architecture-specific images against this commit:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-6b1ab55c0e55e0a4a7108f46485c847014ca523f-arm64` | `sha256:521433e71dc86a48008144d496a46423f51c4795b42dd085158946dbe7906735` |
-| AMD64 evaluation | `sha-6b1ab55c0e55e0a4a7108f46485c847014ca523f-amd64` | `sha256:b6284e50db8c3e12c8835d4aeca32d4a72c72219781a5c18bd77f7748f9d8ea7` |
+| RouterOS ARM64 | `sha-3dc33ec93a997f8b74b35b6ce2f7f3af6caacaac-arm64` | `sha256:a95bbff6d018687019497746a47b019a0b99b64ec31253bfc6b091655ee791e8` |
+| AMD64 evaluation | `sha-3dc33ec93a997f8b74b35b6ce2f7f3af6caacaac-amd64` | `sha256:854446301c7a51f164dda4996a08e218c502ddbf78f694e3f3093314a7fff125` |
 
-The previously staged `7bf9f775` candidate is not evidence that this newer
-image is installed. As of 17:40 EEST, no RouterOS read-back of the `6b1ab55`
-tag had been collected. Production promotion remains gated on a fresh canary
-stage and the full acceptance evidence below.
+These are published artifact identities, **not RouterOS deployment evidence**.
+The previously staged `7bf9f775` candidate predates both `6b1ab55` and this
+newer `3dc33ec` image. No RouterOS read-back of the `3dc33ec` tag has been
+collected. Production promotion remains gated on a fresh canary stage and the
+full acceptance evidence below.
 
-At 16:22 EEST on 2026-10-12, the RouterOS-local canary-only stage script was
-started for the new `main` candidate. At 16:54:59 EEST, RouterOS logged
+For an earlier `main` candidate, the RouterOS-local canary-only stage script
+was started at 16:22 EEST on 2026-10-12. At 16:54:59 EEST, RouterOS logged
 `canary readiness soak passed samples=30` and recorded the `7bf9f775` immutable
 ARM64 image as staged on canary. Per-sample `/readyz` requests returned HTTP
 200. Production remains untouched. This is the minimum readiness gate only;
@@ -71,8 +72,8 @@ immutable image and was not modified. No RouterOS account, firewall,
 certificate, CA, or VPN policy was changed.
 
 **2026-10-12 RouterOS image read-back:** PR #616's canary stage previously
-passed for the then-current `7bf9f775` candidate. The newer `6b1ab55` image is
-published but has not yet been read back on RouterOS; its candidate-specific
+passed for the then-current `7bf9f775` candidate. That observation does not
+verify the currently published PR #631 image `3dc33ec`; its candidate-specific
 readiness soak and full acceptance remain pending. The most recent recorded
 production image is PR #539 (`7efeff74a79d…`); no production promotion was
 performed for PR #628. The separate Redis container remains separate. RouterOS
