@@ -62,7 +62,10 @@ The diagnostics bundle is explicitly `health.read`-gated. `/api/service-health`
 and `/api/setup-preflight` enforce that capability. `/api/status` requires a
 RouterOS-authenticated dashboard session. `/api/users` requires that session
 and the explicit `users.read` capability; both reject API tokens before
-contacting RouterOS. Saved-view reads require `sessions.read`;
+contacting RouterOS. The user-list response is an explicit allowlist (`id`,
+`name`, `profile`, `comment`, `disabled`, plus dashboard-owned email, controls,
+tags, and template metadata); unexpected RouterOS adapter fields are discarded.
+Saved-view reads require `sessions.read`;
 policy-template reads require `policies.read`. Browser-cookie mutations
 additionally require CSRF. API-token access is restricted by the token's
 stored scopes. Unknown roles fail closed through the central capability
