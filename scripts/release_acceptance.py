@@ -187,6 +187,18 @@ def evaluate(
         redis_available = _optional_boolean(record, "redis_publish_verified", optional=prior_production_baseline)
         reconnect = _optional_boolean(record, "reconnect_recovered", optional=prior_production_baseline)
         snapshot = _optional_boolean(record, "snapshot_recovered", optional=prior_production_baseline)
+        reconnect_counter_delta = _optional_count(
+            record, "reconnect_recovery_counter_delta", optional=True
+        )
+        reconnect_counter_reset = _optional_boolean(
+            record, "reconnect_recovery_counter_reset", optional=True
+        )
+        snapshot_counter_delta = _optional_count(
+            record, "snapshot_recovery_counter_delta", optional=True
+        )
+        snapshot_counter_reset = _optional_boolean(
+            record, "snapshot_recovery_counter_reset", optional=True
+        )
         backup_restore = _optional_boolean(record, "sqlite_restore_verified", optional=prior_production_baseline)
         rollback = _optional_boolean(record, "rollback_drill_passed", optional=prior_production_baseline)
         production_protected = _optional_boolean(
@@ -223,7 +235,16 @@ def evaluate(
             failures.append(f"{expected_environment}_rest_fallback_unavailable")
         if not prior_production_baseline and (not redis_configured or not redis_available):
             failures.append(f"{expected_environment}_redis_publish_unverified")
-        if not prior_production_baseline and (not reconnect or not snapshot):
+        if not prior_production_baseline and (
+            not reconnect
+            or not snapshot
+            or reconnect_counter_delta is None
+            or reconnect_counter_delta < 1
+            or reconnect_counter_reset is not False
+            or snapshot_counter_delta is None
+            or snapshot_counter_delta < 1
+            or snapshot_counter_reset is not False
+        ):
             failures.append(f"{expected_environment}_reconnect_recovery_failed")
         if not prior_production_baseline and not backup_restore:
             failures.append(f"{expected_environment}_sqlite_restore_unverified")
@@ -269,6 +290,10 @@ def evaluate(
             "redis_publish_verified": None if prior_production_baseline else redis_available,
             "reconnect_recovered": None if prior_production_baseline else reconnect,
             "snapshot_recovered": None if prior_production_baseline else snapshot,
+            "reconnect_recovery_counter_delta": None if prior_production_baseline else reconnect_counter_delta,
+            "reconnect_recovery_counter_reset": None if prior_production_baseline else reconnect_counter_reset,
+            "snapshot_recovery_counter_delta": None if prior_production_baseline else snapshot_counter_delta,
+            "snapshot_recovery_counter_reset": None if prior_production_baseline else snapshot_counter_reset,
             "sqlite_restore_verified": None if prior_production_baseline else backup_restore,
             "session_event_p95_ms": None if prior_production_baseline else latency,
             "traffic_sample_age_seconds": None if prior_production_baseline else sample_age,

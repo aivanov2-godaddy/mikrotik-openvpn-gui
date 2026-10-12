@@ -477,6 +477,8 @@ class ReleaseCollectionTests(unittest.TestCase):
         gateway_delivery_observations: int = 8,
         supervisor_status: str = "healthy",
         supervisor_enabled: int = 1,
+        reconnect_counter_delta: int = 1,
+        snapshot_recovery_counter_delta: int = 1,
         outbox_pending: int = 0,
         outbox_pending_sequence: list[int] | None = None,
         outbox_dead_lettered: int = 0,
@@ -579,7 +581,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "vpn_dashboard_telemetry_gateway_buffered_events 2\n"
                 "vpn_dashboard_telemetry_gateway_events_total{outcome=\"published\"} 15\n"
                 "vpn_dashboard_telemetry_gateway_events_total{outcome=\"replayed\"} 3\n"
-                "vpn_dashboard_telemetry_gateway_events_total{outcome=\"snapshot_recovery\"} 1\n"
+                "vpn_dashboard_telemetry_gateway_events_total{outcome=\"snapshot_recovery\"} "
+                f"{1 + (snapshot_recovery_counter_delta if metrics_observations_by_environment[environment] > 1 else 0)}\n"
                 "vpn_dashboard_telemetry_gateway_rejected_clients_total 0\n"
                 "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds 0.2\n"
                 f"vpn_dashboard_telemetry_gateway_delivery_queue_age_p95_seconds {-1 if sample_is_unknown else gateway_delivery_p95}\n"
@@ -592,7 +595,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 f"vpn_dashboard_telemetry_supervisor_status{{state=\"stopped\"}} {int(supervisor_status == 'stopped')}\n"
                 f"vpn_dashboard_telemetry_supervisor_status{{state=\"unknown\"}} {int(supervisor_status == 'unknown')}\n"
                 "vpn_dashboard_telemetry_supervisor_attempts_total 3\n"
-                "vpn_dashboard_telemetry_supervisor_reconnects_total 2\n"
+                "vpn_dashboard_telemetry_supervisor_reconnects_total "
+                f"{2 + (reconnect_counter_delta if metrics_observations_by_environment[environment] > 1 else 0)}\n"
                 "vpn_dashboard_telemetry_supervisor_failures_total 1\n"
                 "vpn_dashboard_telemetry_supervisor_events_total 20\n"
                 f"vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds {now - 1}\n"
@@ -651,7 +655,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("not RouterOS-to-browser delivery latency", telemetry["meaning"])
         gateway = report["deployments"][0]["metrics"]["telemetry_gateway"]
         self.assertEqual(gateway["authorized_clients_last"], 1)
-        self.assertEqual(gateway["snapshot_recoveries"]["delta"], 0)
+        self.assertEqual(gateway["snapshot_recoveries"]["delta"], 1)
         self.assertEqual(gateway["delivery_queue_age_p95_seconds"]["max"], 0.5)
         self.assertIn("excludes RouterOS observation and browser rendering", gateway["meaning"])
         telemetry_slo = report["deployments"][0]["metrics"]["telemetry_slo"]
@@ -661,7 +665,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("does not measure RouterOS-to-browser session-change latency", telemetry_slo["meaning"])
         supervisor = report["deployments"][0]["metrics"]["telemetry_supervisor"]
         self.assertEqual(supervisor["status_last"], "healthy")
-        self.assertEqual(supervisor["reconnects"]["delta"], 0)
+        self.assertEqual(supervisor["reconnects"]["delta"], 1)
         self.assertEqual(supervisor["failures"]["delta"], 0)
         self.assertGreater(supervisor["last_snapshot_timestamp_seconds"], 0)
         self.assertTrue(all(
@@ -727,6 +731,21 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("production_gateway_delivery_latency_exceeded", report["failed_gates"])
         self.assertIn("canary_telemetry_supervisor_not_healthy", report["failed_gates"])
         self.assertIn("production_telemetry_supervisor_not_healthy", report["failed_gates"])
+
+    def test_reconnect_and_snapshot_claims_require_positive_counter_deltas(self) -> None:
+        code, report, _ = self.run_collection(reconnect_counter_delta=0)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_not_observed", report["failed_gates"])
+        canary = report["evidence"]["deployments"][0]
+        self.assertFalse(canary["reconnect_recovered"])
+        self.assertEqual(canary["reconnect_recovery_counter_delta"], 0)
+
+        code, report, _ = self.run_collection(snapshot_recovery_counter_delta=0)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_snapshot_recovery_not_observed", report["failed_gates"])
+        canary = report["evidence"]["deployments"][0]
+        self.assertFalse(canary["snapshot_recovered"])
+        self.assertEqual(canary["snapshot_recovery_counter_delta"], 0)
 
     def test_unobserved_telemetry_slo_fails_closed(self) -> None:
         code, report, _ = self.run_collection(

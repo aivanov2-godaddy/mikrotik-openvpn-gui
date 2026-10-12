@@ -64,6 +64,10 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     "redis_publish_verified": True,
                     "reconnect_recovered": True,
                     "snapshot_recovered": True,
+                    "reconnect_recovery_counter_delta": 1,
+                    "reconnect_recovery_counter_reset": False,
+                    "snapshot_recovery_counter_delta": 1,
+                    "snapshot_recovery_counter_reset": False,
                     "sqlite_restore_verified": True,
                     "rollback_drill_passed": True,
                     "production_untouched_on_canary_failure": True,
@@ -225,6 +229,27 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         code, report = evaluate(self.evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_production_digest_mismatch", report["failed_gates"])
+
+    def test_operator_recovery_claims_cannot_override_missing_or_zero_counters(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["reconnect_recovery_counter_delta"] = 0
+        evidence["deployments"][0]["snapshot_recovery_counter_delta"] = 0
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        del evidence["deployments"][0]["snapshot_recovery_counter_delta"]
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
+
+    def test_recovery_counter_reset_fails_closed(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["reconnect_recovery_counter_reset"] = True
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_reconnect_recovery_failed", report["failed_gates"])
 
     def test_unverified_registry_digest_fails_closed(self) -> None:
         verification = self.evidence["collection"]["registry_digest_verification"][0]

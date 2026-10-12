@@ -857,6 +857,33 @@ def collect(
             "health_failures": int(record.get("health_failures", 0)) + health_failures,
         })
         metric_summary = _metric_window(metrics_samples, began_epoch, ended.timestamp())
+        if metrics_required:
+            reconnects = metric_summary.get("telemetry_supervisor", {}).get("reconnects", {})
+            snapshot_recoveries = metric_summary.get("telemetry_gateway", {}).get("snapshot_recoveries", {})
+            reconnect_delta = reconnects.get("delta") if metrics_window_complete else None
+            reconnect_reset = reconnects.get("counter_reset") if metrics_window_complete else None
+            snapshot_delta = snapshot_recoveries.get("delta") if metrics_window_complete else None
+            snapshot_reset = snapshot_recoveries.get("counter_reset") if metrics_window_complete else None
+            record["reconnect_recovery_counter_delta"] = reconnect_delta
+            record["reconnect_recovery_counter_reset"] = reconnect_reset
+            record["snapshot_recovery_counter_delta"] = snapshot_delta
+            record["snapshot_recovery_counter_reset"] = snapshot_reset
+            record["reconnect_recovered"] = (
+                record.get("reconnect_recovered") is True
+                and reconnect_delta is not None
+                and reconnect_delta > 0
+                and reconnect_reset is False
+            )
+            record["snapshot_recovered"] = (
+                record.get("snapshot_recovered") is True
+                and snapshot_delta is not None
+                and snapshot_delta > 0
+                and snapshot_reset is False
+            )
+            if not record["reconnect_recovered"]:
+                failed_gates.append(f"{environment}_reconnect_recovery_not_observed")
+            if not record["snapshot_recovered"]:
+                failed_gates.append(f"{environment}_snapshot_recovery_not_observed")
         # Never carry an operator-supplied Redis success claim through a
         # window that did not independently observe complete aggregate metrics.
         record["redis_configured"] = False
