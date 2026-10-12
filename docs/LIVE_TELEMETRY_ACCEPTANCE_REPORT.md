@@ -1614,3 +1614,16 @@ collector are unavailable in this environment, so no automated RouterOS
 window, API-interruption recovery, rollback drill, or production promotion is
 claimed. No production container, RouterOS policy, account, certificate, CA, or
 VPN-user data was changed.
+
+## 2026-10-12 canary disconnect event follow-up
+
+Using the authenticated canary dashboard's explicit confirmation flow, the
+disposable session was terminated for a live-event smoke check. Without a
+document reload, Connections changed to zero connected devices / zero active
+sessions and the session appeared as ended in connection history. This confirms
+the dashboard-visible disconnect transition only; no event latency, loss,
+ordering, or API reconnect measurement is claimed. No VPN client window was
+available on this PC to initiate the client's reconnect, and no reconnect
+appeared during the brief five-second follow-up observation. Automatic client
+reconnect and full snapshot recovery therefore remain unverified. Production,
+RouterOS policy, certificates, accounts, and persistent data were not changed.
