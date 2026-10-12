@@ -754,22 +754,40 @@ function updateTelemetryIndicator(status = {}) {
 
 function updateLiveSnapshot(payload) {
   if (!payload || !Array.isArray(payload.sessions)) return;
+  // PPP active/listen records describe the session but do not reliably carry
+  // interface traffic counters. Keep the last authoritative REST counters for
+  // the same session until a complete counter observation arrives. Treating
+  // omitted counters as a real zero makes totals flash and the next rate spike.
+  const existing = new Map($$('[data-active-session-list] .session-card')
+    .map((card) => [card.dataset.sessionId, card]));
+  const sessions = payload.sessions.map((session) => {
+    if (session.counter_complete !== false) return session;
+    const card = existing.get(String(session.id || ''));
+    if (!card) return session;
+    return {
+      ...session,
+      rx_bytes: Number(card.dataset.rx) || 0,
+      tx_bytes: Number(card.dataset.tx) || 0,
+      rx_packets: Number(card.dataset.rxPackets) || 0,
+      tx_packets: Number(card.dataset.txPackets) || 0,
+    };
+  });
   // Use the browser's receive time for every live source.  The SSE endpoint
   // exposes whole-second server timestamps while Socket.IO frames use router
   // timestamps; mixing either with Date.now() makes a normal counter delta
   // appear to have happened in a few milliseconds.
   const timestamp = Date.now();
   lastLiveSnapshotAt = timestamp;
-  reconcileConnectionHistory(payload.sessions);
-  syncActiveSessions(payload.sessions, timestamp);
-  reconcileTerminationAttempt(payload.sessions);
-  $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
-  $$('[data-nav-session-count]').forEach((item) => { item.textContent = payload.sessions.length; });
-  const activeUsers = new Set(payload.sessions.map((session) => session.name)).size;
+  reconcileConnectionHistory(sessions);
+  syncActiveSessions(sessions, timestamp);
+  reconcileTerminationAttempt(sessions);
+  $$('[data-session-total]').forEach((item) => { item.textContent = sessions.length; });
+  $$('[data-nav-session-count]').forEach((item) => { item.textContent = sessions.length; });
+  const activeUsers = new Set(sessions.map((session) => session.name)).size;
   const activeLabel = $('[data-active-users]');
   if (activeLabel) activeLabel.textContent = `${activeUsers} connected user${activeUsers === 1 ? '' : 's'}`;
-  const rx = payload.sessions.reduce((total, item) => total + (Number(item.rx_bytes) || 0), 0);
-  const tx = payload.sessions.reduce((total, item) => total + (Number(item.tx_bytes) || 0), 0);
+  const rx = sessions.reduce((total, item) => total + (Number(item.rx_bytes) || 0), 0);
+  const tx = sessions.reduce((total, item) => total + (Number(item.tx_bytes) || 0), 0);
   const traffic = $('[data-traffic-total]');
   if (traffic) traffic.textContent = `↓ ${formatBytes(rx)} · ↑ ${formatBytes(tx)}`;
   $$('[data-live-indicator]').forEach((indicator) => {

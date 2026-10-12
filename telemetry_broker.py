@@ -17,6 +17,12 @@ from routeros_binary import RouterOSReply
 
 
 _MISSING = object()
+_SESSION_COUNTERS = {
+    "rx_bytes": ("rx-byte", "rx_bytes"),
+    "tx_bytes": ("tx-byte", "tx_bytes"),
+    "rx_packets": ("rx-packet", "rx_packets"),
+    "tx_packets": ("tx-packet", "tx_packets"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +61,23 @@ def _counter(record: Mapping[str, Any], *keys: str) -> int:
         return 0
 
 
+def _counter_observed(record: Mapping[str, Any], *keys: str) -> bool:
+    """Distinguish a real zero from a counter omitted by PPP live records."""
+
+    value = _text(record, *keys)
+    return bool(value) and value.isdecimal()
+
+
+def _preserve_unobserved_counters(
+    session: dict[str, Any], record: Mapping[str, Any], previous: Mapping[str, Any] | None
+) -> None:
+    if previous is None:
+        return
+    for field, keys in _SESSION_COUNTERS.items():
+        if not _counter_observed(record, *keys):
+            session[field] = int(previous.get(field, 0) or 0)
+
+
 def normalize_session(record: Mapping[str, Any]) -> dict[str, Any] | None:
     """Return only dashboard-safe fields from one RouterOS session record."""
 
@@ -81,6 +104,9 @@ def normalize_session(record: Mapping[str, Any]) -> dict[str, Any] | None:
         "tx_bytes": _counter(record, "tx-byte", "tx_bytes"),
         "rx_packets": _counter(record, "rx-packet", "rx_packets"),
         "tx_packets": _counter(record, "tx-packet", "tx_packets"),
+        "counter_complete": all(
+            _counter_observed(record, *keys) for keys in _SESSION_COUNTERS.values()
+        ),
     }
 
 
@@ -210,6 +236,7 @@ class TelemetryBroker:
             "tx_bytes": int(session.get("tx_bytes", 0) or 0),
             "rx_packets": int(session.get("rx_packets", 0) or 0),
             "tx_packets": int(session.get("tx_packets", 0) or 0),
+            "counter_complete": bool(session.get("counter_complete", False)),
         }
 
     def apply(self, reply: RouterOSReply, *, now: int | None = None) -> list[TelemetryEvent]:
@@ -231,6 +258,7 @@ class TelemetryBroker:
                 return []
             session["observed_at"] = observed_at
             previous = self._sessions.get(str(session["id"]))
+            _preserve_unobserved_counters(session, reply.attributes, previous)
             self._sessions[str(session["id"])] = session
             if len(self._sessions) > self._max_sessions:
                 oldest = min(self._sessions, key=lambda key: self._sessions[key].get("observed_at", 0))
@@ -249,24 +277,27 @@ class TelemetryBroker:
         """Replace the cache from a safe snapshot and emit transition events."""
 
         observed_at = self._timestamp(now)
-        incoming: dict[str, dict[str, Any]] = {}
+        incoming: dict[str, tuple[dict[str, Any], Mapping[str, Any]]] = {}
         for record in records:
             session = normalize_session(record)
             if session is not None:
                 session["observed_at"] = observed_at
-                incoming[str(session["id"])] = session
+                incoming[str(session["id"])] = (session, record)
         with self._lock:
+            for session_id, (session, record) in incoming.items():
+                _preserve_unobserved_counters(session, record, self._sessions.get(session_id))
+            sessions = {session_id: session for session_id, (session, _) in incoming.items()}
             events: list[TelemetryEvent] = []
             for session_id, previous in self._sessions.items():
-                if session_id not in incoming:
+                if session_id not in sessions:
                     events.append(self._event("vpn.session.disconnected", self._payload(previous), observed_at))
-            for session_id, session in incoming.items():
+            for session_id, session in sessions.items():
                 event_name = "vpn.session.connected" if session_id not in self._sessions else "vpn.session.updated"
                 reset = self._counter_reset_event(self._sessions.get(session_id), session, observed_at)
                 if reset is not None:
                     events.append(reset)
                 events.append(self._event(event_name, self._payload(session), observed_at))
-            self._sessions = dict(list(incoming.items())[-self._max_sessions :])
+            self._sessions = dict(list(sessions.items())[-self._max_sessions :])
             snapshot = [self._payload(item) for item in self._sessions.values()]
             events.append(self._event("telemetry.snapshot", {"sessions": snapshot}, observed_at))
             return events

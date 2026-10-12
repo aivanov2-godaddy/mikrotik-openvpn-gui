@@ -99,6 +99,57 @@ test('a failed status poll does not mark a recent Socket.IO snapshot as delayed'
   await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
 });
 
+test('an incomplete Socket.IO snapshot preserves counters while an authoritative zero remains visible', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__liveTestSocket = {
+      handlers: new Map(),
+      on(name, callback) { this.handlers.set(name, callback); return this; },
+      close() {},
+    };
+    window.io = () => window.__liveTestSocket;
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true, socketio_engine: 'asgi' }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: 'window.io = window.io || (() => window.__liveTestSocket);',
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect.poll(() => page.evaluate(() => window.__liveTestSocket?.handlers.has('telemetry.snapshot')))
+    .toBe(true);
+
+  const sendSnapshot = (counters, complete) => page.evaluate(({ counters: values, complete: isComplete }) => {
+    window.__liveTestSocket.handlers.get('telemetry.snapshot')({
+      payload: { sessions: [{
+        id: '*synthetic', name: 'synthetic-user', uptime: '1m',
+        rx_bytes: values.rx, tx_bytes: values.tx,
+        rx_packets: values.rxPackets, tx_packets: values.txPackets,
+        counter_complete: isComplete,
+      }] },
+    });
+  }, { counters, complete });
+
+  await sendSnapshot({ rx: 1024, tx: 2048, rxPackets: 10, txPackets: 20 }, true);
+  const card = page.locator('[data-active-session-list] .session-card');
+  await expect(card).toHaveAttribute('data-rx', '1024');
+  await expect(card).toHaveAttribute('data-tx', '2048');
+
+  await sendSnapshot({ rx: 0, tx: 0, rxPackets: 0, txPackets: 0 }, false);
+  await expect(card).toHaveAttribute('data-rx', '1024');
+  await expect(card).toHaveAttribute('data-tx', '2048');
+
+  await sendSnapshot({ rx: 0, tx: 0, rxPackets: 0, txPackets: 0 }, true);
+  await expect(card).toHaveAttribute('data-rx', '0');
+  await expect(card).toHaveAttribute('data-tx', '0');
+});
+
 test('a failed status poll remains delayed when no live snapshot has arrived', async ({ page }) => {
   let statusPolls = 0;
   await page.route('**/api/status', async (route) => {

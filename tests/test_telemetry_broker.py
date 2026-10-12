@@ -58,6 +58,7 @@ class TelemetryBrokerTests(unittest.TestCase):
         assert session is not None
         self.assertEqual(session["rx_bytes"], 1024)
         self.assertEqual(session["tx_bytes"], 0)
+        self.assertFalse(session["counter_complete"])
         self.assertNotIn("password", session)
         self.assertNotIn("private-key", session)
 
@@ -127,6 +128,50 @@ class TelemetryBrokerTests(unittest.TestCase):
         self.assertEqual(events[0].payload["fields"], ["rx_bytes"])
         self.assertNotIn("password", events[0].payload)
         self.assertEqual(broker.counter_resets, 1)
+
+    def test_partial_active_record_preserves_counters_without_false_reset(self) -> None:
+        broker = TelemetryBroker(clock=lambda: 500)
+        broker.apply(RouterOSReply("re", {
+            ".id": "*1", "name": "alice", "rx-byte": "100", "tx-byte": "200",
+            "rx-packet": "10", "tx-packet": "20",
+        }))
+
+        events = broker.apply(RouterOSReply("re", {
+            ".id": "*1", "name": "alice", "uptime": "2m",
+        }), now=501)
+
+        self.assertEqual([event.name for event in events], ["vpn.session.updated"])
+        self.assertEqual(events[0].payload["rx_bytes"], 100)
+        self.assertEqual(events[0].payload["tx_bytes"], 200)
+        self.assertFalse(events[0].payload["counter_complete"])
+        self.assertEqual(broker.counter_resets, 0)
+
+    def test_partial_reconciliation_does_not_treat_omitted_counters_as_reset(self) -> None:
+        broker = TelemetryBroker(clock=lambda: 500)
+        broker.reconcile([{
+            ".id": "*1", "name": "alice", "rx-byte": "100", "tx-byte": "200",
+            "rx-packet": "10", "tx-packet": "20",
+        }])
+
+        events = broker.reconcile([{".id": "*1", "name": "alice", "uptime": "2m"}], now=501)
+
+        self.assertEqual([event.name for event in events], ["vpn.session.updated", "telemetry.snapshot"])
+        for event in events:
+            sessions = event.payload.get("sessions", []) if event.name == "telemetry.snapshot" else [event.payload]
+            self.assertEqual(sessions[0]["rx_bytes"], 100)
+            self.assertEqual(sessions[0]["tx_bytes"], 200)
+            self.assertFalse(sessions[0]["counter_complete"])
+        self.assertEqual(broker.counter_resets, 0)
+
+    def test_reconcile_marks_real_zero_counters_complete(self) -> None:
+        session = normalize_session({
+            ".id": "*1", "name": "alice", "rx-byte": "0", "tx-byte": "0",
+            "rx-packet": "0", "tx-packet": "0",
+        })
+        self.assertIsNotNone(session)
+        assert session is not None
+        self.assertTrue(session["counter_complete"])
+        self.assertEqual(session["rx_bytes"], 0)
 
 
 if __name__ == "__main__":

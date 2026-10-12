@@ -54,6 +54,12 @@ dashboard: username, VPN address, source address, uptime, encoding, counters,
 and packet totals. Passwords, tokens, certificate material, private keys,
 profiles, and RouterOS exports are never emitted.
 
+`counter_complete` distinguishes an observed zero from counters omitted by a
+RouterOS PPP active/listen record. When it is false, the browser keeps the
+latest counters from the authoritative REST snapshot for that same session;
+it does not render the missing values as zero or calculate a false rate spike.
+An all-zero counter set is still applied when `counter_complete` is true.
+
 ## Phases
 
 1. **Protocol foundation (complete).** Validate Binary API word framing,
