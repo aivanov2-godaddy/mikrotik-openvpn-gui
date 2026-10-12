@@ -60,6 +60,18 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("npm run test:browser", browser_verify)
         self.assertIn("needs: [verify, browser-verify]", publish)
 
+    def test_stable_manifest_publication_reconciles_and_verifies_readback(self) -> None:
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        step = publish.split("      - name: Publish stable manifest asset\n", maxsplit=1)[1].split(
+            "      - name:", maxsplit=1
+        )[0]
+
+        self.assertIn('gh release upload "$release_tag" routeros-release.json --clobber', step)
+        self.assertIn('gh release download "$release_tag"', step)
+        self.assertIn('cmp -s routeros-release.json "$verification_dir/routeros-release.json"', step)
+        self.assertIn("upload_status=$?", step)
+        self.assertIn("reconciled as idempotent success", step)
+
     def test_release_sbom_and_provenance_are_detached_from_runtime_image(self) -> None:
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
         release_notes = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")

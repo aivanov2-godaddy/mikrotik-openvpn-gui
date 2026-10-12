@@ -320,7 +320,31 @@ jobs:
               --notes "Machine-readable, generic public release pointer. Each manifest entry pins an architecture-specific commit SHA image; it contains no instance configuration." \
               --prerelease
           fi
-          gh release upload "$release_tag" routeros-release.json --clobber
+          upload_status=0
+          if gh release upload "$release_tag" routeros-release.json --clobber; then
+            :
+          else
+            upload_status=$?
+          fi
+          verification_dir="$(mktemp -d)"
+          if ! gh release download "$release_tag" \
+            --pattern routeros-release.json \
+            --dir "$verification_dir"; then
+            echo "Could not read back the stable manifest after upload (status ${upload_status})." >&2
+            if [[ "$upload_status" -ne 0 ]]; then
+              exit "$upload_status"
+            fi
+            exit 1
+          fi
+          if ! cmp -s routeros-release.json "$verification_dir/routeros-release.json"; then
+            echo "The stable manifest read-back does not match this workflow's generated manifest." >&2
+            exit 1
+          fi
+          if [[ "$upload_status" -ne 0 ]]; then
+            echo "Upload returned ${upload_status}, but the remote stable manifest matches this run; reconciled as idempotent success." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "### Stable immutable manifest" >> "$GITHUB_STEP_SUMMARY"
           echo "- Asset: \`routeros-release.json\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Remote asset read-back matches the generated manifest." >> "$GITHUB_STEP_SUMMARY"
           echo "- ARM64: \`ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-arm64\`" >> "$GITHUB_STEP_SUMMARY"
