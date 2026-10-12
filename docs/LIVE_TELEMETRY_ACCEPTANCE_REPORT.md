@@ -1,25 +1,26 @@
 # Live telemetry acceptance report
 
-Status: **LATEST MAIN PUBLISHED AND ATTESTED; NEWER CANARY STAGE NOT YET READ BACK; ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **LATEST MAIN PUBLISHED AND SLSA-ATTESTED; NEWER CANARY STAGE NOT YET READ BACK; ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
 The latest published runtime candidate is `main` commit
-`6b1ab55c0e55e0a4a7108f46485c847014ca523f`, including PR #628's explicit
-allowlist for the `/api/users` response. Publisher run
-[#38263302619](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38263302619)
-completed successfully, publishing ARM64/AMD64 images, verifying exact-digest
-provenance and SPDX SBOM attestations, and passing runtime smoke tests. These
-are published-image facts, not current RouterOS deployment evidence. The latest
-published immutable image identities are:
+`3dc33ec93a997f8b74b35b6ce2f7f3af6caacaac` (PR #631), adding updater
+journal-storage preflight checks. Publisher run
+[#38273334553](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38273334553)
+completed successfully. Its source/browser checks, ARM64 and AMD64 builds, and
+stable immutable manifest publication all passed. `gh attestation verify`
+verified SLSA provenance for each image against this commit and publisher run.
+These are published-artifact facts, not current RouterOS deployment evidence.
+The latest published immutable image identities are:
 
 | Platform | Immutable tag | Published registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-6b1ab55c0e55e0a4a7108f46485c847014ca523f-arm64` | `sha256:521433e71dc86a48008144d496a46423f51c4795b42dd085158946dbe7906735` |
-| AMD64 evaluation | `sha-6b1ab55c0e55e0a4a7108f46485c847014ca523f-amd64` | `sha256:b6284e50db8c3e12c8835d4aeca32d4a72c72219781a5c18bd77f7748f9d8ea7` |
+| RouterOS ARM64 | `sha-3dc33ec93a997f8b74b35b6ce2f7f3af6caacaac-arm64` | `sha256:a95bbff6d018687019497746a47b019a0b99b64ec31253bfc6b091655ee791e8` |
+| AMD64 evaluation | `sha-3dc33ec93a997f8b74b35b6ce2f7f3af6caacaac-amd64` | `sha256:854446301c7a51f164dda4996a08e218c502ddbf78f694e3f3093314a7fff125` |
 
-The previous `7bf9f775` readiness soak does not apply to this newer image. As of
-17:40 EEST on 2026-10-12, no RouterOS read-back of the `6b1ab55` image had been
-collected. Production promotion remains gated on candidate-specific canary and
-full acceptance evidence.
+The previous `7bf9f775` readiness soak does not apply to either newer image. No
+RouterOS read-back of the `3dc33ec` image has been collected. Production
+promotion remains gated on candidate-specific canary and full acceptance
+evidence.
 
 ## Latest authenticated canary browser observation — 2026-10-12, approximately 17:30 EEST
 
