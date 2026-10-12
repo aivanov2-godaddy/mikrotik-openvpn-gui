@@ -285,6 +285,39 @@ class SecurityTests(unittest.TestCase):
         self.assertIsNone(limiter.reserve("ip", now=3))
         self.assertIsNotNone(limiter.reserve("ip", now=12.1))
 
+    def test_rate_limiter_bounds_distinct_identity_history_and_prunes_expired_entries(self) -> None:
+        limiter = LoginRateLimiter(
+            limit=2, window_seconds=10, max_tracked_identities=3,
+        )
+        for index in range(3):
+            reservation = limiter.reserve(f"identity-{index}", now=1)
+            self.assertIsNotNone(reservation)
+            limiter.finish(reservation, failed=True, now=1)
+
+        self.assertEqual(len(limiter._attempts), 3)
+        self.assertIsNone(limiter.reserve("identity-overflow", now=2))
+
+        # A request after the failure window expires prunes old identities and
+        # releases capacity for a new client without growing retained state.
+        replacement = limiter.reserve("identity-replacement", now=12)
+        self.assertIsNotNone(replacement)
+        self.assertEqual(set(limiter._attempts), set())
+        limiter.finish(replacement, failed=True, now=12)
+        self.assertEqual(len(limiter._attempts), 1)
+
+    def test_rate_limiter_bounds_global_in_flight_reservations(self) -> None:
+        limiter = LoginRateLimiter(
+            limit=2, window_seconds=10, max_tracked_identities=4, max_in_flight=2,
+        )
+        first = limiter.reserve("identity-1", now=1)
+        second = limiter.reserve("identity-2", now=1)
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertIsNone(limiter.reserve("identity-3", now=1))
+
+        limiter.finish(first, failed=None, now=1)
+        self.assertIsNotNone(limiter.reserve("identity-3", now=1))
+
     def _assert_concurrent_auth_attempts_are_limited(self, operation: str) -> None:
         limit = 3
         concurrent_attempts = 12
