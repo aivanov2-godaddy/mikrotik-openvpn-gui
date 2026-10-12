@@ -1,6 +1,6 @@
 # Live telemetry acceptance report
 
-Status: **LATEST MAIN PUBLISHED AND ATTESTED; NEW CANARY STAGE IN PROGRESS; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
+Status: **LATEST MAIN PUBLISHED AND ATTESTED; NEW CANARY STAGED AND READINESS-SOAK PASSED; ACCEPTANCE INCOMPLETE; PRODUCTION UNCHANGED**
 
 The latest published runtime candidate is `main` commit
 `7bf9f77549e8667e156801dd180d5b0d4d91f060`. Publisher run
@@ -15,15 +15,16 @@ published immutable image identities are:
 | RouterOS ARM64 | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-arm64` | `sha256:fe8bc41d3629c160d8a5a8c4e71e94491c01f779f1b761b74607e50052f0363b` |
 | AMD64 evaluation | `sha-7bf9f77549e8667e156801dd180d5b0d4d91f060-amd64` | See publisher workflow #38253481433 |
 
-## Latest candidate staging follow-up — 2026-10-12 16:34 EEST
+## Latest candidate staging follow-up — 2026-10-12 16:54 EEST
 
 The RouterOS-local, canary-only stage script for `7bf9f775` was started at
-16:22 EEST. At 16:34 EEST, RouterOS showed canary configured with the expected
-immutable ARM64 tag and healthy; its script job was still running, and no final
-30-sample pass marker had appeared. This confirms the candidate image and
-point-in-time health on canary, but the readiness soak is not complete. The
-production container remains on its prior image and untouched. RouterOS reports
-the configured tag, not a registry digest read-back.
+16:22 EEST. At 16:54:59 EEST, RouterOS logged
+`canary readiness soak passed samples=30` and that the canary was staged with
+the expected immutable ARM64 tag. The per-sample `/readyz` requests returned
+HTTP 200. This passes the updater's 30-sample readiness gate only; it does not
+pass the separate live telemetry acceptance. The production container remains
+on its prior image and untouched. RouterOS reports the configured tag, not a
+registry digest read-back.
 
 At 16:30 EEST, RouterOS PPP Active Connections showed one disposable test
 client connected, with uptime about 1m35s. This confirms a current VPN session
@@ -40,7 +41,7 @@ zero current rates and byte totals. This is a production point observation on
 the prior image, not candidate-specific evidence; it also reinforces that the
 current traffic-counter accuracy/freshness question remains open.
 
-## Latest canary stage and live-client observation — 2026-10-12
+## Earlier PR #616 canary stage and live-client observation — 2026-10-12 00:14 EEST
 
 The RouterOS-local, canary-only immutable updater staged PR #616's ARM64 image.
 At 00:14:19 EEST, RouterOS logged `canary readiness soak passed samples=30`
@@ -101,7 +102,7 @@ latency evidence. The production page's separate delayed-data indicator was
 not used as acceptance evidence. No production or RouterOS configuration was
 changed.
 
-## Latest RouterOS image read-back — 2026-10-12
+## Earlier PR #616 RouterOS image read-back — 2026-10-12 00:14 EEST (historical)
 
 The canary was configured with PR #616's immutable ARM64 tag and showed healthy
 status after staging. Production remained configured with PR #539's prior
