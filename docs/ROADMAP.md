@@ -1565,3 +1565,27 @@ samples; it does not establish that the VPN tunnel disconnected. No page reload,
 reauthentication, VPN disconnect, RouterOS/container operation, or policy
 change was performed. A user must reauthenticate to canary before telemetry
 freshness, the soak window, or the security expiry/reconnect checks can resume.
+
+**2026-10-12 canary candidate staging:** after the user resumed the acceptance
+work, RouterOS WebFig showed the canary on the previous immutable image and
+healthy. The canary was stopped, pointed at the verified ARM64 artifact for
+`cf03f0a956da23b25bd76b3157ae1d89d6ba1e22`, updated, and started. RouterOS
+then reported the candidate tag
+`sha-cf03f0a956da23b25bd76b3157ae1d89d6ba1e22-arm64` and `HEALTHY`; its
+existing root directory, mount list, and environment-list reference were left
+unchanged. Production was not changed (its last observed tag remains
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`). After the restart, the
+canary app showed its RouterOS sign-in page, and unauthenticated public
+`/healthz` and `/readyz` requests received Cloudflare Access HTTP 302, not app
+health/readiness JSON. The observed canary dashboard had zero active VPN
+sessions before staging. The user subsequently reauthenticated and connected
+the disposable client. The authenticated canary showed one active client and
+`Live · SOCKETIO`. On the Connections page, traffic counters, current rates,
+uptime, and graph samples changed during a 10-second observation with no page
+reload. This is a short live-UI smoke check only; it does not measure
+RouterOS-to-browser latency, prove event completeness/order, or satisfy the
+30-minute soak. The collector still lacks the RouterOS API credentials needed
+for its redacted dual-environment sample, and the API-interruption recovery,
+Redis/outbox window, rollback drill, and promotion remain unverified.
+Registry digest/provenance for this exact candidate are recorded above in the
+release evidence; RouterOS does not expose a verified registry manifest digest.

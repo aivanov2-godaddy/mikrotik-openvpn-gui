@@ -505,7 +505,7 @@ class SecurityTests(unittest.TestCase):
             store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
             with (
                 mock.patch.object(store, "_connect", wraps=store._connect) as connect,
-                mock.patch("store.time.monotonic", side_effect=(100.0, 100.0, 109.9)),
+                mock.patch("store._monotonic", side_effect=(100.0, 100.0, 109.9)),
             ):
                 store.verify_readiness()
                 store.verify_readiness()
@@ -527,7 +527,7 @@ class SecurityTests(unittest.TestCase):
 
             with (
                 mock.patch.object(store, "_connect", side_effect=fail_once),
-                mock.patch("store.time.monotonic", return_value=100.0),
+                mock.patch("store._monotonic", return_value=100.0),
             ):
                 with self.assertRaises(RuntimeError):
                     store.verify_readiness()
@@ -537,7 +537,7 @@ class SecurityTests(unittest.TestCase):
 
             with (
                 mock.patch.object(store, "_connect", wraps=real_connect) as connect,
-                mock.patch("store.time.monotonic", return_value=110.1),
+                mock.patch("store._monotonic", return_value=110.1),
             ):
                 store.verify_readiness()
 

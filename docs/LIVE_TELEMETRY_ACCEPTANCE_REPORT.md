@@ -1587,3 +1587,30 @@ acceptance, restore/rollback rehearsal, or production promotion is claimed.
 The authenticated RouterOS API credentials were unavailable to the collector
 in this environment. RouterOS policy, accounts, certificates, VPN sessions,
 and persistent application data were not changed.
+
+## 2026-10-12 canary staging follow-up
+
+After the user resumed acceptance work, RouterOS WebFig showed the isolated
+canary on its prior immutable image and healthy. The canary alone was stopped,
+updated to the verified ARM64 artifact for
+`cf03f0a956da23b25bd76b3157ae1d89d6ba1e22`, and started. RouterOS then reported
+the candidate tag
+`sha-cf03f0a956da23b25bd76b3157ae1d89d6ba1e22-arm64` and `HEALTHY`. The
+existing root directory, mount list, and environment-list reference were
+preserved. Production was not changed; its last observed tag is
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`.
+
+The app's browser session was no longer authenticated after restart. Public
+unauthenticated requests to `/healthz` and `/readyz` returned Cloudflare Access
+HTTP 302, so they did not establish application readiness. The user then
+reauthenticated to the canary and connected the disposable VPN client. The
+authenticated dashboard showed one active client and `Live · SOCKETIO`. A
+10-second no-reload observation on Connections showed the active-session
+uptime, byte counters, current rates, and graph samples advancing. This is a
+short authenticated live-UI smoke check; it is not an end-to-end latency or
+event-integrity measurement, a complete Redis/outbox observation, or the
+required 30-minute soak. The RouterOS API credentials required by the redacted
+collector are unavailable in this environment, so no automated RouterOS
+window, API-interruption recovery, rollback drill, or production promotion is
+claimed. No production container, RouterOS policy, account, certificate, CA, or
+VPN-user data was changed.
