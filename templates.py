@@ -291,7 +291,7 @@ def _session_card(session: dict[str, Any], *, can_terminate: bool = True) -> str
     <article class="session-card" data-session-id="{session_id}" data-session-user="{html.escape(str(session.get('name', '')), quote=True)}" data-rx="{rx_bytes}" data-tx="{tx_bytes}" data-rx-packets="{rx_packets}" data-tx-packets="{tx_packets}">
       <div class="session-main">
         <div class="live-orb" aria-hidden="true">{_icon('session')}</div>
-        <div><strong>{username}</strong><small>Connected securely · {encoding}</small></div>
+        <div><strong>{username}</strong><small class="session-state" data-session-state>Connected securely · {encoding}</small></div>
       </div>
       <dl class="session-facts">
         <div><dt>VPN address</dt><dd>{address}</dd></div>
