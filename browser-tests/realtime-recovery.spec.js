@@ -99,6 +99,45 @@ test('a failed status poll does not mark a recent Socket.IO snapshot as delayed'
   await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
 });
 
+test('a healthy Socket.IO heartbeat keeps quiet telemetry from appearing delayed', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-03T12:00:00.000Z') });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true, socketio_engine: 'asgi' }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: `window.__liveTestSocket = {
+      handlers: new Map(),
+      on(name, callback) { this.handlers.set(name, callback); return this; },
+      close() {},
+    };
+    window.io = () => window.__liveTestSocket;`,
+  }));
+  await page.route('**/api/status', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      telemetry: { state: 'stale', event_age_seconds: 30, transport: 'socketio' },
+    }),
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect.poll(() => page.evaluate(() => (
+    window.__liveTestSocket?.handlers.has('telemetry.health')
+  ))).toBe(true);
+
+  await page.evaluate(() => window.__liveTestSocket.handlers.get('telemetry.health')({
+    state: 'healthy', stream_connected: true,
+  }));
+  await page.clock.fastForward(12_000);
+  await expect(page.locator('[data-live-indicator]'))
+    .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
+});
+
 test('an incomplete Socket.IO snapshot preserves counters while an authoritative zero remains visible', async ({ page }) => {
   await page.addInitScript(() => {
     window.__liveTestSocket = {

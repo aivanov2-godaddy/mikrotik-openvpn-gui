@@ -2681,6 +2681,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "disconnects_total": 0,
             "rejected_connections_total": 0,
             "events_emitted_total": 0,
+            "health_heartbeats_total": 0,
         }
         engine = self._metric_escape(socketio_metrics["engine"])
         lines.extend([
@@ -2699,6 +2700,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_socketio_events_emitted_total Redacted live telemetry events emitted to Socket.IO clients.",
             "# TYPE vpn_dashboard_socketio_events_emitted_total counter",
             f'vpn_dashboard_socketio_events_emitted_total{{engine="{engine}"}} {int(socketio_metrics["events_emitted_total"])}',
+            "# HELP vpn_dashboard_socketio_health_heartbeats_total Redacted upstream-health heartbeats emitted to authenticated Socket.IO clients.",
+            "# TYPE vpn_dashboard_socketio_health_heartbeats_total counter",
+            f'vpn_dashboard_socketio_health_heartbeats_total{{engine="{engine}"}} {int(socketio_metrics["health_heartbeats_total"])}',
             "# HELP vpn_dashboard_last_deployment_timestamp_seconds Last local release observation.",
             "# TYPE vpn_dashboard_last_deployment_timestamp_seconds gauge",
             f"vpn_dashboard_last_deployment_timestamp_seconds {int(deployments[0].get('created_at', 0)) if deployments else 0}",

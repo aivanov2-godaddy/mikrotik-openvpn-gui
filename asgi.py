@@ -210,6 +210,7 @@ class NativeSocketIO:
         self._disconnects_total = 0
         self._rejected_connections_total = 0
         self._events_emitted_total = 0
+        self._health_heartbeats_total = 0
         self._register_handlers()
 
     def metrics(self) -> dict[str, int | str]:
@@ -222,6 +223,7 @@ class NativeSocketIO:
             "disconnects_total": self._disconnects_total,
             "rejected_connections_total": self._rejected_connections_total,
             "events_emitted_total": self._events_emitted_total,
+            "health_heartbeats_total": getattr(self, "_health_heartbeats_total", 0),
         }
 
     def _register_handlers(self) -> None:
@@ -285,7 +287,24 @@ class NativeSocketIO:
         await self.server.emit(event, payload, to=to, namespace=self.namespace)
         self._events_emitted_total += 1
 
+    def _health_payload(self) -> dict[str, Any]:
+        """Return only the upstream stream state needed for a live indicator."""
+
+        supervisor = getattr(self.runtime, "supervisor", None)
+        if supervisor is None:
+            return {"state": "degraded", "stream_connected": False}
+        try:
+            status = str(supervisor.health().status)
+        except Exception:  # noqa: BLE001 - health reporting must fail closed
+            status = "degraded"
+        if status == "healthy":
+            return {"state": "healthy", "stream_connected": True}
+        if status in {"connecting", "stopped"}:
+            return {"state": "connecting", "stream_connected": False}
+        return {"state": "degraded", "stream_connected": False}
+
     async def _pump(self, sid: str, subscription: str) -> None:
+        next_health_heartbeat = 0.0
         try:
             while sid in self._subscriptions:
                 session_id = self._session_ids.get(sid, "")
@@ -301,6 +320,24 @@ class NativeSocketIO:
                         await self.server.disconnect(sid, namespace=self.namespace)
                         return
                     await self._emit(frame["event"], frame, to=sid)
+                now = asyncio.get_running_loop().time()
+                if now >= next_health_heartbeat:
+                    # A quiet RouterOS listen stream can be healthy even when
+                    # no session event has changed recently. Send a small,
+                    # redacted health heartbeat so the UI distinguishes that
+                    # from a disconnected or degraded upstream stream.
+                    principal = self.runtime.principal_for_session(session_id)
+                    if principal is None or not principal.may_stream:
+                        await self.server.disconnect(sid, namespace=self.namespace)
+                        return
+                    await self.server.emit(
+                        "telemetry.health",
+                        self._health_payload(),
+                        to=sid,
+                        namespace=self.namespace,
+                    )
+                    self._health_heartbeats_total = getattr(self, "_health_heartbeats_total", 0) + 1
+                    next_health_heartbeat = now + 5.0
                 await asyncio.sleep(0.25)
         except (asyncio.CancelledError, RuntimeError):
             return
