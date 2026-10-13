@@ -75,8 +75,8 @@ API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "pol
 API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 SERVICE_HEALTH_FIELDS = frozenset({"overall", "checked_at", "checks"})
 SERVICE_HEALTH_CHECK_FIELDS = frozenset({"id", "name", "status", "impact", "remediation"})
-SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 1.0
-SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.1
+SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 5.0
+SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.25
 STATUS_ROUTER_FIELDS = frozenset(
     {
         "cpu-load",
