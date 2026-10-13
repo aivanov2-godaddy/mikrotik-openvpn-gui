@@ -75,6 +75,16 @@ API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "pol
 API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 1.0
 SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.1
+STATUS_ROUTER_FIELDS = frozenset(
+    {
+        "cpu-load",
+        "free-memory",
+        "total-memory",
+        "free-hdd-space",
+        "total-hdd-space",
+        "uptime",
+    }
+)
 
 
 def _same_origin(left: str, right: str) -> bool:
@@ -1443,6 +1453,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 router = self.server.context.router.verify_credentials(credentials)
                 active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
                 self.server.context.store.observe_sessions(active_sessions)
+                # The status endpoint is the dashboard's shared polling
+                # surface.  Keep its RouterOS-derived records on the same
+                # explicit disclosure contract as live telemetry instead of
+                # passing through adapter fields that may grow over time.
+                status_sessions = [redact_session(item) for item in active_sessions]
+                status_router = {
+                    key: router[key] for key in STATUS_ROUTER_FIELDS if key in router
+                }
                 telemetry_state = self.server.context.telemetry_state
                 if telemetry_state is None:
                     telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
@@ -1451,13 +1469,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(
                     {
                         "users": self._users_with_metadata(credentials),
-                        "sessions": active_sessions,
+                        "sessions": status_sessions,
                         "connections": self.server.context.store.recent_connections(50),
                         "alerts": self.server.context.store.recent_alerts(20),
                         "role": normalize_role(session.role),
                         "role_label": role_label(session.role),
                         "capabilities": sorted(role_capabilities(session.role)),
-                        "router": router,
+                        "router": status_router,
                         "observability": self._observability(
                             include_audit=self._capability_allowed(session, "audit.read"),
                             include_sessions=self._capability_allowed(session, "sessions.read"),
