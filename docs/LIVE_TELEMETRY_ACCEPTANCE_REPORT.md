@@ -1,29 +1,30 @@
 # Live telemetry acceptance report
 
-Status: **PR #649 ARM64 RUNTIME PUBLISHED AND ATTESTED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #655 ARM64 RUNTIME PUBLISHED AND ATTESTED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
-As of 2026-10-13, PR #649 (`2b76399f4fdc2cb1db7740b8e9887480cb083fee`) is the
+As of 2026-10-13, PR #655 (`10ac511741928e70579fecb314986e55119622a1`) is the
 latest merged mainline runtime change. Publisher run
-[#38339271291](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38339271291)
-passed source validation, unit/mock integration tests, and rendered browser
-and accessibility checks. The ARM64 image was published, provenance and SPDX
-SBOM attestations were verified, and published-runtime smoke passed. Its
-immutable tag is
-`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-arm64`
-and digest is
-`sha256:c0e67ad2eb37f2adcec8d777ef5cae24fb3c96250b0fe0eb52dbc5b0e9c21b0f`.
-The AMD64 image was also published and attested after retrying an upstream
-Amazon ECR rate limit; its digest is
-`sha256:f1cb27f25e9b6c6d5370317cb6c1b0c33d97ee7092e250ffbc2f25316d30e0ec`.
-The stable immutable manifest job completed successfully.
+[#38347345607](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38347345607)
+passed source and rendered-browser verification, published-runtime smoke,
+detached provenance/SBOM attestation verification, and stable-manifest
+read-back. The immutable artifacts are:
+
+| Platform | Immutable tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-10ac511741928e70579fecb314986e55119622a1-arm64` | `sha256:56a4ce152749ed17f0a3158ee5098d340a0e2ced170d487774aac6f8a36de628` |
+| AMD64 evaluation | `sha-10ac511741928e70579fecb314986e55119622a1-amd64` | `sha256:8f15f90be6abdd23833ef72a6d2e66d71602746b5b8cfecfc7b40883376f6923` |
 
 No RouterOS read-back of this candidate has been collected in this session;
 therefore canary deployment/readiness and production state are unverified here.
-This report does not claim the client currently reported by the operator is
-visible to this candidate. Do not promote to production on image publication
-alone. Run the candidate-specific canary readiness gate and full acceptance
-collector first. Prior read-backs and acceptance observations below remain
-historical evidence for their stated image revisions only.
+The latest RouterOS Active Connections read showed zero active entries. The
+production dashboard showed one row but marked connection data delayed and
+retained an older status timestamp; that row is not fresh evidence of a live
+tunnel. The canary dashboard tab is at its RouterOS sign-in form, so no
+candidate-authenticated telemetry view was observed. Do not promote to
+production on image publication alone. Run the candidate-specific canary
+readiness gate and full acceptance collector first. Prior read-backs and
+acceptance observations below remain historical evidence for their stated
+image revisions only.
 
 The authenticated canary dashboard reported `Live · SOCKETIO`; its traffic
 counters and session uptime advanced between observations without a manual
