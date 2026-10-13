@@ -742,6 +742,10 @@ class DashboardIntegrationTests(unittest.TestCase):
     def test_logout_rejects_missing_or_invalid_csrf_without_revoking_session(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        session.last_seen -= 60
+        original_last_seen = session.last_seen
 
         for token in ("", "not-the-session-token"):
             body = urllib.parse.urlencode({"csrf": token}).encode()
@@ -753,6 +757,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(status, 403)
             self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+            self.assertEqual(session.last_seen, original_last_seen)
 
         body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
         status, _, _ = self.request(
@@ -763,6 +768,19 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 303)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
+    def test_successful_authenticated_request_refreshes_idle_timestamp(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        session.last_seen -= 60
+        previous_last_seen = session.last_seen
+
+        status, _, _ = self.request("GET", "/dashboard")
+
+        self.assertEqual(status, 200)
+        self.assertGreater(session.last_seen, previous_last_seen)
 
     def test_sse_stops_emitting_when_server_session_is_revoked(self) -> None:
         self.login()
