@@ -2622,6 +2622,41 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(owner.session_id, disclosed_ids)
         self.assertIn(viewer.session_id, disclosed_ids)
 
+    def test_admin_api_token_response_uses_metadata_only_allowlist(self) -> None:
+        self.login()
+        plaintext = "vpt_" + "s" * 48
+        token_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+        self.server.context.store.create_api_token(
+            token_id="token-field-contract",
+            token_hash=token_hash,
+            label="security-field-contract",
+            actor="admin",
+            capabilities=["health.read"],
+            expires_at=2_000_000_000,
+        )
+
+        status, _, payload = self.request("GET", "/api/admin/api-tokens")
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        response = json.loads(payload)
+        self.assertEqual(set(response), {"tokens"})
+        self.assertEqual(len(response["tokens"]), 1)
+        self.assertEqual(
+            set(response["tokens"][0]),
+            {
+                "id",
+                "label",
+                "actor",
+                "capabilities",
+                "created_at",
+                "expires_at",
+                "last_used_at",
+                "revoked_at",
+            },
+        )
+        self.assertNotIn(plaintext, payload.decode("utf-8"))
+        self.assertNotIn(token_hash, payload.decode("utf-8"))
+        self.assertNotIn("token_hash", response["tokens"][0])
+
     def test_admin_session_revocation_is_csrf_protected_scoped_and_audited(self) -> None:
         self.login()
         current_session_id = self.cookie.split("=", 1)[1]
