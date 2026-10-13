@@ -1459,6 +1459,64 @@ class DashboardIntegrationTests(unittest.TestCase):
             "login.concurrent_session_limit",
         )
 
+    def test_status_projects_routeros_sessions_and_resources_to_allowlisted_fields(self) -> None:
+        self.login()
+        session = {
+            "id": "*1",
+            "name": "user-two",
+            "vpn_address": "10.8.0.2",
+            "source_address": "198.51.100.20",
+            "uptime": "1m",
+            "encoding": "AES-256-GCM",
+            "service": "ovpn",
+            "rx_bytes": 100,
+            "tx_bytes": 200,
+            "rx_packets": 3,
+            "tx_packets": 4,
+            "counter_complete": True,
+            "comment": "SENSITIVE-SESSION-COMMENT",
+            "session_id": "SENSITIVE-ROUTEROS-SESSION-ID",
+            "interface": "SENSITIVE-INTERFACE-NAME",
+            "private_key": "SENSITIVE-PRIVATE-KEY",
+        }
+        resource = {
+            "cpu-load": "7",
+            "free-memory": "805306368",
+            "total-memory": "1073741824",
+            "free-hdd-space": "900000000",
+            "total-hdd-space": "1000000000",
+            "uptime": "1d",
+            "board-name": "SENSITIVE-ROUTER-BOARD",
+            "serial-number": "SENSITIVE-ROUTER-SERIAL",
+            "private_key": "SENSITIVE-ROUTER-PRIVATE-KEY",
+        }
+        with (
+            mock.patch.object(self.server.context.router, "verify_credentials", return_value=resource),
+            mock.patch.object(self.server.context.router, "list_active_ovpn_sessions", return_value=[session]),
+        ):
+            status, _, payload = self.request("GET", "/api/status")
+
+        self.assertEqual(status, 200)
+        snapshot = json.loads(payload)
+        self.assertEqual(
+            set(snapshot["sessions"][0]),
+            {
+                "id", "name", "vpn_address", "source_address", "uptime", "encoding",
+                "service", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets", "counter_complete",
+            },
+        )
+        self.assertEqual(
+            set(snapshot["router"]),
+            {"cpu-load", "free-memory", "total-memory", "free-hdd-space", "total-hdd-space", "uptime"},
+        )
+        for sentinel in (
+            "SENSITIVE-SESSION-COMMENT", "SENSITIVE-ROUTEROS-SESSION-ID",
+            "SENSITIVE-INTERFACE-NAME", "SENSITIVE-PRIVATE-KEY",
+            "SENSITIVE-ROUTER-BOARD", "SENSITIVE-ROUTER-SERIAL",
+            "SENSITIVE-ROUTER-PRIVATE-KEY",
+        ):
+            self.assertNotIn(sentinel, payload.decode("utf-8"))
+
     def test_login_health_and_authentication_boundaries(self) -> None:
         status, headers, payload = self.request("GET", "/healthz")
         self.assertEqual(status, 200)
