@@ -22,12 +22,23 @@ artifacts are:
 | RouterOS ARM64 | `sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-arm64` | `sha256:c0e67ad2eb37f2adcec8d777ef5cae24fb3c96250b0fe0eb52dbc5b0e9c21b0f` |
 | AMD64 evaluation | `sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-amd64` | `sha256:f1cb27f25e9b6c6d5370317cb6c1b0c33d97ee7092e250ffbc2f25316d30e0ec` |
 
+PR #652 is merged to `main` as commit
+`dfd3356d6e0f31f2a5fb362e220f624a948e0ade` and prepares `2.8.0` as the next
+release candidate. All nine required checks passed, including Python 3.13/3.14,
+Redis outbox recovery, Socket.IO same-origin security, rendered browser and
+accessibility regression, secret/dependency audits, pre-commit, and the ARM64
+image build. This is source-level release-candidate evidence only: no `2.8.0`
+tag or release has been published, and no `2.8.0` runtime image has been
+published or deployed. Until then, v2.7.0 and the PR #649 image above remain
+the latest formal release and published runtime respectively.
+
 PR #650 is merged and refreshes the installation, release, RouterOS acceptance,
 and live telemetry acceptance records to distinguish image publication from
 router deployment. PRs #647–#649 also narrow streamed and status API data to
-explicit allowlists. This latest candidate has not been read back on RouterOS
-in this session. The earlier PR #641 readiness soak does not establish
-readiness or acceptance for PR #649.
+explicit allowlists. The PR #649 image has not been read back on RouterOS in
+this session. The earlier PR #641 readiness soak does not establish readiness
+or acceptance for PR #649, and the PR #652 release-candidate build does not
+establish deployment or router acceptance.
 
 **Canary staging and production promotion remain unverified and gated.** No
 RouterOS read-back of the PR #649 tag/health or current production tag/health
@@ -43,9 +54,11 @@ Issues #194 (device/certificate lifecycle acceptance), #199 (release
 acceptance), and #200 (deployed security assurance) remain open alongside
 tracking epic #205. Their repository-side implementation and test evidence is
 recorded below; the remaining gates require live router/client evidence or
-external security review. No CA, certificate, VPN policy, or production
-configuration was changed in this update. Multi-tenancy remains explicitly
-out of scope.
+external security review. In the latest manual check, RouterOS reported no
+active VPN entries while the production dashboard showed delayed connection
+data, so this session did not establish a current connected-client acceptance
+run. No CA, certificate, VPN policy, or production configuration was changed
+in this update. Multi-tenancy remains explicitly out of scope.
 
 Earlier observations below are historical evidence only and do not supersede
 this current snapshot. See the [live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
