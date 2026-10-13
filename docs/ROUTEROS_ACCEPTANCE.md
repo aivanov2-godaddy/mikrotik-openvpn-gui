@@ -103,10 +103,10 @@ Keep the previous immutable image reference before updating the canary. If the
 candidate does not pass, stop it and restore that exact prior reference:
 
 ```routeros
-/container/stop [find where name="vpn-dashboard-canary"]
-/container/set [find where name="vpn-dashboard-canary"] remote-image="ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<previous-commit>-arm64"
-/container/update [find where name="vpn-dashboard-canary"]
-/container/start [find where name="vpn-dashboard-canary"]
+/container/stop [find where name="<canary-container>"]
+/container/set [find where name="<canary-container>"] remote-image="ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<previous-commit>-arm64"
+/container/update [find where name="<canary-container>"]
+/container/start [find where name="<canary-container>"]
 ```
 
 Replace the examples locally. Do not commit real values. Confirm the restored
