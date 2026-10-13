@@ -30,6 +30,8 @@ MAX_COLLECTION_AGE_SECONDS = 900
 MAX_FUTURE_SKEW_SECONDS = 300
 MAX_SESSION_EVENT_AGE_SECONDS = 2.0
 MAX_EVIDENCE_CLOCK_SKEW_SECONDS = 5
+MAX_SESSION_EVENT_LATENCY_EVIDENCE_AGE_SECONDS = 900
+MAX_RESTORE_ROLLBACK_EVIDENCE_AGE_SECONDS = 86400
 
 
 def _boolean(record: dict[str, Any], field: str) -> bool:
@@ -63,6 +65,12 @@ def _timestamp(record: dict[str, Any], field: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"{field} must include a timezone")
     return parsed
+
+
+def _optional_timestamp(record: dict[str, Any], field: str, *, optional: bool) -> datetime | None:
+    if optional and record.get(field) is None:
+        return None
+    return _timestamp(record, field)
 
 
 def _count(record: dict[str, Any], field: str) -> int:
@@ -206,7 +214,22 @@ def evaluate(
         production_protected = _optional_boolean(
             record, "production_untouched_on_canary_failure", optional=prior_production_baseline
         )
-        latency = _optional_number(record, "session_event_p95_ms", optional=prior_production_baseline)
+        latency = _optional_number(record, "session_event_p95_ms", optional=True)
+        latency_started = _optional_timestamp(
+            record, "session_event_latency_started_at", optional=prior_production_baseline
+        )
+        latency_ended = _optional_timestamp(
+            record, "session_event_latency_ended_at", optional=prior_production_baseline
+        )
+        restore_verified_at = _optional_timestamp(
+            record, "sqlite_restore_verified_at", optional=prior_production_baseline
+        )
+        rollback_drill_at = _optional_timestamp(
+            record, "rollback_drill_at", optional=prior_production_baseline or expected_environment != "canary"
+        )
+        production_protection_at = _optional_timestamp(
+            record, "production_protection_observed_at", optional=prior_production_baseline or expected_environment != "canary"
+        )
         session_event_age = _optional_number(
             record, "session_event_max_age_seconds", optional=True
         )
@@ -233,6 +256,8 @@ def evaluate(
         }
         observation_start_epoch = started.timestamp()
         observation_end_epoch = ended.timestamp()
+        latency_evidence_start = observation_start_epoch - MAX_SESSION_EVENT_LATENCY_EVIDENCE_AGE_SECONDS
+        rehearsal_evidence_start = observation_start_epoch - MAX_RESTORE_ROLLBACK_EVIDENCE_AGE_SECONDS
         reconnect_timestamp_in_window = (
             reconnect_observed_at is not None
             and observation_start_epoch <= reconnect_observed_at <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
@@ -242,6 +267,25 @@ def evaluate(
             and reconnect_observed_at is not None
             and observation_start_epoch <= full_snapshot_recovered_at <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
             and full_snapshot_recovered_at >= reconnect_observed_at
+        )
+        latency_window_valid = (
+            latency_started is not None
+            and latency_ended is not None
+            and latency_evidence_start <= latency_started.timestamp() <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
+            and latency_evidence_start <= latency_ended.timestamp() <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
+            and latency_ended > latency_started
+        )
+        restore_timestamp_in_window = (
+            restore_verified_at is not None
+            and rehearsal_evidence_start <= restore_verified_at.timestamp() <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
+        )
+        rollback_timestamp_in_window = (
+            rollback_drill_at is not None
+            and rehearsal_evidence_start <= rollback_drill_at.timestamp() <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
+        )
+        protection_timestamp_in_window = (
+            production_protection_at is not None
+            and rehearsal_evidence_start <= production_protection_at.timestamp() <= observation_end_epoch + MAX_EVIDENCE_CLOCK_SKEW_SECONDS
         )
 
         if not healthy:
@@ -264,8 +308,14 @@ def evaluate(
             failures.append(f"{expected_environment}_reconnect_recovery_failed")
         if not prior_production_baseline and not backup_restore:
             failures.append(f"{expected_environment}_sqlite_restore_unverified")
-        if not prior_production_baseline and latency is not None and latency > 1000:
+        if not prior_production_baseline and not restore_timestamp_in_window:
+            failures.append(f"{expected_environment}_sqlite_restore_evidence_stale_or_outside_window")
+        if not prior_production_baseline and latency is None:
+            failures.append(f"{expected_environment}_session_event_latency_unobserved")
+        elif not prior_production_baseline and latency is not None and latency > 1000:
             failures.append(f"{expected_environment}_session_event_latency_exceeded")
+        if not prior_production_baseline and not latency_window_valid:
+            failures.append(f"{expected_environment}_session_event_latency_evidence_stale_or_outside_window")
         if not prior_production_baseline and (
             session_event_age is None or session_event_age > MAX_SESSION_EVENT_AGE_SECONDS
         ):
@@ -293,8 +343,12 @@ def evaluate(
                     failures.append(f"{expected_environment}_{resource}_exceeded")
         if expected_environment == "canary" and not rollback:
             failures.append("canary_rollback_drill_failed")
+        if expected_environment == "canary" and not rollback_timestamp_in_window:
+            failures.append("canary_rollback_evidence_stale_or_outside_window")
         if expected_environment == "canary" and not production_protected:
             failures.append("production_protection_unverified")
+        if expected_environment == "canary" and not protection_timestamp_in_window:
+            failures.append("production_protection_evidence_stale_or_outside_window")
 
         safe_records.append({
             "environment": expected_environment,
@@ -315,7 +369,17 @@ def evaluate(
             "reconnect_observed_at": None if prior_production_baseline else reconnect_observed_at,
             "full_snapshot_recovered_at": None if prior_production_baseline else full_snapshot_recovered_at,
             "sqlite_restore_verified": None if prior_production_baseline else backup_restore,
+            "sqlite_restore_verified_at": (
+                None if prior_production_baseline or restore_verified_at is None
+                else restore_verified_at.isoformat()
+            ),
             "session_event_p95_ms": None if prior_production_baseline else latency,
+            "session_event_latency_started_at": (
+                None if prior_production_baseline or latency_started is None else latency_started.isoformat()
+            ),
+            "session_event_latency_ended_at": (
+                None if prior_production_baseline or latency_ended is None else latency_ended.isoformat()
+            ),
             "session_event_max_age_seconds": None if prior_production_baseline else session_event_age,
             "traffic_sample_age_seconds": None if prior_production_baseline else sample_age,
             "observation_started_at": started.isoformat(),
@@ -332,7 +396,14 @@ def evaluate(
                 for name, value in resource_peaks.items()
             },
             "rollback_drill_passed": None if prior_production_baseline else rollback,
+            "rollback_drill_at": (
+                None if prior_production_baseline or rollback_drill_at is None else rollback_drill_at.isoformat()
+            ),
             "production_untouched_on_canary_failure": None if prior_production_baseline else production_protected,
+            "production_protection_observed_at": (
+                None if prior_production_baseline or production_protection_at is None
+                else production_protection_at.isoformat()
+            ),
         })
 
         if collection_started is not None and collection_ended is not None:
