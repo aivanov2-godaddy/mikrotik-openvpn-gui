@@ -52,6 +52,12 @@ Exit code `0` means every configured gate passed, `1` means evidence failed a
 gate, and `2` means the input was invalid. The output contains aggregates and
 gate names only; it never echoes source samples.
 
+The evaluator enforces an allowlist of fields for each record type. Unknown
+fields—including credentials, addresses, raw RouterOS records, and identifiers—
+are rejected with a generic validation error before they can enter evaluation.
+All numeric limits must be finite and non-negative; `NaN` and infinities are
+invalid inputs, not ways to disable an acceptance threshold.
+
 For the complete acceptance report, combine resource samples with reconnect,
 ordering, counter-reset, and security checks:
 

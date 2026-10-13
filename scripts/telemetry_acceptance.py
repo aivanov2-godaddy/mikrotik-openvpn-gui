@@ -11,7 +11,8 @@ plus ``event_sequence``, ``event_lost``, ``event_duplicated``,
 ``out_of_order``, ``counter_reset``, and ``counter_reset_recovered``.
 A verification record explicitly attests that the operator collected latency,
 freshness, counter-reset, event-integrity, parity, and complete secret-scan
-evidence during the same window.
+evidence during the same window. Each record type has a strict field allowlist;
+unknown fields are rejected rather than carried through into evaluation.
 """
 
 from __future__ import annotations
@@ -34,6 +35,30 @@ MIN_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
 MAX_OBSERVATION_AGE_SECONDS = 900
 MAX_FUTURE_SKEW_SECONDS = 300
+RECORD_FIELDS = {
+    "sample": frozenset({
+        "type", "observed_at", "transport", "latency_ms", "event_age_seconds",
+        "router_cpu_percent", "router_memory_percent", "router_storage_percent",
+        "container_healthy", "reconnects", "event_lost", "event_sequence", "event_epoch",
+        "event_duplicated", "out_of_order", "counter_reset", "counter_reset_recovered",
+    }),
+    "session_transition": frozenset({"type", "observed_at", "connected", "visible_without_refresh", "latency_ms"}),
+    "traffic_update": frozenset({
+        "type", "observed_at", "rx_bytes", "tx_bytes", "visible_without_refresh", "event_age_seconds",
+    }),
+    "reconnect": frozenset({
+        "type", "observed_at", "recovery_seconds", "snapshot_recovered",
+        "api_interruption_tested", "rest_fallback_available",
+    }),
+    "comparison": frozenset({"type", "observed_at", "binary_matches_rest"}),
+    "security": frozenset({
+        "type", "observed_at", "unauthenticated_denied", "secret_bearing_payload", "secret_free_logs",
+    }),
+    "verification": frozenset({
+        "type", "observed_at", "event_latency_measured", "traffic_freshness_measured",
+        "counter_reset_tested", "event_integrity_tested", "binary_rest_parity_tested", "secret_scan_complete",
+    }),
+}
 
 
 def _source(path: str) -> TextIO:
@@ -98,7 +123,16 @@ def evaluate(
         if not isinstance(record, dict):
             raise ValueError("each record must be a JSON object")
         record_type = record.get("type", "sample")
-        if isinstance(record_type, str) and record_type in {
+        if not isinstance(record_type, str):
+            raise ValueError("type must be a supported acceptance record name")
+        allowed_fields = RECORD_FIELDS.get(record_type)
+        if allowed_fields is None:
+            raise ValueError(
+                "type must be sample, session_transition, traffic_update, reconnect, comparison, security, or verification"
+            )
+        if set(record) - allowed_fields:
+            raise ValueError("record contains fields outside the redacted acceptance schema")
+        if record_type in {
             "session_transition", "traffic_update", "reconnect", "comparison", "security", "verification"
         }:
             if "observed_at" not in record:
@@ -218,10 +252,8 @@ def evaluate(
                     current[name] = _boolean(record[name], name)
                     verification[name] = verification[name] or current[name]
             verification_records.append(current)
-        else:
-            raise ValueError(
-                "type must be sample, session_transition, traffic_update, reconnect, comparison, security, or verification"
-            )
+        else:  # guarded by RECORD_FIELDS above
+            raise ValueError("unsupported acceptance record type")
 
     if not samples:
         raise ValueError("at least one sample record is required")
@@ -423,13 +455,13 @@ def main() -> int:
             "latency_p95_ms": args.max_latency_p95_ms,
             "event_age_seconds": args.max_event_age_seconds,
             "router_cpu_percent": args.max_router_cpu_percent,
-        "router_memory_percent": args.max_router_memory_percent,
-        "router_storage_percent": args.max_router_storage_percent,
+            "router_memory_percent": args.max_router_memory_percent,
+            "router_storage_percent": args.max_router_storage_percent,
             "max_reconnects": args.max_reconnects,
             "recovery_seconds": args.max_recovery_seconds,
         }
-        if any(value < 0 for value in limits.values()):
-            raise ValueError("limits must be non-negative")
+        if any(not math.isfinite(value) or value < 0 for value in limits.values()):
+            raise ValueError("limits must be finite and non-negative")
         source = _source(args.input)
         code, result = evaluate(source, limits=limits)
     except (OSError, ValueError, json.JSONDecodeError) as error:
