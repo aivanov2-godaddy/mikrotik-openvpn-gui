@@ -311,12 +311,14 @@ contents. A simultaneous authenticated dashboard observation showed
 
 In the 2026-10-13 10:37 EEST follow-up, the production Connections page still
 reported `Connection data delayed` and showed the old status timestamp
-`2026-10-12 18:06`; RouterOS WebFig PPP Active Connections showed zero entries,
-and the canary dashboard was at RouterOS sign-in. The operator reported a
-connected VPN, but these concurrent views did not corroborate an active
-application session. This is a failed or unavailable observation, not
-evidence of successful live-session lifecycle verification. The PR #662
-runtime image was published to GHCR but was not read back from RouterOS. No
+`2026-10-12 18:06`; RouterOS WebFig PPP Active Connections initially showed
+zero entries, and the canary dashboard was at RouterOS sign-in. A read-only
+RouterOS recheck at approximately 11:04 EEST later showed one active OpenVPN/PPP
+session, but the production dashboard still showed its unchanged delayed row
+through a subsequent 10-second observation. This confirms the test tunnel at
+the router but not live application-session lifecycle or telemetry delivery.
+The PR #662 runtime image was published to GHCR but was not read back from
+RouterOS, and the canary dashboard remained unauthenticated. No
 router/container state or VPN session was changed in this check.
 
 The following remain **NOT VERIFIED** and require an authorized controlled

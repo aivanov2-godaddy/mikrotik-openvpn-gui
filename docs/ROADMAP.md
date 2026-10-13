@@ -70,13 +70,17 @@ establish deployment or router acceptance.
 **Canary staging and production promotion remain unverified and gated.** No
 RouterOS read-back of the PR #662 tag/health or current production tag/health
 has been collected; no deployment is claimed. On 2026-10-13 at approximately
-10:37 EEST, RouterOS WebFig PPP Active Connections showed zero entries. The
-production Connections page showed one row while reporting
-`Connection data delayed`; its router-status timestamp was `2026-10-12 18:06`.
-The canary site remained at its RouterOS sign-in form. These disagreeing/stale
-views are not counted as a live session or acceptance evidence, despite the
-operator's report that the VPN was connected. No page reload or
-router/container mutation was made.
+10:37 EEST, RouterOS WebFig PPP Active Connections showed zero entries while
+the production Connections page showed one row with `Connection data delayed`
+and a router-status timestamp of `2026-10-12 18:06`. After the operator
+reported reconnecting, a read-only RouterOS check at approximately 11:04 EEST
+showed one active OpenVPN/PPP session (about 1m15s uptime). The already-open
+production page remained delayed and its displayed session/counters did not
+advance during a subsequent 10-second observation; the canary site remained
+at its RouterOS sign-in form. This confirms a router-side VPN session, but not
+live delivery to production or candidate-specific canary acceptance. No
+production page reload, router/container mutation, certificate change, or
+policy change was made.
 Unauthenticated readiness probes returned HTTP 302 at Cloudflare
 Access and exposed no application readiness body. This is not a readiness
 result. Deploy the immutable ARM64 candidate to
@@ -88,11 +92,11 @@ Issues #194 (device/certificate lifecycle acceptance), #199 (release
 acceptance), and #200 (deployed security assurance) remain open alongside
 tracking epic #205. Their repository-side implementation and test evidence is
 recorded below; the remaining gates require live router/client evidence or
-external security review. The latest cross-check found zero active PPP entries,
-a delayed/stale production connection row, and an unauthenticated canary
-dashboard; no current connected-client acceptance run is established. No CA,
-certificate, VPN policy, or RouterOS container configuration was changed in
-this update.
+external security review. The latest cross-check confirmed one active router
+PPP session but found the production connection view still delayed/stale and
+the canary dashboard unauthenticated. Therefore no candidate-specific live
+acceptance run is established. No CA, certificate, VPN policy, or RouterOS
+container configuration was changed in this update.
 Multi-tenancy remains explicitly out of scope.
 
 Earlier observations below are historical evidence only and do not supersede
