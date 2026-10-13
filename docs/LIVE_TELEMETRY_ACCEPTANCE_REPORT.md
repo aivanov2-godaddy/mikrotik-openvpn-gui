@@ -1,27 +1,29 @@
 # Live telemetry acceptance report
 
-Status: **PR #641 RUNTIME PUBLISHED AND STAGED ON CANARY AFTER 30-SAMPLE READINESS SOAK; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #649 ARM64 RUNTIME PUBLISHED AND ATTESTED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
-As of 2026-10-13, the latest published runtime image is built from commit
-`960cee6445cf77e6947d146a7f8dcee7842cd9e0` (PR #641), published by run
-[#38321283657](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38321283657).
-The ARM64 digest is
-`sha256:2734ec707470f0a1791600a2f369c18c5a94a451b30edb3ee10b86e0c04b66ce`;
-the run verified provenance and SPDX SBOM and passed the published-runtime
-smoke. PR #642 (`ffd47ed`) changes only acceptance evaluator/tests and did not
-trigger a runtime image build.
+As of 2026-10-13, PR #649 (`2b76399f4fdc2cb1db7740b8e9887480cb083fee`) is the
+latest merged mainline runtime change. Publisher run
+[#38339271291](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38339271291)
+passed source validation, unit/mock integration tests, and rendered browser
+and accessibility checks. The ARM64 image was published, provenance and SPDX
+SBOM attestations were verified, and published-runtime smoke passed. Its
+immutable tag is
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-arm64`
+and digest is
+`sha256:c0e67ad2eb37f2adcec8d777ef5cae24fb3c96250b0fe0eb52dbc5b0e9c21b0f`.
+The AMD64 image was also published and attested after retrying an upstream
+Amazon ECR rate limit; its digest is
+`sha256:f1cb27f25e9b6c6d5370317cb6c1b0c33d97ee7092e250ffbc2f25316d30e0ec`.
+The stable immutable manifest job completed successfully.
 
-At 03:05:01 EEST, RouterOS logged `canary readiness soak passed samples=30`.
-The local pending-candidate record was read back with candidate
-`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`, commit
-`960cee6445cf77e6947d146a7f8dcee7842cd9e0`, the prior production image, and
-the same staged-at timestamp. RouterOS read-back showed that canary tag and a
-healthy container. The production container was also healthy and still on
-`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; it was not changed.
-The authenticated canary Connections page showed one active test device and
-`Live · SOCKETIO`. This completes the updater's 30-sample readiness gate only;
-it does not complete the release-acceptance report or authorize production
-promotion.
+No RouterOS read-back of this candidate has been collected in this session;
+therefore canary deployment/readiness and production state are unverified here.
+This report does not claim the client currently reported by the operator is
+visible to this candidate. Do not promote to production on image publication
+alone. Run the candidate-specific canary readiness gate and full acceptance
+collector first. Prior read-backs and acceptance observations below remain
+historical evidence for their stated image revisions only.
 
 The authenticated canary dashboard reported `Live · SOCKETIO`; its traffic
 counters and session uptime advanced between observations without a manual
