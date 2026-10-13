@@ -1,35 +1,26 @@
 # Live telemetry acceptance report
 
-Status: **PR #685 ARM64 CANDIDATE DEPLOYED AND HEALTHY ON CANARY; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #685 ARM64 ARTIFACT PUBLISHED AND PROVENANCE-VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
-## Latest canary deployment and live-session observation — 2026-10-13
+## Latest public candidate artifact — 2026-10-13
 
-The merged PR #685 candidate (`bc03f3b456a488fc464061fe5944278c0207a94f`)
-was read back on RouterOS as the canary container's immutable ARM64 tag
-`sha-bc03f3b456a488fc464061fe5944278c0207a94f-arm64`; the container reached
-`HEALTHY`. The registry digest is
-`sha256:b83dd23bab8124b493b676bdaf31c2e45ae8e89d8151822854c63cc348597824`.
-At that point-in-time read, canary container memory was 37.4 MiB and CPU usage
-was 0.6%; the dashboard showed router CPU at 13%, memory at 36%, and storage at
-25%. These are single samples, not a resource-impact soak. Production was not
-changed or read back during this canary update.
+PR #685 (`bc03f3b456a488fc464061fe5944278c0207a94f`) is the latest published
+runtime candidate. Publisher run
+[#38449932684](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
+completed successfully. The immutable ARM64 artifact and its provenance were
+verified:
 
-After a fresh Cloudflare Access and RouterOS dashboard sign-in, the canary
-Connections view showed one active OpenVPN session and `Live · SOCKETIO` with
-five-second traffic samples. Session uptime advanced between observations and
-the displayed rate/cumulative traffic values changed without a page reload.
-This is qualitative evidence that the live view is updating; the page exposes
-no event-arrival timestamp, so it does not establish the one-second session
-latency or two-second traffic-freshness targets.
+| Platform | Immutable tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-bc03f3b456a488fc464061fe5944278c0207a94f-arm64` | `sha256:b83dd23bab8124b493b676bdaf31c2e45ae8e89d8151822854c63cc348597824` |
 
-A brief RouterOS `api` service toggle was issued and the service was subsequently
-read back available. The exercise did not capture a timestamped unavailable
-interval, a dashboard-supervisor reconnect measurement, or a post-reconnect
-full-snapshot timestamp. It is therefore not counted as API reconnect or
-snapshot-recovery acceptance. The complete candidate-matched 30-minute window,
-REST/Binary parity, Redis/outbox delivery, event integrity/counter-reset,
-SQLite restore, rollback, and production checks remain outstanding. Do not
-promote production based on this point-in-time canary evidence.
+This document is not acceptance evidence for a live router. The candidate
+metadata above is public build/registry evidence only. Dated deployment notes
+below are historical summaries, not current state or formal acceptance.
+Current RouterOS measurements, operator origins, and live-session evidence
+belong in operator-controlled storage. Issue #199 remains open until its
+private, candidate-matched acceptance gates pass. No production promotion is
+claimed.
 
 Earlier on 2026-10-13, before PR #685, PR #672
 (`298fad73e8310b5d07cb4a646362513a0ac4e703`) was the latest merged runtime
@@ -1333,7 +1324,7 @@ acceptance remain pending.
 
 ### Authenticated production dashboard observation — 2026-10-04
 
-The signed-in dashboard at `vpn.wanted.sx` loaded successfully through
+The signed-in dashboard at `[private operator origin]` loaded successfully through
 Cloudflare Access. Its Service Health panel reported the router connection
 healthy on RouterOS 7.24.5, six checks healthy and one needing review
 (certificate-revocation behavior), and its deployment history marked release
@@ -1583,7 +1574,7 @@ Production promotion and candidate rollback rehearsal are not claimed.
 ## Reconnected client and live-counter follow-up — 2026-10-11
 
 After the operator reconnected the disposable VPN client, authenticated
-read-only Connections views on both `vpn-dev.wanted.sx` and `vpn.wanted.sx`
+read-only Connections views on the operator-managed canary and production dashboards
 showed one connected device and `Live · SOCKETIO`. On the canary, two
 observations 11 seconds apart showed the connected-device count unchanged and
 one traffic direction's displayed counter increasing; no page reload or
@@ -1740,7 +1731,7 @@ formal acceptance gates remain unverified.
 ## 2026-10-13 earlier authenticated canary session
 
 After the operator connected the disposable test client, the authenticated
-canary Connections page displayed one active `wanted` session, `Live ·
+canary Connections page displayed one active `test client` session, `Live ·
 SOCKETIO`, and changing uptime, byte rates/totals, and packet rates across
 observations without a page reload. The read-only RouterOS PPP active-session
 count independently returned one. The canary image remained the healthy
@@ -1759,7 +1750,7 @@ After the operator reported connecting the test VPN client, a fresh read-only
 RouterOS WebFig PPP → Active Connections view showed zero entries. The
 The authenticated canary Connections page was refreshed and showed zero active
 devices with `Live · updated now`; its router-status footer advanced to 15:47
-EEST. Its newest `wanted` history entry ended at 14:37 EEST. RouterOS PPP Active
+EEST. Its newest `test client` history entry ended at 14:37 EEST. RouterOS PPP Active
 Connections was then refreshed again and still showed zero entries. The
 production Dashboard's earlier 15:38 EEST read had shown one connected user
 together with `Connection data delayed` and a 12:06 EEST status timestamp; that
