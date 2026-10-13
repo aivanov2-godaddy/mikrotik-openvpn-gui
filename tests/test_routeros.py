@@ -498,6 +498,177 @@ class RouterOSClientTests(unittest.TestCase):
                 "temporary certificate/key/profile files must be removed",
             )
 
+    def test_profile_export_files_are_cleaned_when_ca_export_fails(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            with patch.object(
+                client,
+                "_ensure_ca_export",
+                side_effect=RouterOSError("injected CA export failure"),
+            ):
+                with self.assertRaisesRegex(RouterOSError, "injected CA export failure"):
+                    client.provision_profile(
+                        credentials,
+                        vpn_user="user-one",
+                        device_name="CA cleanup test",
+                        key_passphrase="private-passphrase",
+                    )
+
+            self.assertEqual(
+                sorted(mock.state.files),
+                ["vpn-ca.crt"],
+                "exported client certificate and private-key files must be removed after a later failure",
+            )
+            self.assertEqual(len(mock.state.certificates), 3)
+
+    def test_profile_readback_failure_fails_closed_for_unidentified_artifact(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            read_file_by_id = client._file_contents_by_id
+
+            def fail_profile_readback(current_credentials, file_id):
+                if any(
+                    name.endswith(".ovpn") and record.get(".id") == file_id
+                    for name, record in mock.state.files.items()
+                ):
+                    raise RouterOSError("injected profile readback failure")
+                return read_file_by_id(current_credentials, file_id)
+
+            with patch.object(client, "_file_contents_by_id", side_effect=fail_profile_readback):
+                with self.assertRaisesRegex(RouterOSError, "operator inspection is required"):
+                    client.provision_profile(
+                        credentials,
+                        vpn_user="user-one",
+                        device_name="Profile cleanup test",
+                        key_passphrase="private-passphrase",
+                    )
+
+            remaining_profiles = [name for name in mock.state.files if name.endswith(".ovpn")]
+            self.assertEqual(
+                len(remaining_profiles), 1,
+                "an unreadable profile is retained rather than risking deletion of another actor's file",
+            )
+            self.assertEqual(len(mock.state.files), 2, "exported certificate and private-key files are removed")
+            self.assertEqual(len(mock.state.certificates), 3, "undelivered certificate is removed")
+
+    def test_profile_provisioning_fails_closed_when_temporary_file_delete_fails(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def fail_file_delete(method, path, *args, **kwargs):
+                if method == "DELETE" and path.startswith("/file/") and not path.endswith("/*F0"):
+                    raise RouterOSError("private RouterOS detail")
+                return request(method, path, *args, **kwargs)
+
+            with patch.object(client, "_request", side_effect=fail_file_delete):
+                with self.assertRaisesRegex(RouterOSError, "[Tt]emporary RouterOS profile files") as raised:
+                    client.provision_profile(
+                        credentials,
+                        vpn_user="user-one",
+                        device_name="Delete failure test",
+                        key_passphrase="private-passphrase",
+                    )
+
+            self.assertNotIn("private RouterOS detail", str(raised.exception))
+            self.assertEqual(len(mock.state.certificates), 3, "undelivered certificate must be removed")
+            self.assertGreater(len(mock.state.files), 1, "injected router deletion failure leaves files for operator recovery")
+
+    def test_profile_provisioning_identifies_its_export_among_concurrent_profiles(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def add_concurrent_profile(method, path, *args, **kwargs):
+                result = request(method, path, *args, **kwargs)
+                if method == "POST" and path == "/interface/ovpn-server/server/export-client-configuration":
+                    mock.state.file("concurrent-client.ovpn", "operator-owned profile", ".ovpn file")
+                return result
+
+            with patch.object(client, "_request", side_effect=add_concurrent_profile):
+                provisioned = client.provision_profile(
+                    credentials,
+                    vpn_user="user-one",
+                    device_name="Concurrent profile test",
+                    key_passphrase="private-passphrase",
+                )
+
+            profiles = [name for name in mock.state.files if name.endswith(".ovpn")]
+            self.assertTrue(provisioned.profile)
+            self.assertEqual(profiles, ["concurrent-client.ovpn"])
+            self.assertEqual(len(mock.state.certificates), 4, "the delivered profile retains its certificate")
+
+    def test_profile_cleanup_does_not_delete_same_name_file_replaced_by_another_actor(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            delete_file = client._delete_file
+            replaced: dict[str, str] = {}
+
+            def replace_profile_before_delete(current_credentials, file_id):
+                profile = next(
+                    (
+                        (name, record)
+                        for name, record in mock.state.files.items()
+                        if name.endswith(".ovpn") and record.get(".id") == file_id
+                    ),
+                    None,
+                )
+                if profile:
+                    name, old_record = profile
+                    replacement = mock.state.file(name, "replacement owned by another actor", ".ovpn file")
+                    replaced.update(name=name, old_id=str(old_record[".id"]), new_id=str(replacement[".id"]))
+                delete_file(current_credentials, file_id)
+
+            with patch.object(client, "_delete_file", side_effect=replace_profile_before_delete):
+                provisioned = client.provision_profile(
+                    credentials,
+                    vpn_user="user-one",
+                    device_name="Replacement race test",
+                    key_passphrase="private-passphrase",
+                )
+
+            self.assertTrue(provisioned.profile)
+            self.assertTrue(replaced, "test must replace the generated profile during cleanup")
+            retained = mock.state.files[replaced["name"]]
+            self.assertEqual(str(retained[".id"]), replaced["new_id"])
+            self.assertNotEqual(replaced["old_id"], replaced["new_id"])
+            self.assertEqual(retained.get("contents"), "replacement owned by another actor")
+
+    def test_delete_file_reconciles_lost_response_when_readback_confirms_deletion(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            record = mock.state.file("temporary.key", "private material", ".key file")
+            request = client._request
+
+            def delete_then_lose_response(method, path, *args, **kwargs):
+                result = request(method, path, *args, **kwargs)
+                if method == "DELETE" and path == f"/file/{record['.id']}":
+                    raise RouterOSError("injected lost DELETE response")
+                return result
+
+            with patch.object(client, "_request", side_effect=delete_then_lose_response):
+                client._delete_file(credentials, str(record[".id"]))
+
+            self.assertNotIn("temporary.key", mock.state.files)
+
+    def test_delete_file_fails_closed_when_readback_cannot_be_verified(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            record = mock.state.file("temporary.key", "private material", ".key file")
+
+            with patch.object(client, "_files", side_effect=RouterOSError("private router detail")):
+                with self.assertRaisesRegex(RouterOSError, "cleanup could not be verified") as raised:
+                    client._delete_file(credentials, str(record[".id"]))
+
+            self.assertNotIn("private router detail", str(raised.exception))
+
     def test_profile_provisioning_requires_exact_current_certificate_readback(self) -> None:
         invalid_readbacks = (
             ("__duplicate__", "duplicate", "Could not verify the generated RouterOS certificate identity"),
