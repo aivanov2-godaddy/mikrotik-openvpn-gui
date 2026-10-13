@@ -73,6 +73,8 @@ ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "policies.read"})
 API_TOKEN_TTL_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
+SERVICE_HEALTH_FIELDS = frozenset({"overall", "checked_at", "checks"})
+SERVICE_HEALTH_CHECK_FIELDS = frozenset({"id", "name", "status", "impact", "remediation"})
 SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 1.0
 SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.1
 STATUS_ROUTER_FIELDS = frozenset(
@@ -1599,7 +1601,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session = self._require_session(api=True)
             if not session or not self._require_capability(session, "health.read"):
                 return
-            self._json(self._service_health(self._credentials(session)))
+            health = self._service_health(self._credentials(session))
+            if not isinstance(health, dict):
+                health = {}
+            response = {key: health[key] for key in SERVICE_HEALTH_FIELDS if key in health}
+            checks = health.get("checks")
+            response["checks"] = [
+                {key: check[key] for key in SERVICE_HEALTH_CHECK_FIELDS if key in check}
+                for check in checks
+                if isinstance(check, dict)
+            ] if isinstance(checks, list) else []
+            self._json(response)
             return
         if path == "/api/observability":
             session = self._require_session(api=True)
