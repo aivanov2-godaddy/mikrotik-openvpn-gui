@@ -1,31 +1,31 @@
 # Live telemetry acceptance report
 
-Status: **PR #666 ARM64 RUNTIME PUBLISHED AND PROVENANCE-VERIFIED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #672 ARM64 RUNTIME PUBLISHED AND PROVENANCE-VERIFIED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
-As of 2026-10-13, PR #666 (`d425c2a6ed05bfca3f81ce4575d8e4f75571c893`) is the
+As of 2026-10-13, PR #672 (`298fad73e8310b5d07cb4a646362513a0ac4e703`) is the
 latest merged mainline runtime change. Publisher run
-[#38375895946](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38375895946)
-published its ARM64 image. `gh attestation verify` confirmed the image's
-Sigstore provenance subject digest:
+[#38395675508](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38395675508)
+passed the release workflow. The public stable manifest names its immutable
+ARM64 image; a read-only registry manifest lookup confirmed its digest:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-d425c2a6ed05bfca3f81ce4575d8e4f75571c893-arm64` | `sha256:feafeaa46685c9fa3f33e584b29774ec28888353efc6e92312a0cbb5b8dda1e5` |
+| RouterOS ARM64 | `sha-298fad73e8310b5d07cb4a646362513a0ac4e703-arm64` | `sha256:6db37ac57fbac2abce742da6667189060396d970055be6904d5c3856c4cc2080` |
 
-The current RouterOS read-back shows the canary healthy on
+A prior RouterOS read-back showed the canary healthy on
 `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` and production configured
-for `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; neither runs the
-newer PR #666 image. Production health was not established in this check. The
-router-local immutable-update scheduler is installed but disabled. On the
-authenticated canary, the disposable test user is connected and `Live ·
-SOCKETIO` shows advancing uptime, traffic rates, and packet rates without a
+for `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; neither ran the
+then-newer PR #666 image. Production health was not established in that check.
+The router-local immutable-update scheduler was observed disabled at that time.
+On the authenticated canary, the disposable test user was connected and `Live ·
+SOCKETIO` showed advancing uptime, traffic rates, and packet rates without a
 manual page reload. A separate read-only RouterOS PPP count query returned one
-active session for that account. This is qualitative live-session evidence,
-not a candidate-specific readiness soak, numeric latency/freshness result,
-Redis delivery result, reconnect/snapshot recovery test, event-integrity test,
-rollback rehearsal, or production acceptance. Do not promote to production
-on image publication or this UI observation alone. Earlier read-backs remain
-historical evidence only for their stated image revisions.
+active session for that account. This is qualitative historical live-session
+evidence, not a candidate-specific readiness soak, numeric latency/freshness
+result, Redis delivery result, reconnect/snapshot recovery test, event-integrity
+test, rollback rehearsal, or production acceptance. Do not promote to
+production on image publication or this UI observation alone. Later read-backs
+supersede this state as described below.
 
 At approximately 14:32 EEST on 2026-10-13, a fresh RouterOS WebFig read-back
 again showed canary on `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`
@@ -1707,7 +1707,7 @@ changed. Continue only after a fresh canary authentication and matching active
 RouterOS test session are both visible; candidate-specific deployment and all
 formal acceptance gates remain unverified.
 
-## 2026-10-13 fresh authenticated canary session
+## 2026-10-13 earlier authenticated canary session
 
 After the operator connected the disposable test client, the authenticated
 canary Connections page displayed one active `wanted` session, `Live ·
@@ -1722,3 +1722,23 @@ recovery, snapshot recovery, event ordering/loss, counter-reset behavior,
 30-minute candidate soak, restore/rollback, or production acceptance is
 claimed. The router-local updater scheduler was observed disabled; it was not
 enabled or otherwise modified.
+
+## 2026-10-13 15:47 EEST live-session discrepancy
+
+After the operator reported connecting the test VPN client, a fresh read-only
+RouterOS WebFig PPP → Active Connections view showed zero entries. The
+The authenticated canary Connections page was refreshed and showed zero active
+devices with `Live · updated now`; its router-status footer advanced to 15:47
+EEST. Its newest `wanted` history entry ended at 14:37 EEST. RouterOS PPP Active
+Connections was then refreshed again and still showed zero entries. The
+production Dashboard's earlier 15:38 EEST read had shown one connected user
+together with `Connection data delayed` and a 12:06 EEST status timestamp; that
+stale display was not rechecked in this later snapshot and is not evidence of a
+current tunnel. The canary container details showed the prior
+`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` image healthy. The new PR
+#672 immutable ARM64 image is published and its digest above is verified, but
+it has not been read back as deployed on RouterOS. No container, router, VPN
+session, certificate, CA, account, policy, or production state was changed. The
+reported client connection is not corroborated by this router/canary pair; live
+event timing, freshness, soak, Redis delivery, recovery, rollback, and production
+acceptance remain unverified.

@@ -145,6 +145,27 @@ session and qualitative live display only—not event latency/freshness SLOs,
 Redis delivery, API recovery, event integrity, a 30-minute candidate soak,
 rollback, or production acceptance. Production was not changed.
 
+**Superseding live-session check (2026-10-13, 15:47 EEST):** after the operator
+reported connecting again, RouterOS WebFig PPP → Active Connections showed
+zero entries, including after a refresh. The authenticated canary Connections
+view also showed zero active devices with `Live · updated now`; its router
+status timestamp advanced to 15:47 EEST, and the newest `wanted` history entry
+ended at 14:37 EEST. The production view's earlier 15:38 EEST read showed one
+connected user with `Connection data delayed` and a 12:06 EEST timestamp; that
+stale count was not rechecked in this snapshot and is not current-session
+evidence. The canary container UI showed the previous
+immutable `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` image healthy.
+The latest published PR #672 ARM64 image is
+`sha-298fad73e8310b5d07cb4a646362513a0ac4e703-arm64` with registry digest
+`sha256:6db37ac57fbac2abce742da6667189060396d970055be6904d5c3856c4cc2080`,
+but RouterOS deployment of that candidate is not verified. No container,
+router, VPN session, certificate, CA, account, policy, or production state was
+changed. Do not treat the reported client connection or the production's stale
+count as acceptance evidence. Candidate-specific soak, telemetry freshness,
+Redis delivery, API recovery, rollback, and device-certificate acceptance
+remain open; the CRL/revocation warning remains excluded from the dashboard as
+previously requested. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md#2026-10-13-1547-eest-live-session-discrepancy).
+
 Earlier observations below are historical evidence only and do not supersede
 this current snapshot. See the [live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
 for detailed gates, results, and limitations.
