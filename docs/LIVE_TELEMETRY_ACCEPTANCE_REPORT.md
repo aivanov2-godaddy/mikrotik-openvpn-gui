@@ -1742,3 +1742,32 @@ session, certificate, CA, account, policy, or production state was changed. The
 reported client connection is not corroborated by this router/canary pair; live
 event timing, freshness, soak, Redis delivery, recovery, rollback, and production
 acceptance remain unverified.
+
+## 2026-10-13 PR #674 publication and deployment status
+
+PR #674 merged as `3d65b43ec4b796eb83f52929c56c9efabb980b4d`. Its idle-session
+fix defers `last_seen` refresh until an authenticated request passes the
+request's guards; rejected CSRF requests cannot keep an idle session alive.
+The post-merge publisher run
+[#38404891404](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38404891404)
+passed full source and unit/mock integration checks, rendered browser and
+accessibility regression, secret/dependency scans, and both architecture
+published-runtime smoke tests. Image provenance and SPDX SBOM attestations
+were generated and verified for AMD64 and ARM64. The public `routeros-stable`
+manifest was read back and identifies the merged commit.
+
+| Platform | Immutable tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-arm64` | `sha256:c2318a464f1a57d86ae27b9103aa5addbcae3bfe43aca3d60fdba7728c9f4fbb` |
+| CHR/x86 AMD64 (evaluation) | `sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-amd64` | `sha256:7bd258595485a682ecc3892d32caaf29c9eecae377ec19b4f2071f702117f909` |
+
+This is publication evidence, not router deployment or formal acceptance. The
+latest RouterOS/canary read-back at 15:47 EEST still showed the prior healthy
+canary image `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` and zero PPP
+active sessions. Production was not read back after publication; its previous
+observed tag is not asserted as current. No container, router, VPN session,
+certificate, CA, account, policy, or production state was changed during this
+publication record. The new image has not yet completed candidate-specific
+RouterOS readiness, live-session, Redis/outbox, reconnect/snapshot, event
+integrity, resource soak, persistence, restore, or rollback checks. No
+production promotion is claimed; formal acceptance issue #199 remains open.

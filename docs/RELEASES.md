@@ -13,7 +13,7 @@ tags: `vMAJOR.MINOR.PATCH`.
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
 The latest formal versioned release remains **v2.7.0**. A v2.8.0 release
-candidate is being prepared from the merged work through PR #651, but it has
+candidate is being prepared from the merged work through PR #674, but it has
 not been tagged or published. Its highlights are stricter live-data field
 allowlists and session revalidation, safer staged certificate renewal, improved
 telemetry recovery, and evidence-gated RouterOS canary promotion. RouterOS
@@ -58,7 +58,36 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #649 — 2026-10-13
+### Latest published mainline candidate — PR #674 — 2026-10-13
+
+PR [#674](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/674)
+merged as `3d65b43ec4b796eb83f52929c56c9efabb980b4d`. It defers session idle-
+time refresh until a request has passed its authorization, CSRF, and capability
+checks; rejected CSRF requests therefore cannot extend the idle session. The
+post-merge [publisher run](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38404891404)
+passed source, full unit/mock integration, rendered browser/accessibility,
+secret, dependency, and image-runtime checks. It published AMD64 and ARM64
+images, generated and verified image and SPDX SBOM attestations, and passed
+published-runtime smoke tests. The public `routeros-stable` manifest was read
+back and names this commit and both immutable tags.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-arm64` | `sha256:c2318a464f1a57d86ae27b9103aa5addbcae3bfe43aca3d60fdba7728c9f4fbb` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-amd64` | `sha256:7bd258595485a682ecc3892d32caaf29c9eecae377ec19b4f2071f702117f909` |
+
+The 2026-10-13 15:47 EEST RouterOS/canary read-back still showed the canary on
+the prior `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` image and
+healthy, with zero active PPP sessions. Production was not re-read after this
+publication; its last recorded configured image remains
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`. Neither canary
+deployment nor production promotion of PR #674 is claimed. Candidate-specific
+live acceptance, reconnect/recovery, Redis delivery, event integrity, resource
+soak, restore, and rollback remain incomplete. RouterOS reports its configured
+image tag, not an independently verified cached registry digest. No new
+numbered release was created; v2.7.0 remains the latest formal version.
+
+### Previously published mainline candidate — PR #649 — 2026-10-13
 
 PR [#649](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/649)
 merged as

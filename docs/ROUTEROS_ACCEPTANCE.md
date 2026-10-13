@@ -13,14 +13,17 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The current mainline candidate is PR #649, commit
-`2b76399f4fdc2cb1db7740b8e9887480cb083fee`, with ARM64 registry digest
-`sha256:c0e67ad2eb37f2adcec8d777ef5cae24fb3c96250b0fe0eb52dbc5b0e9c21b0f`
+prove RouterOS compatibility. The current mainline candidate is PR #674, commit
+`3d65b43ec4b796eb83f52929c56c9efabb980b4d`, with ARM64 registry digest
+`sha256:c2318a464f1a57d86ae27b9103aa5addbcae3bfe43aca3d60fdba7728c9f4fbb`
 and AMD64 registry digest
-`sha256:f1cb27f25e9b6c6d5370317cb6c1b0c33d97ee7092e250ffbc2f25316d30e0ec`.
-Both architectures have passed published-runtime smoke tests, but a RouterOS
-read-back and candidate-specific acceptance have not been recorded here. Do
-not treat older deployment observations below as evidence for this candidate.
+`sha256:7bd258595485a682ecc3892d32caaf29c9eecae377ec19b4f2071f702117f909`.
+Both architectures passed published-runtime smoke tests and image/SBOM
+attestation verification. A 2026-10-13 15:47 EEST RouterOS read-back showed
+the canary still running the prior healthy image with zero active PPP sessions;
+production was not re-read after this publication. Candidate-specific RouterOS
+deployment and acceptance have not been recorded. Do not treat older deployment
+observations below as evidence for this candidate.
 The previous PR #504, commit
 `a62724c94261b00866fa3d55416a7b540305d40b`, published the ARM64 image
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64`,
@@ -37,12 +40,12 @@ That is historical point-in-time deployment and live-health evidence, not
 completion of the controlled latency/freshness, session-event, event-integrity,
 recovery, resource-soak, Redis-delivery, restore, or rollback acceptance below.
 The PR
-No assertion is made here that the current PR #649 candidate is configured on
+No assertion is made here that the current PR #674 candidate is configured on
 canary or production. First read back the exact configured immutable tag and
 health on the canary, then run the pre-promotion collector for that candidate.
 Do not promote until the report passes and rollback has been rehearsed. No
 resource minimum or cross-model/version certification is inferred. See the
-[current release record](RELEASES.md#latest-published-mainline-candidate-pr-649-2026-10-13).
+[current release record](RELEASES.md#latest-published-mainline-candidate-pr-674-2026-10-13).
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
 remain historical and do not prove PR #504's canary readiness or rollback.
