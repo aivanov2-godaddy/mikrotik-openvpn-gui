@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import io
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
-from scripts.telemetry_acceptance import evaluate as _evaluate
+from scripts.telemetry_acceptance import evaluate as _evaluate, main
 
 
 LIMITS = {
@@ -67,6 +70,18 @@ def acceptance_window(sample: dict[str, object]) -> list[str]:
 
 
 class TelemetryAcceptanceTests(unittest.TestCase):
+    def test_cli_rejects_non_finite_limits(self) -> None:
+        for value in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(value=value):
+                output = io.StringIO()
+                with patch("sys.argv", ["telemetry_acceptance.py", f"--max-event-age-seconds={value}"]):
+                    with redirect_stdout(output):
+                        self.assertEqual(main(), 2)
+                report = json.loads(output.getvalue())
+                self.assertFalse(report["healthy"])
+                self.assertEqual(report["failed_gates"], ["invalid_input"])
+                self.assertIn("finite and non-negative", report["error"])
+
     def test_complete_acceptance_window_passes(self) -> None:
         samples = [
                 {

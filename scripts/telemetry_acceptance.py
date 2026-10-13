@@ -423,13 +423,13 @@ def main() -> int:
             "latency_p95_ms": args.max_latency_p95_ms,
             "event_age_seconds": args.max_event_age_seconds,
             "router_cpu_percent": args.max_router_cpu_percent,
-        "router_memory_percent": args.max_router_memory_percent,
-        "router_storage_percent": args.max_router_storage_percent,
+            "router_memory_percent": args.max_router_memory_percent,
+            "router_storage_percent": args.max_router_storage_percent,
             "max_reconnects": args.max_reconnects,
             "recovery_seconds": args.max_recovery_seconds,
         }
-        if any(value < 0 for value in limits.values()):
-            raise ValueError("limits must be non-negative")
+        if any(not math.isfinite(value) or value < 0 for value in limits.values()):
+            raise ValueError("limits must be finite and non-negative")
         source = _source(args.input)
         code, result = evaluate(source, limits=limits)
     except (OSError, ValueError, json.JSONDecodeError) as error:
