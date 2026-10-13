@@ -253,6 +253,73 @@ evaluator applies the same 15-minute freshness and five-minute future-skew
 limits to its latest sample. Rerun the read-only collector when evidence is
 stale; do not edit timestamps by hand.
 
+## Browser and stream evidence for the release gate
+
+A passing candidate window also requires the redacted report from
+`scripts/telemetry_stream_observer.py` and the structured result of
+`scripts/telemetry_acceptance.py`, captured concurrently with the app and
+RouterOS collectors over the same 30-minute canary window. The Socket.IO
+observer only accepts an explicitly named canary/development HTTPS origin; it
+does not record event payloads, identities, addresses, or credentials.
+
+The telemetry-acceptance evaluator emits a
+`vpn-dashboard-telemetry-acceptance-v1` aggregate with its sample window,
+browser-visible connect/disconnect and traffic-update counts, transition
+latency p95, maximum traffic-sample age, sequence/gap/duplicate/order counts,
+and reconnect-test outcome. The release collector takes only those allowlisted
+aggregates; it does not copy raw NDJSON records or extra caller fields into the
+final evidence. A passing window requires visible connect and disconnect
+transitions without refresh, visible changing traffic updates, session-event
+p95 at most 1,000 ms, session-event and traffic-sample ages at most 2 seconds,
+at least 30 sequence observations, zero sequence gaps/duplicates/out-of-order
+events, and a successful API-interruption plus snapshot-recovery test. The Socket.IO
+observer independently requires a reconnect, a snapshot after that reconnect,
+a connected stream at the end, and clean sequence continuity. Either report
+missing, failed, stale, shorter than 30 minutes, or outside the app-collector
+window by more than five seconds fails closed. Report end times must also be
+no more than 15 minutes old when evaluated. The final release evaluator
+revalidates the reports and matching window rather than trusting the
+collector's `passed` flag alone.
+
+Run these captures concurrently from separate trusted local terminals. Keep
+the NDJSON input and observer output private; never place raw event frames,
+identities, addresses, or secrets in either file:
+
+```powershell
+# Terminal 1: authenticated, redacted Socket.IO observation of the canary.
+python scripts/telemetry_stream_observer.py `
+  --canary-origin https://<approved-canary-origin> `
+  --cookie-env VPN_CANARY_COOKIE `
+  --duration-seconds 1800 `
+  --output private-stream-observation.json
+
+# Terminal 2 / trusted browser harness: capture redacted
+# sample/session/traffic/reconnect records during the same window into
+# private-telemetry-acceptance.ndjson. Run telemetry_acceptance.py against it
+# after collection if you want the standalone diagnostic summary.
+
+# Terminal 3: app plus RouterOS collection, started within five seconds of the
+# other captures. The observer report is read after the soak ends.
+python scripts/collect_release_acceptance.py `
+  --input private-evidence.json `
+  --output private-collected-evidence.json `
+  --routeros-report private-routeros-window.json `
+  --stream-observer-report private-stream-observation.json `
+  --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
+  --canary-url https://<private-canary-origin> `
+  --production-url https://<private-production-origin> `
+  --canary-metrics-url https://<approved-canary-origin> `
+  --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
+  --duration-seconds 1800 --interval-seconds 60 `
+  --phase canary-prepromotion
+```
+
+The telemetry acceptance NDJSON is operator/harness input, not output from the
+evaluator. Use real UTC epoch timestamps and the strict record schema in
+`docs/LIVE_TELEMETRY_CANARY.md`; do not infer browser rendering from an idle
+stream or the Socket.IO observer. If any input is missing or invalid, rerun
+the full window instead of editing timestamps or pass flags.
+
 Start from the [evidence schema example](release-acceptance-evidence.example.json)
 and fill its RouterOS-only and exercise results locally. Keep that file private.
 The collector overwrites app health, readiness, timestamps, sample counts,
@@ -281,6 +348,8 @@ python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
   --routeros-report private-routeros-window.json `
+  --stream-observer-report private-stream-observation.json `
+  --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
   --canary-metrics-url https://<approved-canary-origin> `
@@ -398,6 +467,8 @@ python scripts/collect_release_acceptance.py `
   --input private-release-evidence.json `
   --output private-release-collection.json `
   --routeros-report private-routeros-window.json `
+  --stream-observer-report private-stream-observation.json `
+  --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<private-canary-origin> `
   --production-url https://<private-production-origin> `
   --canary-metrics-url https://<private-canary-origin> `

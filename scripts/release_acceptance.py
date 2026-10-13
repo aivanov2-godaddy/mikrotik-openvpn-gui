@@ -17,6 +17,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from stream_acceptance import validate_stream_acceptance
+except ModuleNotFoundError:
+    from scripts.stream_acceptance import validate_stream_acceptance
+
 
 IMAGE = re.compile(
     r"^(?:ghcr\.io/)?[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):"
@@ -117,6 +122,7 @@ def evaluate(
     collection_phase: str | None = None
     registry_verification: Any = None
     registry_digests_verified = False
+    validated_stream_acceptance: dict[str, Any] | None = None
     if phase is not None and phase not in {"canary-prepromotion", "postpromotion"}:
         raise ValueError("phase must be canary-prepromotion or postpromotion")
     if collection is None:
@@ -162,6 +168,27 @@ def evaluate(
             failures.append("live_collection_stale")
         if age_seconds < -MAX_FUTURE_SKEW_SECONDS:
             failures.append("live_collection_future_dated")
+        stream_acceptance = collection.get("stream_acceptance")
+        if collection_passed and (
+            not isinstance(stream_acceptance, dict) or stream_acceptance.get("format") != (
+                "vpn-dashboard-stream-acceptance-v1"
+            )
+        ):
+            failures.append("stream_acceptance_missing_or_invalid")
+        elif collection_passed:
+            if set(stream_acceptance) != {"format", "stream_observation", "browser_telemetry"}:
+                failures.append("stream_acceptance_schema_invalid")
+            try:
+                validated_stream_acceptance, stream_failures = validate_stream_acceptance(
+                    stream_acceptance.get("stream_observation"),
+                    stream_acceptance.get("browser_telemetry"),
+                    collection_started_at=collection.get("started_at"),
+                    collection_ended_at=collection.get("ended_at"),
+                    now=current_time,
+                )
+            except ValueError:
+                stream_failures = ["stream_acceptance_window_invalid"]
+            failures.extend(stream_failures)
     safe_records: list[dict[str, Any]] = []
     for record, expected_environment in zip(deployments, ENVIRONMENTS):
         if not isinstance(record, dict):
@@ -522,6 +549,7 @@ def evaluate(
         ),
         "router_runtime_digest_verified": False,
         "routeros_resource_evidence": routeros_resource_evidence,
+        "stream_acceptance": validated_stream_acceptance,
         "failed_gates": sorted(set(failures)),
         "deployments": safe_records,
     }

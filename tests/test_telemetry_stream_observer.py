@@ -210,6 +210,7 @@ class TelemetryStreamObserverTests(unittest.TestCase):
         self.assertEqual(report["connections"], 2)
         self.assertEqual(report["reconnects"], 1)
         self.assertEqual(report["snapshot_count"], 2)
+        self.assertEqual(report["reconnect_snapshot_count"], 1)
         self.assertEqual(report["sequence_gaps"], 0)
         self.assertEqual(report["duplicate_sequences"], 0)
         self.assertEqual(report["out_of_order_sequences"], 0)

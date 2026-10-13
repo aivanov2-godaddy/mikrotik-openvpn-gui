@@ -137,6 +137,18 @@ minutes in the future. The standalone telemetry evaluator applies the same
 freshness and future-skew bounds to its latest sample. Collect fresh evidence
 instead of changing recorded timestamps.
 
+For the release gate, `telemetry_acceptance.py` also emits a redacted
+`vpn-dashboard-telemetry-acceptance-v1` aggregate: measured session-transition
+p95 and no-refresh visibility counts, traffic-update visibility and maximum
+sample age, sequence/gap/duplicate/order counts, and API reconnect/snapshot
+results with the sample window. `collect_release_acceptance.py` combines that
+with the independent `telemetry_stream_observer.py` report. Both must cover
+the same 30-minute canary collector window (within five seconds), be recent,
+and pass their own strict field allowlists. The Socket.IO observer must see a
+reconnect followed by a snapshot and retain no payloads; browser evidence must
+show connected and disconnected states plus changing visible traffic. Missing
+or malformed evidence is a release failure, not an optional enhancement.
+
 `event_sequence` is checked within an `event_epoch` (a non-negative integer
 identifying one telemetry-process sequence lifetime); omitted epochs default
 to `0`. A stream must start in epoch `0`; every epoch change must increment by

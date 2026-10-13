@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts.collect_release_acceptance import collect
+from scripts.collect_release_acceptance import apply_stream_acceptance, collect
 
 
 REVISION = "a" * 40
@@ -211,6 +211,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "--input", str(input_path),
                 "--output", str(output_path),
                 "--routeros-report", str(Path(directory) / "routeros.json"),
+                "--stream-observer-report", str(Path(directory) / "stream.json"),
+                "--telemetry-acceptance-input", str(Path(directory) / "browser.ndjson"),
                 "--canary-url", "https://canary.example",
                 "--production-url", "https://production.example",
                 "--canary-metrics-url", "https://canary.example",
@@ -245,6 +247,8 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("[--production-metrics-url PRODUCTION_METRICS_URL]", output.getvalue())
         self.assertIn("--canary-api-token-env", output.getvalue())
         self.assertIn("--production-api-token-env", output.getvalue())
+        self.assertIn("--stream-observer-report", output.getvalue())
+        self.assertIn("--telemetry-acceptance-input", output.getvalue())
 
     def test_routeros_soak_report_is_required_before_app_collection_starts(self) -> None:
         from scripts import collect_release_acceptance as collector
@@ -657,8 +661,8 @@ class ReleaseCollectionTests(unittest.TestCase):
             ),
             cookie=cookie,
             metrics_tokens=metrics_tokens,
-            duration_seconds=1,
-            interval_seconds=0.5,
+            duration_seconds=1800,
+            interval_seconds=60,
             probe=probe,
             registry_probe=lambda image, *, timeout: resolved_registry_digests.get(image),
             clock=time.clock,
@@ -667,6 +671,41 @@ class ReleaseCollectionTests(unittest.TestCase):
             minimum_soak_seconds=1,
             minimum_health_samples=2,
             phase=phase,
+        )
+        started = report["evidence"]["collection"]["started_at"]
+        ended = report["evidence"]["collection"]["ended_at"]
+        observer = {
+            "format": "vpn-dashboard-telemetry-stream-observation-v1",
+            "started_at": started, "ended_at": ended, "duration_seconds": 1800,
+            "origin_role": "canary", "transport": "socketio-websocket",
+            "connections": 2, "disconnects": 1, "reconnects": 1,
+            "stream_connected_at_end": True, "event_count": 3,
+            "event_counts": {"telemetry.snapshot": 2, "vpn.session.updated": 1},
+            "snapshot_count": 2, "reconnect_snapshot_count": 1,
+            "sequence_gaps": 0, "duplicate_sequences": 0,
+            "out_of_order_sequences": 0, "rejected_frames": 0,
+            "raw_frames_written": False, "identities_or_addresses_written": False,
+            "credentials_written": False, "latency_measured": False,
+            "latency_note": "not measured; client/server clock offset is not established",
+            "failed_gates": [], "observed_stream_healthy": True,
+        }
+        browser = {
+            "format": "vpn-dashboard-telemetry-acceptance-v1", "healthy": True,
+            "failed_gates": [], "observation_started_at": started,
+            "observation_ended_at": ended, "session_transition_count": 2,
+            "session_transition_visible_count": 2, "connected_transition_observed": True,
+            "disconnected_transition_observed": True,
+            "ordered_connect_disconnect_observed": True,
+            "session_event_latency_p95_ms": 400,
+            "session_event_age_max_seconds": 0.5,
+            "traffic_update_count": 2, "traffic_update_visible_count": 2,
+            "traffic_sample_age_max_seconds": 1.0, "event_sequence_observation_count": 30,
+            "event_sequence_gap_count": 0, "duplicate_event_count": 0,
+            "out_of_order_event_count": 0, "reconnect_test_count": 1,
+            "reconnect_success_count": 1,
+        }
+        code, report = apply_stream_acceptance(
+            report, observer, browser, now=time.current, minimum_window_seconds=1800,
         )
         return code, report, seen
 
@@ -682,7 +721,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         )
         self.assertEqual(len(collected["deployments"]), 2)
         self.assertGreaterEqual(collected["deployments"][0]["health_sample_count"], 2)
-        self.assertEqual(report["deployments"][0]["metrics_sample_count"], 3)
+        self.assertEqual(report["deployments"][0]["metrics_sample_count"], 31)
         self.assertTrue(collected["deployments"][0]["redis_publish_verified"])
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_last"], 0)
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_max"], 0)
@@ -1058,6 +1097,13 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "started_at": started,
                     "ended_at": ended,
                     "duration_seconds": 1800,
+                })
+                stream_evidence = collected_evidence["collection"]["stream_acceptance"]
+                stream_evidence["stream_observation"].update({
+                    "started_at": started, "ended_at": ended, "duration_seconds": 1800,
+                })
+                stream_evidence["browser_telemetry"].update({
+                    "observation_started_at": started, "observation_ended_at": ended,
                 })
                 for deployment in collected_evidence["deployments"]:
                     deployment.update({

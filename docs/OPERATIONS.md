@@ -305,6 +305,8 @@ python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
   --routeros-report private-routeros-window.json `
+  --stream-observer-report private-stream-observation.json `
+  --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
   --canary-metrics-url https://<approved-canary-origin> `

@@ -18,6 +18,7 @@ unknown fields are rejected rather than carried through into evaluation.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import math
 import sys
@@ -103,6 +104,7 @@ def evaluate(
     out_of_order_events = 0
     sequence_evidence = 0
     counter_reset_evidence = 0
+    event_gap_count = 0
     sample_timestamps: list[float] = []
     attestation_timestamps: list[tuple[str, float]] = []
     verification_records: list[dict[str, bool]] = []
@@ -160,7 +162,11 @@ def evaluate(
                 sequence = raw_sequence
                 epoch = sequence_epochs.setdefault(raw_epoch, {"last": None, "seen": set()})
                 last_sequence = epoch["last"]
+                inferred_gap = False
                 if last_sequence is not None and sequence > last_sequence + 1:
+                    gap = sequence - last_sequence - 1
+                    event_gap_count += gap
+                    inferred_gap = True
                     failures.append("event_loss")
                 inferred_duplicate = sequence in epoch["seen"]
                 inferred_out_of_order = last_sequence is not None and sequence < last_sequence
@@ -171,11 +177,14 @@ def evaluate(
             else:
                 inferred_duplicate = False
                 inferred_out_of_order = False
+                inferred_gap = False
             duplicate_flag = False
             out_of_order_flag = False
             for name in ("event_lost", "event_duplicated", "out_of_order"):
                 if name in record and _boolean(record[name], name):
                     if name == "event_lost":
+                        if not inferred_gap:
+                            event_gap_count += 1
                         failures.append("event_loss")
                     elif name == "event_duplicated":
                         duplicate_flag = True
@@ -417,9 +426,71 @@ def evaluate(
         "reconnects": limits["max_reconnects"],
     })
     failures.extend(item for item in baseline["failed_gates"] if item not in failures)
+    transition_latencies = [
+        _number(item["latency_ms"], "latency_ms")
+        for item in session_transitions
+        if "latency_ms" in item
+    ]
+    ordered_transition_latencies = sorted(transition_latencies)
+    latency_p95 = (
+        ordered_transition_latencies[max(0, math.ceil(0.95 * len(ordered_transition_latencies)) - 1)]
+        if ordered_transition_latencies else None
+    )
+    traffic_ages = [
+        _number(item["event_age_seconds"], "event_age_seconds")
+        for item in traffic_updates
+        if "event_age_seconds" in item
+    ]
+    session_event_ages = [
+        _number(sample["event_age_seconds"], "event_age_seconds")
+        for sample in decoded_samples
+        if "event_age_seconds" in sample
+    ]
+    visible_transitions = [
+        item for item in session_transitions if item.get("visible_without_refresh") is True
+    ]
+    visible_traffic_updates = [
+        item for item in traffic_updates if item.get("visible_without_refresh") is True
+    ]
+    transition_states = [item.get("connected") for item in ordered_transitions]
+    window_start = sample_timestamps[0] if sample_timestamps else None
+    window_end = sample_timestamps[-1] if sample_timestamps else None
+
+    def iso_timestamp(value: float | None) -> str | None:
+        if value is None:
+            return None
+        return datetime.fromtimestamp(value, timezone.utc).isoformat().replace("+00:00", "Z")
+
     result = {
+        "format": "vpn-dashboard-telemetry-acceptance-v1",
         "healthy": not failures and baseline_code == 0,
         "failed_gates": sorted(set(failures)),
+        "observation_started_at": iso_timestamp(window_start),
+        "observation_ended_at": iso_timestamp(window_end),
+        "session_transition_count": len(session_transitions),
+        "session_transition_visible_count": len(visible_transitions),
+        "connected_transition_observed": any(state is True for state in transition_states),
+        "disconnected_transition_observed": any(state is False for state in transition_states),
+        "ordered_connect_disconnect_observed": any(
+            earlier and not later
+            for earlier, later in zip(transition_states, transition_states[1:])
+        ),
+        "session_event_latency_p95_ms": latency_p95,
+        "session_event_age_max_seconds": max(session_event_ages) if session_event_ages else None,
+        "traffic_update_count": len(traffic_updates),
+        "traffic_update_visible_count": len(visible_traffic_updates),
+        "traffic_sample_age_max_seconds": max(traffic_ages) if traffic_ages else None,
+        "event_sequence_observation_count": sequence_evidence,
+        "event_sequence_gap_count": event_gap_count,
+        "duplicate_event_count": duplicate_events,
+        "out_of_order_event_count": out_of_order_events,
+        "reconnect_test_count": len(reconnects),
+        "reconnect_success_count": sum(
+            item.get("api_interruption_tested") is True
+            and item.get("snapshot_recovered") is True
+            and item.get("rest_fallback_available") is True
+            for item in reconnects
+        ),
         "baseline": baseline,
         "session_transition_tests": len(session_transitions),
         "traffic_update_tests": len(traffic_updates),

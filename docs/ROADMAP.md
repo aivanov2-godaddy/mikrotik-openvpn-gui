@@ -1669,6 +1669,15 @@ VPN client window was available to initiate reconnect; client/API reconnect,
 snapshot recovery, event timing/integrity, and the formal soak remain unverified.
 Production and RouterOS policy/certificate/account state were not changed.
 
+**2026-10-13 issue #199 browser-evidence release gate:** the release collector
+and evaluator now require a strict redacted stream-observer report and
+browser-visible telemetry acceptance report. Missing, stale, out-of-window,
+malformed, or failed event-latency/freshness, sequence-integrity, duplicate/gap,
+or reconnect/snapshot evidence fails closed. This implements repository-side
+gate enforcement only; it is not a live canary acceptance result. The aligned
+30-minute observation, RouterOS/API recovery exercise, Redis/outbox and
+resource samples, rollback drill, and release promotion remain pending.
+
 **2026-10-13 canary live-session follow-up:** after the operator connected the
 disposable VPN client, the authenticated canary dashboard changed from zero to
 one connected user and displayed nonzero traffic (`173 KB` down, `304 KB` up)
