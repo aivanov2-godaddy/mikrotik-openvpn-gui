@@ -87,6 +87,7 @@ key/header sets so an added field requires an intentional contract update.
 
 | Surface | Allowed response fields / columns | Capability boundary and limit |
 | --- | --- | --- |
+| `GET /api/policy-templates` | Root: `templates`, `assignments`. `templates[]`: `id`, `name`, `description`, `group_name`, `controls`, `protected`, `created_at`, `updated_at`; `controls`: `policy`, `expires_at`, `max_sessions`, `rate_limit_kbps`, `dns_mode`, `notifications`, `quota_mb`, `schedule`. `assignments[username]`: `vpn_user`, `template_id`, `overrides`, `assigned_at`, `updated_at`; overrides are limited to supported control names. | Requires `policies.read`. Storage rows and nested JSON are projected to fixed allowlists at the HTTP boundary. Regression tests assert exact field sets and reject injected top-level, nested-control, assignment, and override sentinels. |
 | `GET /api/observability` | Top level: `current`, `deployments`, `health_timeline`, `operations_timeline`, `rollback`, `generated_at`. `current`: `version`, `revision`, `status`. `rollback`: `available`, `revision`, `version`, `message`, `data_preserved`. | Requires `health.read`. The operations timeline includes dashboard audit and status-only integration delivery events only with `audit.read`, and session-snapshot events only with `sessions.read`; session events omit RouterOS session IDs and peer/VPN addresses. Deployment and health rows are bounded status summaries. |
 | `GET /api/operations-timeline.json` | Root: `events`, `generated_at`, `coverage`; coverage: `complete`, `message`. Event fields are the tested allowlist: `id`, `occurred_at`, `source`, `type`, `actor`, `target`, `outcome`, `severity`, `summary`, `clock_skew_seconds`, `age_seconds`, `related_events`, `relationship_summary`; only session rows add `timestamp_quality`. Relationship fields: `event_id`, `source`, `relation`, `delta_seconds`. | Requires both `audit.read` and `sessions.read`. The report deliberately omits raw audit details, integration payloads, database/session IDs, and source/VPN addresses; correlation is context, not proof of cause. |
 | `GET /api/connections.csv` | `user`, `connected`, `disconnected`, `source_ip`, `vpn_ip`, `encryption`, `received_bytes`, `sent_bytes`, `received_packets`, `sent_packets`. | Requires `sessions.read`; addresses and usernames are intentionally present, so treat the export as sensitive. |
@@ -102,6 +103,7 @@ The exact contract is guarded by
 `DashboardIntegrationTests.test_admin_api_token_response_uses_metadata_only_allowlist`,
 `DashboardIntegrationTests.test_admin_session_response_fields_are_capability_gated_at_http_boundary`,
 `DashboardIntegrationTests.test_user_list_api_drops_unapproved_routeros_fields`,
+`DashboardIntegrationTests.test_policy_template_api_projects_storage_records_to_allowlisted_fields`,
 and `DashboardIntegrationTests.test_sensitive_exports_disclose_their_real_data_scope`.
 This inventory supplements, but does not replace, the broader independent
 handler/field review and deployment checks listed below.
