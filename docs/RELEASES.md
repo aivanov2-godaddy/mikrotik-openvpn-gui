@@ -17,7 +17,7 @@ and CI provenance only. RouterOS deployment state, live measurements, and
 operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. A v2.8.0 release
-candidate is being prepared from the merged work through PR #685, but it has
+candidate is being prepared from the merged work through PR #692, but it has
 not been tagged or published. Its highlights are stricter live-data field
 allowlists and session revalidation, safer staged certificate renewal, improved
 telemetry recovery, and evidence-gated RouterOS canary promotion. RouterOS
@@ -62,26 +62,45 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #685 — 2026-10-13
+### Latest published mainline candidate — PR #692 — 2026-10-13
+
+PR [#692](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/692)
+merged as `8f68314bb54cc008edc02bf26e00cdaaa48284f3`. It revalidates the
+RouterOS source session around privileged telemetry reads and publication and
+adds bounded role revalidation. The
+[publisher run](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38468254627)
+passed source verification, rendered-browser checks, ARM64 and AMD64 builds,
+stable-manifest publication, image/SBOM attestations, and published-runtime
+smoke tests.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-8f68314bb54cc008edc02bf26e00cdaaa48284f3-arm64` | `sha256:14dcd6185d131c86196a439d15712c1e4b6b68caa0c34f8f5a6f0e5cde4313f5` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-8f68314bb54cc008edc02bf26e00cdaaa48284f3-amd64` | `sha256:e3db760e90b2828ef9acc741a380bf82acbe2b8bb345ea0d9f4b5367a7b1b5fa` |
+
+The stable manifest was read back and verified against this commit and both
+immutable architecture tags. The controlled 30-minute acceptance window is not
+complete; event
+latency/freshness, recovery, event integrity, Redis delivery, resource soak,
+restore, and rollback evidence remain outstanding. No production promotion is
+claimed. No new numbered release was created; v2.7.0 remains the latest formal
+version.
+
+### Previously published mainline candidate — PR #685 — 2026-10-13
 
 PR [#685](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/685)
 merged as `bc03f3b456a488fc464061fe5944278c0207a94f`. It fixes the RouterOS
 disconnect read-back settling window so a just-terminated session is not
-mistaken for a failed termination. The
-[publisher run](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
-passed and published AMD64 and ARM64 images, generated and verified image and
-SPDX SBOM attestations, and passed published-runtime smoke tests.
+mistaken for a failed termination. Its publisher run
+[#38449932684](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
+published AMD64 and ARM64 images, verified image and SPDX SBOM attestations, and
+passed published-runtime smoke tests. It has been superseded by PR #692 as the
+latest mainline candidate.
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-bc03f3b456a488fc464061fe5944278c0207a94f-arm64` | `sha256:b83dd23bab8124b493b676bdaf31c2e45ae8e89d8151822854c63cc348597824` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-bc03f3b456a488fc464061fe5944278c0207a94f-amd64` | `sha256:cf142629b4242d80d07d3c4582603d95954da571cfd8cbf0d04f0bcec06fd242` |
-
-The controlled 30-minute acceptance window is not complete; event
-latency/freshness, recovery, event integrity, Redis delivery, resource soak,
-restore, and rollback evidence remain outstanding. No production promotion is
-claimed. No new numbered release was created; v2.7.0 remains the latest formal
-version.
 
 ### Previously published mainline candidate — PR #674 — 2026-10-13
 
