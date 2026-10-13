@@ -7,6 +7,26 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class TelemetryRuntimeFreshnessTests(unittest.TestCase):
+    def test_binary_credentials_are_refused_after_source_session_revocation(self) -> None:
+        config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
+        sessions = SessionStore()
+        session = sessions.create("router-user", "router-password")
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url=config.routeros_rest_url,
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=config.routeros_api_ssl_port,
+            requested_transport=config.live_transport,
+        )
+
+        self.assertEqual(runtime._credentials(), ("router-user", "router-password"))
+        sessions.revoke(session.session_id)
+
+        self.assertFalse(runtime._credentials_valid("router-user", "router-password"))
+        with self.assertRaisesRegex(RuntimeError, "credentials_unavailable"):
+            runtime._credentials()
+
     def test_authoritative_session_snapshot_updates_history_observer(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         observed = []
@@ -78,6 +98,7 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
 
         runtime.sampler._connection_factory = EmptyCounterConnection
         runtime.sampler._credentials_provider = lambda: ("router-user", "router-password")
+        runtime.sampler._authorization_check = lambda _username, _password: True
         self.assertEqual(runtime.sampler.sample_once(), [])
 
         metrics = runtime.state.as_dict()

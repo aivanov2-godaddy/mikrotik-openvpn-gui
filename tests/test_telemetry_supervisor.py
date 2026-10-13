@@ -2,6 +2,7 @@ import threading
 import unittest
 
 from routeros_binary import RouterOSReply
+from telemetry_broker import TelemetryBroker
 from telemetry_supervisor import (
     INTERFACE_COUNTER_PROPLIST,
     TelemetryInterfaceSampler,
@@ -163,6 +164,69 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertEqual(received[0].name, "vpn.session.connected")
         self.assertNotIn("password", received[0].as_dict()["payload"])
         self.assertEqual(supervisor.health().status, "healthy")
+
+    def test_revoked_source_session_blocks_event_publish_and_closes_connection(self):
+        connection = FakeConnection([
+            RouterOSReply("re", {".id": "*1", "name": "alice", "address": "10.8.0.2"}),
+        ])
+        received = []
+        checks = iter((True, True, False))
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: ("router-user", "router-password"),
+            config=TelemetrySupervisorConfig(enabled=True),
+            on_events=received.extend,
+            authorization_check=lambda _username, _password: next(checks),
+        )
+
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            supervisor.run_attempt()
+
+        self.assertEqual(received, [])
+        self.assertEqual(supervisor.health().events, 0)
+        self.assertTrue(connection.closed)
+
+    def test_revoked_source_session_blocks_snapshot_reconciliation_publish(self):
+        connection = FakeConnection()
+        received = []
+        checks = iter((True, True, True, False))
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: ("router-user", "router-password"),
+            snapshot_reader=lambda _connection: [{".id": "*1", "name": "alice"}],
+            config=TelemetrySupervisorConfig(enabled=True),
+            on_events=received.extend,
+            authorization_check=lambda _username, _password: next(checks),
+        )
+
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            supervisor.run_attempt()
+
+        self.assertEqual(received, [])
+        self.assertEqual(supervisor.health().last_snapshot_at, None)
+        self.assertTrue(connection.closed)
+
+    def test_sampler_revocation_after_read_does_not_mark_sample_fresh_or_publish(self):
+        connection = FakeConnection([RouterOSReply("re", {".id": "*1", "name": "ether1"})])
+        received = []
+        samples = []
+        checks = iter((True, False))
+        broker = TelemetryBroker()
+        sampler = TelemetryInterfaceSampler(
+            lambda: connection,
+            lambda: ("router-user", "router-password"),
+            broker,
+            on_sample=lambda: samples.append(True),
+            on_events=received.extend,
+            authorization_check=lambda _username, _password: next(checks),
+        )
+
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            sampler.sample_once()
+
+        self.assertEqual(samples, [])
+        self.assertEqual(received, [])
+        self.assertTrue(connection.closed)
 
     def test_snapshot_is_reconciled_before_stream(self):
         connection = FakeConnection([])
