@@ -833,24 +833,54 @@ class RouterOSClient:
         record = self._files(credentials).get(name)
         if not record or not record.get(".id"):
             raise RouterOSError(f"RouterOS did not return generated file {name!r}")
+        return self._file_contents_by_id(credentials, str(record[".id"]))
+
+    def _file_contents_by_id(self, credentials: RouterOSCredentials, file_id: str) -> str:
         result = self._request(
             "POST",
             "/file/get",
             credentials,
-            body={"number": record[".id"], "value-name": "contents"},
+            body={"number": file_id, "value-name": "contents"},
         )
         if not isinstance(result, dict) or "ret" not in result:
-            raise RouterOSError(f"RouterOS did not return generated file {name!r}")
+            raise RouterOSError("RouterOS did not return generated file contents")
         return str(result["ret"])
+
+    @staticmethod
+    def _profile_embeds_certificate(profile: str, certificate: str) -> bool:
+        match = re.search(r"<cert>(.*?)</cert>", profile, flags=re.IGNORECASE | re.DOTALL)
+        if match is None:
+            return False
+
+        def normalize_pem(value: str) -> str:
+            return "\n".join(
+                line.strip()
+                for line in value.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+            ).strip()
+
+        return normalize_pem(match.group(1)) == normalize_pem(certificate)
 
     def _delete_file(self, credentials: RouterOSCredentials, file_id: str | None) -> None:
         if not file_id:
             return
         safe_id = urllib.parse.quote(file_id, safe="*")
+        delete_error: RouterOSError | None = None
         try:
             self._request("DELETE", f"/file/{safe_id}", credentials)
-        except RouterOSError:
-            pass
+        except RouterOSError as error:
+            # A lost response does not prove that RouterOS failed to delete
+            # the file. Reconcile below and report success only if it is gone.
+            delete_error = error
+        try:
+            remaining = self._files(credentials)
+        except RouterOSError as error:
+            raise RouterOSError(
+                "RouterOS temporary file cleanup could not be verified"
+            ) from (delete_error or error)
+        if any(str(item.get(".id", "")) == file_id for item in remaining.values()):
+            raise RouterOSError(
+                "RouterOS temporary file cleanup failed and the file remains present"
+            ) from delete_error
 
     def _ensure_ca_export(self, credentials: RouterOSCredentials) -> str:
         files = self._files(credentials)
@@ -944,7 +974,12 @@ class RouterOSClient:
         certificate_name = f"ovpn-ui-{_slug(vpn_user, 18)}-{_slug(device_name, 18)}-{suffix}"
         common_name = f"{_slug(vpn_user, 24)}-{_slug(device_name, 24)}"
         certificate_id: str | None = None
-        generated_file_ids: list[str | None] = []
+        generated_file_ids: list[str] = []
+        generated_file_names: set[str] = set()
+        generated_file_ids_by_name: dict[str, str] = {}
+        profile_export_baseline: set[str] | None = None
+        profile_export_attempted = False
+        profile_file_identified = False
         succeeded = False
         try:
             created = _records(
@@ -991,6 +1026,14 @@ class RouterOSClient:
                 body={"trusted": "yes"},
             )
 
+            exported_cert = f"cert_export_{certificate_name}.crt"
+            exported_key = f"cert_export_{certificate_name}.key"
+            files_before_export = self._files(credentials)
+            if exported_cert in files_before_export or exported_key in files_before_export:
+                raise RouterOSError("RouterOS generated certificate filenames are already in use")
+            # Record the names before exporting: if the subsequent inventory
+            # request fails, cleanup can still resolve the generated file IDs.
+            generated_file_names.update((exported_cert, exported_key))
             self._request(
                 "POST",
                 "/certificate/export-certificate",
@@ -1001,12 +1044,26 @@ class RouterOSClient:
                     "export-passphrase": key_passphrase,
                 },
             )
-            exported_cert = f"cert_export_{certificate_name}.crt"
-            exported_key = f"cert_export_{certificate_name}.key"
-            ca_file = self._ensure_ca_export(credentials)
-            files_before = self._files(credentials)
-            if exported_cert not in files_before or exported_key not in files_before:
+            exported_files = self._files(credentials)
+            if exported_cert not in exported_files or exported_key not in exported_files:
                 raise RouterOSError("RouterOS did not export the client certificate and key")
+            for name in (exported_cert, exported_key):
+                file_id = str(exported_files[name].get(".id", ""))
+                if not file_id:
+                    raise RouterOSError("RouterOS did not return an ID for a temporary profile file")
+                generated_file_ids.append(file_id)
+                generated_file_ids_by_name[name] = file_id
+            exported_certificate_contents = self._file_contents_by_id(
+                credentials,
+                str(exported_files[exported_cert][".id"]),
+            )
+
+            ca_file = self._ensure_ca_export(credentials)
+            files_before_profile = self._files(credentials)
+            profile_export_baseline = {
+                name for name in files_before_profile if name.lower().endswith(".ovpn")
+            }
+            profile_export_attempted = True
 
             self._request(
                 "POST",
@@ -1024,12 +1081,37 @@ class RouterOSClient:
             new_profiles = [
                 name
                 for name in files_after
-                if name.endswith(".ovpn") and name not in files_before
+                if name.lower().endswith(".ovpn") and name not in files_before_profile
             ]
-            if len(new_profiles) != 1:
-                raise RouterOSError("RouterOS did not produce exactly one client profile")
-            profile_name = new_profiles[0]
-            raw_profile = self._file_contents(credentials, profile_name)
+            matching_profiles: list[tuple[str, str, str]] = []
+            for name in new_profiles:
+                profile_file_id = str(files_after[name].get(".id", ""))
+                if not profile_file_id:
+                    continue
+                profile_contents = self._file_contents_by_id(credentials, profile_file_id)
+                if self._profile_embeds_certificate(profile_contents, exported_certificate_contents):
+                    matching_profiles.append((name, profile_file_id, profile_contents))
+
+            if len(matching_profiles) != 1:
+                # Matching the newly generated certificate identifies only
+                # files created for this request. If RouterOS duplicated the
+                # export, remove those known files; never delete unrelated
+                # profiles created concurrently by another operator or app.
+                for name, file_id, _ in matching_profiles:
+                    generated_file_names.add(name)
+                    generated_file_ids.append(file_id)
+                    generated_file_ids_by_name[name] = file_id
+                raise RouterOSError(
+                    "RouterOS did not produce exactly one client profile for the generated certificate"
+                )
+
+            profile_name, profile_file_id, raw_profile = matching_profiles[0]
+            generated_file_names.add(profile_name)
+            # Capture the profile ID before reading or transforming its
+            # credential-bearing contents; either step can fail.
+            generated_file_ids.append(profile_file_id)
+            generated_file_ids_by_name[profile_name] = profile_file_id
+            profile_file_identified = True
             hardened = harden_profile(
                 raw_profile,
                 server_identity=self.topology.server_identity,
@@ -1038,9 +1120,6 @@ class RouterOSClient:
                 policy=policy,
                 dns_mode=dns_mode,
             )
-
-            for file_name in (exported_cert, exported_key, profile_name):
-                generated_file_ids.append(files_after.get(file_name, {}).get(".id"))
 
             certificate_records = _records(
                 self._request(
@@ -1107,8 +1186,68 @@ class RouterOSClient:
                 fingerprint=fingerprint,
             )
         finally:
-            for file_id in generated_file_ids:
-                self._delete_file(credentials, file_id)
+            cleanup_error: RouterOSError | None = None
+            current_files: dict[str, dict[str, Any]] | None = None
+            if generated_file_names or profile_export_attempted:
+                try:
+                    current_files = self._files(credentials)
+                except RouterOSError as error:
+                    cleanup_error = RouterOSError(
+                        "RouterOS temporary profile files could not be inventoried for cleanup"
+                    )
+                    cleanup_error.__cause__ = error
+
+            file_ids = list(generated_file_ids)
+            if current_files is not None:
+                for name in generated_file_names:
+                    record = current_files.get(name)
+                    # Never re-resolve a previously identified filename to a
+                    # possibly different file ID: another actor may have
+                    # replaced that path after this operation captured it.
+                    if record and name not in generated_file_ids_by_name:
+                        cleanup_error = RouterOSError(
+                            "RouterOS temporary profile file could not be safely identified for cleanup"
+                        )
+                if (
+                    profile_export_attempted
+                    and profile_export_baseline is not None
+                    and not profile_file_identified
+                ):
+                    untracked_profiles = {
+                        name for name in current_files
+                        if name.lower().endswith(".ovpn")
+                        and name not in profile_export_baseline
+                        and name not in generated_file_names
+                    }
+                    if untracked_profiles:
+                        # Another app instance may have created this profile
+                        # concurrently; without an ID captured for this
+                        # operation, deleting it would be unsafe.
+                        cleanup_error = RouterOSError(
+                            "A generated client profile could not be safely identified for cleanup"
+                        )
+
+            for file_id in dict.fromkeys(file_ids):
+                try:
+                    self._delete_file(credentials, file_id)
+                except RouterOSError as error:
+                    cleanup_error = cleanup_error or error
+
+            if cleanup_error:
+                try:
+                    self._remove_uncommitted_certificate(
+                        credentials,
+                        certificate_name=certificate_name,
+                        certificate_id=certificate_id,
+                    )
+                except RouterOSError as certificate_error:
+                    raise RouterOSError(
+                        "Temporary RouterOS profile files could not be safely removed and certificate cleanup could not be verified; operator inspection is required"
+                    ) from certificate_error
+                raise RouterOSError(
+                    "Temporary RouterOS profile files could not be safely removed; the profile was not delivered and operator inspection is required"
+                ) from cleanup_error
+
             if not succeeded:
                 self._remove_uncommitted_certificate(
                     credentials,
