@@ -2,16 +2,202 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import socket
 import time
 import unittest
 
 from asgi import DashboardHTTPASGI
+from routeros_binary import RouterOSReply
 from security import SessionStore
 from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    def test_native_websocket_preserves_telemetry_redaction_allowlists(self) -> None:
+        if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
+            self.skipTest("native WebSocket runtime dependencies are not installed")
+
+        import socketio
+        import uvicorn
+        import websockets
+
+        from asgi import NativeSocketIO
+        from telemetry_broker import TelemetryBroker, TelemetryEvent
+        from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
+
+        async def exercise() -> None:
+            sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+            session = sessions.create("operator", "test-only-router-password", role="owner")
+            broker = TelemetryBroker(clock=lambda: 100)
+            gateway = TelemetryGatewayContract(broker, clock=lambda: 100)
+            gateway.publish(broker.apply(
+                RouterOSReply(
+                    "re",
+                    {
+                        ".id": "*secret-session-id",
+                        "name": "test-user",
+                        "address": "10.8.0.9",
+                        "caller-id": "192.0.2.9",
+                        "uptime": "1m",
+                        "encoding": "AES-256-GCM",
+                        "service": "ovpn",
+                        "rx-byte": "10",
+                        "tx-byte": "20",
+                        "rx-packet": "1",
+                        "tx-packet": "2",
+                        "password": "WS-ROUTER-PASSWORD-SENTINEL",
+                        "private-key": "WS-PRIVATE-KEY-SENTINEL",
+                        "profile-archive": "WS-PROFILE-SENTINEL",
+                        "unexpected": "WS-UNEXPECTED-FIELD-SENTINEL",
+                    },
+                ),
+                now=101,
+            ))
+
+            class Runtime:
+                def principal_for_session(self, session_id: str) -> TelemetryPrincipal | None:
+                    current = sessions.get(session_id, touch=False)
+                    return TelemetryPrincipal.from_session(current) if current is not None else None
+
+            runtime = Runtime()
+            runtime.gateway = gateway
+            native = NativeSocketIO(runtime)
+            application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(128)
+            listener.setblocking(False)
+            port = listener.getsockname()[1]
+            server = uvicorn.Server(uvicorn.Config(application, log_level="critical", lifespan="off"))
+            server_task = asyncio.create_task(server.serve(sockets=[listener]))
+
+            async def receive_until(ws, predicate, timeout: float = 5) -> str:
+                deadline = asyncio.get_running_loop().time() + timeout
+                while asyncio.get_running_loop().time() < deadline:
+                    packet = await asyncio.wait_for(
+                        ws.recv(), timeout=max(0.1, deadline - asyncio.get_running_loop().time())
+                    )
+                    if packet == "2":
+                        await ws.send("3")
+                        continue
+                    if predicate(str(packet)):
+                        return str(packet)
+                self.fail("timed out waiting for telemetry WebSocket packet")
+
+            try:
+                deadline = asyncio.get_running_loop().time() + 5
+                while not server.started and not server_task.done():
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("test ASGI server did not start")
+                    await asyncio.sleep(0.01)
+                self.assertTrue(server.started)
+
+                ws_url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
+                cookie = f"vpn_session={session.session_id}"
+                async with websockets.connect(
+                    ws_url,
+                    additional_headers={"Cookie": cookie},
+                    open_timeout=5,
+                    ping_interval=None,
+                ) as ws:
+                    self.assertTrue((await asyncio.wait_for(ws.recv(), timeout=5)).startswith("0{"))
+                    await ws.send("40/telemetry,")
+                    connected = await receive_until(
+                        ws, lambda packet: packet.startswith(("40/telemetry,", "44/telemetry,"))
+                    )
+                    self.assertTrue(connected.startswith("40/telemetry,"), connected)
+
+                    connected_packet = await receive_until(
+                        ws, lambda packet: packet.startswith("42/telemetry,")
+                    )
+                    update_events = broker.apply(
+                        RouterOSReply(
+                            "re",
+                            {
+                                ".id": "*secret-session-id",
+                                "name": "test-user",
+                                "address": "10.8.0.9",
+                                "caller-id": "192.0.2.9",
+                                "uptime": "2m",
+                                "encoding": "AES-256-GCM",
+                                "service": "ovpn",
+                                "rx-byte": "30",
+                                "tx-byte": "40",
+                                "rx-packet": "3",
+                                "tx-packet": "4",
+                                "password": "WS-ROUTER-PASSWORD-SENTINEL",
+                                "private-key": "WS-PRIVATE-KEY-SENTINEL",
+                                "unexpected": "WS-UNEXPECTED-FIELD-SENTINEL",
+                            },
+                        ),
+                    )
+                    snapshot_event = TelemetryEvent(
+                        "telemetry.snapshot",
+                        broker.sequence,
+                        103,
+                        {
+                            "sessions": [
+                                {
+                                    "id": "*secret-session-id",
+                                    "name": "test-user",
+                                    "vpn_address": "10.8.0.9",
+                                    "source_address": "192.0.2.9",
+                                    "uptime": "2m",
+                                    "encoding": "AES-256-GCM",
+                                    "service": "ovpn",
+                                    "rx_bytes": 30,
+                                    "tx_bytes": 40,
+                                    "rx_packets": 3,
+                                    "tx_packets": 4,
+                                    "counter_complete": True,
+                                    "password": "WS-ROUTER-PASSWORD-SENTINEL",
+                                    "private_key": "WS-PRIVATE-KEY-SENTINEL",
+                                    "profile_archive": "WS-PROFILE-SENTINEL",
+                                    "unexpected": "WS-UNEXPECTED-FIELD-SENTINEL",
+                                }
+                            ]
+                        },
+                    )
+                    gateway.publish([*update_events, snapshot_event])
+                    updated_packet = await receive_until(
+                        ws,
+                        lambda packet: packet.startswith("42/telemetry,") and "vpn.session.updated" in packet,
+                    )
+                    snapshot_packet = await receive_until(
+                        ws,
+                        lambda packet: packet.startswith("42/telemetry,") and "telemetry.snapshot" in packet,
+                    )
+
+                expected_session_fields = {
+                    "id", "name", "vpn_address", "source_address", "uptime", "encoding",
+                    "service", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets", "counter_complete",
+                }
+                for packet, expected_event in (
+                    (connected_packet, "vpn.session.connected"),
+                    (updated_packet, "vpn.session.updated"),
+                    (snapshot_packet, "telemetry.snapshot"),
+                ):
+                    self.assertNotIn("WS-ROUTER-PASSWORD-SENTINEL", packet)
+                    self.assertNotIn("WS-PRIVATE-KEY-SENTINEL", packet)
+                    self.assertNotIn("WS-PROFILE-SENTINEL", packet)
+                    self.assertNotIn("WS-UNEXPECTED-FIELD-SENTINEL", packet)
+                    socket_event, frame = json.loads(packet[len("42/telemetry,"):])
+                    self.assertEqual(socket_event, expected_event)
+                    self.assertEqual(frame["event"], expected_event)
+                    session_payload = (
+                        frame["payload"]["sessions"][0]
+                        if expected_event == "telemetry.snapshot"
+                        else frame["payload"]
+                    )
+                    self.assertEqual(set(session_payload), expected_session_fields)
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(server_task, timeout=5)
+
+        asyncio.run(exercise())
+
     def test_native_websocket_revocation_closes_stream_and_blocks_reconnect(self) -> None:
         self._exercise_native_websocket_lifecycle("revoke")
 
