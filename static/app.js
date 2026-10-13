@@ -2605,7 +2605,7 @@ $('[data-delete-review]')?.addEventListener('click', async (event) => {
       return;
     }
     form.elements.review_token.value = review.review_token || '';
-    setStatus(form, `${review.username}: removal will revoke ${review.managed_devices} managed device certificate${review.managed_devices === 1 ? '' : 's'} before removing VPN access. Reason: ${review.reason}.`);
+    setStatus(form, `${review.username}: removal will disable the account, disconnect ${review.active_sessions} active tunnel${review.active_sessions === 1 ? '' : 's'}, revoke ${review.managed_devices} managed device certificate${review.managed_devices === 1 ? '' : 's'}, then remove VPN access. Reason: ${review.reason}.`);
     $('button[type="submit"]', form).disabled = !review.review_token || form.elements.confirmation.value.trim() !== review.username;
   } catch (error) {
     setStatus(form, `${error.message} Deletion is unavailable until the current impact can be reviewed.`, true);

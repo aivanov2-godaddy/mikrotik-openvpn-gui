@@ -3643,7 +3643,12 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.user_delete_apply(deletion_review, "maria"),
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload), {"ok": True, "verified": True, "retired_devices": 2})
+        self.assertEqual(json.loads(payload), {
+            "ok": True,
+            "verified": True,
+            "retired_devices": 2,
+            "disconnected_sessions": 0,
+        })
         self.assertNotIn("maria", [item["name"] for item in self.mock.state.users.values()])
         self.assertNotIn("maria", self.server.context.store.user_emails())
         self.assertNotIn("maria", self.server.context.store.all_user_controls())
@@ -5882,6 +5887,64 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertFalse(
             any(item.startswith("DELETE /ppp/secret") for item in self.mock.state.mutation_requests)
         )
+        self.assertNotIn("private detail", payload.decode("utf-8"))
+
+    def test_user_delete_disables_account_and_terminates_active_sessions_before_revocation(self) -> None:
+        self._managed_device_revoke_request()
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2",
+            "name": "user-one",
+            "service": "ovpn",
+            "caller-id": "198.51.100.41",
+            "address": "198.18.0.49",
+            "uptime": "2m",
+            "encoding": "AES-256-GCM/[test-digest]",
+            "session-id": "0x81E0000C",
+            "comment": "Disposable test device",
+        }
+        review = self.preview_user_delete("*1")
+        self.assertEqual(review["active_sessions"], 1)
+
+        status, _, payload = self.json_request(
+            "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
+        )
+
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        response = json.loads(payload)
+        self.assertEqual(response["disconnected_sessions"], 1)
+        self.assertNotIn("*A2", self.mock.state.active_sessions)
+        self.assertNotIn("*1", self.mock.state.users)
+        mutations = self.mock.state.mutation_requests
+        disable_index = next(i for i, item in enumerate(mutations) if item.startswith("PATCH /ppp/secret/"))
+        terminate_index = next(i for i, item in enumerate(mutations) if item.startswith("DELETE /ppp/active/"))
+        revoke_index = next(i for i, item in enumerate(mutations) if item.startswith("POST /certificate/issued-revoke"))
+        delete_index = next(i for i, item in enumerate(mutations) if item.startswith("DELETE /ppp/secret/"))
+        self.assertLess(disable_index, terminate_index)
+        self.assertLess(terminate_index, revoke_index)
+        self.assertLess(revoke_index, delete_index)
+
+    def test_user_delete_keeps_disabled_account_when_active_session_termination_fails(self) -> None:
+        self._managed_device_revoke_request()
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2",
+            "name": "user-one",
+            "service": "ovpn",
+            "address": "198.18.0.49",
+        }
+        review = self.preview_user_delete("*1")
+        router = self.server.context.router
+        with mock.patch.object(router, "terminate_session", side_effect=RouterOSError("private detail", 503)):
+            status, _, payload = self.json_request(
+                "DELETE", "/api/users/%2A1", self.user_delete_apply(review, "user-one")
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertFalse(response["user_deleted"])
+        self.assertIn("*1", self.mock.state.users)
+        self.assertEqual(self.mock.state.users["*1"].get("disabled"), "yes")
+        self.assertEqual(self.mock.state.certificates["*CL1"].get("revoked"), "no")
+        self.assertNotIn("DELETE /ppp/secret/*1", self.mock.state.mutation_requests)
         self.assertNotIn("private detail", payload.decode("utf-8"))
 
     def test_user_delete_requires_reason_and_binds_it_to_review(self) -> None:
