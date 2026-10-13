@@ -1518,9 +1518,44 @@ class DashboardIntegrationTests(unittest.TestCase):
             "target": "SENSITIVE-ALERT-TARGET",
             "acknowledged": 0,
         }
+        controls = {
+            "vpn_user": "user-two",
+            "policy": "full-tunnel",
+            "expires_at": None,
+            "max_sessions": 5,
+            "rate_limit_kbps": 0,
+            "dns_mode": "router",
+            "notifications": True,
+            "quota_mb": 0,
+            "schedule": "always",
+            "enforcement_state": "",
+            "updated_at": 0,
+            "future_sensitive_field": "SENSITIVE-FUTURE-CONTROL",
+        }
         with (
             mock.patch.object(self.server.context.router, "verify_credentials", return_value=resource),
             mock.patch.object(self.server.context.router, "list_active_ovpn_sessions", return_value=[session]),
+            mock.patch.object(self.server.context.router, "list_ovpn_users", return_value=[{
+                "id": "user-two", "name": "user-two", "profile": "default",
+                "comment": "test", "disabled": False, "password": "SENSITIVE-USER-PASSWORD",
+            }]),
+            mock.patch.object(self.server.context.store, "user_controls", return_value=controls),
+            mock.patch.object(self.server.context.store, "all_user_tags", return_value={"user-two": ["synthetic-tag"]}),
+            mock.patch.object(self.server.context.store, "user_template_assignments", return_value={
+                "user-two": {"template_id": "template-1", "overrides": ["rate_limit_kbps"]},
+            }),
+            mock.patch.object(self.server.context.store, "list_policy_templates", return_value=[{
+                "id": "template-1", "name": "Synthetic template", "group_name": "default",
+                "private_key": "SENSITIVE-TEMPLATE-KEY",
+            }]),
+            mock.patch.object(self.server.context.store, "recent_deployment_events", return_value=[{
+                "id": 1, "version": "2.8.0", "revision": "a" * 40, "status": "running",
+                "channel": "canary", "details": {"source": "synthetic"}, "created_at": 10,
+            }]),
+            mock.patch.object(self.server.context.store, "recent_health_snapshots", return_value=[{
+                "id": 2, "overall": "healthy", "healthy_count": 1, "warning_count": 0,
+                "unavailable_count": 0, "checks": [{"id": "router", "status": "healthy"}], "created_at": 20,
+            }]),
             mock.patch.object(self.server.context.store, "recent_connections", return_value=[connection]),
             mock.patch.object(self.server.context.store, "recent_alerts", return_value=[alert]),
         ):
@@ -1558,12 +1593,84 @@ class DashboardIntegrationTests(unittest.TestCase):
             set(snapshot["alerts"][0]),
             {"id", "severity", "title", "details", "created_at", "last_seen_at", "occurrence_count"},
         )
+        self.assertEqual(
+            set(snapshot["users"][0]),
+            {"id", "name", "profile", "comment", "disabled", "email", "controls", "tags", "template"},
+        )
+        self.assertEqual(
+            set(snapshot["users"][0]["controls"]),
+            {
+                "vpn_user", "policy", "expires_at", "max_sessions", "rate_limit_kbps",
+                "dns_mode", "notifications", "quota_mb", "schedule", "enforcement_state",
+                "updated_at", "quota_used_bytes",
+            },
+        )
+        self.assertEqual(snapshot["users"][0]["tags"], ["synthetic-tag"])
+        self.assertEqual(
+            set(snapshot["users"][0]["template"]),
+            {"id", "name", "group_name", "overrides"},
+        )
+        self.assertEqual(
+            set(snapshot["observability"]),
+            {"current", "deployments", "health_timeline", "operations_timeline", "rollback", "generated_at"},
+        )
+        self.assertEqual(set(snapshot["observability"]["current"]), {"version", "revision", "status"})
+        self.assertEqual(
+            set(snapshot["observability"]["rollback"]),
+            {"available", "revision", "version", "message", "data_preserved"},
+        )
+        self.assertEqual(
+            set(snapshot["observability"]["operations_timeline"]),
+            {"events", "generated_at", "coverage"},
+        )
+        self.assertEqual(
+            set(snapshot["observability"]["deployments"][0]),
+            {"id", "version", "revision", "status", "channel", "details", "created_at"},
+        )
+        self.assertEqual(
+            set(snapshot["observability"]["health_timeline"][0]),
+            {"id", "overall", "healthy_count", "warning_count", "unavailable_count", "checks", "created_at"},
+        )
+        self.assertEqual(set(snapshot["observability"]["health_timeline"][0]["checks"][0]), {"id", "status"})
+        for event in snapshot["observability"]["operations_timeline"]["events"]:
+            event_fields = {
+                "id", "occurred_at", "source", "type", "actor", "target", "outcome", "severity",
+                "summary", "clock_skew_seconds", "age_seconds", "related_events", "relationship_summary",
+            }
+            if event["type"] == "session":
+                event_fields.add("timestamp_quality")
+            self.assertEqual(set(event), event_fields)
+            for relation in event["related_events"]:
+                self.assertEqual(set(relation), {"event_id", "source", "relation", "delta_seconds"})
+        self.assertEqual(
+            set(snapshot["observability"]["operations_timeline"]["coverage"]),
+            {"complete", "message"},
+        )
+        self.assertEqual(
+            set(snapshot["telemetry"]),
+            {
+                "requested_transport", "transport", "socketio_enabled", "namespace", "fallback", "state",
+                "last_event_at", "last_reconciliation_at", "event_age_seconds", "reconciliation_age_seconds",
+                "event_count", "last_session_event_at", "session_event_age_seconds", "session_events",
+                "last_traffic_sample_at", "traffic_sample_age_seconds", "traffic_samples", "reconnects",
+                "last_error", "socketio_engine", "protocol_version", "gateway",
+            },
+        )
+        self.assertEqual(
+            set(snapshot["telemetry"]["gateway"]),
+            {
+                "active_clients", "buffered_events", "published_events", "replayed_events",
+                "snapshot_recoveries", "rejected_clients", "delivery_observations",
+                "delivery_queue_age_seconds", "delivery_queue_age_p95_seconds",
+            },
+        )
         for sentinel in (
             "SENSITIVE-SESSION-COMMENT", "SENSITIVE-ROUTEROS-SESSION-ID",
             "SENSITIVE-INTERFACE-NAME", "SENSITIVE-PRIVATE-KEY",
             "SENSITIVE-ROUTER-BOARD", "SENSITIVE-ROUTER-SERIAL",
             "SENSITIVE-ROUTER-PRIVATE-KEY",
             "SENSITIVE-CONNECTION-NOTE", "SENSITIVE-ALERT-ACTION", "SENSITIVE-ALERT-TARGET",
+            "SENSITIVE-FUTURE-CONTROL", "SENSITIVE-USER-PASSWORD", "SENSITIVE-TEMPLATE-KEY",
         ):
             self.assertNotIn(sentinel, payload.decode("utf-8"))
 
