@@ -85,6 +85,26 @@ STATUS_ROUTER_FIELDS = frozenset(
         "uptime",
     }
 )
+STATUS_CONNECTION_FIELDS = frozenset(
+    {
+        "id",
+        "session_id",
+        "vpn_user",
+        "source_address",
+        "vpn_address",
+        "encoding",
+        "connected_at",
+        "last_seen_at",
+        "disconnected_at",
+        "rx_bytes",
+        "tx_bytes",
+        "rx_packets",
+        "tx_packets",
+    }
+)
+STATUS_ALERT_FIELDS = frozenset(
+    {"id", "severity", "title", "details", "created_at", "last_seen_at", "occurrence_count"}
+)
 
 
 def _same_origin(left: str, right: str) -> bool:
@@ -1461,6 +1481,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status_router = {
                     key: router[key] for key in STATUS_ROUTER_FIELDS if key in router
                 }
+                status_connections = [
+                    {key: item[key] for key in STATUS_CONNECTION_FIELDS if key in item}
+                    for item in self.server.context.store.recent_connections(50)
+                ]
+                status_alerts = [
+                    {key: item[key] for key in STATUS_ALERT_FIELDS if key in item}
+                    for item in self.server.context.store.recent_alerts(20)
+                ]
                 telemetry_state = self.server.context.telemetry_state
                 if telemetry_state is None:
                     telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
@@ -1470,8 +1498,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     {
                         "users": self._users_with_metadata(credentials),
                         "sessions": status_sessions,
-                        "connections": self.server.context.store.recent_connections(50),
-                        "alerts": self.server.context.store.recent_alerts(20),
+                        "connections": status_connections,
+                        "alerts": status_alerts,
                         "role": normalize_role(session.role),
                         "role_label": role_label(session.role),
                         "capabilities": sorted(role_capabilities(session.role)),

@@ -1459,7 +1459,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "login.concurrent_session_limit",
         )
 
-    def test_status_projects_routeros_sessions_and_resources_to_allowlisted_fields(self) -> None:
+    def test_status_projects_operational_records_to_allowlisted_fields(self) -> None:
         self.login()
         session = {
             "id": "*1",
@@ -1490,14 +1490,51 @@ class DashboardIntegrationTests(unittest.TestCase):
             "serial-number": "SENSITIVE-ROUTER-SERIAL",
             "private_key": "SENSITIVE-ROUTER-PRIVATE-KEY",
         }
+        connection = {
+            "id": 1,
+            "session_id": "*1",
+            "vpn_user": "user-two",
+            "source_address": "198.51.100.20",
+            "vpn_address": "10.8.0.2",
+            "encoding": "AES-256-GCM",
+            "connected_at": 10,
+            "last_seen_at": 20,
+            "disconnected_at": None,
+            "rx_bytes": 100,
+            "tx_bytes": 200,
+            "rx_packets": 3,
+            "tx_packets": 4,
+            "internal_note": "SENSITIVE-CONNECTION-NOTE",
+        }
+        alert = {
+            "id": 4,
+            "severity": "warning",
+            "title": "Synthetic alert",
+            "details": "Synthetic details",
+            "created_at": 10,
+            "last_seen_at": 20,
+            "occurrence_count": 2,
+            "action": "SENSITIVE-ALERT-ACTION",
+            "target": "SENSITIVE-ALERT-TARGET",
+            "acknowledged": 0,
+        }
         with (
             mock.patch.object(self.server.context.router, "verify_credentials", return_value=resource),
             mock.patch.object(self.server.context.router, "list_active_ovpn_sessions", return_value=[session]),
+            mock.patch.object(self.server.context.store, "recent_connections", return_value=[connection]),
+            mock.patch.object(self.server.context.store, "recent_alerts", return_value=[alert]),
         ):
             status, _, payload = self.request("GET", "/api/status")
 
         self.assertEqual(status, 200)
         snapshot = json.loads(payload)
+        self.assertEqual(
+            set(snapshot),
+            {
+                "users", "sessions", "connections", "alerts", "role", "role_label",
+                "capabilities", "router", "observability", "telemetry", "generated_at",
+            },
+        )
         self.assertEqual(
             set(snapshot["sessions"][0]),
             {
@@ -1509,11 +1546,24 @@ class DashboardIntegrationTests(unittest.TestCase):
             set(snapshot["router"]),
             {"cpu-load", "free-memory", "total-memory", "free-hdd-space", "total-hdd-space", "uptime"},
         )
+        self.assertEqual(
+            set(snapshot["connections"][0]),
+            {
+                "id", "session_id", "vpn_user", "source_address", "vpn_address", "encoding",
+                "connected_at", "last_seen_at", "disconnected_at", "rx_bytes", "tx_bytes",
+                "rx_packets", "tx_packets",
+            },
+        )
+        self.assertEqual(
+            set(snapshot["alerts"][0]),
+            {"id", "severity", "title", "details", "created_at", "last_seen_at", "occurrence_count"},
+        )
         for sentinel in (
             "SENSITIVE-SESSION-COMMENT", "SENSITIVE-ROUTEROS-SESSION-ID",
             "SENSITIVE-INTERFACE-NAME", "SENSITIVE-PRIVATE-KEY",
             "SENSITIVE-ROUTER-BOARD", "SENSITIVE-ROUTER-SERIAL",
             "SENSITIVE-ROUTER-PRIVATE-KEY",
+            "SENSITIVE-CONNECTION-NOTE", "SENSITIVE-ALERT-ACTION", "SENSITIVE-ALERT-TARGET",
         ):
             self.assertNotIn(sentinel, payload.decode("utf-8"))
 
