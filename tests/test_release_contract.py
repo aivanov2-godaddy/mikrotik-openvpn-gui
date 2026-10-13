@@ -146,6 +146,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn(':local productionContainer "vpn-dashboard-production"', updater)
         self.assertIn('"\\\"revision\\\":\\\""', updater)
         self.assertIn(":onerror fetchError,fetchAttributes in={", executable)
+        self.assertIn(":onerror updaterError,updaterErrorAttributes in={", executable)
+        self.assertIn('"vpn-gui immutable updater: update failed: " . $updaterError', executable)
+        self.assertIn('$updaterErrorAttributes->"code"', executable)
+        self.assertNotIn("see preceding log entry", executable)
         for reason in (
             "fetch-error",
             "http-error-",

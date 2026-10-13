@@ -171,7 +171,7 @@
 }
 :set vpnGuiImmutableUpdateLock true
 
-:do {
+:onerror updaterError,updaterErrorAttributes in={
     :if (($maintenanceStartHour < 0) || ($maintenanceStartHour > 23) || ($maintenanceEndHour < 0) || ($maintenanceEndHour > 23)) do={
         :error "maintenance window hours must be between 0 and 23"
     }
@@ -391,7 +391,9 @@
     $recordHistory "canary-staged" $image "readiness-soak-passed; production-unchanged"
     :log info ("vpn-gui immutable updater: canary staged; full acceptance and explicit promotion controller required; production unchanged " . $image)
     }
-} on-error={ :log error "vpn-gui immutable updater: update failed; see preceding log entry" }
+} do={
+    :log error ("vpn-gui immutable updater: update failed: " . $updaterError . " code=" . ($updaterErrorAttributes->"code"))
+}
 :set vpnGuiImmutableUpdateLock false
 
 # Example watchdog scheduler. Import only after replacing CHANGE-ME values
