@@ -7,28 +7,32 @@ data, deployment runners, or production network details.
 
 ## Current project snapshot — 2026-10-13
 
-Formal release **v2.7.0** remains the latest numbered release. PR #666
-(`d425c2a6ed05bfca3f81ce4575d8e4f75571c893`) is the latest merged mainline
-runtime change. Publish run
-[#38375895946](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38375895946)
-published its ARM64 image, and `gh attestation verify` confirmed the Sigstore
-provenance subject digest. This is a newer mainline artifact, not a numbered
+Formal release **v2.7.0** remains the latest numbered release. PR #674
+(`3d65b43ec4b796eb83f52929c56c9efabb980b4d`) is the latest published mainline
+runtime. It defers session idle-time refresh until a request passes its
+authorization, CSRF, and capability checks. Publish run
+[#38404891404](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38404891404)
+passed source, full unit/mock integration, rendered browser/accessibility,
+secret/dependency, and published-runtime checks for both architectures, with
+image and SPDX SBOM attestations verified. The stable manifest was read back
+and points to this commit. This is a published candidate, not a numbered
 release or evidence of RouterOS deployment:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-d425c2a6ed05bfca3f81ce4575d8e4f75571c893-arm64` | `sha256:feafeaa46685c9fa3f33e584b29774ec28888353efc6e92312a0cbb5b8dda1e5` |
+| RouterOS ARM64 | `sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-arm64` | `sha256:c2318a464f1a57d86ae27b9103aa5addbcae3bfe43aca3d60fdba7728c9f4fbb` |
+| CHR/x86 AMD64 (evaluation) | `sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-amd64` | `sha256:7bd258595485a682ecc3892d32caaf29c9eecae377ec19b4f2071f702117f909` |
 
 PR #652 is merged to `main` as commit
 `dfd3356d6e0f31f2a5fb362e220f624a948e0ade` and prepares `2.8.0` as the next
 release candidate. All nine required checks passed, including Python 3.13/3.14,
 Redis outbox recovery, Socket.IO same-origin security, rendered browser and
 accessibility regression, secret/dependency audits, pre-commit, and the ARM64
-image build. This is source-level release-candidate evidence only: no `2.8.0`
-tag or release has been published, and no `2.8.0` runtime image has been
-published or deployed. Until then, v2.7.0 remains the latest formal release.
-The newer PR #666 image is published and attested, but publication does not
-prove deployment on RouterOS.
+image build. No numbered `2.8.0` tag or GitHub Release has been published.
+Candidate images are published in the `routeros-stable` manifest, but neither
+their publication nor attestations prove deployment on RouterOS. Until
+candidate-specific acceptance passes, v2.7.0 remains the latest formal
+release.
 
 PR #653 is merged as `2542b5e` and reconciles the roadmap with the release
 candidate and current live-acceptance evidence. PR #655 is merged as `10ac511`;
@@ -72,16 +76,18 @@ not replace issue #200's independent review or live proxy/router acceptance.
 PR #650 is merged and refreshes the installation, release, RouterOS acceptance,
 and live telemetry acceptance records to distinguish image publication from
 router deployment. PRs #647–#649 and #655 narrow streamed and status API data
-to explicit allowlists. The PR #666 image has not been read back on RouterOS.
+to explicit allowlists. The PR #674 image has not been read back on RouterOS.
 The earlier readiness soak does not establish readiness or acceptance for
-PR #666, and the PR #652 release-candidate build does not establish deployment
+PR #674, and the PR #652 release-candidate build does not establish deployment
 or router acceptance.
 
 **Canary staging and production promotion remain unverified and gated.** On
-2026-10-13, RouterOS read-back showed canary on
-`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`, healthy, and production
-configured for `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`. Neither is
-the newer PR #666 image; production health was not established in this check.
+2026-10-13 at 15:47 EEST, RouterOS read-back showed canary on
+`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`, healthy, with zero PPP
+active sessions. This is not the PR #674 image. Production was not re-read
+after PR #674 publication; its last recorded configured image is
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, and its health is not
+established by that earlier observation.
 The router-local immutable-update scheduler was present but disabled. No
 candidate deployment is claimed. Earlier, at approximately
 10:37 EEST, RouterOS WebFig PPP Active Connections showed zero entries while
