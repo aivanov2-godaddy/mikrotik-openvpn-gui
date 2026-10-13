@@ -97,6 +97,16 @@ PPP session but found the production connection view still delayed/stale and
 the canary dashboard unauthenticated. Therefore no candidate-specific live
 acceptance run is established. No CA, certificate, VPN policy, or RouterOS
 container configuration was changed in this update.
+
+**Later recheck (2026-10-13, approximately 12:45 EEST):** the canary page
+briefly rendered one connected user and nonzero cumulative traffic, but kept
+an 11:40 EEST RouterOS timestamp and redirected to Cloudflare Access sign-in
+on the next observation. Production showed delayed data and zero traffic at a
+12:06 EEST timestamp. A freshly reloaded RouterOS Active Connections view
+showed zero entries. The observations are inconsistent and do not verify a
+current test session or live delivery; formal acceptance remains unverified
+pending a fresh canary sign-in and matching RouterOS session. See the
+[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md#2026-10-13-later-live-state-recheck).
 Multi-tenancy remains explicitly out of scope.
 
 Earlier observations below are historical evidence only and do not supersede
