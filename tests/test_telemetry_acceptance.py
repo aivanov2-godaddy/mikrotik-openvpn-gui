@@ -82,6 +82,12 @@ class TelemetryAcceptanceTests(unittest.TestCase):
                 self.assertEqual(report["failed_gates"], ["invalid_input"])
                 self.assertIn("finite and non-negative", report["error"])
 
+    def test_unapproved_record_fields_are_rejected_without_echo(self) -> None:
+        private_value = "SENSITIVE-PRIVATE-ROUTER-CREDENTIAL"
+        with self.assertRaisesRegex(ValueError, "outside the redacted acceptance schema") as raised:
+            evaluate(records({"type": "sample", "password": private_value}), limits=LIMITS)
+        self.assertNotIn(private_value, str(raised.exception))
+
     def test_complete_acceptance_window_passes(self) -> None:
         samples = [
                 {
