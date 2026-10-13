@@ -19,9 +19,9 @@ proxy, RouterOS, or host. External and partial results are not passes.
 
 The rationale for the configured idle and absolute session limits is recorded
 in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md). V7.1.1
-V7.1.1 remains partial pending independent validation.
-V7.3.1�V7.3.2 remain partial because deployed Cloudflare Access coordination
-and production timing are external acceptance items.
+remains partial pending independent validation. V7.3.1–V7.3.2 remain partial
+because deployed Cloudflare Access coordination and production timing are
+external acceptance items.
 
 | ASVS 5.0.0 control | Status | Scoped finding and evidence |
 | --- | --- | --- |
