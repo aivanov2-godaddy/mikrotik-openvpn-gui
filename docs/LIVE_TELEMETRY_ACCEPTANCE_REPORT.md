@@ -15,16 +15,17 @@ read-back. The immutable artifacts are:
 | AMD64 evaluation | `sha-6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989-amd64` | `sha256:5e1f4ee0f002dde2ad0ad2720f23a105ef79cb8426177c8871375b7b4d4dc459` |
 
 No RouterOS read-back of this candidate has been collected; therefore canary
-deployment/readiness and production state are unverified. The last recorded
-RouterOS Active Connections read showed zero active entries, while the
-production dashboard had delayed connection data and an older status
-timestamp. The operator has since reported that the test VPN is connected, but
-this follow-up could not obtain a contemporaneous RouterOS/dashboard
-observation, so that report is not yet counted as acceptance evidence. Do not
-promote to production on image publication alone. Run the candidate-specific
-canary readiness gate and full acceptance collector first. Prior read-backs
-and acceptance observations below remain historical evidence for their stated
-image revisions only.
+deployment/readiness and production state are unverified. In the 2026-10-13
+cross-check, RouterOS WebFig PPP Active Connections showed zero entries. The
+production dashboard displayed one row but reported delayed connection data
+and an older status timestamp, while the canary dashboard was at RouterOS
+sign-in. The operator reported the test VPN connected, but the simultaneous
+views did not corroborate that claim, so it is not counted as acceptance
+evidence. PR #659 (`75c9134`) has since strengthened evidence validation only;
+it did not publish a runtime image. Do not promote to production on image
+publication alone. Run the candidate-specific canary readiness gate and full
+acceptance collector first. Prior read-backs and acceptance observations below
+remain historical evidence for their stated image revisions only.
 
 The authenticated canary dashboard reported `Live · SOCKETIO`; its traffic
 counters and session uptime advanced between observations without a manual
@@ -1648,3 +1649,15 @@ available on this PC to initiate the client's reconnect, and no reconnect
 appeared during the brief five-second follow-up observation. Automatic client
 reconnect and full snapshot recovery therefore remain unverified. Production,
 RouterOS policy, certificates, accounts, and persistent data were not changed.
+
+## 2026-10-13 latest status
+
+PR #659 merged as `75c9134c2273b3315789649082605f8bf16975e7`. The change
+hardens the read-only collector and evaluator; it is not a runtime image and
+does not satisfy telemetry acceptance. Current cross-check: RouterOS PPP Active
+Connections showed zero entries, production Connections showed one stale row
+with `Connection data delayed`, and the canary site required RouterOS sign-in.
+No concurrent active VPN session was verified. No container, router policy,
+account, certificate, CA, or VPN-user data was changed. Continue only after a
+fresh authenticated canary view and matching active RouterOS test session are
+visible; all measured acceptance gates remain outstanding.

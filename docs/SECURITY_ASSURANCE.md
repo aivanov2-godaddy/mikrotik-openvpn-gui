@@ -303,6 +303,14 @@ revocation, WebSocket TLS/origin behavior through the proxy, or host/proxy log
 contents. A simultaneous authenticated dashboard observation showed
 `Connection data delayed`, so no live-telemetry acceptance pass is claimed.
 
+In the 2026-10-13 follow-up, the production Connections page still reported
+`Connection data delayed` and showed an old status timestamp; RouterOS WebFig
+PPP Active Connections showed zero entries, and the canary dashboard was at
+RouterOS sign-in. The operator reported a connected VPN, but these concurrent
+views did not corroborate an active application session. This is a failed or
+unavailable observation, not evidence of successful live-session lifecycle
+verification. No router/container state or session was changed in this check.
+
 The following remain **NOT VERIFIED** and require an authorized controlled
 test window:
 

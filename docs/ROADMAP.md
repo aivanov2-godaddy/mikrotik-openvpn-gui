@@ -43,6 +43,13 @@ passed the publisher checks above. PR #654 changes only acceptance
 tooling/documentation and does not alter the published runtime image. These
 merges and artifacts do **not** prove that the image is running on RouterOS.
 
+PR #659 is merged as `75c9134c2273b3315789649082605f8bf16975e7`. It hardens
+the release-acceptance collector/evaluator to fail closed on missing, stale, or
+timestamp-inconsistent telemetry, Redis unavailable samples, and stale or
+untimestamped operator-entered latency/restore/rollback evidence. All required
+CI checks passed. This is acceptance-tooling only; it publishes no runtime
+image and does not establish RouterOS deployment or pass the live acceptance.
+
 PR #650 is merged and refreshes the installation, release, RouterOS acceptance,
 and live telemetry acceptance records to distinguish image publication from
 router deployment. PRs #647–#649 and #655 narrow streamed and status API data
@@ -53,11 +60,13 @@ establish deployment or router acceptance.
 
 **Canary staging and production promotion remain unverified and gated.** No
 RouterOS read-back of the PR #657 tag/health or current production tag/health
-has been collected; no deployment is claimed. The operator has reported the
-test VPN connected, but no contemporaneous router/dashboard observation was
-available in this follow-up, so it is not counted as acceptance evidence. The
-last recorded RouterOS Active Connections read showed zero entries, while the
-production dashboard reported delayed connection data and a stale row.
+has been collected; no deployment is claimed. In the 2026-10-13 follow-up, the
+operator reported the test VPN connected, but the contemporaneous RouterOS
+WebFig PPP Active Connections table showed zero entries. The production
+Connections page showed one row while reporting `Connection data delayed` and
+an old RouterOS status timestamp; the canary site was at its RouterOS sign-in
+page. These disagreeing/stale views are not counted as a live session or
+acceptance evidence. No page reload or router/container mutation was made.
 Unauthenticated readiness probes returned HTTP 302 at Cloudflare
 Access and exposed no application readiness body. This is not a readiness
 result. Deploy the immutable ARM64 candidate to
