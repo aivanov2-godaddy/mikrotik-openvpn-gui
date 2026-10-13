@@ -156,6 +156,7 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["format"], "vpn-dashboard-telemetry-acceptance-v1")
         self.assertEqual(result["session_transition_count"], 2)
         self.assertEqual(result["session_transition_visible_count"], 2)
+        self.assertIs(result["ordered_connect_disconnect_observed"], True)
         self.assertEqual(result["session_event_latency_p95_ms"], 220)
         self.assertEqual(result["session_event_age_max_seconds"], 0.7)
         self.assertEqual(result["traffic_sample_age_max_seconds"], 0.8)

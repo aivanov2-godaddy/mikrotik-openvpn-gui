@@ -49,6 +49,7 @@ def reports() -> tuple[dict[str, object], dict[str, object]]:
         "session_transition_visible_count": 2,
         "connected_transition_observed": True,
         "disconnected_transition_observed": True,
+        "ordered_connect_disconnect_observed": True,
         "session_event_latency_p95_ms": 450,
         "session_event_age_max_seconds": 0.8,
         "traffic_update_count": 2,
@@ -144,6 +145,18 @@ class StreamAcceptanceTests(unittest.TestCase):
         browser["duplicate_event_count"] = 1
         _, failures = self.validate(observer, browser)
         self.assertIn("browser_event_integrity_failed", failures)
+
+    def test_browser_future_dated_metrics_and_unordered_transitions_fail_closed(self) -> None:
+        observer, browser = reports()
+        browser["session_event_latency_p95_ms"] = -1
+        browser["session_event_age_max_seconds"] = -0.01
+        browser["traffic_sample_age_max_seconds"] = -0.01
+        browser["ordered_connect_disconnect_observed"] = False
+        _, failures = self.validate(observer, browser)
+        self.assertIn("browser_event_latency_invalid", failures)
+        self.assertIn("browser_session_event_future_dated", failures)
+        self.assertIn("browser_traffic_sample_future_dated", failures)
+        self.assertIn("browser_session_visibility_incomplete", failures)
 
     def test_unknown_fields_are_rejected_and_never_copied(self) -> None:
         observer, browser = reports()

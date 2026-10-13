@@ -26,7 +26,8 @@ BROWSER_FIELDS = frozenset({
     "format", "healthy", "failed_gates", "observation_started_at",
     "observation_ended_at", "session_transition_count",
     "session_transition_visible_count", "connected_transition_observed",
-    "disconnected_transition_observed", "session_event_latency_p95_ms",
+    "disconnected_transition_observed", "ordered_connect_disconnect_observed",
+    "session_event_latency_p95_ms",
     "session_event_age_max_seconds",
     "traffic_update_count", "traffic_update_visible_count",
     "traffic_sample_age_max_seconds", "event_sequence_observation_count",
@@ -242,20 +243,27 @@ def validate_stream_acceptance(
             failed.append("browser_telemetry_counts_invalid")
         if latency is None:
             failed.append("browser_event_latency_missing")
+        elif latency < 0:
+            failed.append("browser_event_latency_invalid")
         elif latency > MAX_BROWSER_EVENT_LATENCY_MS:
             failed.append("browser_event_latency_exceeded")
         if session_age is None:
             failed.append("browser_session_freshness_missing")
+        elif session_age < 0:
+            failed.append("browser_session_event_future_dated")
         elif session_age > MAX_BROWSER_TRAFFIC_AGE_SECONDS:
             failed.append("browser_session_event_stale")
         if traffic_age is None:
             failed.append("browser_traffic_freshness_missing")
+        elif traffic_age < 0:
+            failed.append("browser_traffic_sample_future_dated")
         elif traffic_age > MAX_BROWSER_TRAFFIC_AGE_SECONDS:
             failed.append("browser_traffic_sample_stale")
         if numbers["session_transition_count"] is None or numbers["session_transition_count"] < 2 or (
             numbers["session_transition_visible_count"] != numbers["session_transition_count"]
             or browser.get("connected_transition_observed") is not True
             or browser.get("disconnected_transition_observed") is not True
+            or browser.get("ordered_connect_disconnect_observed") is not True
         ):
             failed.append("browser_session_visibility_incomplete")
         if numbers["traffic_update_count"] is None or numbers["traffic_update_count"] < 2 or (
@@ -283,6 +291,7 @@ def validate_stream_acceptance(
             "traffic_sample_age_max_seconds": traffic_age,
             "connected_transition_observed": browser.get("connected_transition_observed") is True,
             "disconnected_transition_observed": browser.get("disconnected_transition_observed") is True,
+            "ordered_connect_disconnect_observed": browser.get("ordered_connect_disconnect_observed") is True,
             "healthy": browser.get("healthy") is True and browser.get("failed_gates") == [],
         }
 

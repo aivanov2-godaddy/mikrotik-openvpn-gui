@@ -471,6 +471,10 @@ def evaluate(
         "session_transition_visible_count": len(visible_transitions),
         "connected_transition_observed": any(state is True for state in transition_states),
         "disconnected_transition_observed": any(state is False for state in transition_states),
+        "ordered_connect_disconnect_observed": any(
+            earlier and not later
+            for earlier, later in zip(transition_states, transition_states[1:])
+        ),
         "session_event_latency_p95_ms": latency_p95,
         "session_event_age_max_seconds": max(session_event_ages) if session_event_ages else None,
         "traffic_update_count": len(traffic_updates),
