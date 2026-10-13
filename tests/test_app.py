@@ -3146,6 +3146,103 @@ class DashboardIntegrationTests(unittest.TestCase):
             for item in self.server.context.store.list_api_tokens(include_revoked=True)
         ))
 
+    def test_observability_api_tokens_filter_audit_and_session_rows(self) -> None:
+        self.login()
+        store = self.server.context.store
+        now = int(time.time())
+        audit_row = {
+            "id": 901,
+            "created_at": now - 2,
+            "actor": "AUDIT-ACTOR-SENTINEL",
+            "action": "audit.projection-sentinel",
+            "target": "AUDIT-TARGET-SENTINEL",
+            "status": "failed",
+            "details": {"private": "SENSITIVE-AUDIT-DETAIL-SENTINEL"},
+        }
+        connection_row = {
+            "id": 902,
+            "vpn_user": "SESSION-USER-SENTINEL",
+            "connected_at": now - 1,
+            "disconnected_at": 0,
+            "source_address": "SENSITIVE-PEER-ADDRESS-SENTINEL",
+            "vpn_address": "SENSITIVE-VPN-ADDRESS-SENTINEL",
+        }
+        cases = (
+            ("health only", ["health.read"], (), (
+                "AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL", "SESSION-USER-SENTINEL",
+            )),
+            ("health and audit", ["health.read", "audit.read"], (
+                "AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL",
+            ), ("SESSION-USER-SENTINEL",)),
+            ("health and sessions", ["health.read", "sessions.read"], (
+                "SESSION-USER-SENTINEL",
+            ), ("AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL")),
+        )
+
+        with (
+            mock.patch.object(store, "recent_audit", return_value=[audit_row]),
+            mock.patch.object(store, "recent_connection_timeline", return_value=[connection_row]),
+            mock.patch.object(store, "recent_integration_delivery_events", return_value=[]),
+            mock.patch.object(store, "recent_deployment_events", return_value=[]),
+            mock.patch.object(store, "recent_health_snapshots", return_value=[]),
+        ):
+            for index, (label, scopes, visible, hidden) in enumerate(cases):
+                status, _, token_payload = self.json_request(
+                    "POST", "/api/admin/api-tokens",
+                    {"label": f"observability projection {index}", "scopes": scopes, "expires_in": "1h"},
+                )
+                self.assertEqual(status, 201, token_payload.decode())
+                token = json.loads(token_payload)["token"]
+                status, _, payload = self.request(
+                    "GET", "/api/observability",
+                    headers={"Authorization": f"Bearer {token}", "Cookie": ""},
+                )
+
+                with self.subTest(scope_case=label):
+                    self.assertEqual(status, 200, payload.decode())
+                    response = payload.decode("utf-8")
+                    for sentinel in visible:
+                        self.assertIn(sentinel, response)
+                    for sentinel in hidden:
+                        self.assertNotIn(sentinel, response)
+                    for sentinel in (
+                        "SENSITIVE-AUDIT-DETAIL-SENTINEL",
+                        "SENSITIVE-PEER-ADDRESS-SENTINEL",
+                        "SENSITIVE-VPN-ADDRESS-SENTINEL",
+                        "routerpass",
+                    ):
+                        self.assertNotIn(sentinel, response)
+
+    def test_setup_preflight_projects_allowlisted_schema_and_omits_inventory_secrets(self) -> None:
+        self.login()
+        router = self.server.context.router
+        inventory = router.get_bootstrap_inventory(RouterOSCredentials("admin", "routerpass"))
+        sentinel = "SENSITIVE-SETUP-PREFLIGHT-INVENTORY-SENTINEL"
+        inventory["resource"]["private-key"] = sentinel
+        for collection in ("ovpn_servers", "ppp_profiles", "certificates"):
+            for item in inventory.get(collection) or []:
+                item["sensitive-probe"] = sentinel
+
+        with mock.patch.object(router, "get_bootstrap_inventory", return_value=inventory):
+            status, _, payload = self.request("GET", "/api/setup-preflight")
+
+        self.assertEqual(status, 200, payload.decode())
+        response = json.loads(payload)
+        self.assertEqual(set(response), {"router", "image_target", "openvpn", "checks"})
+        self.assertEqual(set(response["router"]), {"architecture", "version", "free_storage"})
+        self.assertEqual(
+            set(response["openvpn"]),
+            {"name", "enabled"},
+        )
+        self.assertEqual(
+            response["image_target"],
+            container_image_target(response["router"]["architecture"]),
+        )
+        self.assertEqual(len(response["checks"]), 9)
+        self.assertTrue(all(set(item) == {"name", "status", "detail"} for item in response["checks"]))
+        self.assertNotIn(sentinel, payload.decode("utf-8"))
+        self.assertNotIn("routerpass", payload.decode("utf-8"))
+
     def test_scoped_api_tokens_follow_the_route_scope_matrix(self) -> None:
         """Verify every token-readable route against each standalone scope and all scopes."""
         self.login()
