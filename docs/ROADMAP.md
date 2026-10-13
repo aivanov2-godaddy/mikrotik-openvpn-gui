@@ -892,17 +892,19 @@ for the complete authorization review and controlled live-session security
 acceptance. See [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md) and
 [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md).
 
-The scoped ASVS 5.0.0 matrix now assigns TESTED, PARTIAL, GAP, N/A, or
-EXTERNAL status to each V7, V8, and V4.4 control considered for this review;
-it records explicit gaps rather than implying broad compliance. The
-concurrent-session-limit gap is addressed in the current repository change;
-PR #548 adds fresh RouterOS-password verification for administrator-session
-revocation, so that one highly sensitive operation has a tested step-up control;
-broader step-up coverage remains unassessed. A route-level regression verifies
-that administrator-session revocation is CSRF-protected,
-cannot revoke the current session, removes only the reviewed target session,
-and writes a hashed audit reference. The repository test is not live-proxy or
-independent-review evidence.
+The scoped ASVS 5.0.0 matrix assigns TESTED, PARTIAL, GAP, N/A, or EXTERNAL
+status to each V7, V8, and V4.4 control considered for this review; it records
+explicit gaps rather than implying broad compliance. The repository now has a
+source-level high-impact-action inventory distinguishing fresh authentication,
+capability gates, and intent-bound review receipts. This PR adds a five-minute,
+server-enforced RouterOS-password step-up for API-token creation/revocation;
+other high-impact RouterOS actions retain their reviewed-intent safeguards but
+do not yet require a separate password check. Migration import/test markers
+remain operator attestations, not proof of certificate identity. Regressions
+cover token-mutation denial while stale, success after reauthentication, and
+the no-reload browser flow. This is not independent policy approval or live-
+proxy evidence; issue #200 remains open for those and physical-router session
+lifecycle acceptance.
 
 **#200 concurrent dashboard sessions (2026-10-08):** the repository now caps
 active sessions at eight per case-insensitive RouterOS account within the

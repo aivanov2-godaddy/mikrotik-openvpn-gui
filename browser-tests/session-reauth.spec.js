@@ -107,3 +107,54 @@ test('successful re-authentication adopts rotated CSRF and keeps the page in pla
   expect(secondRotatedCsrf).not.toBe(rotatedCsrf);
   await expectNoDocumentReload(page, originalDocument, navigations);
 });
+
+test('API token creation and revocation require step-up without reloading the live page', async ({ page }) => {
+  const navigations = { count: 0 };
+  const tokenLabel = `step-up browser ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await signIn(page);
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.count += 1;
+  });
+  page.on('dialog', (dialog) => dialog.accept());
+  const originalDocument = await page.evaluate(() => window.__documentInstance);
+
+  await page.getByLabel('Token label').fill(tokenLabel);
+  const createReauth = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/auth/reauthenticate'
+  ));
+  const createToken = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/admin/api-tokens'
+  ));
+  await page.getByRole('button', { name: 'Create scoped token' }).click();
+  const dialog = page.locator('#session-reauthenticate-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('before creating this scoped API token');
+  await dialog.getByLabel('RouterOS password').fill('routerpass');
+  await dialog.getByRole('button', { name: 'Re-authenticate session' }).click();
+  expect((await createReauth).status()).toBe(200);
+  expect((await createToken).status()).toBe(201);
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('[data-created-token]')).toContainText('vpt_');
+
+  const tokenRow = page.locator('tr').filter({ hasText: tokenLabel });
+  await expect(tokenRow).toBeVisible();
+  const revokeReauth = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/auth/reauthenticate'
+  ));
+  const revokeToken = page.waitForResponse((response) => (
+    response.request().method() === 'DELETE'
+    && /\/api\/admin\/api-tokens\//.test(new URL(response.url()).pathname)
+  ));
+  await tokenRow.getByRole('button', { name: 'Revoke' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('before revoking this API token');
+  await dialog.getByLabel('RouterOS password').fill('routerpass');
+  await dialog.getByRole('button', { name: 'Re-authenticate session' }).click();
+  expect((await revokeReauth).status()).toBe(200);
+  expect((await revokeToken).status()).toBe(200);
+  await expect(tokenRow).toHaveCount(0);
+  await expectNoDocumentReload(page, originalDocument, navigations);
+});
