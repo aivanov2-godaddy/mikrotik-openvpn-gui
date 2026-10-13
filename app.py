@@ -1050,9 +1050,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         return False
 
-    @staticmethod
-    def _capability_allowed(session: Session, capability: str) -> bool:
+    def _capability_allowed(self, session: Session, capability: str) -> bool:
         """Check a capability without emitting an error response."""
+        if capability == "audit.read" and session.auth_method == "routeros":
+            checks = getattr(self, "_audit_role_checks_this_request", None)
+            if not isinstance(checks, dict):
+                checks = {}
+                self._audit_role_checks_this_request = checks
+            session_id = session.session_id
+            if session_id in checks:
+                return checks[session_id]
+            session = self.server.telemetry_runtime.revalidate_session(
+                session_id,
+                force_role_check=True,
+            )
+            if session is None:
+                checks[session_id] = False
+                return False
+            allowed = (
+                capability in session.capabilities
+                if session.capabilities is not None
+                else has_capability(session.role, capability)
+            )
+            checks[session_id] = allowed
+            return allowed
         if session.capabilities is not None:
             return capability in session.capabilities
         return has_capability(session.role, capability)
@@ -1371,6 +1392,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
 
     def do_GET(self) -> None:
+        # Audit disclosure can appear in multiple response fields. Revalidate
+        # the RouterOS role once per request, not once per rendered field.
+        self._audit_role_checks_this_request: dict[str, bool] = {}
         parsed_url = urllib.parse.urlsplit(self.path)
         path = parsed_url.path
         if path == "/socket.io/":

@@ -49,7 +49,7 @@ external acceptance items.
 | V8.2.3 | PARTIAL | Selected API/export fields are capability-filtered and tested; the native WebSocket integration test also checks exact session-field allowlists across connected, updated, and snapshot frames. An exhaustive read/write field-level map is not available. |
 | V8.2.4 | N/A | Adaptive environmental/contextual authorization is not a product feature; no Level 3 adaptive-control claim is made. |
 | V8.3.1 | TESTED | Authorization is enforced server-side; client-side visibility is not the enforcement boundary. Negative route tests verify denials precede RouterOS/state mutation. |
-| V8.3.2 | PARTIAL | RouterOS account/group changes are revalidated at up to 15-second intervals and live delivery rechecks authorization; immediate physical-router enforcement and deployed latency are unmeasured. |
+| V8.3.2 | PARTIAL | Routine RouterOS account/group changes are revalidated at up to 15-second intervals; HTTP requests that can disclose `audit.read` data force a fresh role check, and live delivery rechecks authorization. Immediate physical-router enforcement and deployed latency are unmeasured. |
 | V8.3.3 | PARTIAL | Current RouterOS-session capabilities are re-derived for live delivery; a complete end-to-end subject-vs-intermediary authorization review remains outstanding. |
 | V8.4.1 | N/A | Multi-tenant architecture is explicitly excluded from the single-router product scope. |
 | V8.4.2 | PARTIAL | App-side RouterOS role revalidation and the Cloudflare Access edge provide separate controls, but deployed configuration, device-posture checks, and contextual risk controls are unverified. |
@@ -234,9 +234,11 @@ blanket pass for ASVS, OWASP, or production security.
 - Creating or deleting shared saved views requires both a valid CSRF token and
   `sessions.read`; regression coverage verifies denied writes leave the saved
   view store unchanged.
-- Dashboard request/live-stream role checks use a 15-second revalidation
-  interval. The Binary API telemetry workers use a separate five-second role
-  revalidation interval and require the exact credential pair to remain backed
+- Routine dashboard role checks use a 15-second revalidation interval. Each
+  HTTP request that can disclose `audit.read` data forces a fresh RouterOS role
+  check once per request, so a warm auditor session cannot retain audit access
+  after a downgrade. Binary API telemetry workers use a separate five-second
+  role revalidation interval and require the exact credential pair to remain backed
   by an active RouterOS dashboard session before accepting or publishing
   snapshots, session events, or traffic samples. The upstream socket has a
   10-second read timeout, which bounds how long an idle listen can remain open
