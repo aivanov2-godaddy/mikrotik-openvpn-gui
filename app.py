@@ -764,6 +764,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
     server: DashboardServer
     protocol_version = "HTTP/1.1"
 
+    def handle_one_request(self) -> None:
+        self._session_touch_candidate: str | None = None
+        super().handle_one_request()
+
     def log_message(self, message: str, *args: Any) -> None:
         try:
             rendered = message % args
@@ -796,6 +800,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         extra: dict[str, str] | None = None,
     ) -> None:
         self.send_response(status)
+        session_id = self._session_touch_candidate
+        self._session_touch_candidate = None
+        if session_id and int(status) < HTTPStatus.BAD_REQUEST:
+            # Only successful, fully-guarded requests extend the idle lifetime.
+            self.server.context.sessions.get(session_id, touch=True)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
         self.send_header("Cache-Control", "no-store")
@@ -911,9 +920,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return morsel.value if morsel else ""
 
     def _session(self, *, touch: bool = True) -> Session | None:
-        cookie_session = self.server.context.sessions.get(self._session_id(), touch=touch)
+        self._session_touch_candidate = None
+        cookie_session = self.server.context.sessions.get(self._session_id(), touch=False)
         if cookie_session:
-            return self.server.telemetry_runtime.revalidate_session(cookie_session.session_id)
+            session = self.server.telemetry_runtime.revalidate_session(cookie_session.session_id)
+            if session and touch:
+                self._session_touch_candidate = session.session_id
+            return session
         authorization = self.headers.get("Authorization", "")
         scheme, _, value = authorization.partition(" ")
         if scheme.casefold() != "bearer" or not value.strip():
