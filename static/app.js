@@ -779,10 +779,15 @@ function updateDashboard(payload) {
   updateTelemetryIndicator(payload.telemetry);
 }
 
-function updateTelemetryIndicator(status = {}) {
-  const heartbeatIsFresh = socketIoHealth
+function socketIoHealthIsFresh() {
+  return realtimeTransport === 'socketio'
+    && socketIoHealth?.state === 'healthy'
+    && socketIoHealth.stream_connected === true
     && Date.now() - socketIoHealth.receivedAt <= 15_000;
-  const effective = realtimeTransport === 'socketio' && heartbeatIsFresh
+}
+
+function updateTelemetryIndicator(status = {}) {
+  const effective = socketIoHealthIsFresh()
     ? socketIoHealth
     : status;
   const state = String(effective.state || 'healthy');
@@ -908,8 +913,10 @@ async function pollStatus() {
     pollingFailures += 1;
     const streamIsFresh = lastLiveSnapshotAt
       && Date.now() - lastLiveSnapshotAt <= LIVE_SNAPSHOT_FRESHNESS_MS;
-    if (streamIsFresh) {
-      // A failed snapshot poll must not overwrite a newer live stream frame.
+    const socketHealthIsFresh = socketIoHealthIsFresh();
+    if (streamIsFresh || socketHealthIsFresh) {
+      // A failed status poll must not overwrite a recent event or a healthy
+      // authenticated Socket.IO stream during a quiet period.
       updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
     } else {
       indicators.forEach((indicator) => {
@@ -921,6 +928,8 @@ async function pollStatus() {
       toast(
         streamIsFresh
           ? 'The full status snapshot is delayed; live connection updates are still arriving. Retrying automatically.'
+          : socketHealthIsFresh
+            ? 'The full status snapshot is delayed; the live telemetry stream remains connected. Retrying automatically.'
           : 'Live RouterOS data is temporarily unavailable. Retrying automatically.',
         'error',
       );

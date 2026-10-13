@@ -133,6 +133,8 @@ test('a healthy Socket.IO heartbeat keeps quiet telemetry from appearing delayed
   await page.evaluate(() => window.__liveTestSocket.handlers.get('telemetry.health')({
     state: 'healthy', stream_connected: true,
   }));
+  await expect(page.locator('[data-live-indicator]'))
+    .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
   await page.clock.fastForward(12_000);
   await expect(page.locator('[data-live-indicator]'))
     .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
