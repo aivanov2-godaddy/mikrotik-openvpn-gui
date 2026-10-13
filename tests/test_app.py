@@ -3398,6 +3398,56 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(session.role, "read_only")
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+    def test_warm_auditor_downgrade_stops_audit_disclosure_on_next_request(self) -> None:
+        self.mock.state.admin_group = "audit"
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "auditor")
+        self.server.context.store.audit(
+            actor="admin", action="security.review", target="warm-role-audit-marker",
+            status="success", details="auditor-only history",
+        )
+
+        status, _, payload = self.request("GET", "/api/audit.json", headers={"Cookie": self.cookie})
+        self.assertEqual(status, 200)
+        self.assertIn(b"warm-role-audit-marker", payload)
+
+        # The ordinary session-role cache is now warm. A downgrade must be
+        # revalidated before optional audit data or a protected export is sent.
+        self.mock.state.admin_group = "read"
+        status, _, status_payload = self.request("GET", "/api/status", headers={"Cookie": self.cookie})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(session.role, "read_only")
+        self.assertNotIn(b"warm-role-audit-marker", status_payload)
+
+        status, _, audit_payload = self.request("GET", "/api/audit.json", headers={"Cookie": self.cookie})
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"warm-role-audit-marker", audit_payload)
+
+    def test_disabled_warm_auditor_does_not_reuse_stale_request_audit_allow(self) -> None:
+        self.mock.state.admin_group = "audit"
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+        self.server.context.store.audit(
+            actor="admin", action="security.review", target="revoked-audit-marker",
+            status="success", details="must not be disclosed after account disable",
+        )
+
+        # The initial session lookup remains inside its normal role-cache
+        # interval. The dashboard's first audit check then discovers revocation;
+        # subsequent checks in this same response must reuse a DENY, not stale
+        # authorization from the detached session object.
+        self.mock.state.admin_disabled = True
+        status, _, payload = self.request("GET", "/dashboard", headers={"Cookie": self.cookie})
+
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"revoked-audit-marker", payload)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
     def test_disabled_routeros_account_revokes_existing_live_session(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
