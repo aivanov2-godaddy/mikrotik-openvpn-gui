@@ -11,6 +11,7 @@ from dataclasses import dataclass
 SESSION_IDLE_SECONDS = 30 * 60
 SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60
 SESSION_ROLE_REVALIDATION_SECONDS = 15
+SENSITIVE_ACTION_STEP_UP_SECONDS = 300
 MAX_SESSIONS_PER_ACCOUNT = 8
 
 
@@ -101,6 +102,7 @@ class Session:
     auth_method: str = "routeros"
     token_id: str = ""
     capabilities: frozenset[str] | None = None
+    reauthenticated_at: float = 0.0
 
 
 class SessionStore:
@@ -142,6 +144,7 @@ class SessionStore:
             role=normalize_role(role),
             source_address=str(source_address or ""),
             user_agent=str(user_agent or "")[:256],
+            reauthenticated_at=current,
         )
         with self._lock:
             self.purge(current)
@@ -222,6 +225,7 @@ class SessionStore:
                 role=normalize_role(role),
                 source_address=existing.source_address,
                 user_agent=existing.user_agent,
+                reauthenticated_at=current,
             )
             self._sessions.pop(session_id, None)
             self._role_checked_at.pop(session_id, None)

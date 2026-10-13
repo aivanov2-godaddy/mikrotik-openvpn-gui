@@ -24,6 +24,8 @@ let socketIoEngine = 'polling';
 let pageReloadScheduled = false;
 let terminationAttempt = null;
 let sessionReauthentication = null;
+let stepUpCompletion = null;
+let stepUpPromise = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -83,6 +85,30 @@ function openDialog(id) {
   $('.form-status', modal)?.replaceChildren();
   modal.showModal();
 }
+
+function requestSensitiveActionStepUp(message) {
+  if (stepUpPromise) return stepUpPromise;
+  const form = $('#session-reauthenticate-form');
+  if (!form) return Promise.resolve(false);
+  form.reset();
+  openDialog('session-reauthenticate-dialog');
+  setStatus(form, message);
+  $('#session-reauthenticate-password')?.focus();
+  stepUpPromise = new Promise((resolve) => { stepUpCompletion = resolve; });
+  return stepUpPromise;
+}
+
+function finishSensitiveActionStepUp(accepted) {
+  if (!stepUpCompletion) return;
+  const resolve = stepUpCompletion;
+  stepUpCompletion = null;
+  stepUpPromise = null;
+  resolve(accepted);
+}
+
+$('#session-reauthenticate-dialog')?.addEventListener('close', () => {
+  finishSensitiveActionStepUp(false);
+});
 
 function toast(message, type = 'success') {
   const region = $('.toast-region');
@@ -2810,6 +2836,7 @@ $('#session-reauthenticate-form')?.addEventListener('submit', async (event) => {
     const csrfMeta = document.querySelector('meta[name="csrf-token"]');
     if (csrfMeta) csrfMeta.content = csrf;
     finishReauthentication(true);
+    finishSensitiveActionStepUp(true);
     form.closest('dialog')?.close();
     toast('Dashboard session re-authenticated.');
   } catch (error) {
@@ -2855,6 +2882,10 @@ document.addEventListener('click', async (event) => {
     if (!window.confirm('Revoke this API token? Automation using it will stop immediately.')) return;
     button.disabled = true;
     try {
+      if (!(await requestSensitiveActionStepUp('Verify your RouterOS password before revoking this API token.'))) {
+        button.disabled = false;
+        return;
+      }
       await resultOrError(await api(`/api/admin/api-tokens/${encodeURIComponent(button.dataset.tokenId || '')}`, { method: 'DELETE' }));
       toast('API token revoked.');
       loadApiTokens();
@@ -2871,8 +2902,12 @@ $('[data-token-form]')?.addEventListener('submit', async (event) => {
   const values = Object.fromEntries(new FormData(form));
   values.scopes = $$('select[name="scopes"] option:checked', form).map((option) => option.value);
   setBusy(form, true);
-  setStatus(form, 'Creating a scoped token…');
   try {
+    if (!(await requestSensitiveActionStepUp('Verify your RouterOS password before creating this scoped API token.'))) {
+      setStatus(form, 'Token creation cancelled.');
+      return;
+    }
+    setStatus(form, 'Creating a scoped token…');
     const response = await resultOrError(await api('/api/admin/api-tokens', { method: 'POST', body: values }));
     const payload = await response.json();
     $('[data-created-token]').textContent = payload.token;

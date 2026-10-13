@@ -2655,6 +2655,69 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
 
+    def test_api_token_mutations_require_fresh_routeros_reauthentication(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        session.reauthenticated_at = time.time() - 301
+
+        status, _, payload = self.json_request(
+            "POST", "/api/admin/api-tokens",
+            {"label": "step-up test", "scopes": ["health.read"], "expires_in": "1h"},
+        )
+        self.assertEqual(status, 428)
+        self.assertTrue(json.loads(payload)["step_up_required"])
+        self.assertEqual(self.server.context.store.list_api_tokens(include_revoked=True), [])
+
+        def reauthenticate() -> None:
+            nonlocal session_id
+            status, headers, response = self.request(
+                "POST", "/api/auth/reauthenticate",
+                body=json.dumps({"password": "routerpass"}).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": self.csrf,
+                    "Origin": self.config.public_origin,
+                },
+            )
+            self.assertEqual(status, 200)
+            self.cookie = headers["set-cookie"].split(";", 1)[0]
+            session_id = self.cookie.split("=", 1)[1]
+            self.csrf = json.loads(response)["csrf_token"]
+
+        reauthenticate()
+        status, _, payload = self.json_request(
+            "POST", "/api/admin/api-tokens",
+            {"label": "step-up test", "scopes": ["health.read"], "expires_in": "1h"},
+        )
+        self.assertEqual(status, 201, payload.decode())
+        token_id = json.loads(payload)["metadata"]["id"]
+
+        session = self.server.context.sessions.get(session_id, touch=False)
+        session.reauthenticated_at = time.time() - 301
+        status, _, payload = self.request(
+            "DELETE", f"/api/admin/api-tokens/{token_id}",
+            headers={"X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(status, 428)
+        self.assertTrue(json.loads(payload)["step_up_required"])
+        self.assertTrue(any(
+            item["id"] == token_id and item["revoked_at"] is None
+            for item in self.server.context.store.list_api_tokens(include_revoked=True)
+        ))
+
+        reauthenticate()
+        status, _, payload = self.request(
+            "DELETE", f"/api/admin/api-tokens/{token_id}",
+            headers={"X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(status, 200, payload.decode())
+        self.assertTrue(any(
+            item["id"] == token_id and item["revoked_at"] is not None
+            for item in self.server.context.store.list_api_tokens(include_revoked=True)
+        ))
+
     def test_scoped_api_tokens_follow_the_route_scope_matrix(self) -> None:
         """Verify every token-readable route against each standalone scope and all scopes."""
         self.login()

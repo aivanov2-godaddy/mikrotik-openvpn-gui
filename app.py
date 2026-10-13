@@ -42,6 +42,7 @@ from security import (
     SECURITY_HEADERS,
     Session,
     SessionStore,
+    SENSITIVE_ACTION_STEP_UP_SECONDS,
     csrf_matches,
     has_capability,
     role_capabilities,
@@ -948,6 +949,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "required_capability": capability,
             },
             status=HTTPStatus.FORBIDDEN,
+        )
+        return False
+
+    def _require_recent_reauthentication(self, session: Session) -> bool:
+        """Require a successful RouterOS password check within the step-up window."""
+        now = time.time()
+        age = now - session.reauthenticated_at
+        if (
+            session.auth_method == "routeros"
+            and 0 <= age <= SENSITIVE_ACTION_STEP_UP_SECONDS
+        ):
+            return True
+        self._json(
+            {
+                "error": "Re-authenticate with your RouterOS password before changing API tokens.",
+                "step_up_required": True,
+                "max_age_seconds": SENSITIVE_ACTION_STEP_UP_SECONDS,
+            },
+            status=HTTPStatus.PRECONDITION_REQUIRED,
         )
         return False
 
@@ -2137,6 +2157,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "security.manage"):
             return
+        if not self._require_recent_reauthentication(session):
+            return
         try:
             data = self._read_json()
             label = str(data.get("label", "")).strip()
@@ -2182,6 +2204,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _revoke_api_token(self, token_id: str) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "security.manage"):
+            return
+        if not self._require_recent_reauthentication(session):
             return
         if not self.server.context.store.revoke_api_token(token_id):
             self._json({"error": "API token was not found or is already revoked"}, status=HTTPStatus.NOT_FOUND)

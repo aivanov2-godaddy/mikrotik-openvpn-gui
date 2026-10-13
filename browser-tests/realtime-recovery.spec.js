@@ -391,6 +391,11 @@ test('certificate migration panel refresh preserves the live stream and later te
   }))).toEqual({ streamCount: 1, streamClosed: false });
 
   await page.getByRole('link', { name: 'Connections', exact: true }).click();
+  // Hash navigation updates the view asynchronously. Wait until the SSE
+  // status listener is attached before delivering the synthetic event.
+  await expect.poll(() => page.evaluate(() => (
+    window.__syntheticEventSources[0]?.handlers?.has('status') || false
+  ))).toBe(true);
   await page.evaluate(() => window.__syntheticEventSources[0].emit('status', {
     sessions: [{
       id: 'migration-live-session',
