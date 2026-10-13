@@ -210,11 +210,14 @@ blanket pass for ASVS, OWASP, or production security.
 - RouterOS remains the identity and credential authority. After successful
   dashboard login, the application retains the RouterOS username/password in
   process memory for authenticated router operations. Passwords are not
-  written to the dashboard session inventory or telemetry principal. This
-  creates an in-memory exposure window: process dumps, host compromise, or
-  application-level memory disclosure could expose the credential. The
-  current RouterOS API integration requires reusable credentials; replacing
-  that model needs a RouterOS-supported alternative and is not solved here.
+  written to the dashboard session inventory or telemetry principal, and the
+  session dataclass excludes both the password and CSRF token from its default
+  representation to reduce accidental debug/log disclosure. The credential
+  still exists as a Python string in process memory: process dumps, host
+  compromise, or application-level memory disclosure could expose it, and
+  Python string handling cannot provide reliable secure erasure. The current
+  RouterOS API integration requires reusable credentials; replacing that
+  model needs a RouterOS-supported alternative and is not solved here.
 - Browser sessions are process-local and reference-token based. Restarting the
   app invalidates them. Multi-instance session sharing is not in scope.
 - Creating or deleting shared saved views requires both a valid CSRF token and

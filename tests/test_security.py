@@ -88,6 +88,20 @@ class SecurityTests(unittest.TestCase):
         session = SessionStore().create("admin", "secret", role="operator")
         self.assertEqual(session.role, "administrator")
 
+    def test_session_repr_never_contains_routeros_password_or_csrf_token(self) -> None:
+        session = SessionStore().create(
+            "admin", "router-password-marker", now=100,
+        )
+        session.csrf_token = "csrf-token-marker"
+
+        rendered = repr(session)
+
+        self.assertNotIn("router-password-marker", rendered)
+        self.assertNotIn("csrf-token-marker", rendered)
+        self.assertIn(session.username, rendered)
+        self.assertEqual(session.password, "router-password-marker")
+        self.assertEqual(session.csrf_token, "csrf-token-marker")
+
     def test_session_tokens_are_fresh_csprng_reference_values(self) -> None:
         store = SessionStore()
         with mock.patch("security.secrets.token_urlsafe", side_effect=("session-one", "csrf-one", "session-two", "csrf-two")) as token:
