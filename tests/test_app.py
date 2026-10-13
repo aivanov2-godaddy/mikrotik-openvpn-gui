@@ -768,6 +768,79 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(body.count(b"event: status"), 1)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
+    def test_sse_projects_routeros_sessions_onto_redacted_live_schema(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        router_row = {
+            "id": "*SESSION-1",
+            "name": "alice",
+            "vpn_address": "10.8.0.2",
+            "source_address": "198.51.100.25",
+            "uptime": "00:10:00",
+            "encoding": "AES-256-GCM",
+            "service": "ovpn",
+            "rx_bytes": 1234,
+            "tx_bytes": 5678,
+            "rx_packets": 12,
+            "tx_packets": 34,
+            "counter_complete": True,
+            "session_id": "private-router-session-id",
+            "comment": "private comment sentinel",
+            "interface": "private-interface-sentinel",
+            "mtu": 1400,
+            "password": "private-password-sentinel",
+            "certificate": "private-certificate-sentinel",
+        }
+        logout_results: list[int] = []
+
+        def revoke_after_first_event(_seconds: float) -> None:
+            body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+            status, _, _ = self.request(
+                "POST", "/logout", body=body,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            logout_results.append(status)
+
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        with (
+            mock.patch.object(
+                self.server.context.router,
+                "list_active_ovpn_sessions",
+                return_value=[router_row],
+            ),
+            mock.patch("app.time.sleep", side_effect=revoke_after_first_event),
+        ):
+            connection.request(
+                "GET",
+                "/api/events",
+                headers={"Cookie": self.cookie, "Origin": self.config.public_origin},
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        frames = [json.loads(line[6:]) for line in body.splitlines() if line.startswith(b"data: ")]
+        self.assertEqual(logout_results, [303])
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(
+            set(frames[0]["sessions"][0]),
+            {
+                "id", "name", "vpn_address", "source_address", "uptime", "encoding",
+                "service", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
+                "counter_complete",
+            },
+        )
+        self.assertEqual(frames[0]["sessions"][0]["name"], "alice")
+        for forbidden in (
+            "private-router-session-id", "private comment sentinel",
+            "private-interface-sentinel", "private-password-sentinel",
+            "private-certificate-sentinel", "session_id", "comment", "interface",
+            "password", "certificate",
+        ):
+            self.assertNotIn(forbidden, body.decode())
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
     def test_sse_stops_emitting_when_session_is_rotated_by_reauthentication(self) -> None:
         self.login()
         old_cookie = self.cookie

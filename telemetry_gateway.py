@@ -51,6 +51,13 @@ _SESSION_FIELDS = frozenset(
 )
 
 
+def redact_session(value: Any) -> dict[str, Any]:
+    """Project a RouterOS session row onto the public live-telemetry schema."""
+    if not isinstance(value, dict):
+        return {}
+    return {key: copy.deepcopy(value[key]) for key in _SESSION_FIELDS if key in value}
+
+
 class TelemetryGatewayError(RuntimeError):
     """Base error for the future delivery adapter."""
 
@@ -155,9 +162,7 @@ class TelemetryGatewayContract:
 
     @staticmethod
     def _redact_session(value: Any) -> dict[str, Any]:
-        if not isinstance(value, dict):
-            return {}
-        return {key: copy.deepcopy(value[key]) for key in _SESSION_FIELDS if key in value}
+        return redact_session(value)
 
     @classmethod
     def _frame(cls, event: TelemetryEvent) -> dict[str, Any]:
