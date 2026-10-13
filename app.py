@@ -54,6 +54,7 @@ from templates import dashboard_page, login_page
 from telemetry_state import TelemetryRuntimeState
 from telemetry_runtime import TelemetryRuntime
 from telemetry_socketio_polling import SocketIOPollingBridge
+from telemetry_gateway import redact_session
 
 
 ROOT = Path(__file__).resolve().parent
@@ -2770,7 +2771,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
                     self.server.context.telemetry_state = telemetry_state
                 telemetry_state.mark_event(reconciliation=True)
-                data = json.dumps({"sessions": active, "generated_at": int(time.time())}, separators=(",", ":"))
+                data = json.dumps(
+                    {
+                        "sessions": [redact_session(item) for item in active],
+                        "generated_at": int(time.time()),
+                    },
+                    separators=(",", ":"),
+                )
                 self.wfile.write(f"event: status\ndata: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()
                 time.sleep(2)
