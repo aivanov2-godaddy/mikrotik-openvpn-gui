@@ -214,6 +214,55 @@ test('a failed status poll remains delayed when no live snapshot has arrived', a
     .toHaveText(['Connection data delayed', 'Connection data delayed']);
 });
 
+test('stale active sessions are labeled last-known and termination re-enables after a fresh snapshot', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-03T12:00:00.000Z') });
+  await page.route('**/api/status', (route) => route.abort());
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: `window.__liveTestSocket = {
+      handlers: new Map(),
+      on(name, callback) { this.handlers.set(name, callback); return this; },
+      close() {},
+    };
+    window.io = () => window.__liveTestSocket;`,
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect.poll(() => page.evaluate(() => (
+    window.__liveTestSocket?.handlers.has('telemetry.snapshot')
+  ))).toBe(true);
+  const session = {
+    id: '*synthetic-stale', name: 'synthetic-user', encoding: 'AES-256-GCM',
+    uptime: '1m', rx_bytes: 100, tx_bytes: 200, rx_packets: 1, tx_packets: 2,
+  };
+  await page.evaluate((value) => window.__liveTestSocket.handlers.get('telemetry.snapshot')({
+    payload: { sessions: [value] },
+  }), session);
+  const card = page.locator('[data-active-session-list] .session-card');
+  await expect(card.locator('[data-session-state]')).toHaveText('Connected securely · AES-256-GCM');
+  await expect(card.locator('[data-terminate]')).toBeEnabled();
+
+  await page.clock.fastForward(11_000);
+  await expect(card).toHaveClass(/session-stale/);
+  await expect(card.locator('[data-session-state]')).toHaveText('Last known · live status delayed');
+  await expect(card.locator('[data-terminate]')).toBeDisabled();
+
+  await page.evaluate((value) => window.__liveTestSocket.handlers.get('telemetry.snapshot')({
+    payload: { sessions: [value] },
+  }), session);
+  await expect(card).not.toHaveClass(/session-stale/);
+  await expect(card.locator('[data-session-state]')).toHaveText('Connected securely · AES-256-GCM');
+  await expect(card.locator('[data-terminate]')).toBeEnabled();
+});
+
 test('returns to the top-level Access flow when an API request is redirected', async ({ page }) => {
   let statusPolls = 0;
   let dashboardNavigations = 0;

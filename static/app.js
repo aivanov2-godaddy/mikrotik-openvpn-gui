@@ -429,6 +429,7 @@ function buildSessionCard(session) {
   const card = node('article', 'session-card');
   card.dataset.sessionId = session.id;
   card.dataset.sessionUser = session.name || '';
+  card.dataset.sessionEncoding = session.encoding || 'OpenVPN';
   card.dataset.rx = String(session.rx_bytes || 0);
   card.dataset.tx = String(session.tx_bytes || 0);
   card.dataset.rxPackets = String(session.rx_packets || 0);
@@ -439,7 +440,12 @@ function buildSessionCard(session) {
   orb.setAttribute('aria-hidden', 'true');
   orb.append(svgIcon('session'));
   const copy = node('div');
-  copy.append(node('strong', '', session.name || 'Unknown user'), node('small', '', `Connected securely · ${session.encoding || 'OpenVPN'}`));
+  const sessionState = node('small', 'session-state', `Connected securely · ${card.dataset.sessionEncoding}`);
+  sessionState.dataset.sessionState = '';
+  copy.append(
+    node('strong', '', session.name || 'Unknown user'),
+    sessionState,
+  );
   main.append(orb, copy);
 
   const facts = node('dl', 'session-facts');
@@ -531,6 +537,25 @@ function syncActiveSessions(sessions, timestamp) {
   sessions.forEach((session) => {
     const card = $$('.session-card', list).find((item) => item.dataset.sessionId === session.id);
     if (card) updateSessionCard(card, session, timestamp);
+  });
+}
+
+function setActiveSessionsStale(stale) {
+  $$('[data-active-session-list] .session-card').forEach((card) => {
+    card.classList.toggle('session-stale', stale);
+    const status = $('[data-session-state]', card);
+    if (status) {
+      status.textContent = stale
+        ? 'Last known · live status delayed'
+        : `Connected securely · ${card.dataset.sessionEncoding || 'OpenVPN'}`;
+    }
+    const terminate = $('[data-terminate]', card);
+    if (terminate) {
+      terminate.disabled = stale;
+      terminate.title = stale
+        ? 'Waiting for a fresh RouterOS session update before allowing termination.'
+        : '';
+    }
   });
 }
 
@@ -777,6 +802,7 @@ function updateDashboard(payload) {
   [...counters.keys()].forEach((id) => { if (!activeSessionIds.has(id)) counters.delete(id); });
   [...histories.keys()].forEach((id) => { if (!activeSessionIds.has(id)) histories.delete(id); });
   updateTelemetryIndicator(payload.telemetry);
+  setActiveSessionsStale(false);
 }
 
 function socketIoHealthIsFresh() {
@@ -837,6 +863,7 @@ function updateLiveSnapshot(payload) {
   reconcileConnectionHistory(sessions);
   syncActiveSessions(sessions, timestamp);
   reconcileTerminationAttempt(sessions);
+  setActiveSessionsStale(false);
   $$('[data-session-total]').forEach((item) => { item.textContent = sessions.length; });
   $$('[data-nav-session-count]').forEach((item) => { item.textContent = sessions.length; });
   const activeUsers = new Set(sessions.map((session) => session.name)).size;
@@ -914,6 +941,7 @@ async function pollStatus() {
     const streamIsFresh = lastLiveSnapshotAt
       && Date.now() - lastLiveSnapshotAt <= LIVE_SNAPSHOT_FRESHNESS_MS;
     const socketHealthIsFresh = socketIoHealthIsFresh();
+    if (!streamIsFresh) setActiveSessionsStale(true);
     if (streamIsFresh || socketHealthIsFresh) {
       // A failed status poll must not overwrite a recent event or a healthy
       // authenticated Socket.IO stream during a quiet period.

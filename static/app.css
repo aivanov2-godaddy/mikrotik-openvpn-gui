@@ -457,6 +457,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .standalone-session-list .session-card { padding: 10px; }
 .session-card { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(420px, 2fr) auto; align-items: center; gap: 13px; padding: 7px 10px 7px 47px; border-top: 1px solid #26333b; }
 .session-card:first-child { border-top: 0; }
+.session-card.session-stale .session-state { color: var(--amber); }
 .session-main { display: flex; align-items: center; gap: 7px; }
 .session-main > div:last-child { display: grid; }
 .session-main strong { color: #cbd4d8; font-size: 11px; }
