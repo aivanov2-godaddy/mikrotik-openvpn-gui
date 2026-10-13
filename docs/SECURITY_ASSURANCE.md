@@ -18,9 +18,8 @@ product-scope exclusion; and `EXTERNAL` requires evidence from the deployed
 proxy, RouterOS, or host. External and partial results are not passes.
 
 The rationale for the configured idle and absolute session limits is recorded
-in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md). The V7.1.1
-summary below predates that rationale; its statement that no rationale is
-recorded is superseded. V7.1.1 remains partial pending independent validation.
+in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md). V7.1.1
+V7.1.1 remains partial pending independent validation.
 V7.3.1�V7.3.2 remain partial because deployed Cloudflare Access coordination
 and production timing are external acceptance items.
 
@@ -32,7 +31,7 @@ and production timing are external acceptance items.
 | V7.2.1–V7.2.3 | TESTED | Backend reference-session validation and CSPRNG token generation are covered by `test_session_tokens_are_fresh_csprng_reference_values` and login-boundary tests. |
 | V7.2.4 | TESTED | A CSRF- and same-origin-protected re-authentication endpoint verifies the current account's RouterOS password, derives its current RouterOS group role, then atomically replaces the in-memory session and CSRF tokens and revokes the old reference. Failed verification leaves the session unchanged and uses the existing login rate limiter; no second password store is introduced. Session-store and integration tests cover rotation at the account session limit, old-cookie API rejection, current-capability enforcement, and stopping active SSE/Socket.IO delivery. This is deterministic repository evidence only; deployed proxy/router behavior and independent review remain unverified. |
 | V7.3.1–V7.3.2 | PARTIAL | The 30-minute idle and 8-hour absolute defaults, documented rationale, and in-process expiry/live-delivery behavior are tested. Production/proxy timing and Cloudflare Access coordination remain unverified. |
-| V7.4.1 | TESTED | Logout, expiry, and server-side revocation stop subsequent session use and live delivery in deterministic tests. The active ASGI pump revalidates RouterOS-derived role changes before later frames, and SSE reconnect rejects revoked/expired sessions before RouterOS reads. The real Socket.IO polling regressions queue a synthetic event before each transition, then verify it is withheld and the subscription is cleaned up. This remains repository evidence, not a deployed-router timing result. |
+| V7.4.1 | TESTED | Logout, expiry, and server-side revocation stop subsequent session use and live delivery in deterministic tests. A negative regression verifies missing/invalid logout CSRF tokens do not revoke the session. The active ASGI pump revalidates RouterOS-derived role changes before later frames, and SSE reconnect rejects revoked/expired sessions before RouterOS reads. The real Socket.IO polling regressions queue a synthetic event before each transition, then verify it is withheld and the subscription is cleaned up. This remains repository evidence, not a deployed-router timing result. |
 | V7.4.2 | TESTED | Disabled/missing RouterOS account regressions revoke the corresponding existing dashboard session. |
 | V7.4.3 | N/A | The dashboard does not change authentication factors for its operator accounts; RouterOS credential/factor lifecycle is outside this app session-management scope. |
 | V7.4.4 | PARTIAL | A sign-out control is present in the shared authenticated header. There is no human usability evidence confirming visibility across every authenticated view. |
@@ -102,6 +101,13 @@ The exact contract is guarded by
 and `DashboardIntegrationTests.test_sensitive_exports_disclose_their_real_data_scope`.
 This inventory supplements, but does not replace, the broader independent
 handler/field review and deployment checks listed below.
+
+For `/api/status`, the nested `users[]` field contract is `id`, `name`,
+`profile`, `comment`, `disabled`, `email`, `controls`, `tags`, and `template`;
+`controls` is restricted to `vpn_user`, `policy`, `expires_at`,
+`max_sessions`, `rate_limit_kbps`, `dns_mode`, `notifications`, `quota_mb`,
+`schedule`, `enforcement_state`, `updated_at`, and `quota_used_bytes`;
+`template` is restricted to `id`, `name`, `group_name`, and `overrides`.
 
 The `N/A` entries are limited to the stated product boundary; they are not
 claims that an external proxy, RouterOS, or the whole deployment satisfies

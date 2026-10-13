@@ -739,6 +739,31 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, payload.decode("utf-8"))
         return {**json.loads(payload), "reason": reason}
 
+    def test_logout_rejects_missing_or_invalid_csrf_without_revoking_session(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+
+        for token in ("", "not-the-session-token"):
+            body = urllib.parse.urlencode({"csrf": token}).encode()
+            status, _, _ = self.request(
+                "POST",
+                "/logout",
+                body=body,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            self.assertEqual(status, 403)
+            self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+
+        body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+        status, _, _ = self.request(
+            "POST",
+            "/logout",
+            body=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        self.assertEqual(status, 303)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
     def test_sse_stops_emitting_when_server_session_is_revoked(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
