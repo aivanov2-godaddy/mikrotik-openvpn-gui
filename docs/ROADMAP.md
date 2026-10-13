@@ -1601,3 +1601,14 @@ The client did not reconnect during a brief five-second observation, and no
 VPN client window was available to initiate reconnect; client/API reconnect,
 snapshot recovery, event timing/integrity, and the formal soak remain unverified.
 Production and RouterOS policy/certificate/account state were not changed.
+
+**2026-10-13 canary live-session follow-up:** after the operator connected the
+disposable VPN client, the authenticated canary dashboard changed from zero to
+one connected user and displayed nonzero traffic (`173 KB` down, `304 KB` up)
+without a page reload; the transport indicator read `Live · SOCKETIO`. The
+RouterOS status timestamp remained `11:40 EEST`, so no numeric event latency
+or sample freshness is claimed. This is qualitative canary UI evidence only;
+candidate-image read-back, the RouterOS-side cross-check, Redis/outbox,
+API-interruption/reconnect and snapshot recovery, event integrity/counter
+reset, rollback, and the 30-minute acceptance window remain outstanding.
+Production was not checked or changed.

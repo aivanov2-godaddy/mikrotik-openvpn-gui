@@ -44,6 +44,19 @@ snapshot timestamps, reset-free evidence, and session-event observation age
 no greater than two seconds; missing evidence fails closed. No new measured
 reconnect/snapshot acceptance window has been collected yet.
 
+At 11:40 EEST on 2026-10-13, the authenticated canary dashboard initially
+showed zero connected users and zero traffic. In a later read-only browser
+observation at approximately 11:42 EEST, without reloading the page, it showed
+one connected user and nonzero cumulative traffic (`173 KB` down, `304 KB`
+up), with `Live · SOCKETIO`. This confirms the operator's disposable VPN
+session reached the canary dashboard and the visible connection/traffic state
+changed in the open page. The dashboard's RouterOS status timestamp remained
+`11:40`; no event-arrival timestamp was available, so this does not establish
+the one-second session-event or two-second traffic-freshness SLO. It is not a
+RouterOS API reconnect, event-integrity, counter-reset, Redis delivery,
+candidate-image read-back, or 30-minute soak result. Production was not
+checked or changed.
+
 Read-only RouterOS certificate settings showed CRL download/use disabled. No
 CA, certificate, VPN policy, or production configuration was changed; actual
 certificate-revocation rejection remains unverified. Production promotion
