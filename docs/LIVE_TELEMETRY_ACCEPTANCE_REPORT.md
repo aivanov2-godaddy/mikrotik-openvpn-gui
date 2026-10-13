@@ -1681,3 +1681,20 @@ No concurrent active VPN session was verified. No container, router policy,
 account, certificate, CA, or VPN-user data was changed. Continue only after a
 fresh authenticated canary view and matching active RouterOS test session are
 visible; all measured acceptance gates remain outstanding.
+
+## 2026-10-13 later live-state recheck
+
+At approximately 12:45 EEST, the already-open canary dashboard initially
+rendered one connected user and cumulative traffic of 9.5 MB down / 122 MB up,
+but its RouterOS status timestamp still read 11:40 EEST. About ten seconds
+later, the canary tab had redirected to Cloudflare Access sign-in, so the
+initial values are treated as cached/stale and do not demonstrate live
+freshness. The production dashboard showed one connected user but also
+`Connection data delayed`, zero traffic, and a 12:06 EEST router-status
+timestamp. A fresh RouterOS WebFig read after reloading Active Connections
+showed zero entries. These views do not agree and do not establish a current
+active test session, event delivery, or a passing acceptance sample. No
+container, router policy, account, certificate, CA, or VPN-user data was
+changed. Continue only after a fresh canary authentication and matching active
+RouterOS test session are both visible; candidate-specific deployment and all
+formal acceptance gates remain unverified.
