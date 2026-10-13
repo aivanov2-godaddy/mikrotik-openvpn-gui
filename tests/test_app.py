@@ -5591,12 +5591,24 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         session_id = next(iter(self.mock.state.active_sessions))
         review = self.preview_session_termination(session_id)
+        clock = [0.0]
+
+        def advance_clock(seconds: float) -> None:
+            clock[0] += seconds
+
+        def monotonic() -> float:
+            return clock[0]
+
         with mock.patch.object(self.server.context.router, "terminate_session"):
-            status, _, payload = self.json_request(
-                "DELETE",
-                f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
-                {"confirmation": "user-two", "reason": review["reason"], "review_token": review["review_token"]},
-            )
+            with (
+                mock.patch("app.time.monotonic", side_effect=monotonic),
+                mock.patch("app.time.sleep", side_effect=advance_clock),
+            ):
+                status, _, payload = self.json_request(
+                    "DELETE",
+                    f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+                    {"confirmation": "user-two", "reason": review["reason"], "review_token": review["review_token"]},
+                )
 
         self.assertEqual(status, 409)
         response = json.loads(payload)
@@ -5606,6 +5618,42 @@ class DashboardIntegrationTests(unittest.TestCase):
         latest = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(latest["action"], "session.terminate")
         self.assertEqual(latest["status"], "failed")
+
+    def test_session_termination_waits_for_routeros_readback_after_one_second(self) -> None:
+        self.login()
+        session_id = next(iter(self.mock.state.active_sessions))
+        review = self.preview_session_termination(session_id)
+        router = self.server.context.router
+        active = router.list_active_ovpn_sessions(RouterOSCredentials("admin", "routerpass"))
+        clock = [0.0]
+
+        def monotonic() -> float:
+            value = clock[0]
+            clock[0] += 0.1
+            return value
+
+        def advance_clock(seconds: float) -> None:
+            clock[0] += seconds
+
+        with (
+            mock.patch.object(router, "list_active_ovpn_sessions", side_effect=[active] * 12 + [[]]) as readback,
+            mock.patch("app.time.monotonic", side_effect=monotonic),
+            mock.patch("app.time.sleep", side_effect=advance_clock),
+        ):
+            status, _, payload = self.json_request(
+                "DELETE",
+                f"/api/sessions/{urllib.parse.quote(session_id, safe='*')}",
+                {
+                    "confirmation": "user-two",
+                    "reason": review["reason"],
+                    "review_token": review["review_token"],
+                },
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload), {"ok": True, "verified": True})
+        self.assertEqual(readback.call_count, 13)
+        self.assertNotIn(session_id, self.mock.state.active_sessions)
 
     def test_session_termination_retries_transient_active_readback(self) -> None:
         self.login()
