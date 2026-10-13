@@ -7,18 +7,17 @@ data, deployment runners, or production network details.
 
 ## Current project snapshot — 2026-10-13
 
-Formal release **v2.7.0** remains the latest numbered release. The latest
-published runtime image is PR #662 commit
-`ab6e51e0de930a76f294ddb173943939a5332913`. Publisher run
-[#38362247970](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38362247970)
-passed source and rendered-browser verification, published-runtime smoke tests,
-detached provenance/SBOM attestation verification, and stable-manifest
-read-back. The verified artifacts are:
+Formal release **v2.7.0** remains the latest numbered release. PR #666
+(`d425c2a6ed05bfca3f81ce4575d8e4f75571c893`) is the latest merged mainline
+runtime change. Publish run
+[#38375895946](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38375895946)
+published its ARM64 image, and `gh attestation verify` confirmed the Sigstore
+provenance subject digest. This is a newer mainline artifact, not a numbered
+release or evidence of RouterOS deployment:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-ab6e51e0de930a76f294ddb173943939a5332913-arm64` | `sha256:0444a553f6d87f2480ae0613a5370557690049adc0de837325d3516d586407d0` |
-| AMD64 evaluation | `sha-ab6e51e0de930a76f294ddb173943939a5332913-amd64` | `sha256:8e32e0855d72439216b24e4366a650469068dfccdf53f4cb8549ec900aab5da4` |
+| RouterOS ARM64 | `sha-d425c2a6ed05bfca3f81ce4575d8e4f75571c893-arm64` | `sha256:feafeaa46685c9fa3f33e584b29774ec28888353efc6e92312a0cbb5b8dda1e5` |
 
 PR #652 is merged to `main` as commit
 `dfd3356d6e0f31f2a5fb362e220f624a948e0ade` and prepares `2.8.0` as the next
@@ -27,9 +26,9 @@ Redis outbox recovery, Socket.IO same-origin security, rendered browser and
 accessibility regression, secret/dependency audits, pre-commit, and the ARM64
 image build. This is source-level release-candidate evidence only: no `2.8.0`
 tag or release has been published, and no `2.8.0` runtime image has been
-published or deployed. Until then, v2.7.0 remains the latest formal release;
-PR #662 is the latest published runtime image. Publication does not prove
-deployment on RouterOS.
+published or deployed. Until then, v2.7.0 remains the latest formal release.
+The newer PR #666 image is published and attested, but publication does not
+prove deployment on RouterOS.
 
 PR #653 is merged as `2542b5e` and reconciles the roadmap with the release
 candidate and current live-acceptance evidence. PR #655 is merged as `10ac511`;
@@ -59,17 +58,32 @@ required hosted checks; #662's publisher verified both architectures, runtime
 smoke tests, detached SBOM/provenance attestations, and stable-manifest
 read-back. Neither change deploys an image to RouterOS.
 
+PR #669 merged as `cb96ea214602ffb234c16ed4e80387a1385237bc`. It adds an
+exact HTTP response-field regression for `GET /api/admin/api-tokens`, proving
+that the listing returns metadata only and excludes both bearer-token
+plaintext and the stored token hash. The scoped security assurance now records
+this contract and the existing capability-gated administrator-session field
+contract. All nine required CI checks passed, including Python 3.13/3.14,
+pre-commit, rendered browser/accessibility regression, secret/dependency
+audits, Redis, Socket.IO same-origin, and ARM64 build/smoke. This is
+test/documentation-only and does not publish or deploy a runtime image; it does
+not replace issue #200's independent review or live proxy/router acceptance.
+
 PR #650 is merged and refreshes the installation, release, RouterOS acceptance,
 and live telemetry acceptance records to distinguish image publication from
 router deployment. PRs #647–#649 and #655 narrow streamed and status API data
-to explicit allowlists. The PR #662 image has not been read back on RouterOS in
-this session. The earlier readiness soak does not establish readiness or
-acceptance for PR #662, and the PR #652 release-candidate build does not
-establish deployment or router acceptance.
+to explicit allowlists. The PR #666 image has not been read back on RouterOS.
+The earlier readiness soak does not establish readiness or acceptance for
+PR #666, and the PR #652 release-candidate build does not establish deployment
+or router acceptance.
 
-**Canary staging and production promotion remain unverified and gated.** No
-RouterOS read-back of the PR #662 tag/health or current production tag/health
-has been collected; no deployment is claimed. On 2026-10-13 at approximately
+**Canary staging and production promotion remain unverified and gated.** On
+2026-10-13, RouterOS read-back showed canary on
+`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`, healthy, and production
+configured for `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`. Neither is
+the newer PR #666 image; production health was not established in this check.
+The router-local immutable-update scheduler was present but disabled. No
+candidate deployment is claimed. Earlier, at approximately
 10:37 EEST, RouterOS WebFig PPP Active Connections showed zero entries while
 the production Connections page showed one row with `Connection data delayed`
 and a router-status timestamp of `2026-10-12 18:06`. After the operator
@@ -92,11 +106,12 @@ Issues #194 (device/certificate lifecycle acceptance), #199 (release
 acceptance), and #200 (deployed security assurance) remain open alongside
 tracking epic #205. Their repository-side implementation and test evidence is
 recorded below; the remaining gates require live router/client evidence or
-external security review. The latest cross-check confirmed one active router
-PPP session but found the production connection view still delayed/stale and
-the canary dashboard unauthenticated. Therefore no candidate-specific live
-acceptance run is established. No CA, certificate, VPN policy, or RouterOS
-container configuration was changed in this update.
+external security review. The earlier 11:04 EEST check confirmed a router-side
+session, but did not establish live dashboard delivery; the subsequent 12:45
+EEST recheck found zero active sessions and an unauthenticated canary.
+Therefore no candidate-specific live acceptance run was established at that
+time. No CA, certificate, VPN policy, or RouterOS container configuration was
+changed in that earlier update.
 
 **Later recheck (2026-10-13, approximately 12:45 EEST):** the canary page
 briefly rendered one connected user and nonzero cumulative traffic, but kept
@@ -108,6 +123,27 @@ current test session or live delivery; formal acceptance remains unverified
 pending a fresh canary sign-in and matching RouterOS session. See the
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md#2026-10-13-later-live-state-recheck).
 Multi-tenancy remains explicitly out of scope.
+
+**Latest RouterOS recheck (2026-10-13, approximately 13:29 EEST):** after the
+operator again reported the test VPN connected, the RouterOS WebFig PPP Active
+Connections page was reloaded and still showed `0 items`. This does not
+corroborate an active test tunnel. The last observed canary page had redirected
+to Cloudflare Access sign-in, so no canary telemetry or candidate acceptance
+was verified during this recheck. No router/container/certificate/policy/
+production changes were made. The discrepancy must be resolved before
+starting the live session, soak, or certificate lifecycle gates.
+
+**Fresh live-session recheck (2026-10-13):** the authenticated canary
+Connections page showed one active `wanted` session, `Live · SOCKETIO`, and
+changing byte/packet rates and uptime across observations without a page
+reload. A read-only RouterOS PPP count query independently returned one active
+session for that account. The canary container read-back remained healthy on
+`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`; the production image
+reference remained `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`. The
+newer PR #666 ARM64 image has not been staged. This verifies the current
+session and qualitative live display only—not event latency/freshness SLOs,
+Redis delivery, API recovery, event integrity, a 30-minute candidate soak,
+rollback, or production acceptance. Production was not changed.
 
 Earlier observations below are historical evidence only and do not supersede
 this current snapshot. See the [live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
