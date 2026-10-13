@@ -8,17 +8,17 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-13
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
-published runtime image is PR #657 commit
-`6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989`. Publisher run
-[#38351222445](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38351222445)
+published runtime image is PR #662 commit
+`ab6e51e0de930a76f294ddb173943939a5332913`. Publisher run
+[#38362247970](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38362247970)
 passed source and rendered-browser verification, published-runtime smoke tests,
 detached provenance/SBOM attestation verification, and stable-manifest
 read-back. The verified artifacts are:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989-arm64` | `sha256:eeeaa599885953660a74bffa054550b5aea99eb1ccecc5d282c9d92b88d5dc00` |
-| AMD64 evaluation | `sha-6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989-amd64` | `sha256:5e1f4ee0f002dde2ad0ad2720f23a105ef79cb8426177c8871375b7b4d4dc459` |
+| RouterOS ARM64 | `sha-ab6e51e0de930a76f294ddb173943939a5332913-arm64` | `sha256:0444a553f6d87f2480ae0613a5370557690049adc0de837325d3516d586407d0` |
+| AMD64 evaluation | `sha-ab6e51e0de930a76f294ddb173943939a5332913-amd64` | `sha256:8e32e0855d72439216b24e4366a650469068dfccdf53f4cb8549ec900aab5da4` |
 
 PR #652 is merged to `main` as commit
 `dfd3356d6e0f31f2a5fb362e220f624a948e0ade` and prepares `2.8.0` as the next
@@ -28,7 +28,7 @@ accessibility regression, secret/dependency audits, pre-commit, and the ARM64
 image build. This is source-level release-candidate evidence only: no `2.8.0`
 tag or release has been published, and no `2.8.0` runtime image has been
 published or deployed. Until then, v2.7.0 remains the latest formal release;
-PR #657 is the latest published runtime image. Publication does not prove
+PR #662 is the latest published runtime image. Publication does not prove
 deployment on RouterOS.
 
 PR #653 is merged as `2542b5e` and reconciles the roadmap with the release
@@ -50,23 +50,33 @@ untimestamped operator-entered latency/restore/rollback evidence. All required
 CI checks passed. This is acceptance-tooling only; it publishes no runtime
 image and does not establish RouterOS deployment or pass the live acceptance.
 
+PR #661 merged as `d4341d133ae39f3ce666ce08abb7e6ec6aa6a5da` and adds a
+negative-path logout CSRF regression. PR #662 merged as
+`ab6e51e0de930a76f294ddb173943939a5332913`, corrects the telemetry reconnect
+counter so failed initial API connection attempts are not reported as
+reconnects, and is the published image listed above. Both PRs passed their
+required hosted checks; #662's publisher verified both architectures, runtime
+smoke tests, detached SBOM/provenance attestations, and stable-manifest
+read-back. Neither change deploys an image to RouterOS.
+
 PR #650 is merged and refreshes the installation, release, RouterOS acceptance,
 and live telemetry acceptance records to distinguish image publication from
 router deployment. PRs #647–#649 and #655 narrow streamed and status API data
-to explicit allowlists. The PR #657 image has not been read back on RouterOS in
+to explicit allowlists. The PR #662 image has not been read back on RouterOS in
 this session. The earlier readiness soak does not establish readiness or
-acceptance for PR #657, and the PR #652 release-candidate build does not
+acceptance for PR #662, and the PR #652 release-candidate build does not
 establish deployment or router acceptance.
 
 **Canary staging and production promotion remain unverified and gated.** No
-RouterOS read-back of the PR #657 tag/health or current production tag/health
-has been collected; no deployment is claimed. In the 2026-10-13 follow-up, the
-operator reported the test VPN connected, but the contemporaneous RouterOS
-WebFig PPP Active Connections table showed zero entries. The production
-Connections page showed one row while reporting `Connection data delayed` and
-an old RouterOS status timestamp; the canary site was at its RouterOS sign-in
-page. These disagreeing/stale views are not counted as a live session or
-acceptance evidence. No page reload or router/container mutation was made.
+RouterOS read-back of the PR #662 tag/health or current production tag/health
+has been collected; no deployment is claimed. On 2026-10-13 at approximately
+10:37 EEST, RouterOS WebFig PPP Active Connections showed zero entries. The
+production Connections page showed one row while reporting
+`Connection data delayed`; its router-status timestamp was `2026-10-12 18:06`.
+The canary site remained at its RouterOS sign-in form. These disagreeing/stale
+views are not counted as a live session or acceptance evidence, despite the
+operator's report that the VPN was connected. No page reload or
+router/container mutation was made.
 Unauthenticated readiness probes returned HTTP 302 at Cloudflare
 Access and exposed no application readiness body. This is not a readiness
 result. Deploy the immutable ARM64 candidate to
@@ -78,11 +88,11 @@ Issues #194 (device/certificate lifecycle acceptance), #199 (release
 acceptance), and #200 (deployed security assurance) remain open alongside
 tracking epic #205. Their repository-side implementation and test evidence is
 recorded below; the remaining gates require live router/client evidence or
-external security review. In the latest manual check, RouterOS reported no
-active VPN entries and the production dashboard showed delayed connection
-data; a fresh check could not be made because the desktop was locked. No
-current connected-client acceptance run is established. No CA, certificate,
-VPN policy, or production configuration was changed in this update.
+external security review. The latest cross-check found zero active PPP entries,
+a delayed/stale production connection row, and an unauthenticated canary
+dashboard; no current connected-client acceptance run is established. No CA,
+certificate, VPN policy, or RouterOS container configuration was changed in
+this update.
 Multi-tenancy remains explicitly out of scope.
 
 Earlier observations below are historical evidence only and do not supersede
@@ -844,7 +854,7 @@ that restart; the later live-update observation is recorded above.
 | [#196](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/196) | Completed for the repository scope: disposable-Redis outage/restart, ambiguous-delivery and idempotent-consumer tests (#224, #233); malformed-event classification, bounded retries and dead-letter metrics (#237); 45-event outage backlog draining (#238); pending-row recovery and explicit acknowledged-data-loss durability boundary (#240). Operations docs define at-least-once delivery, event-ID deduplication, Redis persistence requirements, and Redis-optional behavior. CI uses an isolated Redis instance and secret-free aggregate metrics are tested. |
 | [#197](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/197) | Isolated backup/restore and interrupted-write/disk-full tests; bounded lock-timeout recovery and WAL checkpoint behavior (#228, #234); backup restore rehearsal opens a consistent point-in-time copy without touching the live source; backup-target failure preserves the prior backup and source database while cleaning temporary files (#257); concurrent multi-writer stress with repeated backup/checkpoint and restore integrity checks (#286). | Sustained deployment storage/lock soak, retention/restore operations, and a canary restore rehearsal. |
 | [#198](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/198) | Repository implementation: process-observation freshness and acceptance collection (#227, #232); slow-client isolation (#235); event-gap, ordering, reset, and idempotent-reconnect handling (#283, #288, #346, #373); bounded recovery/backoff and clock-skew handling (#385, #387); CPU/memory/storage and gateway delivery metrics (#300, #466); responsive Socket.IO-to-SSE fallback/snapshot browser coverage (#318); fail-closed sustained-evidence evaluation. PR #455 fixed the stale lower status count and added responsive live-transport regressions. PR #497's canary rollback/forward recovery remains historical evidence only. Issue #198 is closed; sustained device acceptance continues under #199. | Device-backed latency/freshness, a nonzero session transition, API restart and snapshot recovery, event integrity, and production sleep/wake soak remain part of #199. Point-in-time health is not formal acceptance; RouterOS does not expose an independent registry digest. |
-| [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Read-only health/readiness/metrics collector (#226, #232); PR #445 requires complete aggregate Redis/outbox and telemetry metrics and fails closed on missing/gapped samples; PR #478 fails closed on unknown latency/freshness, pending outbox work, or dead letters; PR #492 adds a 30-sample one-minute `/readyz` guard; PR #495 separates pre/post-promotion collection and exact-digest verification; PR #575 requires ordered, timestamped connect/disconnect evidence and changing timestamped traffic counters without refresh; PR #594 adds the redacted read-only RouterOS acceptance sampler and resource/session evidence; PR #595 prevents stale passing reports after collector failure; PR #608 joins RouterOS resource/container samples to the matching app soak and revalidates sanitized evidence; PR #610 requires verified-HTTPS RouterOS REST/Binary parity; PR #639 tightens measured reconnect/freshness evidence; PR #642 uses RouterOS telemetry-supervisor reconnect and snapshot timestamps rather than a gateway cursor counter; PR #654 rejects non-finite SLO thresholds and unknown evidence fields and tests sensitive-field redaction. PR #655 is the latest published runtime (run #38347345607): ARM64 digest `sha256:56a4ce152749ed17f0a3158ee5098d340a0e2ced170d487774aac6f8a36de628`, AMD64 digest `sha256:8f15f90be6abdd23833ef72a6d2e66d71602746b5b8cfecfc7b40883376f6923`; both architectures are attested and smoke-tested. The image is published, not verified on RouterOS. | Still required: read back the #655 candidate on canary, then collect candidate-matched event latency/freshness, Redis/outbox, verified RouterOS REST/Binary parity, API interruption/reconnect/full-snapshot recovery, event-integrity/counter-reset, SQLite restore, and rollback evidence. After canary passes, promotion and post-promotion checks remain. Earlier active dashboard/socket observations are qualitative only. Production remains gated. |
+| [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Read-only health/readiness/metrics collector (#226, #232); PR #445 requires complete aggregate Redis/outbox and telemetry metrics and fails closed on missing/gapped samples; PR #478 fails closed on unknown latency/freshness, pending outbox work, or dead letters; PR #492 adds a 30-sample one-minute `/readyz` guard; PR #495 separates pre/post-promotion collection and exact-digest verification; PR #575 requires ordered, timestamped connect/disconnect evidence and changing timestamped traffic counters without refresh; PR #594 adds the redacted read-only RouterOS acceptance sampler and resource/session evidence; PR #595 prevents stale passing reports after collector failure; PR #608 joins RouterOS resource/container samples to the matching app soak and revalidates sanitized evidence; PR #610 requires verified-HTTPS RouterOS REST/Binary parity; PR #639 tightens measured reconnect/freshness evidence; PR #642 uses RouterOS telemetry-supervisor reconnect and snapshot timestamps rather than a gateway cursor counter; PR #654 rejects non-finite SLO thresholds and unknown evidence fields and tests sensitive-field redaction; PR #662 corrects reconnect metric accuracy. PR #662 is the latest published runtime (run #38362247970): ARM64 digest `sha256:0444a553f6d87f2480ae0613a5370557690049adc0de837325d3516d586407d0`, AMD64 digest `sha256:8e32e0855d72439216b24e4366a650469068dfccdf53f4cb8549ec900aab5da4`; both architectures are attested and smoke-tested. The image is published, not verified on RouterOS. | Still required: read back the #662 candidate on canary, then collect candidate-matched event latency/freshness, Redis/outbox, verified RouterOS REST/Binary parity, API interruption/reconnect/full-snapshot recovery, event-integrity/counter-reset, SQLite restore, and rollback evidence. After canary passes, promotion and post-promotion checks remain. Earlier active dashboard/socket observations are qualitative only. Production remains gated. |
 | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | Stream-session revalidation tests and scoped ASVS evidence map (#218, #229); SSE and Socket.IO revalidate live authorization; RouterOS role and group changes are rechecked; API-token scopes, CSRF, same-origin, foreign-origin, metrics/export, and policy/session permissions have targeted coverage; PR #450 records the bounded review; PR #551 adds a separate handler review; PR #591 covers polling delivery after logout, administrator revocation, and idle/absolute expiry; PR #597 documents session-lifetime rationale and residual proxy limits; selected observability, operations-timeline, sensitive-export, and VPN-user API fields have exact-schema regression tests (PR #628); PRs #647–#649 add explicit safe-field projections for SSE session telemetry and RouterOS, connection-history, and alert data in `/api/status`; PR #655 adds exact nested response schemas and user-control field allowlists, with sensitive-field sentinel regression tests; PR #650 records published artifacts and separates deployment evidence. The scoped findings and risk boundaries are in [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md). These are repository controls, not a complete deployed assessment. | Live-router role-change/expiry/revocation and reconnect observations; deployed proxy/origin behavior and RouterOS permission review; exhaustive authorization review and a full independent external security assessment remain required. |
 | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201) | Repository implementation complete: redacted read-only account/group/service diagnostics (#222); unknown or incomplete RouterOS group policy tokens produce an explicit unknown posture (#246); IPv4/IPv6 allowlist and catch-all coverage (#273); current `available-from` and legacy `address` service-property probes; PR #331 compares the active REST management source against configured account/service allowlists, reports ambiguous or unsupported responses as unknown, and redacts the source. Privacy, read-only behavior, RouterOS property-version differences, and official documentation are covered in tests/docs. | Physical firewall/input-chain and upstream network enforcement remain unknown until separately checked during RouterOS operational acceptance (#199); the diagnostic deliberately does not claim to prove them. |
 | [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202) | Policy-template apply revalidates a session-bound preview receipt and current RouterOS state (#223); session termination reads back RouterOS state and reports verified, failed, or unknown outcomes; policy-template application now performs per-user RouterOS profile read-back and preserves local metadata only after verification (#250); user deletion verifies managed certificate revocation before account deletion and verifies account absence before clearing local metadata, reconciling lost responses and reporting unknown/partial outcomes (#261); single-user suspend/restore verifies the RouterOS `disabled` state before clearing local enforcement, reconciles lost PATCH responses, and distinguishes mismatch from unavailable read-back (#264); single-user edits verify RouterOS state before committing metadata, reconcile response loss and keep passwords unverifiable/partial (#265, #272); generated PPP rate-limit profile state is now bound into account-provision, edit, and policy-template review receipts, with exact `rate-limit` read-back after create/update; bulk suspend/revoke use read-back and preserve partial progress; device revocation and profile issuance require reviewed state and reconcile failures (#279, #282, #292, #293); account creation and duplication now preview copied/effective settings, exclude secrets from review display, and reject stale intent before mutation (#294); all review-first edit, policy apply, suspension, device revoke, profile issue, and account provision flows now use server-side atomic single-use receipts, with replay rejected and changed password values bound by a process-keyed commitment (#295); bulk suspend/revoke/tag bind receipts to selected users and relevant account/session/certificate/tag state, reject stale previews, and prevent replay (#298); account deletion now reviews the exact managed-certificate scope and consumes a one-time session-bound receipt before revocation/deletion, rejecting changed certificate inventories (#301); deletion review also binds dashboard-local metadata and clears account-scoped tags, policy assignment, controls, and email only after confirmed absence (#302); individual session termination now binds the exact live session identity to a single-use review receipt and rejects changed sessions before disconnecting (#303); access restoration also requires a one-time receipt bound to the disabled account state (#304); account-provisioning failure verifies account/certificate cleanup and compares generated PPP profile state against the reviewed snapshot, retaining shared-profile residue and reporting `partial`/`unknown` explicitly instead of falsely claiming complete recovery; failed profile issuance now reads back the uniquely named partial certificate after cleanup and reports unresolved RouterOS residue instead of silently ignoring a rejected DELETE; relative expiry selections now remain stable across review/apply second boundaries (#305); ambiguous individual session-termination DELETE responses are now reconciled by exact-session read-back even when the request response is lost (#317); the route-by-route mutation and local-write boundary is documented in [MUTATION_SAFETY.md](MUTATION_SAFETY.md). | Live-router acceptance across the supported release/model matrix and independent review of ambiguous/competing-operator scenarios; compensating recovery may remain partial/unknown because RouterOS has no cross-resource transaction. |
