@@ -3556,6 +3556,46 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(repeated[0]["occurrence_count"], 2)
         self.assertGreaterEqual(repeated[0]["last_seen_at"], repeated[0]["created_at"])
 
+    def test_service_health_response_projects_exact_allowlisted_fields(self) -> None:
+        self.login()
+        health = {
+            "overall": "warning",
+            "checked_at": 1_800_000_000,
+            "router_password_sentinel": "must-not-escape",
+            "checks": [{
+                "id": "routeros-rest",
+                "name": "RouterOS REST connection",
+                "status": "warning",
+                "impact": "Router health is delayed.",
+                "remediation": "Check the connection.",
+                "private_certificate_sentinel": "must-not-escape",
+                "source_address": "198.51.100.77",
+            }],
+            "private_root_sentinel": "must-not-escape",
+        }
+        with mock.patch.object(DashboardHandler, "_service_health", return_value=health):
+            status, _, payload = self.request("GET", "/api/service-health")
+
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        response = json.loads(payload)
+        self.assertEqual(set(response), {"overall", "checked_at", "checks"})
+        self.assertEqual(len(response["checks"]), 1)
+        self.assertEqual(
+            set(response["checks"][0]),
+            {"id", "name", "status", "impact", "remediation"},
+        )
+        self.assertEqual(response["overall"], "warning")
+        serialized = payload.decode("utf-8")
+        for sentinel in (
+            "must-not-escape",
+            "router_password_sentinel",
+            "private_certificate_sentinel",
+            "source_address",
+            "198.51.100.77",
+            "private_root_sentinel",
+        ):
+            self.assertNotIn(sentinel, serialized)
+
     def test_favicon_variants_are_public_and_linked(self) -> None:
         status, headers, svg = self.request("GET", "/favicon.svg")
         self.assertEqual(status, 200)
