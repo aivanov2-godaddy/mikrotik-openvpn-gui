@@ -16,6 +16,13 @@ semantic-version style release tags.
 - Offer staged same-CA renewal for expiring or expired dashboard-managed device
   certificates; retain the old certificate until the replacement is imported,
   tested, and separately retired through the existing review and read-back flow.
+- Require measured canary evidence for release readiness, including sampled
+  telemetry SLOs, REST/Binary API parity, RouterOS resource/container health,
+  reconnect recovery, and privacy-safe evidence-window binding.
+- Add RouterOS session reauthentication and safer certificate lifecycle
+  read-backs, including recovery from ambiguous revoke/retirement outcomes.
+- Improve responsive OpenVPN branding, high-zoom layouts, and live dashboard
+  behavior while preserving the existing SSE/Socket.IO and REST fallback paths.
 
 ### Changed
 
@@ -30,6 +37,10 @@ semantic-version style release tags.
   Any failed sample rolls the canary back without changing production.
 - Clarify that readiness-only sampling does not replace the full telemetry,
   Redis, resource, reconnect, event-integrity, and rollback acceptance report.
+- Require step-up authentication for API-token changes and revalidate session
+  ownership/authorization around sensitive live telemetry and certificate flows.
+- Restrict user, status, connection-history, alert, and SSE payloads to explicit
+  safe-field allowlists; redact RouterOS errors before returning them to clients.
 
 ### Fixed
 
@@ -46,6 +57,23 @@ semantic-version style release tags.
   ordering before production promotion.
 - Verify repeated status-poll failures do not turn a recently updated Socket.IO
   connection indicator into a delayed state.
+- Preserve cumulative traffic counters across partial live snapshots and recover
+  live session state from authoritative snapshots after reconnect or event gaps.
+- Bound authentication concurrency/rate limiting and ensure failed or stale
+  acceptance evidence cannot be reported as a pass.
+
+### Security
+
+- Reject foreign origins on live telemetry transports and close delivery after
+  session revocation or capability changes.
+- Add regression coverage for API field allowlists, credential redaction,
+  session reauthentication, and authorization changes during RouterOS reads.
+
+### Maintenance
+
+- Update pinned runtime and GitHub Actions dependencies and improve resilient
+  multi-architecture image publishing, attestation, and stable-manifest
+  read-back.
 
 ## 2.7.0 - 2026-10-04
 

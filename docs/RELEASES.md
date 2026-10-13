@@ -12,13 +12,20 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
-The latest formal versioned release is **v2.7.0**. It includes the v2.1
-mobile administrator workflows, v2.2 administrator roles and authentication
-audit, v2.3 enterprise operations foundations, v2.4 bulk operations and saved
-views, and v2.5 Binary API live telemetry with the Socket.IO gateway and
-fallback paths. v2.6 adds Redis/outbox reliability and recovery coverage,
-security and operations controls, accessibility and timeline improvements, and
-redacted acceptance tooling. Release v2.7.0 adds guided per-device certificate
+The latest formal versioned release remains **v2.7.0**. A v2.8.0 release
+candidate is being prepared from the merged work through PR #651, but it has
+not been tagged or published. Its highlights are stricter live-data field
+allowlists and session revalidation, safer staged certificate renewal, improved
+telemetry recovery, and evidence-gated RouterOS canary promotion. RouterOS
+acceptance for the current candidate is still open; per the release procedure
+below, do not tag or publish v2.8.0 until candidate-specific canary acceptance
+passes. Earlier releases introduced the v2.1 mobile administrator workflows,
+v2.2 administrator roles and authentication audit, v2.3 enterprise operations
+foundations, v2.4 bulk operations and saved views, and v2.5 Binary API live
+telemetry with the Socket.IO gateway and fallback paths. v2.6 adds Redis/outbox
+reliability and recovery coverage, security and operations controls,
+accessibility and timeline improvements, and redacted acceptance tooling.
+Release v2.7.0 adds guided per-device certificate
 migration: operators can issue and test a replacement identity before retiring
 the old one, and recovery creates a new identity rather than re-downloading a
 private key the dashboard does not retain. Patch v2.6.1 gives scoped API tokens
@@ -45,7 +52,9 @@ model.
 
 At the maintainer's request, the superseded GitHub Release entries v2.6.3 and
 v2.6.4 were removed on 2026-10-05; their Git tags remain available for
-historical/rollback reference. v2.7.0 remains the latest numbered release.
+historical/rollback reference. Keep v2.7.0 as the only numbered GitHub Release
+until v2.8.0 is accepted, published, and verified; then remove the superseded
+GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
@@ -410,9 +419,10 @@ repository.
    router update.
 8. Tag `vMAJOR.MINOR.PATCH` only after the release notes are complete.
 
-The repository's next release version is kept in [`VERSION`](../VERSION) (currently
-`2.7.0`). Run `python scripts/validate_release.py --tag v2.7.0` before creating
-that tag. The
+The repository's planned next release version is kept in [`VERSION`](../VERSION)
+(currently `2.8.0`). Run `python scripts/validate_release.py --tag v2.8.0` before
+creating that tag, and only after candidate-specific canary acceptance passes.
+The
 `Release notes` workflow previews GitHub-generated notes without changing a
 release when run manually with `dry_run=true`; a pushed, matching `v*` tag is
 the only event that publishes a release. Notes contain commit and pull-request
