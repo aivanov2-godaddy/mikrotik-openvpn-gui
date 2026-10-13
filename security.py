@@ -5,7 +5,7 @@ import hmac
 import secrets
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 SESSION_IDLE_SECONDS = 30 * 60
@@ -92,8 +92,8 @@ def has_capability(role: str, capability: str) -> bool:
 class Session:
     session_id: str
     username: str
-    password: str
-    csrf_token: str
+    password: str = field(repr=False)
+    csrf_token: str = field(repr=False)
     created_at: float
     last_seen: float
     role: str = "owner"
