@@ -105,6 +105,21 @@ STATUS_CONNECTION_FIELDS = frozenset(
 STATUS_ALERT_FIELDS = frozenset(
     {"id", "severity", "title", "details", "created_at", "last_seen_at", "occurrence_count"}
 )
+STATUS_USER_CONTROL_FIELDS = frozenset(
+    {
+        "vpn_user",
+        "policy",
+        "expires_at",
+        "max_sessions",
+        "rate_limit_kbps",
+        "dns_mode",
+        "notifications",
+        "quota_mb",
+        "schedule",
+        "enforcement_state",
+        "updated_at",
+    }
+)
 
 
 def _same_origin(left: str, right: str) -> bool:
@@ -1166,7 +1181,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "comment": user.get("comment", ""),
                 "disabled": user.get("disabled", False),
             }
-            controls = self.server.context.store.user_controls(username)
+            stored_controls = self.server.context.store.user_controls(username)
+            controls = {
+                key: stored_controls[key]
+                for key in STATUS_USER_CONTROL_FIELDS
+                if key in stored_controls
+            }
             controls["quota_used_bytes"] = self.server.context.store.quota_usage(username, period_start)
             assignment = assignments.get(username)
             template = templates.get(str(assignment.get("template_id", ""))) if assignment else None
