@@ -189,8 +189,8 @@ Perform this once during a maintenance window:
 
 ## Operator checklist
 
-- Use only the observed production architecture (`arm64`) unless a separate
-  redacted canary acceptance record verifies another RouterOS target.
+- Use the architecture reported by RouterOS preflight and only a matching
+  published image. Do not assume compatibility beyond the tested target.
 - Keep GHCR public for anonymous pulls. Do not add a package token unless your
   fork is intentionally private; a private token belongs only in RouterOS
   container configuration.

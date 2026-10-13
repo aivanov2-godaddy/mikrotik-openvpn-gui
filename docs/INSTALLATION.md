@@ -7,17 +7,17 @@ source of truth for the manual RouterOS gates and verification steps.
 
 ## Compatibility and support matrix
 
-“Built” means the image was built and smoke-tested in CI. “Observed” means a
-specific deployed instance was read back as running; neither status certifies
-every RouterOS release or MikroTik model. See the [redacted acceptance
-procedure](ROUTEROS_ACCEPTANCE.md) before promoting any new digest.
+“Built” means the image was built and smoke-tested in CI; that does not certify
+any RouterOS release or MikroTik model. Device-specific results are kept in
+private operational records. See the [acceptance procedure](ROUTEROS_ACCEPTANCE.md)
+before promoting any new digest.
 
 | Platform | Evidence status | Scope and limits |
 | --- | --- | --- |
-| Linux `arm64` image | Latest `main` runtime published and attested; not yet read back on RouterOS for this candidate; formal live acceptance incomplete | Current published artifact: commit `3d65b43ec4b796eb83f52929c56c9efabb980b4d` (PR #674), tag `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-arm64`, digest `sha256:c2318a464f1a57d86ae27b9103aa5addbcae3bfe43aca3d60fdba7728c9f4fbb`. [Publisher run #38404891404](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38404891404) verified source, rendered browser behavior, provenance and SPDX SBOM, and passed ARM64 published-runtime smoke. The 2026-10-13 15:47 EEST read-back still showed the canary on its prior image with zero active PPP sessions; production was not re-read after publication. Do not infer deployment from publication. Session/event, freshness, Redis, recovery, reset, restore, and rollback acceptance remain incomplete. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). |
-| Linux `amd64` image | Latest `main` runtime published and attested; evaluation only | Commit `3d65b43ec4b796eb83f52929c56c9efabb980b4d` (PR #674), tag `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-amd64`, digest `sha256:7bd258595485a682ecc3892d32caaf29c9eecae377ec19b4f2071f702117f909`. Publisher run #38404891404 verified provenance and SPDX SBOM and passed published-runtime smoke. Not certified on physical x86 RouterOS hardware and not the production target. |
-| Physical RouterOS ARM64 / RouterOS 7.24.5 stable | Observed deployment environment | This is one observed deployment context, not a compatibility matrix across RouterOS releases, hardware variants, or resource loads. Device model and identity are intentionally omitted. |
-| Linux `amd64` / RouterOS CHR or x86 | Built and runtime-smoke-tested in CI; RouterOS evaluation only | Not certified on physical x86 RouterOS hardware and not the production target. |
+| Linux `arm64` image | Latest runtime candidate published and attested; device acceptance incomplete | Current published artifact: commit `bc03f3b456a488fc464061fe5944278c0207a94f` (PR #685), tag `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-bc03f3b456a488fc464061fe5944278c0207a94f-arm64`, digest `sha256:b83dd23bab8124b493b676bdaf31c2e45ae8e89d8151822854c63cc348597824`. [Publisher run #38449932684](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684) verified source, provenance and SPDX SBOM, and passed ARM64 published-runtime smoke. This is public artifact evidence only; it does not prove router deployment or compatibility. Candidate-specific session/event, freshness, Redis, recovery, reset, restore, and rollback acceptance remain incomplete. See the [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md). |
+| Linux `amd64` image | Latest runtime candidate published and attested; evaluation only | Commit `bc03f3b456a488fc464061fe5944278c0207a94f` (PR #685), tag `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-bc03f3b456a488fc464061fe5944278c0207a94f-amd64`, digest `sha256:cf142629b4242d80d07d3c4582603d95954da571cfd8cbf0d04f0bcec06fd242`. Publisher run #38449932684 verified provenance and SPDX SBOM and passed published-runtime smoke. Not certified on physical x86 RouterOS hardware. |
+| RouterOS 7 / ARM64 | Device-specific validation required | CI does not certify every RouterOS release, hardware model, or resource load. Follow the private, candidate-matched acceptance procedure before production use. |
+| Linux `amd64` / RouterOS CHR or x86 | Built and runtime-smoke-tested in CI; evaluation only | Not certified on physical x86 RouterOS hardware. |
 | RouterOS `arm` (32-bit/ARMv7) | Unsupported; no image published | Do not substitute an ARMv7 image. |
 | Other RouterOS releases/models | Unverified unless separately recorded | Run the canary acceptance procedure with the exact image tag/digest before promotion. |
 
@@ -35,12 +35,12 @@ Before onboarding users, record the existing OpenVPN PPP profile name, OpenVPN s
 
 ## 1. Confirm version and architecture
 
-In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for the observed production architecture and `amd64` for x86/CHR evaluation. Do not use an ARMv7 image for a RouterOS `arm` device: MikroTik documents ARM32/ARMv5 constraints for that target, and this project does not publish an ARM image until it has been verified there. In **System → Packages**, record the exact RouterOS version. From New Terminal:
+In WinBox open **System → Resources** and note **Architecture Name**. The published images use explicit tags: `arm64` for supported ARM64 hardware and `amd64` for x86/CHR evaluation. Do not use an ARMv7 image for a RouterOS `arm` device: MikroTik documents ARM32/ARMv5 constraints for that target, and this project does not publish an ARM image until it has been verified there. In **System → Packages**, record the exact RouterOS version. From New Terminal:
 
 The dashboard's **Installation planner → Read-only preflight** repeats this gate
 from the connected router and reports the exact image suffix to use. `arm64`
-maps to the production `-arm64` image; RouterOS `x86`/`amd64` maps to the
-evaluation-only `-amd64` image. Any other architecture is a hard stop: the
+maps to the `-arm64` image; RouterOS `x86`/`amd64` maps to the evaluation-only
+`-amd64` image. Any other architecture is a hard stop: the
 preflight will not suggest an image tag, and you must not guess one.
 
 ```routeros
@@ -210,7 +210,7 @@ through a separate canary.
 | --- | --- |
 | `container` package missing | Architecture/version match; install the extra package and reboot |
 | Device-mode refuses enablement | Run `/system/device-mode/update container=yes` again and complete the physical confirmation window |
-| Architecture error during pull | Confirm the router's `architecture-name`; use `arm64` for the observed production architecture or `amd64` for x86/CHR evaluation. Do not substitute an ARMv7 image for RouterOS `arm`. |
+| Architecture error during pull | Confirm the router's `architecture-name`; use the matching `arm64` image or `amd64` for x86/CHR evaluation. Do not substitute an ARMv7 image for RouterOS `arm`. |
 | GHCR `auth error` | A public package needs no token. For a private fork, use an expiring `read:packages` token and check `/container/config` without exposing it |
 | Manifest not found | Use registry-relative `owner/repo:sha-<fullsha>` and keep `registry-url=https://ghcr.io` |
 | Extraction fails | Move roots and `tmpdir` to external storage and check free space |
