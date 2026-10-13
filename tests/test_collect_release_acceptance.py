@@ -40,9 +40,14 @@ def evidence() -> dict[str, object]:
                 "reconnect_observed_at": 1790935500,
                 "full_snapshot_recovered_at": 1790935800,
                 "sqlite_restore_verified": True,
+                "sqlite_restore_verified_at": "2026-10-02T10:24:00Z",
                 "rollback_drill_passed": environment == "canary",
+                "rollback_drill_at": "2026-10-02T10:26:00Z",
                 "production_untouched_on_canary_failure": True,
+                "production_protection_observed_at": "2026-10-02T10:27:00Z",
                 "session_event_p95_ms": 400,
+                "session_event_latency_started_at": "2026-10-02T10:10:00Z",
+                "session_event_latency_ended_at": "2026-10-02T10:20:00Z",
                 "session_event_max_age_seconds": 0.5,
                 "traffic_sample_age_seconds": 1,
                 "observation_started_at": "2026-10-01T00:00:00Z",
@@ -483,6 +488,10 @@ class ReleaseCollectionTests(unittest.TestCase):
         session_event_age: float = 0.25,
         gateway_delivery_p95: float = 0.5,
         gateway_delivery_observations: int = 8,
+        redis_availability_sequence: list[int] | None = None,
+        redis_publish_age_seconds: float = 0,
+        inconsistent_session_timestamp: bool = False,
+        inconsistent_traffic_timestamp: bool = False,
         supervisor_status: str = "healthy",
         supervisor_enabled: int = 1,
         reconnect_counter_delta: int = 1,
@@ -523,6 +532,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 for field in (
                     "transport", "rest_fallback", "redis_configured", "redis_publish_verified",
                     "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
+                    "sqlite_restore_verified_at", "rollback_drill_at", "production_protection_observed_at",
+                    "session_event_latency_started_at", "session_event_latency_ended_at",
                     "session_event_p95_ms", "traffic_sample_age_seconds", "stale_sample_count",
                     "lost_event_count", "duplicate_event_count", "out_of_order_event_count",
                     "redis_delivery_failure_count", "router_cpu_peak_percent",
@@ -575,6 +586,11 @@ class ReleaseCollectionTests(unittest.TestCase):
             recovery_timestamp_bases.setdefault(environment, now)
             recovery_time_base = recovery_timestamp_bases[environment]
             recovery_observed = metrics_observations_by_environment[environment] > 1
+            availability_index = min(metrics_observations_by_environment[environment] - 1,
+                                     len(redis_availability_sequence or [1]) - 1)
+            redis_available = (redis_availability_sequence or [1])[availability_index]
+            event_timestamp_age = 10 if inconsistent_session_timestamp else session_event_age
+            traffic_timestamp_age = 10 if inconsistent_traffic_timestamp else traffic_sample_age
             reconnect_timestamp = recovery_time_base - 0.25 + (
                 reconnect_counter_delta if recovery_observed and advance_recovery_timestamps else 0
             )
@@ -584,18 +600,18 @@ class ReleaseCollectionTests(unittest.TestCase):
             )
             payload = (
                 "vpn_dashboard_redis_configured 1\n"
-                "vpn_dashboard_redis_last_observed_available 1\n"
+                f"vpn_dashboard_redis_last_observed_available {redis_available}\n"
                 "vpn_dashboard_redis_publish_total{outcome=\"success\"} 7\n"
                 "vpn_dashboard_redis_publish_total{outcome=\"failure\"} 0\n"
-                f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {now}\n"
+                f"vpn_dashboard_redis_last_publish_success_timestamp_seconds {now - redis_publish_age_seconds}\n"
                 f"vpn_dashboard_integration_outbox_pending {-1 if sample_is_unknown else pending_value}\n"
                 f"vpn_dashboard_integration_outbox_dead_lettered {-1 if sample_is_unknown else outbox_dead_lettered}\n"
                 f"vpn_dashboard_integration_outbox_oldest_age_seconds {-1 if sample_is_unknown else outbox_oldest_age}\n"
                 f"vpn_dashboard_telemetry_session_event_age_seconds {-1 if sample_is_unknown else session_event_age}\n"
-                f"vpn_dashboard_telemetry_session_event_timestamp_seconds {-1 if sample_is_unknown else now - session_event_age}\n"
+                f"vpn_dashboard_telemetry_session_event_timestamp_seconds {-1 if sample_is_unknown else now - event_timestamp_age}\n"
                 "vpn_dashboard_telemetry_session_events_total 4\n"
                 f"vpn_dashboard_telemetry_traffic_sample_age_seconds {-1 if sample_is_unknown else traffic_sample_age}\n"
-                f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {-1 if sample_is_unknown else now - traffic_sample_age}\n"
+                f"vpn_dashboard_telemetry_traffic_sample_timestamp_seconds {-1 if sample_is_unknown else now - traffic_timestamp_age}\n"
                 "vpn_dashboard_telemetry_traffic_samples_total 12\n"
                 "vpn_dashboard_telemetry_gateway_clients 1\n"
                 "vpn_dashboard_telemetry_gateway_buffered_events 2\n"
@@ -759,6 +775,36 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("canary_session_event_stale", report["failed_gates"])
         self.assertIn("production_session_event_stale", report["failed_gates"])
+
+    def test_source_timestamps_cannot_contradict_fresh_age_gauges(self) -> None:
+        code, report, _ = self.run_collection(
+            session_event_age=0.25,
+            traffic_sample_age=0.75,
+            inconsistent_session_timestamp=True,
+            inconsistent_traffic_timestamp=True,
+        )
+        self.assertEqual(code, 1)
+        for environment in ("canary", "production"):
+            self.assertIn(f"{environment}_session_event_timestamp_inconsistent", report["failed_gates"])
+            self.assertIn(f"{environment}_session_event_stale", report["failed_gates"])
+            self.assertIn(f"{environment}_traffic_timestamp_inconsistent", report["failed_gates"])
+            self.assertIn(f"{environment}_traffic_sample_stale", report["failed_gates"])
+
+    def test_redis_transient_unavailability_fails_even_when_final_sample_is_healthy(self) -> None:
+        code, report, _ = self.run_collection(redis_availability_sequence=[1, 0, 1])
+        self.assertEqual(code, 1)
+        for environment in ("canary", "production"):
+            self.assertIn(f"{environment}_redis_unavailable_during_window", report["failed_gates"])
+            deployment = next(item for item in report["deployments"] if item["environment"] == environment)
+            availability = deployment["metrics"]["redis_availability_window"]
+            self.assertEqual(availability["last"], 1)
+            self.assertEqual(availability["unavailable_samples"], 1)
+
+    def test_stale_redis_publish_timestamp_fails_even_when_availability_is_true(self) -> None:
+        code, report, _ = self.run_collection(redis_publish_age_seconds=121)
+        self.assertEqual(code, 1)
+        for environment in ("canary", "production"):
+            self.assertIn(f"{environment}_redis_publish_stale_during_window", report["failed_gates"])
 
     def test_reconnect_and_full_snapshot_timestamps_must_advance_in_window(self) -> None:
         code, report, _ = self.run_collection(
@@ -1019,9 +1065,16 @@ class ReleaseCollectionTests(unittest.TestCase):
                         "observation_ended_at": ended,
                         "reconnect_observed_at": 1790937000,
                         "full_snapshot_recovered_at": 1790937001,
+                        "session_event_latency_started_at": "2026-10-02T10:35:00Z",
+                        "session_event_latency_ended_at": "2026-10-02T10:45:00Z",
+                        "sqlite_restore_verified_at": "2026-10-02T10:50:00Z",
                         "health_sample_count": 30,
                         "max_sample_gap_seconds": 60,
                     })
+                collected_evidence["deployments"][0].update({
+                    "rollback_drill_at": "2026-10-02T10:51:00Z",
+                    "production_protection_observed_at": "2026-10-02T10:52:00Z",
+                })
                 from scripts.collect_release_acceptance import attach_routeros_resource_evidence
 
                 routeros_report = {

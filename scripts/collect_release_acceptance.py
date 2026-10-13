@@ -40,6 +40,7 @@ MIN_HEALTH_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
 MAX_TRAFFIC_SAMPLE_AGE_SECONDS = 2.0
 MAX_SESSION_EVENT_AGE_SECONDS = 2.0
+MAX_REDIS_PUBLISH_AGE_SECONDS = 120.0
 MAX_GATEWAY_DELIVERY_P95_SECONDS = 1.0
 MAX_OUTBOX_PENDING_AT_WINDOW_END = 0
 MAX_OUTBOX_DEAD_LETTERED = 0
@@ -471,29 +472,62 @@ def _json_status(payload: bytes) -> dict[str, Any]:
 
 
 def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch: float) -> dict[str, Any]:
-    metric_samples = [sample["metrics"] for sample in samples if sample.get("metrics")]
+    metric_samples = [sample for sample in samples if sample.get("metrics")]
     if not metric_samples:
         return {"available": False}
-    last = metric_samples[-1]
+    last = metric_samples[-1]["metrics"]
     successes_in_window = any(
-        sample.get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) > start_epoch
-        and sample.get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) <= end_epoch
+        sample["metrics"].get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) > start_epoch
+        and sample["metrics"].get("vpn_dashboard_redis_last_publish_success_timestamp_seconds", 0) <= end_epoch
         for sample in metric_samples
     )
     def observation_age(metric_name: str, timestamp_name: str) -> dict[str, Any]:
-        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
-        observed = [value for value in values if value >= 0]
-        timestamps = [sample[timestamp_name] for sample in metric_samples if sample.get(timestamp_name, -1) >= 0]
+        values: list[float] = []
+        timestamps: list[float] = []
+        observed: list[float] = []
+        unknown_samples = 0
+        inconsistent_samples = 0
+        for sample in metric_samples:
+            metrics = sample["metrics"]
+            age = metrics.get(metric_name)
+            timestamp = metrics.get(timestamp_name)
+            if age is None or timestamp is None or age < 0 or timestamp <= 0:
+                unknown_samples += 1
+                continue
+            scrape_at = sample["at"].timestamp()
+            timestamp_age = scrape_at - timestamp
+            if timestamp_age < -MAX_CLOCK_DRIFT_SECONDS:
+                unknown_samples += 1
+                inconsistent_samples += 1
+                continue
+            effective_age = max(age, timestamp_age, 0.0)
+            values.append(age)
+            timestamps.append(timestamp)
+            observed.append(effective_age)
+            if abs(age - timestamp_age) > MAX_CLOCK_DRIFT_SECONDS:
+                inconsistent_samples += 1
         return {
             "last_seconds": values[-1] if values else None,
             "max_seconds": max(observed) if observed else None,
             "observed_samples": len(observed),
-            "unknown_samples": sum(value < 0 for value in values),
+            "unknown_samples": unknown_samples,
+            "inconsistent_samples": inconsistent_samples,
             "last_observed_timestamp_seconds": timestamps[-1] if timestamps else None,
         }
 
+    def binary_window(metric_name: str) -> dict[str, Any]:
+        values = [sample["metrics"].get(metric_name) for sample in metric_samples]
+        known = [value for value in values if value in (0, 1)]
+        return {
+            "last": values[-1] if values else None,
+            "observed_samples": len(known),
+            "unknown_samples": len(values) - len(known),
+            "unavailable_samples": sum(value == 0 for value in known),
+            "all_enabled": len(known) == len(metric_samples) and all(value == 1 for value in known),
+        }
+
     def counter_window(metric_name: str) -> dict[str, Any]:
-        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
+        values = [sample["metrics"][metric_name] for sample in metric_samples if metric_name in sample["metrics"]]
         if not values:
             return {"delta": 0, "counter_reset": False}
         previous = max(0, int(values[0]))
@@ -515,7 +549,7 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         }
 
     def gauge_window(metric_name: str) -> dict[str, Any]:
-        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
+        values = [sample["metrics"][metric_name] for sample in metric_samples if metric_name in sample["metrics"]]
         observed = [value for value in values if value >= 0]
         return {
             "last": values[-1] if values else None,
@@ -525,7 +559,7 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         }
 
     def timestamp_window(metric_name: str) -> dict[str, Any]:
-        values = [sample[metric_name] for sample in metric_samples if metric_name in sample]
+        values = [sample["metrics"][metric_name] for sample in metric_samples if metric_name in sample["metrics"]]
         observed = [value for value in values if value > 0]
         return {
             "first": observed[0] if observed else None,
@@ -552,12 +586,33 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
     redis_failure_window = counter_window("vpn_dashboard_redis_publish_total_failure")
     failure_delta = redis_failure_window["delta"]
     failure_counter_reset = redis_failure_window["counter_reset"]
+    redis_configured_window = binary_window("vpn_dashboard_redis_configured")
+    redis_availability_window = binary_window("vpn_dashboard_redis_last_observed_available")
+    redis_publish_ages: list[float] = []
+    redis_publish_age_unknown_samples = 0
+    for sample in metric_samples:
+        published_at = sample["metrics"].get("vpn_dashboard_redis_last_publish_success_timestamp_seconds")
+        if published_at is None or published_at <= 0:
+            redis_publish_age_unknown_samples += 1
+            continue
+        publish_age = sample["at"].timestamp() - published_at
+        if publish_age < -MAX_CLOCK_DRIFT_SECONDS:
+            redis_publish_age_unknown_samples += 1
+            continue
+        redis_publish_ages.append(max(0.0, publish_age))
+    redis_publish_age_max = max(redis_publish_ages) if redis_publish_ages else None
+    redis_publish_age_stale_samples = sum(age > MAX_REDIS_PUBLISH_AGE_SECONDS for age in redis_publish_ages)
 
     return {
         "available": True,
         "redis_configured": last.get("vpn_dashboard_redis_configured"),
+        "redis_configured_window": redis_configured_window,
         "redis_last_observed_available": last.get("vpn_dashboard_redis_last_observed_available"),
+        "redis_availability_window": redis_availability_window,
         "redis_publish_success_observed_in_window": successes_in_window,
+        "redis_publish_age_max_seconds": redis_publish_age_max,
+        "redis_publish_age_unknown_samples": redis_publish_age_unknown_samples,
+        "redis_publish_age_stale_samples": redis_publish_age_stale_samples,
         "redis_publish_failure_delta": failure_delta,
         "redis_publish_failure_counter_reset": failure_counter_reset,
         "outbox_pending_last": last.get("vpn_dashboard_integration_outbox_pending"),
@@ -628,17 +683,19 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         },
         "telemetry_slo": {
             "session_event_unknown_samples": session_event_age["unknown_samples"],
+            "session_event_timestamp_inconsistent_samples": session_event_age["inconsistent_samples"],
             "session_event_max_age_seconds": session_event_age["max_seconds"],
             "traffic_sample_max_age_seconds": traffic_sample_age["max_seconds"],
             "traffic_sample_unknown_samples": traffic_sample_age["unknown_samples"],
+            "traffic_timestamp_inconsistent_samples": traffic_sample_age["inconsistent_samples"],
             "gateway_delivery_p95_max_seconds": gateway_delivery_age["max"],
             "gateway_delivery_p95_unknown_samples": gateway_delivery_age["unknown_samples"],
             "gateway_delivery_observations_last": last.get(
                 "vpn_dashboard_telemetry_gateway_delivery_observations"
             ),
             "supervisor_non_healthy_samples": sum(
-                sample.get("vpn_dashboard_telemetry_supervisor_status_healthy") != 1
-                or sample.get("vpn_dashboard_telemetry_supervisor_enabled") != 1
+                sample["metrics"].get("vpn_dashboard_telemetry_supervisor_status_healthy") != 1
+                or sample["metrics"].get("vpn_dashboard_telemetry_supervisor_enabled") != 1
                 for sample in metric_samples
             ),
             "meaning": (
@@ -931,12 +988,16 @@ def collect(
             traffic_age = telemetry_slo["traffic_sample_max_age_seconds"]
             if telemetry_slo["session_event_unknown_samples"]:
                 failed_gates.append(f"{environment}_session_event_freshness_incomplete")
+            if telemetry_slo["session_event_timestamp_inconsistent_samples"]:
+                failed_gates.append(f"{environment}_session_event_timestamp_inconsistent")
             if session_event_age is None:
                 failed_gates.append(f"{environment}_session_event_freshness_unobserved")
             elif session_event_age > MAX_SESSION_EVENT_AGE_SECONDS:
                 failed_gates.append(f"{environment}_session_event_stale")
             if telemetry_slo["traffic_sample_unknown_samples"]:
                 failed_gates.append(f"{environment}_traffic_freshness_incomplete")
+            if telemetry_slo["traffic_timestamp_inconsistent_samples"]:
+                failed_gates.append(f"{environment}_traffic_timestamp_inconsistent")
             if traffic_age is None:
                 failed_gates.append(f"{environment}_traffic_freshness_unobserved")
             elif traffic_age > MAX_TRAFFIC_SAMPLE_AGE_SECONDS:
@@ -967,14 +1028,28 @@ def collect(
                 failed_gates.append(f"{environment}_outbox_age_unobserved")
             # A passing Redis publish requires configuration, observed availability,
             # and a successful publish in this observation window.
-            record["redis_configured"] = metrics_window_complete and metric_summary["redis_configured"] == 1
+            record["redis_configured"] = metrics_window_complete and metric_summary["redis_configured_window"]["all_enabled"]
             record["redis_publish_verified"] = metrics_window_complete and (
                 record["redis_configured"]
-                and metric_summary["redis_last_observed_available"] == 1
+                and metric_summary["redis_availability_window"]["all_enabled"]
                 and metric_summary["redis_publish_success_observed_in_window"]
+                and metric_summary["redis_publish_age_unknown_samples"] == 0
+                and metric_summary["redis_publish_age_stale_samples"] == 0
                 and metric_summary["redis_publish_failure_delta"] == 0
                 and not metric_summary["redis_publish_failure_counter_reset"]
             )
+            if metric_summary["redis_configured_window"]["unknown_samples"]:
+                failed_gates.append(f"{environment}_redis_configuration_unobserved")
+            elif metric_summary["redis_configured_window"]["unavailable_samples"]:
+                failed_gates.append(f"{environment}_redis_configuration_changed_during_window")
+            if metric_summary["redis_availability_window"]["unknown_samples"]:
+                failed_gates.append(f"{environment}_redis_availability_unobserved")
+            if metric_summary["redis_availability_window"]["unavailable_samples"]:
+                failed_gates.append(f"{environment}_redis_unavailable_during_window")
+            if metric_summary["redis_publish_age_unknown_samples"]:
+                failed_gates.append(f"{environment}_redis_publish_age_unobserved")
+            if metric_summary["redis_publish_age_stale_samples"]:
+                failed_gates.append(f"{environment}_redis_publish_stale_during_window")
             record["redis_delivery_failure_count"] = (
                 int(record.get("redis_delivery_failure_count", 0)) + metric_summary["redis_publish_failure_delta"]
             )

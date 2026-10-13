@@ -69,9 +69,14 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     "reconnect_observed_at": 1790935500,
                     "full_snapshot_recovered_at": 1790935801,
                     "sqlite_restore_verified": True,
+                    "sqlite_restore_verified_at": "2026-10-02T10:24:00Z",
                     "rollback_drill_passed": True,
+                    "rollback_drill_at": "2026-10-02T10:26:00Z",
                     "production_untouched_on_canary_failure": True,
+                    "production_protection_observed_at": "2026-10-02T10:27:00Z",
                     "session_event_p95_ms": 450,
+                    "session_event_latency_started_at": "2026-10-02T10:10:00Z",
+                    "session_event_latency_ended_at": "2026-10-02T10:20:00Z",
                     "session_event_max_age_seconds": 0.5,
                     "traffic_sample_age_seconds": 1.2,
                     "observation_started_at": "2026-10-02T10:00:00Z",
@@ -279,6 +284,40 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertIn("canary_session_event_stale", report["failed_gates"])
 
+    def test_manual_latency_restore_and_rollback_evidence_must_be_fresh(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["session_event_p95_ms"] = None
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_session_event_latency_unobserved", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["session_event_latency_ended_at"] = "2026-10-02T10:31:00Z"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_session_event_latency_evidence_stale_or_outside_window", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["sqlite_restore_verified_at"] = "2026-09-30T10:24:00Z"
+        evidence["deployments"][0]["rollback_drill_at"] = "2026-09-30T10:26:00Z"
+        evidence["deployments"][0]["production_protection_observed_at"] = "2026-09-30T10:27:00Z"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("canary_sqlite_restore_evidence_stale_or_outside_window", report["failed_gates"])
+        self.assertIn("canary_rollback_evidence_stale_or_outside_window", report["failed_gates"])
+        self.assertIn("production_protection_evidence_stale_or_outside_window", report["failed_gates"])
+
+    def test_recent_manual_exercises_before_the_soak_are_accepted(self) -> None:
+        evidence = deepcopy(self.evidence)
+        canary = evidence["deployments"][0]
+        canary["session_event_latency_started_at"] = "2026-10-02T09:50:00Z"
+        canary["session_event_latency_ended_at"] = "2026-10-02T09:55:00Z"
+        canary["sqlite_restore_verified_at"] = "2026-10-02T09:30:00Z"
+        canary["rollback_drill_at"] = "2026-10-02T09:40:00Z"
+        canary["production_protection_observed_at"] = "2026-10-02T09:41:00Z"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 0, report["failed_gates"])
+
     def test_unverified_registry_digest_fails_closed(self) -> None:
         verification = self.evidence["collection"]["registry_digest_verification"][0]
         verification["observed_digest"] = "sha256:" + "c" * 64
@@ -298,6 +337,8 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         for field in (
             "transport", "rest_fallback", "redis_configured", "redis_publish_verified",
             "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
+            "sqlite_restore_verified_at", "rollback_drill_at", "production_protection_observed_at",
+            "session_event_latency_started_at", "session_event_latency_ended_at",
             "session_event_p95_ms", "traffic_sample_age_seconds", "stale_sample_count",
             "lost_event_count", "duplicate_event_count", "out_of_order_event_count",
             "redis_delivery_failure_count", "router_cpu_peak_percent",

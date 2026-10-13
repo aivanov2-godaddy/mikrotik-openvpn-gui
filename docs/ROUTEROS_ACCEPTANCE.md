@@ -234,6 +234,12 @@ unknown outbox metrics, any non-zero pending count observed during the window
 (even if it later drains), or any dead-lettered event observed in the window
 fail acceptance. This prevents a single fresh final sample or successful
 publish from masking a transient backlog, delivery gap, or stuck queue.
+For session-event and traffic freshness, the collector compares each age gauge
+with its paired source timestamp and the scrape time; missing, contradictory,
+or stale source timestamps fail the same window. Redis must be configured and
+reported available in every metrics sample, not merely in the final scrape;
+the last successful publish must also remain no older than 120 seconds at each
+sample.
 
 The final release evaluator requires the collector's timestamped result; a
 deployment-only evidence file cannot pass. Its collection window must cover at
@@ -254,6 +260,15 @@ to the report. Create a separate one-hour API token for each environment with
 only the `health.read` capability, and enter the canary token at a secure
 PowerShell prompt for the pre-promotion run. The collector does not create or
 revoke tokens:
+
+The operator-measured session-event p95 must include measurement start/end
+timestamps no more than 15 minutes before the collector window begins (or
+during that window). SQLite restore, canary rollback, and production-protection
+checks must be timestamped within the preceding 24 hours (or during the
+window). Missing, future-dated, or older manual exercise claims fail
+acceptance; do not copy results from an earlier release. The evaluator still
+labels these operator-entered checks as manual evidence; a timestamp is not a
+cryptographic attestation of the action.
 
 ```powershell
 $secureCanaryToken = Read-Host 'Canary health.read API token' -AsSecureString
