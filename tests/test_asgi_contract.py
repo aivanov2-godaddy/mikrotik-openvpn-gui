@@ -367,7 +367,83 @@ class ASGIContractTests(unittest.TestCase):
 
         self.assertEqual(native.metrics()["engine"], "asgi")
         self.assertEqual(native.metrics()["active_connections"], 0)
+        self.assertEqual(native.metrics()["health_heartbeats_total"], 0)
         self.assertNotIn("password", str(native.metrics()).lower())
+
+    def test_socketio_health_payload_contains_only_upstream_state(self) -> None:
+        from asgi import NativeSocketIO
+
+        class Supervisor:
+            class Health:
+                status = "healthy"
+                last_error_code = "must-not-leak"
+
+            @staticmethod
+            def health():
+                return Supervisor.Health()
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = type("Runtime", (), {"supervisor": Supervisor()})()
+
+        self.assertEqual(
+            native._health_payload(),
+            {"state": "healthy", "stream_connected": True},
+        )
+
+    def test_live_pump_emits_authenticated_health_heartbeat_without_session_data(self) -> None:
+        from asgi import NativeSocketIO
+        from telemetry_gateway import TelemetryPrincipal
+
+        principal = TelemetryPrincipal(True, auth_method="routeros", role="owner")
+
+        class Supervisor:
+            class Health:
+                status = "healthy"
+
+            @staticmethod
+            def health():
+                return Supervisor.Health()
+
+        class Runtime:
+            supervisor = Supervisor()
+
+            @staticmethod
+            def principal_for_session(_session_id: str):
+                return principal
+
+        class Gateway:
+            @staticmethod
+            def poll(_subscription: str):
+                return []
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.emitted = []
+
+            async def emit(self, event, payload, *, to, namespace) -> None:
+                self.emitted.append((event, payload, to, namespace))
+                native._subscriptions.pop(to, None)
+
+            async def disconnect(self, *_args, **_kwargs) -> None:
+                raise AssertionError("unexpected disconnect")
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = Runtime()
+        native.runtime.gateway = Gateway()
+        native.server = FakeServer()
+        native._subscriptions = {"socket-healthy": "subscription"}
+        native._session_ids = {"socket-healthy": "opaque-session"}
+        native._events_emitted_total = 0
+        native._health_heartbeats_total = 0
+
+        asyncio.run(native._pump("socket-healthy", "subscription"))
+
+        self.assertEqual(
+            native.server.emitted,
+            [("telemetry.health", {"state": "healthy", "stream_connected": True}, "socket-healthy", "/telemetry")],
+        )
+        self.assertEqual(native._health_heartbeats_total, 1)
+        self.assertEqual(native._events_emitted_total, 0)
 
     def test_live_pump_disconnects_when_session_is_revoked(self) -> None:
         from asgi import NativeSocketIO

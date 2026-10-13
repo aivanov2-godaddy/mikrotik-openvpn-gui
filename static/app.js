@@ -21,6 +21,7 @@ let socketIoSource = null;
 let realtimeReconnectTimer = null;
 let realtimeTransport = 'sse';
 let socketIoEngine = 'polling';
+let socketIoHealth = null;
 let pageReloadScheduled = false;
 let terminationAttempt = null;
 let sessionReauthentication = null;
@@ -778,11 +779,23 @@ function updateDashboard(payload) {
   updateTelemetryIndicator(payload.telemetry);
 }
 
+function socketIoHealthIsFresh() {
+  return realtimeTransport === 'socketio'
+    && socketIoHealth?.state === 'healthy'
+    && socketIoHealth.stream_connected === true
+    && Date.now() - socketIoHealth.receivedAt <= 15_000;
+}
+
 function updateTelemetryIndicator(status = {}) {
-  const state = String(status.state || 'healthy');
+  const effective = socketIoHealthIsFresh()
+    ? socketIoHealth
+    : status;
+  const state = String(effective.state || 'healthy');
   const transport = String(status.transport || realtimeTransport || 'sse').toUpperCase();
-  const age = Number(status.event_age_seconds);
-  const stale = state === 'stale' || state === 'error' || (Number.isFinite(age) && age > 10);
+  const age = Number(effective.event_age_seconds);
+  const streamConnected = effective.stream_connected === true;
+  const stale = state === 'stale' || state === 'error'
+    || (!streamConnected && Number.isFinite(age) && age > 10);
   $$('[data-live-indicator]').forEach((indicator) => {
     indicator.classList.toggle('stale', stale);
     indicator.classList.remove('pending');
@@ -790,6 +803,7 @@ function updateTelemetryIndicator(status = {}) {
     if (!label) return;
     if (state === 'error') label.textContent = 'Telemetry unavailable';
     else if (stale) label.textContent = `Stale · ${transport}`;
+    else if (state === 'pending') label.textContent = `Connecting · ${transport}`;
     else label.textContent = `Live · ${transport}`;
   });
 }
@@ -899,8 +913,10 @@ async function pollStatus() {
     pollingFailures += 1;
     const streamIsFresh = lastLiveSnapshotAt
       && Date.now() - lastLiveSnapshotAt <= LIVE_SNAPSHOT_FRESHNESS_MS;
-    if (streamIsFresh) {
-      // A failed snapshot poll must not overwrite a newer live stream frame.
+    const socketHealthIsFresh = socketIoHealthIsFresh();
+    if (streamIsFresh || socketHealthIsFresh) {
+      // A failed status poll must not overwrite a recent event or a healthy
+      // authenticated Socket.IO stream during a quiet period.
       updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
     } else {
       indicators.forEach((indicator) => {
@@ -912,6 +928,8 @@ async function pollStatus() {
       toast(
         streamIsFresh
           ? 'The full status snapshot is delayed; live connection updates are still arriving. Retrying automatically.'
+          : socketHealthIsFresh
+            ? 'The full status snapshot is delayed; the live telemetry stream remains connected. Retrying automatically.'
           : 'Live RouterOS data is temporarily unavailable. Retrying automatically.',
         'error',
       );
@@ -1496,6 +1514,26 @@ function connectSocketIO() {
       upgrade: nativeWebSocket,
     });
     socketIoSource = socket;
+    socket.on('connect', () => {
+      socketIoHealth = { state: 'pending', stream_connected: false, receivedAt: Date.now() };
+      updateTelemetryIndicator({ transport: 'socketio' });
+    });
+    socket.on('telemetry.health', (health) => {
+      if (!health || typeof health !== 'object') return;
+      const state = health.state === 'healthy'
+        ? 'healthy'
+        : health.state === 'connecting' ? 'pending' : 'error';
+      socketIoHealth = {
+        state,
+        stream_connected: health.stream_connected === true && state === 'healthy',
+        receivedAt: Date.now(),
+      };
+      updateTelemetryIndicator({ transport: 'socketio' });
+    });
+    socket.on('disconnect', () => {
+      socketIoHealth = { state: 'stale', stream_connected: false, receivedAt: Date.now() };
+      updateTelemetryIndicator({ transport: 'socketio' });
+    });
     socket.on('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
     socket.on('vpn.session.connected', () => pollStatus());
     socket.on('vpn.session.updated', () => pollStatus());
@@ -1503,6 +1541,7 @@ function connectSocketIO() {
     socket.on('connect_error', () => {
       socket.close();
       socketIoSource = null;
+      socketIoHealth = null;
       realtimeTransport = 'sse';
       scheduleRealtimeReconnect();
     });
