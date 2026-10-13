@@ -309,36 +309,11 @@ blanket pass for ASVS, OWASP, or production security.
 
 ## Explicitly unverified live-router / deployment evidence
 
-No RouterOS or production state was changed for this assurance work. On
-2026-10-04, unauthenticated HTTPS GET requests to `/`, `/api/events`,
-`/api/observability`, `/api/operations-timeline.json`, and `/metrics` on the
-public dashboard origin each returned HTTP 302 before following redirects. The
-browser showed the redirect flow is Cloudflare Access. This is evidence that
-the public edge gated these requests at that time; it does not prove the
-application's own anonymous-route behavior, authenticated authorization,
-cross-origin handling, or live-stream revocation. No redirect query, cookies,
-credentials, telemetry payloads, or router identifiers are recorded here.
-
-On 2026-10-06, the same unauthenticated, no-cookie HTTPS GET check was repeated
-for `/`, `/metrics`, `/api/events`, and `/api/users`; each returned HTTP 302.
-Redirects were not followed, and response bodies/destinations were not retained.
-This confirms only the public edge redirect behavior at that observation time.
-It does not verify backend authorization, authenticated session expiry or
-revocation, WebSocket TLS/origin behavior through the proxy, or host/proxy log
-contents. A simultaneous authenticated dashboard observation showed
-`Connection data delayed`, so no live-telemetry acceptance pass is claimed.
-
-In the 2026-10-13 10:37 EEST follow-up, the production Connections page still
-reported `Connection data delayed` and showed the old status timestamp
-`2026-10-12 18:06`; RouterOS WebFig PPP Active Connections initially showed
-zero entries, and the canary dashboard was at RouterOS sign-in. A read-only
-RouterOS recheck at approximately 11:04 EEST later showed one active OpenVPN/PPP
-session, but the production dashboard still showed its unchanged delayed row
-through a subsequent 10-second observation. This confirms the test tunnel at
-the router but not live application-session lifecycle or telemetry delivery.
-The PR #662 runtime image was published to GHCR but was not read back from
-RouterOS, and the canary dashboard remained unauthenticated. No
-router/container state or VPN session was changed in this check.
+This public document contains no live-router, proxy, or operator-session
+observations. Repository tests establish only the behaviors they exercise; they
+do not verify the deployed access-control policy, reverse-proxy routing, TLS
+termination, live session state, or RouterOS permissions. Keep any such
+deployment evidence in operator-controlled storage.
 
 The following remain **NOT VERIFIED** and require an authorized controlled
 test window:

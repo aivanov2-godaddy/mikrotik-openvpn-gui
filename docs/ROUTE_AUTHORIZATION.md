@@ -110,7 +110,7 @@ all current GET API-token route/scope combinations, and route-by-role capability
 assertions. They do not replace a code-owner review of every handler, provide
 an external penetration test, or verify behavior behind the production proxy.
 The high-impact router mutation workflow is tracked separately in
-[mutation safety](ROADMAP.md#phase-4-release-and-security-assurance).
+[mutation safety](ROADMAP.md#acceptance-principles).
 
 ## Independent code review record — 2026-10-04
 
