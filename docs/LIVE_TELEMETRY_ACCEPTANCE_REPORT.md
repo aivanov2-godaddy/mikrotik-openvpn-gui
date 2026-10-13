@@ -17,18 +17,22 @@ are:
 | AMD64 evaluation | `sha-ab6e51e0de930a76f294ddb173943939a5332913-amd64` | `sha256:8e32e0855d72439216b24e4366a650469068dfccdf53f4cb8549ec900aab5da4` |
 
 No RouterOS read-back of this candidate has been collected; therefore canary
-deployment/readiness and production state are unverified. In the 2026-10-13
-10:37 EEST cross-check, RouterOS WebFig PPP Active Connections showed zero
-entries. The production dashboard displayed one row but reported delayed
-connection data and an old status timestamp (`2026-10-12 18:06`), while the
-canary dashboard remained at RouterOS sign-in. The operator reported the test
-VPN connected, but the simultaneous views did not corroborate that claim, so
-it is not counted as acceptance evidence. PR #659 (`75c9134`) strengthened
-evidence validation; PR #661 added logout-CSRF negative-path coverage; and PR
-#662 corrected reconnect metrics. Do not promote to production on image
-publication alone. Run the candidate-specific canary readiness gate and full
-acceptance collector first. Prior read-backs and acceptance observations below
-remain historical evidence for their stated image revisions only.
+deployment/readiness and production state are unverified. The 2026-10-13
+10:37 EEST check initially showed zero RouterOS PPP Active Connections while
+the production dashboard showed one delayed row with status timestamp
+`2026-10-12 18:06`; the canary dashboard was at RouterOS sign-in. After the
+operator reported reconnecting, a read-only RouterOS recheck at approximately
+11:04 EEST showed one active OpenVPN/PPP session with about 1m15s uptime. The
+already-open production page still reported delayed connection data and its
+displayed session/counters remained unchanged during a subsequent 10-second
+observation. Thus a router-side test tunnel is confirmed, but delivery to the
+production dashboard and candidate-specific canary streaming are not. PR #659
+(`75c9134`) strengthened evidence validation; PR #661 added logout-CSRF
+negative-path coverage; and PR #662 corrected reconnect metrics. Do not
+promote to production on image publication alone. Authenticate to the canary,
+read back its candidate tag/health, then run the candidate-specific readiness
+gate and full acceptance collector. Earlier read-backs remain historical
+evidence only for their stated image revisions.
 
 The authenticated canary dashboard reported `Live · SOCKETIO`; its traffic
 counters and session uptime advanced between observations without a manual
