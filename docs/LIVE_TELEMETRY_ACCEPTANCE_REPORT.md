@@ -1,6 +1,6 @@
 # Live telemetry acceptance report
 
-Status: **PR #641 RUNTIME PUBLISHED AND CONFIGURED ON CANARY; READINESS RETRY IN PROGRESS; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #641 RUNTIME PUBLISHED AND STAGED ON CANARY AFTER 30-SAMPLE READINESS SOAK; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
 As of 2026-10-13, the latest published runtime image is built from commit
 `960cee6445cf77e6947d146a7f8dcee7842cd9e0` (PR #641), published by run
@@ -11,19 +11,23 @@ the run verified provenance and SPDX SBOM and passed the published-runtime
 smoke. PR #642 (`ffd47ed`) changes only acceptance evaluator/tests and did not
 trigger a runtime image build.
 
-At 02:48 EEST, RouterOS read-back showed the canary configured with PR #641's
-immutable ARM64 tag and `healthcheck-status=good`. Production remained healthy
-on its prior `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64` image. The
-canary-only stage updater had been running since 02:33 EEST, its lock remained
-held, and `/ppp active` reported one disposable test session. At that check,
-there was no 30-sample readiness-pass log or staged marker. The run is still
-in progress; do not count elapsed time or individual `/readyz` HTTP 200s as a
-completed soak. Production was not touched.
+At 03:05:01 EEST, RouterOS logged `canary readiness soak passed samples=30`.
+The local pending-candidate record was read back with candidate
+`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`, commit
+`960cee6445cf77e6947d146a7f8dcee7842cd9e0`, the prior production image, and
+the same staged-at timestamp. RouterOS read-back showed that canary tag and a
+healthy container. The production container was also healthy and still on
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; it was not changed.
+The authenticated canary Connections page showed one active test device and
+`Live · SOCKETIO`. This completes the updater's 30-sample readiness gate only;
+it does not complete the release-acceptance report or authorize production
+promotion.
 
 The authenticated canary dashboard reported `Live · SOCKETIO`; its traffic
-counters changed between observations without a manual page refresh. This is
-qualitative proof that the current page receives streaming updates, not a
-numeric event-latency or sample-freshness measurement. The merged #639/#642
+counters and session uptime advanced between observations without a manual
+page refresh. This is qualitative proof that the current page receives
+streaming updates, not a numeric event-latency or sample-freshness
+measurement. The merged #639/#642
 evaluator requires in-window ordered RouterOS-supervisor reconnect and full
 snapshot timestamps, reset-free evidence, and session-event observation age
 no greater than two seconds; missing evidence fails closed. No new measured
