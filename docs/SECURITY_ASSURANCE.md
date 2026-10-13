@@ -238,11 +238,16 @@ blanket pass for ASVS, OWASP, or production security.
   `SameSite=Strict`; state-changing routes use CSRF validation. These code-level
   facts do not establish correct reverse-proxy/TLS behavior in the deployed
   environment.
-- Automated live-stream evidence covers Socket.IO pump revalidation in-process.
-  It does not prove an actual browser reconnect, cross-origin behavior at the
-  deployed proxy, or revocation timing on a physical router. The application
-  leaves python-engineio origin handling enabled; an empty allowed-origin list
-  would disable that check and is intentionally not used.
+- Automated live-stream evidence covers the native ASGI Socket.IO WebSocket
+  transport in a loopback integration test: an authenticated client receives a
+  telemetry frame; revocation, expiry, or removal of `sessions.read` closes the
+  active namespace; and reconnect after revocation/expiry is rejected. Separate
+  ASGI handshake tests reject foreign HTTP and WebSocket origins. CI installs
+  the pinned runtime dependencies before the test suite, so these checks run
+  rather than silently skipping there. This does not prove browser reconnect,
+  proxy-origin behavior, or revocation timing on a physical router. The
+  application leaves python-engineio origin handling enabled; an empty
+  allowed-origin list would disable that check and is intentionally not used.
 - The legacy Socket.IO polling bridge also compares a supplied `Origin` with
   the configured `PUBLIC_ORIGIN` on handshake/poll requests and requires an
   exact configured origin on POST. GET without `Origin` remains supported for

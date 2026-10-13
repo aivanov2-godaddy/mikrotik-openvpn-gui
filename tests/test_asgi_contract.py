@@ -12,6 +12,147 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    def test_native_websocket_revocation_closes_stream_and_blocks_reconnect(self) -> None:
+        self._exercise_native_websocket_lifecycle("revoke")
+
+    def test_native_websocket_capability_change_closes_stream(self) -> None:
+        self._exercise_native_websocket_lifecycle("capability-change")
+
+    def test_native_websocket_expiry_closes_stream_and_blocks_reconnect(self) -> None:
+        self._exercise_native_websocket_lifecycle("expiry")
+
+    def _exercise_native_websocket_lifecycle(self, transition: str) -> None:
+        if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
+            self.skipTest("native WebSocket runtime dependencies are not installed")
+
+        import uvicorn
+        import websockets
+
+        from asgi import NativeSocketIO
+        from telemetry_gateway import TelemetryPrincipal
+
+        class Gateway:
+            def __init__(self) -> None:
+                self.opened: list[str] = []
+                self.closed: list[str] = []
+                self.frames = 0
+
+            def open(self, _principal: TelemetryPrincipal) -> str:
+                subscription = f"subscription-{len(self.opened) + 1}"
+                self.opened.append(subscription)
+                return subscription
+
+            def close(self, subscription: str) -> None:
+                self.closed.append(subscription)
+
+            def poll(self, _subscription: str, after_sequence: int | None = None) -> list[dict[str, object]]:
+                if self.frames:
+                    return []
+                self.frames += 1
+                return [{"event": "telemetry.snapshot", "sequence": 1, "payload": {"sessions": []}}]
+
+        async def exercise() -> None:
+            sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+            session = sessions.create("operator", "test-only-router-password", role="owner")
+            gateway = Gateway()
+
+            class Runtime:
+                def principal_for_session(self, session_id: str) -> TelemetryPrincipal | None:
+                    current = sessions.get(session_id, touch=False)
+                    return TelemetryPrincipal.from_session(current) if current is not None else None
+
+            runtime = Runtime()
+            runtime.gateway = gateway
+            native = NativeSocketIO(runtime)
+            import socketio
+
+            application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(128)
+            listener.setblocking(False)
+            port = listener.getsockname()[1]
+            config = uvicorn.Config(application, log_level="critical", lifespan="off")
+            server = uvicorn.Server(config)
+            server_task = asyncio.create_task(server.serve(sockets=[listener]))
+            try:
+                deadline = asyncio.get_running_loop().time() + 5
+                while not server.started and not server_task.done():
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("test ASGI server did not start")
+                    await asyncio.sleep(0.01)
+                self.assertTrue(server.started)
+
+                cookie = f"vpn_session={session.session_id}"
+                ws_url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
+
+                async def receive_until(ws, predicate, timeout: float = 5) -> str:
+                    deadline = asyncio.get_running_loop().time() + timeout
+                    while asyncio.get_running_loop().time() < deadline:
+                        packet = await asyncio.wait_for(ws.recv(), timeout=max(0.1, deadline - asyncio.get_running_loop().time()))
+                        if packet == "2":
+                            await ws.send("3")
+                            continue
+                        if predicate(str(packet)):
+                            return str(packet)
+                    self.fail("timed out waiting for Socket.IO WebSocket packet")
+
+                async with websockets.connect(
+                    ws_url,
+                    additional_headers={"Cookie": cookie},
+                    open_timeout=5,
+                    ping_interval=None,
+                ) as ws:
+                    self.assertTrue((await asyncio.wait_for(ws.recv(), timeout=5)).startswith("0{"))
+                    await ws.send("40/telemetry,")
+                    connect_ack = await receive_until(ws, lambda packet: packet.startswith(("40/telemetry,", "44/telemetry,")))
+                    self.assertTrue(connect_ack.startswith("40/telemetry,"), connect_ack)
+                    self.assertEqual(gateway.opened, ["subscription-1"])
+
+                    snapshot = await receive_until(ws, lambda packet: packet.startswith("42/telemetry,"))
+                    self.assertIn("telemetry.snapshot", snapshot)
+                    if transition == "revoke":
+                        self.assertTrue(sessions.revoke(session.session_id))
+                    elif transition == "expiry":
+                        current = sessions.get(session.session_id, touch=False)
+                        self.assertIsNotNone(current)
+                        current.last_seen = time.time() - sessions.idle_seconds - 1
+                    else:
+                        # Keep the opaque session valid but remove its live-stream grant.
+                        current = sessions.get(session.session_id, touch=False)
+                        self.assertIsNotNone(current)
+                        current.capabilities = frozenset()
+
+                    disconnect_packet = await receive_until(ws, lambda packet: packet.startswith("41/telemetry,"), timeout=3)
+                    self.assertTrue(disconnect_packet.startswith("41/telemetry,"))
+                    self.assertEqual(gateway.closed, ["subscription-1"])
+                    self.assertEqual(native.metrics()["active_connections"], 0)
+
+                if transition in {"revoke", "expiry"}:
+                    async with websockets.connect(
+                        ws_url,
+                        additional_headers={"Cookie": cookie},
+                        open_timeout=5,
+                        ping_interval=None,
+                    ) as reconnect:
+                        self.assertTrue((await asyncio.wait_for(reconnect.recv(), timeout=5)).startswith("0{"))
+                        await reconnect.send("40/telemetry,")
+                        rejection = await receive_until(reconnect, lambda packet: packet.startswith("44/telemetry,"))
+                        self.assertTrue(rejection.startswith("44/telemetry,"), rejection)
+                    self.assertEqual(gateway.opened, ["subscription-1"])
+                    self.assertEqual(native.metrics()["rejected_connections_total"], 1)
+                    if transition == "expiry":
+                        self.assertIsNone(sessions.get(session.session_id, touch=False))
+                else:
+                    self.assertIsNotNone(sessions.get(session.session_id, touch=False))
+                    self.assertEqual(native.metrics()["rejected_connections_total"], 0)
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(server_task, timeout=5)
+
+        asyncio.run(exercise())
+
     @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
     def test_socketio_does_not_disable_engineio_same_origin_validation(self) -> None:
         from asgi import NativeSocketIO
