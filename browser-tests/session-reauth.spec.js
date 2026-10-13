@@ -138,7 +138,9 @@ test('API token creation and revocation require step-up without reloading the li
   await expect(dialog).toBeHidden();
   await expect(page.locator('[data-created-token]')).toContainText('vpt_');
 
-  const tokenRow = page.locator('tr').filter({ hasText: tokenLabel });
+  // The audit timeline also contains the token label in its own table row;
+  // scope this action locator to the token inventory row only.
+  const tokenRow = page.locator('tr[data-token-id]').filter({ hasText: tokenLabel });
   await expect(tokenRow).toBeVisible();
   const revokeReauth = page.waitForResponse((response) => (
     response.request().method() === 'POST'
