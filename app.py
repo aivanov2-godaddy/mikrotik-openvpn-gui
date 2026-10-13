@@ -120,6 +120,24 @@ STATUS_USER_CONTROL_FIELDS = frozenset(
         "updated_at",
     }
 )
+POLICY_TEMPLATE_CONTROL_FIELDS = frozenset(
+    {
+        "policy",
+        "expires_at",
+        "max_sessions",
+        "rate_limit_kbps",
+        "dns_mode",
+        "notifications",
+        "quota_mb",
+        "schedule",
+    }
+)
+POLICY_TEMPLATE_FIELDS = frozenset(
+    {"id", "name", "description", "group_name", "controls", "protected", "created_at", "updated_at"}
+)
+POLICY_TEMPLATE_ASSIGNMENT_FIELDS = frozenset(
+    {"vpn_user", "template_id", "overrides", "assigned_at", "updated_at"}
+)
 
 
 def _same_origin(left: str, right: str) -> bool:
@@ -1472,9 +1490,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session = self._require_session(api=True)
             if not session or not self._require_capability(session, "policies.read"):
                 return
+            templates = []
+            for record in self.server.context.store.list_policy_templates():
+                if not isinstance(record, dict):
+                    continue
+                template = {key: record[key] for key in POLICY_TEMPLATE_FIELDS if key in record}
+                controls = record.get("controls")
+                template["controls"] = (
+                    {key: controls[key] for key in POLICY_TEMPLATE_CONTROL_FIELDS if key in controls}
+                    if isinstance(controls, dict)
+                    else {}
+                )
+                templates.append(template)
+
+            assignments = {}
+            for username, record in self.server.context.store.user_template_assignments().items():
+                if not isinstance(record, dict):
+                    continue
+                assignment = {
+                    key: record[key]
+                    for key in POLICY_TEMPLATE_ASSIGNMENT_FIELDS - {"overrides"}
+                    if key in record
+                }
+                overrides = record.get("overrides")
+                assignment["overrides"] = (
+                    [key for key in overrides if isinstance(key, str) and key in POLICY_TEMPLATE_CONTROL_FIELDS]
+                    if isinstance(overrides, list)
+                    else []
+                )
+                assignments[str(username)] = assignment
             self._json({
-                "templates": self.server.context.store.list_policy_templates(),
-                "assignments": self.server.context.store.user_template_assignments(),
+                "templates": templates,
+                "assignments": assignments,
             })
             return
         if path == "/api/users":

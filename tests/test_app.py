@@ -2050,6 +2050,68 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn("must-not-leak", payload.decode("utf-8"))
         self.assertNotIn("service", user)
 
+    def test_policy_template_api_projects_storage_records_to_allowlisted_fields(self) -> None:
+        self.login()
+        template = {
+            "id": "synthetic-template",
+            "name": "Synthetic template",
+            "description": "Synthetic description",
+            "group_name": "Support",
+            "controls": {
+                "policy": "lan-only",
+                "expires_at": None,
+                "max_sessions": 2,
+                "rate_limit_kbps": 1024,
+                "dns_mode": "router",
+                "notifications": True,
+                "quota_mb": 5120,
+                "schedule": "weekdays",
+                "private_key": "SENSITIVE-TEMPLATE-CONTROL",
+            },
+            "protected": False,
+            "created_at": 100,
+            "updated_at": 200,
+            "private_key": "SENSITIVE-TEMPLATE-RECORD",
+        }
+        assignment = {
+            "vpn_user": "synthetic-user",
+            "template_id": "synthetic-template",
+            "overrides": ["rate_limit_kbps", "private_key"],
+            "assigned_at": 300,
+            "updated_at": 400,
+            "private_key": "SENSITIVE-ASSIGNMENT-RECORD",
+        }
+        with (
+            mock.patch.object(self.server.context.store, "list_policy_templates", return_value=[template]),
+            mock.patch.object(
+                self.server.context.store,
+                "user_template_assignments",
+                return_value={"synthetic-user": assignment},
+            ),
+        ):
+            status, _, payload = self.request("GET", "/api/policy-templates")
+
+        self.assertEqual(status, 200)
+        response = json.loads(payload)
+        self.assertEqual(set(response), {"templates", "assignments"})
+        self.assertEqual(len(response["templates"]), 1)
+        public_template = response["templates"][0]
+        self.assertEqual(
+            set(public_template),
+            {"id", "name", "description", "group_name", "controls", "protected", "created_at", "updated_at"},
+        )
+        self.assertEqual(
+            set(public_template["controls"]),
+            {"policy", "expires_at", "max_sessions", "rate_limit_kbps", "dns_mode", "notifications", "quota_mb", "schedule"},
+        )
+        public_assignment = response["assignments"]["synthetic-user"]
+        self.assertEqual(
+            set(public_assignment),
+            {"vpn_user", "template_id", "overrides", "assigned_at", "updated_at"},
+        )
+        self.assertEqual(public_assignment["overrides"], ["rate_limit_kbps"])
+        self.assertNotIn("SENSITIVE-", payload.decode("utf-8"))
+
     def test_filtered_timeline_export_has_no_references_to_omitted_events(self) -> None:
         self.login()
         start_at = 1767312000  # 2026-01-02 00:00:00 UTC
