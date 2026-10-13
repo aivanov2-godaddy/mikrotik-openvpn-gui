@@ -8,6 +8,7 @@ dashboard session and are never copied into the broker or delivery layer.
 
 from __future__ import annotations
 
+import hmac
 import threading
 from urllib.parse import urlsplit
 from typing import Any, Callable, Iterable, Mapping
@@ -70,6 +71,7 @@ class TelemetryRuntime:
                 config=TelemetrySupervisorConfig(enabled=True),
                 stop_event=self._stop,
                 on_events=self._publish,
+                authorization_check=self._credentials_valid,
             )
             self.sampler = TelemetryInterfaceSampler(
                 self._connection,
@@ -79,6 +81,7 @@ class TelemetryRuntime:
                 stop_event=self._stop,
                 on_sample=self.state.mark_traffic_samples,
                 on_events=self._publish,
+                authorization_check=self._credentials_valid,
             )
 
     def start(self) -> None:
@@ -146,9 +149,49 @@ class TelemetryRuntime:
 
     def _credentials(self) -> tuple[str, str]:
         for session in self.sessions.active():
-            if session.auth_method == "routeros" and session.username and session.password:
-                return session.username, session.password
+            if session.auth_method != "routeros":
+                continue
+            try:
+                return self._credentials_for_session(session)
+            except RuntimeError:
+                continue
         raise RuntimeError("credentials_unavailable")
+
+    def _credentials_valid(self, username: str, password: str) -> bool:
+        """Confirm the exact RouterOS credential pair still has a live session."""
+
+        for session in self.sessions.active():
+            if session.auth_method != "routeros":
+                continue
+            try:
+                current_username, current_password = self._credentials_for_session(session)
+            except RuntimeError:
+                continue
+            if hmac.compare_digest(
+                current_username.encode("utf-8"), username.encode("utf-8")
+            ) and hmac.compare_digest(current_password.encode("utf-8"), password.encode("utf-8")):
+                return True
+        return False
+
+    def _credentials_for_session(self, session: Any) -> tuple[str, str]:
+        """Revalidate one session without extending its idle lifetime."""
+
+        if self.role_resolver is None:
+            current = self.sessions.get(session.session_id, touch=False)
+        else:
+            current = self.sessions.revalidate_role(
+                session.session_id,
+                self.role_resolver,
+                interval_seconds=5,
+            )
+        if (
+            current is None
+            or current.auth_method != "routeros"
+            or not current.username
+            or not current.password
+        ):
+            raise RuntimeError("credentials_unavailable")
+        return current.username, current.password
 
     @staticmethod
     def _session_snapshot(connection: RouterOSBinaryConnection) -> Iterable[Mapping[str, Any]]:

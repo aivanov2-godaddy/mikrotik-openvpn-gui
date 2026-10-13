@@ -234,13 +234,16 @@ blanket pass for ASVS, OWASP, or production security.
 - Creating or deleting shared saved views requires both a valid CSRF token and
   `sessions.read`; regression coverage verifies denied writes leave the saved
   view store unchanged.
-- The 15-second role revalidation interval bounds how long an existing
-  dashboard session can retain a role after a RouterOS account/group change,
-  provided RouterOS returns the current `/user` state. A failed role lookup
-  cannot retain Owner privileges; the session is reduced to read-only. A
-  RouterOS-reported missing/disabled account or HTTP 401 revokes it. RouterOS
-  API policy-session renewal behavior may have its own timing; no immediate
-  physical-device enforcement claim is made.
+- Dashboard request/live-stream role checks use a 15-second revalidation
+  interval. The Binary API telemetry workers use a separate five-second role
+  revalidation interval and require the exact credential pair to remain backed
+  by an active RouterOS dashboard session before accepting or publishing
+  snapshots, session events, or traffic samples. The upstream socket has a
+  10-second read timeout, which bounds how long an idle listen can remain open
+  before it observes revocation; this is not instantaneous physical-device
+  enforcement. A failed role lookup cannot retain Owner privileges; the
+  dashboard session is reduced to read-only. A RouterOS-reported
+  missing/disabled account or HTTP 401 revokes it.
 - Browser session cookies are emitted with `Secure`, `HttpOnly`, and
   `SameSite=Strict`; state-changing routes use CSRF validation. These code-level
   facts do not establish correct reverse-proxy/TLS behavior in the deployed
@@ -255,6 +258,11 @@ blanket pass for ASVS, OWASP, or production security.
   proxy-origin behavior, or revocation timing on a physical router. The
   application leaves python-engineio origin handling enabled; an empty
   allowed-origin list would disable that check and is intentionally not used.
+- Binary API supervisor and sampler tests also verify source-session revocation
+  across connection setup, snapshot recovery, session-event delivery, and
+  counter sampling. These deterministic checks establish code behavior only;
+  they do not establish live-router revocation timing or deployed telemetry
+  behavior.
 - The legacy Socket.IO polling bridge also compares a supplied `Origin` with
   the configured `PUBLIC_ORIGIN` on handshake/poll requests and requires an
   exact configured origin on POST. GET without `Origin` remains supported for

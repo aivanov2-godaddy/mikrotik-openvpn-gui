@@ -51,6 +51,16 @@ class TelemetrySupervisorError(RuntimeError):
     """Raised when a read-only telemetry attempt cannot be completed."""
 
 
+def _require_authorized(
+    authorization_check: Callable[[str, str], bool] | None,
+    credentials: tuple[str, str],
+) -> None:
+    """Stop processing when the RouterOS credential source is no longer valid."""
+
+    if authorization_check is not None and not authorization_check(*credentials):
+        raise TelemetrySupervisorError("credentials_unavailable")
+
+
 @dataclass(frozen=True, slots=True)
 class TelemetrySupervisorConfig:
     """Safe, bounded supervisor settings.
@@ -125,6 +135,7 @@ class TelemetrySupervisor:
         sleep: Callable[[float], None] = time.sleep,
         stop_event: threading.Event | None = None,
         on_events: Callable[[list[TelemetryEvent]], None] | None = None,
+        authorization_check: Callable[[str, str], bool] | None = None,
     ) -> None:
         self._connection_factory = connection_factory
         self._credentials_provider = credentials_provider
@@ -135,6 +146,7 @@ class TelemetrySupervisor:
         self._sleep = sleep
         self._stop_event = stop_event or threading.Event()
         self._on_events = on_events
+        self._authorization_check = authorization_check
         self._lock = threading.RLock()
         self._status = "disabled" if not self._config.enabled else "stopped"
         self._attempts = 0
@@ -203,7 +215,9 @@ class TelemetrySupervisor:
         connection = self._connection_factory()
         try:
             username, password = self._credentials_provider()
+            credentials = (username, password)
             connection.connect(username, password)
+            _require_authorized(self._authorization_check, credentials)
             with self._lock:
                 self._status = "connecting" if self._snapshot_reader is not None else "healthy"
                 if self._last_connected_at is not None:
@@ -211,12 +225,15 @@ class TelemetrySupervisor:
                 self._last_connected_at = int(self._clock())
 
             if self._snapshot_reader is not None:
+                _require_authorized(self._authorization_check, credentials)
                 started = self._clock()
                 records = list(self._snapshot_reader(connection))
+                _require_authorized(self._authorization_check, credentials)
                 elapsed = self._clock() - started
                 if elapsed > self._config.snapshot_timeout:
                     raise TelemetrySupervisorError("snapshot_timeout")
-                self._publish(self._broker.reconcile(records, now=int(self._clock())), snapshot=True)
+                events = self._broker.reconcile(records, now=int(self._clock()))
+                self._publish(events, snapshot=True, credentials=credentials)
                 with self._lock:
                     self._status = "healthy"
 
@@ -226,9 +243,13 @@ class TelemetrySupervisor:
             for reply in connection.listen(self.LISTEN_PATH):
                 if self._stop_event.is_set():
                     return
+                _require_authorized(self._authorization_check, credentials)
                 if not isinstance(reply, RouterOSReply):
                     raise TelemetrySupervisorError("invalid_reply")
-                self._publish(self._broker.apply(reply, now=int(self._clock())))
+                self._publish(
+                    self._broker.apply(reply, now=int(self._clock())),
+                    credentials=credentials,
+                )
             raise TelemetrySupervisorError("listen_ended")
         finally:
             close = getattr(connection, "close", None)
@@ -263,7 +284,15 @@ class TelemetrySupervisor:
             with self._lock:
                 self._status = "stopped"
 
-    def _publish(self, events: list[TelemetryEvent], *, snapshot: bool = False) -> None:
+    def _publish(
+        self,
+        events: list[TelemetryEvent],
+        *,
+        snapshot: bool = False,
+        credentials: tuple[str, str] | None = None,
+    ) -> None:
+        if credentials is not None:
+            _require_authorized(self._authorization_check, credentials)
         if not events:
             return
         now = int(self._clock())
@@ -307,6 +336,7 @@ class TelemetryInterfaceSampler:
         stop_event: threading.Event | None = None,
         on_sample: Callable[[], None] | None = None,
         on_events: Callable[[list[TelemetryEvent]], None] | None = None,
+        authorization_check: Callable[[str, str], bool] | None = None,
     ) -> None:
         if interval <= 0:
             raise ValueError("interval must be positive")
@@ -319,6 +349,7 @@ class TelemetryInterfaceSampler:
         self._stop_event = stop_event or threading.Event()
         self._on_sample = on_sample
         self._on_events = on_events
+        self._authorization_check = authorization_check
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -329,15 +360,20 @@ class TelemetryInterfaceSampler:
         connection = self._connection_factory()
         try:
             username, password = self._credentials_provider()
+            credentials = (username, password)
             connection.connect(username, password)
+            _require_authorized(self._authorization_check, credentials)
             records = read_interface_counters(connection)
+            _require_authorized(self._authorization_check, credentials)
             events = self._broker.reconcile_interfaces(records, now=int(self._clock()))
             # Freshness describes a successful RouterOS observation, not only
             # a counter delta. Quiet interfaces still need to advance the
             # sample timestamp even though there is nothing to publish.
             if self._on_sample is not None:
+                _require_authorized(self._authorization_check, credentials)
                 self._on_sample()
             if self._on_events is not None:
+                _require_authorized(self._authorization_check, credentials)
                 self._on_events(list(events))
             return events
         finally:
