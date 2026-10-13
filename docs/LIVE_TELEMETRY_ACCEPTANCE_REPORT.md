@@ -1,9 +1,39 @@
 # Live telemetry acceptance report
 
-Status: **PR #672 ARM64 RUNTIME PUBLISHED AND PROVENANCE-VERIFIED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #685 ARM64 CANDIDATE DEPLOYED AND HEALTHY ON CANARY; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
-As of 2026-10-13, PR #672 (`298fad73e8310b5d07cb4a646362513a0ac4e703`) is the
-latest merged mainline runtime change. Publisher run
+## Latest canary deployment and live-session observation — 2026-10-13
+
+The merged PR #685 candidate (`bc03f3b456a488fc464061fe5944278c0207a94f`)
+was read back on RouterOS as the canary container's immutable ARM64 tag
+`sha-bc03f3b456a488fc464061fe5944278c0207a94f-arm64`; the container reached
+`HEALTHY`. The registry digest is
+`sha256:b83dd23bab8124b493b676bdaf31c2e45ae8e89d8151822854c63cc348597824`.
+At that point-in-time read, canary container memory was 37.4 MiB and CPU usage
+was 0.6%; the dashboard showed router CPU at 13%, memory at 36%, and storage at
+25%. These are single samples, not a resource-impact soak. Production was not
+changed or read back during this canary update.
+
+After a fresh Cloudflare Access and RouterOS dashboard sign-in, the canary
+Connections view showed one active OpenVPN session and `Live · SOCKETIO` with
+five-second traffic samples. Session uptime advanced between observations and
+the displayed rate/cumulative traffic values changed without a page reload.
+This is qualitative evidence that the live view is updating; the page exposes
+no event-arrival timestamp, so it does not establish the one-second session
+latency or two-second traffic-freshness targets.
+
+A brief RouterOS `api` service toggle was issued and the service was subsequently
+read back available. The exercise did not capture a timestamped unavailable
+interval, a dashboard-supervisor reconnect measurement, or a post-reconnect
+full-snapshot timestamp. It is therefore not counted as API reconnect or
+snapshot-recovery acceptance. The complete candidate-matched 30-minute window,
+REST/Binary parity, Redis/outbox delivery, event integrity/counter-reset,
+SQLite restore, rollback, and production checks remain outstanding. Do not
+promote production based on this point-in-time canary evidence.
+
+Earlier on 2026-10-13, before PR #685, PR #672
+(`298fad73e8310b5d07cb4a646362513a0ac4e703`) was the latest merged runtime
+change. Publisher run
 [#38395675508](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38395675508)
 passed the release workflow. The public stable manifest names its immutable
 ARM64 image; a read-only registry manifest lookup confirmed its digest:
