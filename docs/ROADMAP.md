@@ -81,43 +81,37 @@ The earlier readiness soak does not establish readiness or acceptance for
 PR #674, and the PR #652 release-candidate build does not establish deployment
 or router acceptance.
 
-**Canary staging and production promotion remain unverified and gated.** On
-2026-10-13 at 15:47 EEST, RouterOS read-back showed canary on
-`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`, healthy, with zero PPP
-active sessions. This is not the PR #674 image. Production was not re-read
-after PR #674 publication; its last recorded configured image is
-`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`, and its health is not
-established by that earlier observation.
-The router-local immutable-update scheduler was present but disabled. No
-candidate deployment is claimed. Earlier, at approximately
-10:37 EEST, RouterOS WebFig PPP Active Connections showed zero entries while
-the production Connections page showed one row with `Connection data delayed`
-and a router-status timestamp of `2026-10-12 18:06`. After the operator
-reported reconnecting, a read-only RouterOS check at approximately 11:04 EEST
-showed one active OpenVPN/PPP session (about 1m15s uptime). The already-open
-production page remained delayed and its displayed session/counters did not
-advance during a subsequent 10-second observation; the canary site remained
-at its RouterOS sign-in form. This confirms a router-side VPN session, but not
-live delivery to production or candidate-specific canary acceptance. No
-production page reload, router/container mutation, certificate change, or
-policy change was made.
-Unauthenticated readiness probes returned HTTP 302 at Cloudflare
-Access and exposed no application readiness body. This is not a readiness
-result. Deploy the immutable ARM64 candidate to
-canary only after direct RouterOS pre-state/rollback read-back, then complete
-the fresh candidate-specific readiness and live acceptance gates before any
-production change.
+**Latest deployment and live-status recheck (2026-10-13): canary acceptance
+and production promotion remain unverified and gated.** The latest read-only
+container inspection still showed canary on
+`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`, not the PR #674
+candidate; production remained on
+`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`. The authenticated
+production dashboard showed its live Socket.IO feed, while the authenticated
+canary Connections view still reported `Connection data delayed` and zero
+connected devices against an older RouterOS status timestamp. Production
+telemetry is not candidate-specific canary evidence. No RouterOS/container,
+certificate, CA, VPN-policy, or production change was made in this recheck.
 
-Issues #194 (device/certificate lifecycle acceptance), #199 (release
-acceptance), and #200 (deployed security assurance) remain open alongside
-tracking epic #205. Their repository-side implementation and test evidence is
-recorded below; the remaining gates require live router/client evidence or
-external security review. The earlier 11:04 EEST check confirmed a router-side
-session, but did not establish live dashboard delivery; the subsequent 12:45
-EEST recheck found zero active sessions and an unauthenticated canary.
-Therefore no candidate-specific live acceptance run was established at that
-time. No CA, certificate, VPN policy, or RouterOS container configuration was
-changed in that earlier update.
+The PR #674 ARM64 image is published and attested but has not been deployed to
+canary. The router-local immutable-update scheduler was previously found
+disabled; no candidate deployment or 30-minute acceptance soak is claimed.
+Complete a candidate-specific canary deployment, readiness/live-data checks,
+and the required private acceptance window before any production change.
+Unauthenticated readiness probes returning HTTP 302 at Cloudflare Access are
+not a readiness result.
+
+PR #676 merged as `449aeb39054ff5a98de07341569507d1e5842a52` and closed issue
+#194. It now disables an account, terminates and verifies active tunnels, then
+revokes managed certificates and removes the account; failure to verify
+disconnection leaves the account disabled and stops deletion. This repository
+change is not physical-router acceptance. Issues #199 (controlled release
+acceptance) and #200 (deployed security/session review) remain open alongside
+tracking epic #205. Their remaining gates require private live evidence or
+external security review. Multi-tenancy remains out of scope.
+
+The dated rechecks below are retained as historical evidence; newer
+observations above supersede their point-in-time live/deployment status.
 
 **Later recheck (2026-10-13, approximately 12:45 EEST):** the canary page
 briefly rendered one connected user and nonzero cumulative traffic, but kept
