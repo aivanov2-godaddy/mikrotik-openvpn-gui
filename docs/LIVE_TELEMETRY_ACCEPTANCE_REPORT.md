@@ -1,21 +1,21 @@
 # Live telemetry acceptance status
 
-Status: **PR #685 artifact published; candidate-specific live acceptance is
+Status: **PR #692 artifact published; candidate-specific live acceptance is
 incomplete; production promotion remains gated.**
 
 ## Public artifact evidence
 
-PR [#685](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/685)
-(`bc03f3b456a488fc464061fe5944278c0207a94f`) is the latest published runtime
+PR [#692](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/692)
+(`8f68314bb54cc008edc02bf26e00cdaaa48284f3`) is the latest published runtime
 candidate. Publisher run
-[#38449932684](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
+[#38468254627](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38468254627)
 completed successfully and verified image and SPDX SBOM attestations and
 published-runtime smoke tests.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-bc03f3b456a488fc464061fe5944278c0207a94f-arm64` | `sha256:b83dd23bab8124b493b676bdaf31c2e45ae8e89d8151822854c63cc348597824` |
-| CHR/x86 AMD64 (evaluation) | `sha-bc03f3b456a488fc464061fe5944278c0207a94f-amd64` | `sha256:cf142629b4242d80d07d3c4582603d95954da571cfd8cbf0d04f0bcec06fd242` |
+| RouterOS ARM64 | `sha-8f68314bb54cc008edc02bf26e00cdaaa48284f3-arm64` | `sha256:14dcd6185d131c86196a439d15712c1e4b6b68caa0c34f8f5a6f0e5cde4313f5` |
+| CHR/x86 AMD64 (evaluation) | `sha-8f68314bb54cc008edc02bf26e00cdaaa48284f3-amd64` | `sha256:e3db760e90b2828ef9acc741a380bf82acbe2b8bb345ea0d9f4b5367a7b1b5fa` |
 
 These are public build and registry facts only. This file contains no RouterOS
 deployment assignments, hostnames, addresses, resource readings, logs, or VPN

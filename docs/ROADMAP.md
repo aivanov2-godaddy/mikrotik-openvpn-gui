@@ -12,10 +12,10 @@ operator-controlled records.
 ## Current project snapshot
 
 Formal release **v2.7.0** remains the latest numbered release. PR
-[#685](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/685)
-(`bc03f3b456a488fc464061fe5944278c0207a94f`) is the latest published runtime
+[#692](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/692)
+(`8f68314bb54cc008edc02bf26e00cdaaa48284f3`) is the latest published runtime
 candidate. Its publisher run
-[#38449932684](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
+[#38468254627](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38468254627)
 passed; immutable image and provenance metadata are recorded in
 [`RELEASES.md`](RELEASES.md). Publication does not prove RouterOS deployment or
 acceptance. No production promotion is claimed here.
