@@ -1723,19 +1723,22 @@ recovery, snapshot recovery, event ordering/loss, counter-reset behavior,
 claimed. The router-local updater scheduler was observed disabled; it was not
 enabled or otherwise modified.
 
-## 2026-10-13 15:38 EEST live-session discrepancy
+## 2026-10-13 15:47 EEST live-session discrepancy
 
 After the operator reported connecting the test VPN client, a fresh read-only
 RouterOS WebFig PPP → Active Connections view showed zero entries. The
-authenticated canary Connections page also showed zero active devices and
-`Live · SOCKETIO`, but its footer timestamp remained at 15:31 EEST. The
-production Dashboard still showed one connected user together with
-`Connection data delayed` and a 12:06 EEST status timestamp; that stale display
-is not evidence of a current tunnel. The canary container details showed the
-prior `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` image healthy. The
-new PR #672 immutable ARM64 image is published and its digest above is verified,
-but it has not been read back as deployed on RouterOS. No container, router,
-VPN session, certificate, CA, account, policy, or production state was changed.
-The reported client connection is not corroborated by this router/canary pair;
-live event timing, freshness, soak, Redis delivery, recovery, rollback, and
-production acceptance remain unverified.
+The authenticated canary Connections page was refreshed and showed zero active
+devices with `Live · updated now`; its router-status footer advanced to 15:47
+EEST. Its newest `wanted` history entry ended at 14:37 EEST. RouterOS PPP Active
+Connections was then refreshed again and still showed zero entries. The
+production Dashboard's earlier 15:38 EEST read had shown one connected user
+together with `Connection data delayed` and a 12:06 EEST status timestamp; that
+stale display was not rechecked in this later snapshot and is not evidence of a
+current tunnel. The canary container details showed the prior
+`sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` image healthy. The new PR
+#672 immutable ARM64 image is published and its digest above is verified, but
+it has not been read back as deployed on RouterOS. No container, router, VPN
+session, certificate, CA, account, policy, or production state was changed. The
+reported client connection is not corroborated by this router/canary pair; live
+event timing, freshness, soak, Redis delivery, recovery, rollback, and production
+acceptance remain unverified.
