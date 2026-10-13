@@ -59,6 +59,17 @@ required hosted checks; #662's publisher verified both architectures, runtime
 smoke tests, detached SBOM/provenance attestations, and stable-manifest
 read-back. Neither change deploys an image to RouterOS.
 
+PR #669 merged as `cb96ea214602ffb234c16ed4e80387a1385237bc`. It adds an
+exact HTTP response-field regression for `GET /api/admin/api-tokens`, proving
+that the listing returns metadata only and excludes both bearer-token
+plaintext and the stored token hash. The scoped security assurance now records
+this contract and the existing capability-gated administrator-session field
+contract. All nine required CI checks passed, including Python 3.13/3.14,
+pre-commit, rendered browser/accessibility regression, secret/dependency
+audits, Redis, Socket.IO same-origin, and ARM64 build/smoke. This is
+test/documentation-only and does not publish or deploy a runtime image; it does
+not replace issue #200's independent review or live proxy/router acceptance.
+
 PR #650 is merged and refreshes the installation, release, RouterOS acceptance,
 and live telemetry acceptance records to distinguish image publication from
 router deployment. PRs #647–#649 and #655 narrow streamed and status API data
@@ -92,11 +103,12 @@ Issues #194 (device/certificate lifecycle acceptance), #199 (release
 acceptance), and #200 (deployed security assurance) remain open alongside
 tracking epic #205. Their repository-side implementation and test evidence is
 recorded below; the remaining gates require live router/client evidence or
-external security review. The latest cross-check confirmed one active router
-PPP session but found the production connection view still delayed/stale and
-the canary dashboard unauthenticated. Therefore no candidate-specific live
-acceptance run is established. No CA, certificate, VPN policy, or RouterOS
-container configuration was changed in this update.
+external security review. The earlier 11:04 EEST check confirmed a router-side
+session, but did not establish live dashboard delivery; the subsequent 12:45
+EEST recheck found zero active sessions and an unauthenticated canary.
+Therefore no candidate-specific live acceptance run is established. No CA,
+certificate, VPN policy, or RouterOS container configuration was changed in
+that update.
 
 **Later recheck (2026-10-13, approximately 12:45 EEST):** the canary page
 briefly rendered one connected user and nonzero cumulative traffic, but kept
@@ -108,6 +120,15 @@ current test session or live delivery; formal acceptance remains unverified
 pending a fresh canary sign-in and matching RouterOS session. See the
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md#2026-10-13-later-live-state-recheck).
 Multi-tenancy remains explicitly out of scope.
+
+**Latest RouterOS recheck (2026-10-13, approximately 13:29 EEST):** after the
+operator again reported the test VPN connected, the RouterOS WebFig PPP Active
+Connections page was reloaded and still showed `0 items`. This does not
+corroborate an active test tunnel. The last observed canary page had redirected
+to Cloudflare Access sign-in, so no canary telemetry or candidate acceptance
+was verified during this recheck. No router/container/certificate/policy/
+production changes were made. The discrepancy must be resolved before
+starting the live session, soak, or certificate lifecycle gates.
 
 Earlier observations below are historical evidence only and do not supersede
 this current snapshot. See the [live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
