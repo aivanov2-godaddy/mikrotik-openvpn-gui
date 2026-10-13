@@ -49,7 +49,34 @@ historical/rollback reference. v2.7.0 remains the latest numbered release.
 
 ## Published images
 
-### Latest published mainline candidate — PR #589 — 2026-10-10
+### Latest published mainline candidate — PR #649 — 2026-10-13
+
+PR [#649](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/649)
+merged as
+`2b76399f4fdc2cb1db7740b8e9887480cb083fee`. It narrows `/api/status`
+connection-history and alert records to explicit safe-field allowlists and
+adds exact-field and sensitive-sentinel regression coverage. The
+[publisher run](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38339271291)
+passed source and browser/accessibility checks and published/attested both
+architectures. The first AMD64 attempt hit an upstream Amazon ECR rate limit;
+the failed job was rerun successfully. Both published-runtime smoke tests
+passed, and the stable immutable manifest job succeeded.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-arm64` | `sha256:c0e67ad2eb37f2adcec8d777ef5cae24fb3c96250b0fe0eb52dbc5b0e9c21b0f` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-amd64` | `sha256:f1cb27f25e9b6c6d5370317cb6c1b0c33d97ee7092e250ffbc2f25316d30e0ec` |
+
+The merged source and ARM64 image are ready for candidate-specific canary
+verification, but no RouterOS read-back for this candidate has been collected
+in this session. Neither canary deployment nor production promotion is claimed.
+The 30-minute live acceptance, Redis delivery, reconnect/snapshot, event
+integrity, resource, restore, and rollback checks remain open. RouterOS
+read-back must confirm the configured immutable tag and health; it cannot
+independently prove the registry digest of a cached image. No numbered GitHub
+release was created; v2.7.0 remains the latest formal version.
+
+### Previously published mainline candidate — PR #589 — 2026-10-10
 
 PR [#589](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/589)
 merged to main as
