@@ -206,8 +206,9 @@ class TelemetrySupervisor:
             connection.connect(username, password)
             with self._lock:
                 self._status = "connecting" if self._snapshot_reader is not None else "healthy"
+                if self._last_connected_at is not None:
+                    self._reconnects += 1
                 self._last_connected_at = int(self._clock())
-                self._reconnects = max(0, self._attempts - 1)
 
             if self._snapshot_reader is not None:
                 started = self._clock()

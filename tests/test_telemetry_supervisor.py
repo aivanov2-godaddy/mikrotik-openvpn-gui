@@ -230,6 +230,26 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertTrue(first.closed)
         self.assertTrue(second.closed)
 
+    def test_failed_initial_connection_is_not_counted_as_reconnect(self):
+        failed = FakeConnection(error=OSError("initial connection failed"))
+        connected = FakeConnection()
+        connections = iter([failed, connected])
+        supervisor = TelemetrySupervisor(
+            lambda: next(connections),
+            lambda: ("user", "secret"),
+            config=TelemetrySupervisorConfig(enabled=True, initial_backoff=0.001, max_backoff=0.001),
+        )
+
+        supervisor.run_forever(max_attempts=2)
+
+        health = supervisor.health()
+        self.assertEqual(health.attempts, 2)
+        self.assertEqual(health.failures, 2)
+        self.assertEqual(health.reconnects, 0)
+        self.assertIsNotNone(health.last_connected_at)
+        self.assertTrue(failed.closed)
+        self.assertTrue(connected.closed)
+
     def test_snapshot_failures_keep_backoff_and_do_not_publish_partial_reconciliation(self):
         class RecordingStopEvent:
             def __init__(self):
