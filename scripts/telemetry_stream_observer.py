@@ -142,6 +142,8 @@ class TelemetryStreamRecorder:
         self.rejected_frames = 0
         self.events = 0
         self.snapshots = 0
+        self.reconnect_snapshot_count = 0
+        self._awaiting_reconnect_snapshot = False
         self.sequence_gaps = 0
         self.duplicate_sequences = 0
         self.out_of_order_sequences = 0
@@ -156,6 +158,7 @@ class TelemetryStreamRecorder:
             return
         if self.connections:
             self.reconnects += 1
+            self._awaiting_reconnect_snapshot = True
         self.connections += 1
         self.connected = True
         self._epoch += 1
@@ -178,6 +181,9 @@ class TelemetryStreamRecorder:
         self._counts[name] += 1
         if name == "telemetry.snapshot":
             self.snapshots += 1
+            if self._awaiting_reconnect_snapshot:
+                self.reconnect_snapshot_count += 1
+                self._awaiting_reconnect_snapshot = False
         if sequence is None:
             return
         self._sequences_in_epoch += 1
@@ -229,6 +235,7 @@ class TelemetryStreamRecorder:
             "event_count": self.events,
             "event_counts": dict(sorted(self._counts.items())),
             "snapshot_count": self.snapshots,
+            "reconnect_snapshot_count": self.reconnect_snapshot_count,
             "sequence_gaps": self.sequence_gaps,
             "duplicate_sequences": self.duplicate_sequences,
             "out_of_order_sequences": self.out_of_order_sequences,

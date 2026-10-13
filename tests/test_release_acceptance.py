@@ -96,6 +96,44 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 for environment in ("canary", "production")
             ],
         }
+        from scripts.stream_acceptance import validate_stream_acceptance
+
+        start = "2026-10-02T10:00:00Z"
+        end = "2026-10-02T10:30:00Z"
+        observer = {
+            "format": "vpn-dashboard-telemetry-stream-observation-v1",
+            "started_at": start, "ended_at": end, "duration_seconds": 1800,
+            "origin_role": "canary", "transport": "socketio-websocket",
+            "connections": 2, "disconnects": 1, "reconnects": 1,
+            "stream_connected_at_end": True, "event_count": 3,
+            "event_counts": {"telemetry.snapshot": 2, "vpn.session.updated": 1},
+            "snapshot_count": 2, "reconnect_snapshot_count": 1,
+            "sequence_gaps": 0, "duplicate_sequences": 0,
+            "out_of_order_sequences": 0, "rejected_frames": 0,
+            "raw_frames_written": False, "identities_or_addresses_written": False,
+            "credentials_written": False, "latency_measured": False,
+            "latency_note": "not measured; client/server clock offset is not established",
+            "failed_gates": [], "observed_stream_healthy": True,
+        }
+        browser = {
+            "format": "vpn-dashboard-telemetry-acceptance-v1", "healthy": True,
+            "failed_gates": [], "observation_started_at": start,
+            "observation_ended_at": end, "session_transition_count": 2,
+            "session_transition_visible_count": 2, "connected_transition_observed": True,
+            "disconnected_transition_observed": True, "session_event_latency_p95_ms": 450,
+            "session_event_age_max_seconds": 0.5,
+            "traffic_update_count": 2, "traffic_update_visible_count": 2,
+            "traffic_sample_age_max_seconds": 1.2, "event_sequence_observation_count": 30,
+            "event_sequence_gap_count": 0, "duplicate_event_count": 0,
+            "out_of_order_event_count": 0, "reconnect_test_count": 1,
+            "reconnect_success_count": 1,
+        }
+        safe_stream, failures = validate_stream_acceptance(
+            observer, browser, collection_started_at=start, collection_ended_at=end,
+            now=self.NOW,
+        )
+        self.assertEqual(failures, [])
+        self.evidence["collection"]["stream_acceptance"] = safe_stream
 
     def test_matching_healthy_canary_and_production_pass(self) -> None:
         code, report = evaluate(self.evidence, now=self.NOW)
@@ -105,6 +143,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertNotIn("details", report["deployments"][0])
         self.assertTrue(report["registry_tag_digests_verified"])
         self.assertFalse(report["router_runtime_digest_verified"])
+        self.assertEqual(report["stream_acceptance"]["format"], "vpn-dashboard-stream-acceptance-v1")
 
     def test_passing_collection_requires_joined_routeros_soak_evidence(self) -> None:
         evidence = deepcopy(self.evidence)
@@ -196,6 +235,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "ended_at": "2026-10-02T10:30:00Z",
             "registry_digest_verification": deepcopy(self.evidence["collection"]["registry_digest_verification"]),
             "routeros_resource_evidence": self._routeros_resource_evidence(),
+            "stream_acceptance": deepcopy(self.evidence["collection"]["stream_acceptance"]),
         }
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 0)
@@ -204,6 +244,21 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         evidence["collection"]["passed"] = "true"
         with self.assertRaisesRegex(ValueError, "passed must be boolean"):
             evaluate(evidence, now=self.NOW)
+
+    def test_passing_collection_requires_valid_same_window_stream_and_browser_evidence(self) -> None:
+        evidence = deepcopy(self.evidence)
+        del evidence["collection"]["stream_acceptance"]
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("stream_acceptance_missing_or_invalid", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["stream_acceptance"]["browser_telemetry"][
+            "observation_ended_at"
+        ] = "2026-10-02T09:00:00Z"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("browser_telemetry_window_invalid", report["failed_gates"])
 
     def test_missing_stale_and_future_collection_evidence_cannot_pass(self) -> None:
         evidence = deepcopy(self.evidence)

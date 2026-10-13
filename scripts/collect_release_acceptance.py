@@ -27,14 +27,18 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
     from release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
+    from stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
 except ModuleNotFoundError:
     from scripts.release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
+    from scripts.stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
 
 
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_REGISTRY_RESPONSE_BYTES = 65_536
 MAX_DURATION_SECONDS = 86_400
 MAX_SAMPLES = 10_000
+MAX_STREAM_OBSERVER_REPORT_BYTES = 65_536
+MAX_TELEMETRY_ACCEPTANCE_BYTES = 5_000_000
 MIN_SOAK_SECONDS = 1800
 MIN_HEALTH_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
@@ -78,6 +82,44 @@ METRIC_NAMES = {
     "vpn_dashboard_telemetry_supervisor_last_snapshot_timestamp_seconds",
     "vpn_dashboard_telemetry_supervisor_backoff_seconds",
 }
+
+
+def apply_stream_acceptance(
+    summary: dict[str, Any], observer_report: Any, browser_report: Any,
+    *, now: datetime | None = None, minimum_window_seconds: float = 1800,
+) -> tuple[int, dict[str, Any]]:
+    """Attach a strict redacted stream/browser report to collected evidence."""
+    collection = summary.get("evidence", {}).get("collection", {})
+    safe, stream_failures = validate_stream_acceptance(
+        observer_report,
+        browser_report,
+        collection_started_at=collection.get("started_at"),
+        collection_ended_at=collection.get("ended_at"),
+        now=now or _utc_now(),
+        minimum_window_seconds=minimum_window_seconds,
+    )
+    failures = set(collection.get("failed_gates", []))
+    failures.discard("stream_observation_missing")
+    failures.discard("browser_telemetry_evidence_missing")
+    failures.update(stream_failures)
+    collection["stream_acceptance"] = safe
+    browser = safe.get("browser_telemetry", {})
+    if summary.get("evidence", {}).get("deployments"):
+        canary_record = summary["evidence"]["deployments"][0]
+        canary_record["session_event_p95_ms"] = browser.get("session_event_latency_p95_ms")
+        canary_record["session_event_latency_started_at"] = browser.get("observation_started_at")
+        canary_record["session_event_latency_ended_at"] = browser.get("observation_ended_at")
+        canary_record["session_event_max_age_seconds"] = browser.get("session_event_age_max_seconds")
+        canary_record["traffic_sample_age_seconds"] = browser.get("traffic_sample_age_max_seconds")
+    collection["failed_gates"] = sorted(failures)
+    collection["passed"] = not failures
+    summary["failed_gates"] = sorted(failures)
+    summary["passed"] = not failures
+    summary["stream_acceptance"] = {
+        "healthy": not stream_failures,
+        "failed_gates": stream_failures,
+    }
+    return (0 if not failures else 1), summary
 REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_redis_configured",
     "vpn_dashboard_redis_last_observed_available",
@@ -1086,12 +1128,19 @@ def collect(
                 "candidate-canary-only" if phase == "canary-prepromotion" else "canary-and-production"
             ),
             "router_runtime_digest_verified": False,
+            "stream_acceptance": None,
             "registry_digest_verification": registry_verification,
         },
     }
     summary["passed"] = not failed_gates
     summary["failed_gates"] = sorted(set(failed_gates))
+    summary["failed_gates"] = sorted(set(summary["failed_gates"]) | {
+        "stream_observation_missing", "browser_telemetry_evidence_missing",
+    })
+    summary["passed"] = False
     summary["evidence"] = enriched_evidence
+    summary["evidence"]["collection"]["passed"] = False
+    summary["evidence"]["collection"]["failed_gates"] = summary["failed_gates"]
     return (0 if summary["passed"] else 1), summary
 
 
@@ -1103,6 +1152,14 @@ def main() -> int:
         "--routeros-report",
         required=True,
         help="completed redacted report from collect_routeros_acceptance.py; must cover the same soak",
+    )
+    parser.add_argument(
+        "--stream-observer-report", required=True,
+        help="redacted telemetry_stream_observer.py report for this same canary soak",
+    )
+    parser.add_argument(
+        "--telemetry-acceptance-input", required=True,
+        help="redacted telemetry_acceptance NDJSON captured concurrently over this same soak",
     )
     parser.add_argument("--canary-url", required=True, help="private app origin, without path")
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
@@ -1159,6 +1216,41 @@ def main() -> int:
         )
         routeros_report = json.loads(Path(args.routeros_report).read_text(encoding="utf-8"))
         attach_routeros_resource_evidence(summary["evidence"], routeros_report)
+        observer_path = Path(args.stream_observer_report)
+        browser_path = Path(args.telemetry_acceptance_input)
+        if observer_path.stat().st_size > MAX_STREAM_OBSERVER_REPORT_BYTES:
+            raise ValueError("stream observer report exceeds its aggregate size limit")
+        if browser_path.stat().st_size > MAX_TELEMETRY_ACCEPTANCE_BYTES:
+            raise ValueError("telemetry acceptance input exceeds its bounded size limit")
+        observer_report = json.loads(observer_path.read_text(encoding="utf-8"))
+        try:
+            from telemetry_acceptance import evaluate as evaluate_telemetry_acceptance
+        except ModuleNotFoundError:
+            from scripts.telemetry_acceptance import evaluate as evaluate_telemetry_acceptance
+
+        browser_lines = browser_path.read_text(encoding="utf-8").splitlines()
+        collection_end = datetime.fromisoformat(
+            summary["evidence"]["collection"]["ended_at"].replace("Z", "+00:00")
+        )
+        _, browser_report = evaluate_telemetry_acceptance(
+            browser_lines,
+            limits={
+                "latency_p95_ms": 1000,
+                "event_age_seconds": 2,
+                "router_cpu_percent": 80,
+                "router_memory_percent": 90,
+                "router_storage_percent": 90,
+                "max_reconnects": 0,
+                "recovery_seconds": 10,
+            },
+            now=collection_end.timestamp(),
+        )
+        code, summary = apply_stream_acceptance(
+            summary,
+            observer_report,
+            browser_acceptance_projection(browser_report),
+            now=_utc_now(),
+        )
         _write_json_atomically(Path(args.output), summary["evidence"])
         public_summary = {key: value for key, value in summary.items() if key != "evidence"}
         print(json.dumps(public_summary, sort_keys=True, indent=2))
