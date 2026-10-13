@@ -27,6 +27,21 @@ rollback rehearsal, or production acceptance. Do not promote to production
 on image publication or this UI observation alone. Earlier read-backs remain
 historical evidence only for their stated image revisions.
 
+At approximately 14:32 EEST on 2026-10-13, a fresh RouterOS WebFig read-back
+again showed canary on `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64`
+and production on `sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`; the
+published `d425c2a` candidate is not deployed. The point-in-time router CPU
+sample was 14%; container memory showed 39.4 MiB for canary and 40.7 MiB for
+production. These are single samples, not resource-impact measurements over a
+soak, and the router did not provide a registry digest read-back. The
+authenticated canary dashboard showed one active session and live traffic
+graphs labeled as five-second samples; this UI observation was not paired with
+a contemporaneous PPP read-back or event timestamp, so it does not establish
+event latency or sample freshness. No container or production setting was
+changed during this check. Candidate-specific readiness, measured soak,
+reconnect/snapshot recovery, Redis delivery, event integrity, counter-reset,
+restore, rollback, and production acceptance remain pending.
+
 The authenticated canary dashboard reported `Live · SOCKETIO`; its traffic
 counters and session uptime advanced between observations without a manual
 page refresh. This is qualitative proof that the current page receives
