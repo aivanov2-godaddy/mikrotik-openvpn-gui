@@ -5429,9 +5429,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _user_delete_review_context(
         self, credentials: RouterOSCredentials, user_id: str, reason: str,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], int, str]:
         user = self._find_user(credentials, user_id)
         username = str(user["name"])
+        active_session_count = sum(
+            1 for active in self.server.context.router.list_active_ovpn_sessions(credentials)
+            if str(active.get("name", "")) == username
+        )
         devices = self.server.context.store.devices_for_user(username)
         if any(not str(device.get("certificate_id") or "") for device in devices):
             raise ValueError(
@@ -5474,12 +5478,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "disabled": bool(user.get("disabled")),
                 },
                 "devices": sorted(reviewed_devices, key=lambda item: item["device_id"]),
+                "active_sessions": active_session_count,
                 "local_metadata": local_metadata,
                 "reason": reason,
             },
             sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")).hexdigest()
-        return user, devices, intent_digest
+        return user, devices, active_session_count, intent_digest
 
     def _delete_user(self, user_id: str, *, preview: bool = False) -> None:
         session = self._require_session(api=True)
@@ -5491,12 +5496,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             reason = str(data.get("reason", "")).strip()
             if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
                 raise ValueError("Provide a reason between 12 and 240 printable characters")
-            user, devices, intent_digest = self._user_delete_review_context(credentials, user_id, reason)
+            user, devices, active_session_count, intent_digest = self._user_delete_review_context(
+                credentials, user_id, reason,
+            )
             username = str(user["name"])
             if preview:
                 self._json({
                     "username": username,
                     "managed_devices": len(devices),
+                    "active_sessions": active_session_count,
                     "confirmation": username,
                     "reason": reason,
                     "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
@@ -5523,6 +5531,112 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             if not self._checkpoint(session, "user.delete"):
+                return
+
+            # Deleting the PPP secret alone does not reliably terminate an
+            # established tunnel. Disable first to prevent reconnects, then
+            # explicitly terminate and read back every active session before
+            # revoking certificates or deleting the account.
+            if not bool(user.get("disabled")):
+                try:
+                    self.server.context.router.update_user(
+                        credentials, user_id=user_id, disabled=True,
+                    )
+                    user = self._find_user(credentials, user_id)
+                except (RouterOSError, ValueError) as error:
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="user.delete",
+                        target=username,
+                        status="unknown",
+                        details={
+                            "rationale": reason,
+                            "phase": "disable_before_delete",
+                            "verification": "unavailable",
+                            "reason": type(error).__name__,
+                        },
+                    )
+                    self._json(
+                        {
+                            "code": "routeros.mutation_verification_unavailable",
+                            "error": "The VPN account could not be confirmed disabled. No certificates or user data were deleted; check VPN Users before retrying.",
+                            "verified": False,
+                            "verification": "unknown",
+                            "user_deleted": False,
+                        },
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+                if not bool(user.get("disabled")):
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="user.delete",
+                        target=username,
+                        status="failed",
+                        details={
+                            "rationale": reason,
+                            "phase": "disable_before_delete",
+                            "verification": "mismatch",
+                        },
+                    )
+                    self._json(
+                        {
+                            "code": "routeros.mutation_verification_failed",
+                            "error": "RouterOS did not confirm the VPN account disabled. No certificates or user data were deleted.",
+                            "verified": False,
+                            "verification": "mismatch",
+                            "user_deleted": False,
+                        },
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+
+            disconnected_sessions = 0
+            try:
+                active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+                for active in active_sessions:
+                    if str(active.get("name", "")) != username:
+                        continue
+                    try:
+                        self.server.context.router.terminate_session(
+                            credentials, session_id=str(active["id"]),
+                        )
+                        disconnected_sessions += 1
+                    except RouterOSError:
+                        pass
+                remaining_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+                self.server.context.store.observe_sessions(remaining_sessions)
+                active_session_count = sum(
+                    1 for active in remaining_sessions
+                    if str(active.get("name", "")) == username
+                )
+            except RouterOSError:
+                active_session_count = -1
+            if active_session_count != 0:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.delete",
+                    target=username,
+                    status="partial" if active_session_count > 0 else "unknown",
+                    details={
+                        "rationale": reason,
+                        "phase": "active_session_termination",
+                        "disconnected_sessions": disconnected_sessions,
+                        "remaining_sessions": active_session_count if active_session_count > 0 else "verification unavailable",
+                        "verification": "failed" if active_session_count > 0 else "unavailable",
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.session_termination_unverified",
+                        "error": "The VPN account is disabled, but active tunnel termination could not be verified. Certificates and user data were not deleted; verify Connections before retrying.",
+                        "verified": False,
+                        "verification": "unknown" if active_session_count < 0 else "mismatch",
+                        "user_deleted": False,
+                        "disconnected_sessions": disconnected_sessions,
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
                 return
 
             revoked_device_ids: list[str] = []
@@ -5673,7 +5787,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "rationale": reason,
                 },
             )
-            self._json({"ok": True, "verified": True, "retired_devices": len(revoked_device_ids)})
+            self._json({
+                "ok": True,
+                "verified": True,
+                "retired_devices": len(revoked_device_ids),
+                "disconnected_sessions": disconnected_sessions,
+            })
         except RouterOSError as error:
             self.server.context.store.audit(
                 actor=session.username,
