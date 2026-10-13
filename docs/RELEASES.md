@@ -12,8 +12,12 @@ tags: `vMAJOR.MINOR.PATCH`.
 
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
+This public release record documents repository commits, published artifacts,
+and CI provenance only. RouterOS deployment state, live measurements, and
+operator/session details are kept in private operational records.
+
 The latest formal versioned release remains **v2.7.0**. A v2.8.0 release
-candidate is being prepared from the merged work through PR #674, but it has
+candidate is being prepared from the merged work through PR #685, but it has
 not been tagged or published. Its highlights are stricter live-data field
 allowlists and session revalidation, safer staged certificate renewal, improved
 telemetry recovery, and evidence-gated RouterOS canary promotion. RouterOS
@@ -58,7 +62,28 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #674 — 2026-10-13
+### Latest published mainline candidate — PR #685 — 2026-10-13
+
+PR [#685](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/685)
+merged as `bc03f3b456a488fc464061fe5944278c0207a94f`. It fixes the RouterOS
+disconnect read-back settling window so a just-terminated session is not
+mistaken for a failed termination. The
+[publisher run](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
+passed and published AMD64 and ARM64 images, generated and verified image and
+SPDX SBOM attestations, and passed published-runtime smoke tests.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-bc03f3b456a488fc464061fe5944278c0207a94f-arm64` | `sha256:b83dd23bab8124b493b676bdaf31c2e45ae8e89d8151822854c63cc348597824` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-bc03f3b456a488fc464061fe5944278c0207a94f-amd64` | `sha256:cf142629b4242d80d07d3c4582603d95954da571cfd8cbf0d04f0bcec06fd242` |
+
+The controlled 30-minute acceptance window is not complete; event
+latency/freshness, recovery, event integrity, Redis delivery, resource soak,
+restore, and rollback evidence remain outstanding. No production promotion is
+claimed. No new numbered release was created; v2.7.0 remains the latest formal
+version.
+
+### Previously published mainline candidate — PR #674 — 2026-10-13
 
 PR [#674](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/674)
 merged as `3d65b43ec4b796eb83f52929c56c9efabb980b4d`. It defers session idle-
@@ -76,16 +101,11 @@ back and names this commit and both immutable tags.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-arm64` | `sha256:c2318a464f1a57d86ae27b9103aa5addbcae3bfe43aca3d60fdba7728c9f4fbb` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3d65b43ec4b796eb83f52929c56c9efabb980b4d-amd64` | `sha256:7bd258595485a682ecc3892d32caaf29c9eecae377ec19b4f2071f702117f909` |
 
-The 2026-10-13 15:47 EEST RouterOS/canary read-back still showed the canary on
-the prior `sha-960cee6445cf77e6947d146a7f8dcee7842cd9e0-arm64` image and
-healthy, with zero active PPP sessions. Production was not re-read after this
-publication; its last recorded configured image remains
-`sha-7efeff74a79d6efb9a2f1d885dcd17a7be9c3b95-arm64`. Neither canary
-deployment nor production promotion of PR #674 is claimed. Candidate-specific
-live acceptance, reconnect/recovery, Redis delivery, event integrity, resource
-soak, restore, and rollback remain incomplete. RouterOS reports its configured
-image tag, not an independently verified cached registry digest. No new
-numbered release was created; v2.7.0 remains the latest formal version.
+This artifact record does not assert RouterOS deployment or production
+promotion of PR #674. Candidate-specific live acceptance, reconnect/recovery,
+Redis delivery, event integrity, resource soak, restore, and rollback remained
+incomplete. No new numbered release was created; v2.7.0 remains the latest
+formal version.
 
 ### Previously published mainline candidate — PR #649 — 2026-10-13
 
@@ -105,14 +125,11 @@ passed, and the stable immutable manifest job succeeded.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-arm64` | `sha256:c0e67ad2eb37f2adcec8d777ef5cae24fb3c96250b0fe0eb52dbc5b0e9c21b0f` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-2b76399f4fdc2cb1db7740b8e9887480cb083fee-amd64` | `sha256:f1cb27f25e9b6c6d5370317cb6c1b0c33d97ee7092e250ffbc2f25316d30e0ec` |
 
-The merged source and ARM64 image are ready for candidate-specific canary
-verification, but no RouterOS read-back for this candidate has been collected
-in this session. Neither canary deployment nor production promotion is claimed.
-The 30-minute live acceptance, Redis delivery, reconnect/snapshot, event
-integrity, resource, restore, and rollback checks remain open. RouterOS
-read-back must confirm the configured immutable tag and health; it cannot
-independently prove the registry digest of a cached image. No numbered GitHub
-release was created; v2.7.0 remains the latest formal version.
+This artifact record does not assert RouterOS deployment or production
+promotion of PR #649. The 30-minute live acceptance, Redis delivery,
+reconnect/snapshot, event integrity, resource, restore, and rollback checks
+remain open. No numbered GitHub release was created; v2.7.0 remains the latest
+formal version.
 
 ### Previously published mainline candidate — PR #589 — 2026-10-10
 
@@ -131,17 +148,10 @@ and published-runtime smoke tests.
 
 The exact image digests above were each verified against the repository's
 `container.yml` signer workflow, source commit, and both provenance and SPDX
-predicates. The last recorded RouterOS canary read-back (around 01:37 EEST on
-2026-10-10) showed the canary healthy at the matching configured revision; its
-one-minute readiness sample window was still in progress at 01:43 EEST, so
-completion is not established. The canary had zero active VPN sessions at the
-last recorded RouterOS check. A browser inspection at 03:15 EEST on 2026-10-10
-found the canary at its sign-in screen and WebFig still connecting; an
-authenticated production view showed `Connection data delayed`. These are not
-passing canary telemetry evidence. Production promotion, sustained live acceptance, and
-candidate-specific rollback remain pending. RouterOS exposes the configured
-tag/revision, not an independent digest of its cached image. No new numbered
-release was created; v2.7.0 remains the latest formal version.
+predicates. This artifact record omits deployment-specific router observations
+and does not claim acceptance. Production promotion, sustained live acceptance,
+and candidate-specific rollback remain pending. No new numbered release was
+created; v2.7.0 remains the latest formal version.
 
 ### Historical published mainline candidate — PR #504 — 2026-10-06
 
@@ -161,17 +171,10 @@ immutable tags.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-arm64` | `sha256:2b1d249c4219302305ce54e73b856dc22f5b884ff786b083ea18de2868e454af` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a62724c94261b00866fa3d55416a7b540305d40b-amd64` | `sha256:81a7e06a1904b36ccd2ba6208a46f93006ac0ab059e7eeb91a220e94c77594fe` |
 
-Read-only RouterOS WebFig read-back on 2026-10-06 showed both canary and
-production configured with this ARM64 tag and the `H` health marker; Redis was
-running. The authenticated production dashboard showed `Live · SOCKETIO` and
-Operational health, with CPU health and router uptime changing across two
-observations without a page reload. No VPN user was connected, so session-event
-latency and traffic freshness were not exercised. RouterOS reports the
-configured tag, not an independent digest of its cached image. The 30-minute
-telemetry/Redis acceptance and candidate-specific rollback rehearsal remain
-pending. Production is configured with this candidate, but formal acceptance
-is not complete. No new numbered release was created; v2.7.0 remains the
-latest formal version.
+This artifact record omits deployment-specific router observations and does
+not claim acceptance. The 30-minute telemetry/Redis acceptance and
+candidate-specific rollback rehearsal remain pending. No new numbered release
+was created; v2.7.0 remains the latest formal version.
 
 ### Previously published mainline candidate — PR #501 — 2026-10-06
 
@@ -190,15 +193,10 @@ this commit and both immutable tags.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0ab71339f8884e3b8e185d55bfbcdc69cd088c22-arm64` | `sha256:f2b4368e194eb6996018efc2c3729f866e1da79046312e60cd9511b92dcf41fa` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0ab71339f8884e3b8e185d55bfbcdc69cd088c22-amd64` | `sha256:dab88909d624e04c9d76acb5a05cbe27a2e9b4ce2d2fab33f94837a0d3b96414` |
 
-Read-only RouterOS WebFig read-back listed the canary on the PR #501 ARM64 tag
-with the `H` status marker, while production remained on the PR #497 immutable
-tag; Redis was running. This is configured-tag/status evidence only: RouterOS
-does not expose the digest of the locally cached image. The production dashboard
-showed `Live · SOCKETIO`, Operational service health, and zero connected VPN
-users in one point-in-time observation. The 30-minute telemetry/Redis acceptance
-and current-candidate rollback rehearsal remain pending. Production has not been
-promoted to this candidate. No new numbered release was created; v2.7.0 remains
-the latest formal version.
+This artifact record omits deployment-specific router observations and does
+not claim acceptance. The 30-minute telemetry/Redis acceptance and
+candidate-specific rollback rehearsal remain pending. No new numbered release
+was created; v2.7.0 remains the latest formal version.
 
 ### Previously published mainline image — PR #497 — 2026-10-05
 
@@ -214,14 +212,10 @@ manifest publication. The RouterOS ARM64 image is:
 | --- | --- | --- |
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3eda7a15acb6fdb0f9749dfe0c2fd9efeeae714f-arm64` | `sha256:089e9c48c3e388cd08be3a44ddd9f525a0b50ea9e15983d6a8fa78e442fecc6c` |
 
-Read-only RouterOS read-back showed canary and production configured with this
-tag and healthy (`H`). The canary rollback-and-forward-recovery rehearsal
-returned the expected `/readyz` revisions; production was not restarted for
-that drill. The authenticated application later showed live status and
-`Operational` service health. This is point-in-time evidence, not the formal
-30-minute telemetry/Redis acceptance. The router exposes the configured tag,
-not an independent registry digest. No new numbered release was created;
-v2.7.0 remains current.
+This artifact record omits deployment-specific router observations and does
+not claim acceptance. The formal 30-minute telemetry/Redis acceptance remains
+separate from publication and CI verification. No new numbered release was
+created; v2.7.0 remains current.
 
 ### Previously published mainline image — PR #494 — 2026-10-05
 
@@ -253,45 +247,33 @@ passed for both architectures:
 | RouterOS ARM64 | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-arm64` | `sha256:01872672a9093ac999272c0be0cf97bf27c2139af1cde90f41b501ac4995ba73` |
 | CHR/x86 AMD64 (evaluation) | `sha-93627bca38312ad1845249c6df1c0fcecf12122e-amd64` | `sha256:6c6c2babc30e499f35b62877cc8e2450ea17cb0aad9e32b3f296cfd5199fce78` |
 
-This is a published mainline image, not a new numbered release. At that time it
-was the latest image with a timestamped RouterOS read-back: on 2026-10-05 WebFig
-showed both canary and production configured with the ARM64 immutable tag above
-and healthy (`H`), with Redis running (`R`). RouterOS reports the configured
-tag, not an independently verified registry digest. This confirms deployment
-configuration and container health, not sustained acceptance. The dashboard
-tab was at sign-in during that particular inspection; a later authenticated
-observation is recorded above. The PR #497 read-back subsequently superseded
-this observation, and the 2026-10-06 PR #501 canary candidate is recorded in the
-latest section. The `routeros-stable` manifest was refreshed by the PR #484
-publication workflow and later advanced to PR #501; a manifest update does not
-itself update any router.
+This is a published mainline image, not a new numbered release. This public
+artifact history omits deployment-specific router observations and does not
+claim that a manifest update changes a router. Sustained acceptance is a
+separate, private operational procedure.
 
-### Latest numbered release and earlier RouterOS-observed runtime patch — PR #478
+### Latest numbered release and earlier published runtime patch — PR #478
 
 The latest formal release is **v2.7.0**, commit
 `2e01f111e1445c79b1753477a41efbaec27a1a2d`. Subsequent main-branch runtime
 patches are published as immutable commit tags without creating a numbered
 release. PR [#478](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/478)
-was an earlier RouterOS-observed runtime patch, merged as `d5f8f4418d6ec972aa51ea4634b56c7fd89093f4`;
+was an earlier published runtime patch, merged as `d5f8f4418d6ec972aa51ea4634b56c7fd89093f4`;
 publication workflow
 [#37294618814](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/37294618814)
-passed. The published immutable tags/digests for this on-router revision were:
+passed. The published immutable tags/digests for this revision were:
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
 | RouterOS ARM64 | `sha-d5f8f4418d6ec972aa51ea4634b56c7fd89093f4-arm64` | `sha256:1ec08a3a0c5d4741a701270ba30249aba62e215649170aa3a6b69c150fc41209` |
 | CHR/x86 AMD64 (evaluation) | `sha-d5f8f4418d6ec972aa51ea4634b56c7fd89093f4-amd64` | `sha256:fad6a49eb253f52c5407369700833c7733f26972f49ae37fa012dd43e0a6f787` |
 
-RouterOS WebFig read-back after the publication above showed canary and
-production configured with its ARM64 immutable tag, both healthy (`H`), and
-Redis running (`R`). RouterOS reports the configured tag, not an independent
-registry digest. This is point-in-time deployment and container-health
-evidence—not the formal sustained acceptance window. Latency/freshness
-percentiles, API restart/recovery, counter-reset and
+Deployment-specific router observations are omitted from this public artifact
+history. Latency/freshness percentiles, API restart/recovery, counter-reset and
 event-integrity checks, Redis delivery soak, and rollback drills remain
-outstanding.
+separate acceptance requirements.
 
-### Earlier RouterOS tag read-back (historical)
+### Earlier published candidate (historical)
 
 Runtime revision `a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3` includes the
 previous published runtime plus Engine.IO polling SID-to-session binding (PR
@@ -313,15 +295,10 @@ on 2026-10-03.
 | CHR/x86 AMD64 (evaluation) | `sha-a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3-amd64` | `sha256:800de775757f38b4a7a7c13501d664a1f9afa20a3276f766797d1de5343ce5c3` |
 
 The public `routeros-stable` manifest was fetched and points to commit
-`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`. On 2026-10-03, authenticated
-RouterOS read-back showed both the canary and production containers using the
-ARM64 immutable tag above; both were marked healthy. RouterOS reports the
-configured image tag, not the local registry content digest, so digest
-identity on the router is not independently verified. This point-in-time
-read-back is not a sustained latency/freshness, resource, event-integrity, or
-rollback acceptance result. The latest numbered release remains v2.7.0; this
-historical image read-back does not itself mean that release has been deployed
-or accepted on the router.
+`a2d0ce29943964c2a5c9a12d5a53650b3bbe16b3`. Deployment-specific router
+observations are omitted from this public artifact history. Publication and
+manifest state are not a substitute for a candidate-matched acceptance result;
+the latest numbered release remains v2.7.0.
 
 The public `Publish container` workflow verifies a `main` change, then publishes
 single-platform images to GHCR using the repository's current owner and name.
