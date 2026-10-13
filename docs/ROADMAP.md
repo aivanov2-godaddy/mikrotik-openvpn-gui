@@ -8,17 +8,17 @@ data, deployment runners, or production network details.
 ## Current project snapshot — 2026-10-13
 
 Formal release **v2.7.0** remains the latest numbered release. The latest
-published runtime image is PR #655 commit
-`10ac511741928e70579fecb314986e55119622a1`. Publisher run
-[#38347345607](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38347345607)
+published runtime image is PR #657 commit
+`6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989`. Publisher run
+[#38351222445](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38351222445)
 passed source and rendered-browser verification, published-runtime smoke tests,
 detached provenance/SBOM attestation verification, and stable-manifest
 read-back. The verified artifacts are:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-10ac511741928e70579fecb314986e55119622a1-arm64` | `sha256:56a4ce152749ed17f0a3158ee5098d340a0e2ced170d487774aac6f8a36de628` |
-| AMD64 evaluation | `sha-10ac511741928e70579fecb314986e55119622a1-amd64` | `sha256:8f15f90be6abdd23833ef72a6d2e66d71602746b5b8cfecfc7b40883376f6923` |
+| RouterOS ARM64 | `sha-6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989-arm64` | `sha256:eeeaa599885953660a74bffa054550b5aea99eb1ccecc5d282c9d92b88d5dc00` |
+| AMD64 evaluation | `sha-6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989-amd64` | `sha256:5e1f4ee0f002dde2ad0ad2720f23a105ef79cb8426177c8871375b7b4d4dc459` |
 
 PR #652 is merged to `main` as commit
 `dfd3356d6e0f31f2a5fb362e220f624a948e0ade` and prepares `2.8.0` as the next
@@ -28,7 +28,8 @@ accessibility regression, secret/dependency audits, pre-commit, and the ARM64
 image build. This is source-level release-candidate evidence only: no `2.8.0`
 tag or release has been published, and no `2.8.0` runtime image has been
 published or deployed. Until then, v2.7.0 remains the latest formal release;
-PR #655 is the latest published runtime image.
+PR #657 is the latest published runtime image. Publication does not prove
+deployment on RouterOS.
 
 PR #653 is merged as `2542b5e` and reconciles the roadmap with the release
 candidate and current live-acceptance evidence. PR #655 is merged as `10ac511`;
@@ -36,24 +37,28 @@ its expanded `/api/status` and `/api/users` field allowlists and nested schema
 regressions passed CI and the published image checks above. PR #654 is merged
 as `05a598d`; its read-only acceptance evaluator now rejects non-finite
 thresholds and unrecognized input fields, with sensitive-field sentinel tests.
-These merges and the published artifacts do **not** prove that the image is
-running on RouterOS. The latest main commit is `05a598d`; PR #654 changes only
-acceptance tooling/documentation and does not alter the published runtime image.
+PR #657 is merged as `6377ec1`; its stale-session UI marks last-known sessions
+unverified and disables termination until a fresh snapshot arrives. Its image
+passed the publisher checks above. PR #654 changes only acceptance
+tooling/documentation and does not alter the published runtime image. These
+merges and artifacts do **not** prove that the image is running on RouterOS.
 
 PR #650 is merged and refreshes the installation, release, RouterOS acceptance,
 and live telemetry acceptance records to distinguish image publication from
 router deployment. PRs #647–#649 and #655 narrow streamed and status API data
-to explicit allowlists. The PR #655 image has not been read back on RouterOS in
+to explicit allowlists. The PR #657 image has not been read back on RouterOS in
 this session. The earlier readiness soak does not establish readiness or
-acceptance for PR #655, and the PR #652 release-candidate build does not
+acceptance for PR #657, and the PR #652 release-candidate build does not
 establish deployment or router acceptance.
 
 **Canary staging and production promotion remain unverified and gated.** No
-RouterOS read-back of the PR #655 tag/health or current production tag/health
-has been collected in this session; no deployment is claimed. The latest
-RouterOS Active Connections read showed zero entries, while the production
-dashboard reported delayed connection data and a stale row. Unauthenticated
-readiness probes returned HTTP 302 at Cloudflare
+RouterOS read-back of the PR #657 tag/health or current production tag/health
+has been collected; no deployment is claimed. The operator has reported the
+test VPN connected, but no contemporaneous router/dashboard observation was
+available in this follow-up, so it is not counted as acceptance evidence. The
+last recorded RouterOS Active Connections read showed zero entries, while the
+production dashboard reported delayed connection data and a stale row.
+Unauthenticated readiness probes returned HTTP 302 at Cloudflare
 Access and exposed no application readiness body. This is not a readiness
 result. Deploy the immutable ARM64 candidate to
 canary only after direct RouterOS pre-state/rollback read-back, then complete
@@ -65,10 +70,11 @@ acceptance), and #200 (deployed security assurance) remain open alongside
 tracking epic #205. Their repository-side implementation and test evidence is
 recorded below; the remaining gates require live router/client evidence or
 external security review. In the latest manual check, RouterOS reported no
-active VPN entries while the production dashboard showed delayed connection
-data, so this session did not establish a current connected-client acceptance
-run. No CA, certificate, VPN policy, or production configuration was changed
-in this update. Multi-tenancy remains explicitly out of scope.
+active VPN entries and the production dashboard showed delayed connection
+data; a fresh check could not be made because the desktop was locked. No
+current connected-client acceptance run is established. No CA, certificate,
+VPN policy, or production configuration was changed in this update.
+Multi-tenancy remains explicitly out of scope.
 
 Earlier observations below are historical evidence only and do not supersede
 this current snapshot. See the [live telemetry acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md)
