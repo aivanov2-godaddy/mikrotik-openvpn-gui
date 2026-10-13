@@ -1,28 +1,31 @@
 # Live telemetry acceptance report
 
-Status: **PR #657 ARM64 RUNTIME PUBLISHED AND ATTESTED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
+Status: **PR #662 ARM64 RUNTIME PUBLISHED AND ATTESTED; ROUTEROS DEPLOYMENT NOT VERIFIED; LIVE ACCEPTANCE INCOMPLETE; PRODUCTION PROMOTION GATED**
 
-As of 2026-10-13, PR #657 (`6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989`) is the
+As of 2026-10-13, PR #662 (`ab6e51e0de930a76f294ddb173943939a5332913`) is the
 latest merged mainline runtime change. Publisher run
-[#38351222445](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38351222445)
+[#38362247970](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38362247970)
 passed source and rendered-browser verification, published-runtime smoke,
 detached provenance/SBOM attestation verification, and stable-manifest
-read-back. The immutable artifacts are:
+read-back. PR #662 also corrects reconnect metrics so unsuccessful initial API
+connection attempts are not counted as reconnects. The immutable artifacts
+are:
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989-arm64` | `sha256:eeeaa599885953660a74bffa054550b5aea99eb1ccecc5d282c9d92b88d5dc00` |
-| AMD64 evaluation | `sha-6377ec1a83ae1bf27aaffea8fcc05ed3ce5a6989-amd64` | `sha256:5e1f4ee0f002dde2ad0ad2720f23a105ef79cb8426177c8871375b7b4d4dc459` |
+| RouterOS ARM64 | `sha-ab6e51e0de930a76f294ddb173943939a5332913-arm64` | `sha256:0444a553f6d87f2480ae0613a5370557690049adc0de837325d3516d586407d0` |
+| AMD64 evaluation | `sha-ab6e51e0de930a76f294ddb173943939a5332913-amd64` | `sha256:8e32e0855d72439216b24e4366a650469068dfccdf53f4cb8549ec900aab5da4` |
 
 No RouterOS read-back of this candidate has been collected; therefore canary
 deployment/readiness and production state are unverified. In the 2026-10-13
-cross-check, RouterOS WebFig PPP Active Connections showed zero entries. The
-production dashboard displayed one row but reported delayed connection data
-and an older status timestamp, while the canary dashboard was at RouterOS
-sign-in. The operator reported the test VPN connected, but the simultaneous
-views did not corroborate that claim, so it is not counted as acceptance
-evidence. PR #659 (`75c9134`) has since strengthened evidence validation only;
-it did not publish a runtime image. Do not promote to production on image
+10:37 EEST cross-check, RouterOS WebFig PPP Active Connections showed zero
+entries. The production dashboard displayed one row but reported delayed
+connection data and an old status timestamp (`2026-10-12 18:06`), while the
+canary dashboard remained at RouterOS sign-in. The operator reported the test
+VPN connected, but the simultaneous views did not corroborate that claim, so
+it is not counted as acceptance evidence. PR #659 (`75c9134`) strengthened
+evidence validation; PR #661 added logout-CSRF negative-path coverage; and PR
+#662 corrected reconnect metrics. Do not promote to production on image
 publication alone. Run the candidate-specific canary readiness gate and full
 acceptance collector first. Prior read-backs and acceptance observations below
 remain historical evidence for their stated image revisions only.
