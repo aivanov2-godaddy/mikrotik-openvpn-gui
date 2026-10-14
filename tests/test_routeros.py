@@ -537,13 +537,16 @@ class RouterOSClientTests(unittest.TestCase):
                 return read_file_by_id(current_credentials, file_id)
 
             with patch.object(client, "_file_contents_by_id", side_effect=fail_profile_readback):
-                with self.assertRaisesRegex(RouterOSError, "operator inspection is required"):
+                with self.assertRaisesRegex(RouterOSError, "operator inspection is required") as raised:
                     client.provision_profile(
                         credentials,
                         vpn_user="user-one",
                         device_name="Profile cleanup test",
                         key_passphrase="private-passphrase",
                     )
+
+            self.assertIn("RouterOS Files", str(raised.exception))
+            self.assertIn(".ovpn", str(raised.exception))
 
             remaining_profiles = [name for name in mock.state.files if name.endswith(".ovpn")]
             self.assertEqual(
