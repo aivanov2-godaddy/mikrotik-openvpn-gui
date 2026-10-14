@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import json
 import socket
+import threading
 import time
 import unittest
 from email.message import Message
@@ -60,6 +61,20 @@ class ASGIContractTests(unittest.TestCase):
             ))
 
             class Runtime:
+                def role_check_lock_for_session(self, session_id: str):
+                    return sessions.role_check_lock(session_id)
+
+                def cached_principal_for_session(
+                    self, session_id: str, *, role_check_lock_held: bool = False
+                ):
+                    current = sessions.get(
+                        session_id,
+                        touch=False,
+                        role_check_lock_held=role_check_lock_held,
+                        wait_for_role_check_lock=False,
+                    )
+                    return True, TelemetryPrincipal.from_session(current)
+
                 def principal_for_session(
                     self, session_id: str, *, force_role_check: bool = False
                 ) -> TelemetryPrincipal | None:
@@ -404,6 +419,20 @@ class ASGIContractTests(unittest.TestCase):
             gateway = Gateway()
 
             class Runtime:
+                def role_check_lock_for_session(self, session_id: str):
+                    return sessions.role_check_lock(session_id)
+
+                def cached_principal_for_session(
+                    self, session_id: str, *, role_check_lock_held: bool = False
+                ):
+                    current = sessions.get(
+                        session_id,
+                        touch=False,
+                        role_check_lock_held=role_check_lock_held,
+                        wait_for_role_check_lock=False,
+                    )
+                    return True, TelemetryPrincipal.from_session(current)
+
                 def principal_for_session(
                     self, session_id: str, *, force_role_check: bool = False
                 ) -> TelemetryPrincipal | None:
@@ -462,16 +491,29 @@ class ASGIContractTests(unittest.TestCase):
                     snapshot = await receive_until(ws, lambda packet: packet.startswith("42/telemetry,"))
                     self.assertIn("telemetry.snapshot", snapshot)
                     if transition == "revoke":
-                        self.assertTrue(sessions.revoke(session.session_id))
+                        self.assertTrue(
+                            await asyncio.to_thread(sessions.revoke, session.session_id)
+                        )
                     elif transition == "expiry":
-                        current = sessions.get(session.session_id, touch=False)
+                        current = await asyncio.to_thread(
+                            sessions.get, session.session_id, touch=False
+                        )
                         self.assertIsNotNone(current)
-                        current.last_seen = time.time() - sessions.idle_seconds - 1
+                        await asyncio.to_thread(
+                            setattr,
+                            current,
+                            "last_seen",
+                            time.time() - sessions.idle_seconds - 1,
+                        )
                     else:
                         # Keep the opaque session valid but remove its live-stream grant.
-                        current = sessions.get(session.session_id, touch=False)
+                        current = await asyncio.to_thread(
+                            sessions.get, session.session_id, touch=False
+                        )
                         self.assertIsNotNone(current)
-                        current.capabilities = frozenset()
+                        await asyncio.to_thread(
+                            setattr, current, "capabilities", frozenset()
+                        )
 
                     disconnect_packet = await receive_until(ws, lambda packet: packet.startswith("41/telemetry,"), timeout=3)
                     self.assertTrue(disconnect_packet.startswith("41/telemetry,"))
@@ -1133,6 +1175,494 @@ class ASGIContractTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_socketio_event_delivery_is_serialized_with_session_invalidation(self) -> None:
+        import threading
+
+        from asgi import NativeSocketIO
+
+        invalidators = (
+            "destroy",
+            "revoke",
+            "rotate",
+            "idle_expiry",
+            "absolute_expiry",
+            "purge",
+            "revoke_all_except",
+        )
+        for invalidator in invalidators:
+            with self.subTest(invalidator=invalidator):
+                sessions = SessionStore(idle_seconds=60, absolute_seconds=600)
+                session = sessions.create("operator", "test-only-secret", role="owner")
+                other_session = None
+                keep_session = None
+                if invalidator == "revoke_all_except":
+                    other_session = sessions.create(
+                        "operator-two", "test-only-secret", role="owner"
+                    )
+                    keep_session = sessions.create(
+                        "operator-keep", "test-only-secret", role="owner"
+                    )
+                runtime = TelemetryRuntime(
+                    sessions=sessions,
+                    rest_url="https://router.example.test",
+                    ca_file=None,
+                    insecure_tls=False,
+                    api_ssl_port=8729,
+                    requested_transport="sse",
+                )
+
+                class Server:
+                    def __init__(self) -> None:
+                        self.emit_started = asyncio.Event()
+                        self.two_emits_started = asyncio.Event()
+                        self.release_emit = asyncio.Event()
+                        self.emitted: list[str] = []
+                        self.order: list[str] = []
+                        self.emit_count = 0
+
+                    async def emit(self, event, _payload, *, to, namespace) -> None:
+                        self.emit_count += 1
+                        self.emit_started.set()
+                        if self.emit_count == 2:
+                            self.two_emits_started.set()
+                        await self.release_emit.wait()
+                        self.emitted.append(event)
+                        self.order.append("emit-complete")
+
+                server = Server()
+                native = object.__new__(NativeSocketIO)
+                native.runtime = runtime
+                native.server = server
+                native._events_emitted_total = 0
+                invalidation_started = threading.Event()
+
+                def invalidate_session():
+                    invalidation_started.set()
+                    if invalidator == "destroy":
+                        result = sessions.destroy(session.session_id)
+                    elif invalidator == "revoke":
+                        result = sessions.revoke(session.session_id)
+                    elif invalidator == "rotate":
+                        result = sessions.rotate(
+                            session.session_id,
+                            "replacement-test-secret",
+                            role="owner",
+                        )
+                    elif invalidator == "idle_expiry":
+                        result = sessions.get(
+                            session.session_id,
+                            now=session.last_seen + sessions.idle_seconds,
+                            touch=False,
+                        )
+                    elif invalidator == "absolute_expiry":
+                        result = sessions.get(
+                            session.session_id,
+                            now=session.created_at + sessions.absolute_seconds,
+                            touch=False,
+                        )
+                    elif invalidator == "revoke_all_except":
+                        result = sessions.revoke_all_except(keep_session.session_id)
+                    else:
+                        result = sessions.purge(
+                            now=session.last_seen + sessions.idle_seconds
+                        )
+                    server.order.append("invalidation-complete")
+                    return result
+
+                async def exercise() -> None:
+                    emissions = [asyncio.create_task(
+                        native._emit_authorized(
+                            "socket-session-invalidation",
+                            session.session_id,
+                            "telemetry.reconciled",
+                            {"status": "online"},
+                        )
+                    )]
+                    invalidation = None
+                    try:
+                        await asyncio.wait_for(server.emit_started.wait(), timeout=1)
+                        if other_session is not None:
+                            emissions.append(asyncio.create_task(
+                                native._emit_authorized(
+                                    "socket-session-invalidation-other",
+                                    other_session.session_id,
+                                    "telemetry.reconciled",
+                                    {"status": "online"},
+                                )
+                            ))
+                            await asyncio.wait_for(
+                                server.two_emits_started.wait(), timeout=1
+                            )
+                        invalidation = asyncio.create_task(
+                            asyncio.to_thread(invalidate_session)
+                        )
+                        self.assertTrue(
+                            await asyncio.to_thread(invalidation_started.wait, 1),
+                            "invalidation worker must start before checking its wait",
+                        )
+                        await asyncio.sleep(0.05)
+                        self.assertFalse(
+                            invalidation.done(),
+                            "session invalidation must wait for an in-flight authorized emit",
+                        )
+
+                        server.release_emit.set()
+                        emit_results = await asyncio.wait_for(
+                            asyncio.gather(*emissions), timeout=1
+                        )
+                        self.assertTrue(all(emit_results))
+                        result = await asyncio.wait_for(invalidation, timeout=1)
+                        self.assertEqual(server.order[-1], "invalidation-complete")
+                        self.assertEqual(
+                            server.order.count("emit-complete"), len(emissions)
+                        )
+                        if invalidator == "rotate":
+                            self.assertIsNotNone(result)
+                            self.assertIsNone(
+                                sessions.get(session.session_id, touch=False)
+                            )
+                            self.assertIsNotNone(
+                                sessions.get(result.session_id, touch=False)
+                            )
+                        elif invalidator == "revoke_all_except":
+                            self.assertEqual(result, 2)
+                            self.assertIsNone(
+                                sessions.get(session.session_id, touch=False)
+                            )
+                            self.assertIsNone(
+                                sessions.get(other_session.session_id, touch=False)
+                            )
+                            self.assertIsNotNone(
+                                sessions.get(keep_session.session_id, touch=False)
+                            )
+                        else:
+                            if invalidator == "revoke":
+                                self.assertTrue(result)
+                            elif invalidator == "purge":
+                                self.assertEqual(result, 1)
+                            self.assertIsNone(
+                                sessions.get(session.session_id, touch=False)
+                            )
+
+                        self.assertFalse(
+                            await native._emit_authorized(
+                                "socket-session-invalidation",
+                                session.session_id,
+                                "telemetry.reconciled",
+                                {"status": "offline"},
+                            )
+                        )
+                        if other_session is not None:
+                            self.assertFalse(
+                                await native._emit_authorized(
+                                    "socket-session-invalidation-other",
+                                    other_session.session_id,
+                                    "telemetry.reconciled",
+                                    {"status": "offline"},
+                                )
+                            )
+                        self.assertEqual(
+                            server.emitted,
+                            ["telemetry.reconciled"] * len(emissions),
+                        )
+                    finally:
+                        server.release_emit.set()
+                        pending = list(emissions)
+                        if invalidation is not None:
+                            pending.append(invalidation)
+                        await asyncio.gather(*pending, return_exceptions=True)
+
+                asyncio.run(exercise())
+
+    def test_socketio_event_delivery_fails_closed_without_session_gate(self) -> None:
+        from asgi import NativeSocketIO
+
+        class Principal:
+            may_stream = True
+
+        class Runtime:
+            def principal_for_session(
+                self, _session_id: str, *, force_role_check: bool = False
+            ) -> Principal:
+                return Principal()
+
+        class Server:
+            def __init__(self) -> None:
+                self.emitted: list[str] = []
+
+            async def emit(self, event, _payload, *, to, namespace) -> None:
+                self.emitted.append(event)
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = Runtime()
+        native.server = Server()
+        native._events_emitted_total = 0
+
+        emitted = asyncio.run(
+            native._emit_authorized(
+                "socket-1", "session-without-gate", "telemetry.reconciled", {}
+            )
+        )
+
+        self.assertFalse(emitted)
+        self.assertEqual(native.server.emitted, [])
+
+    def test_sync_invalidation_fails_fast_on_event_loop_and_async_helper_waits(self) -> None:
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-secret", role="owner")
+        keep_session = sessions.create(
+            "operator-keep", "test-only-secret", role="owner"
+        )
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url="https://router.example.test",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="sse",
+        )
+
+        class Server:
+            def __init__(self) -> None:
+                self.emit_started = asyncio.Event()
+                self.release_emit = asyncio.Event()
+
+            async def emit(self, _event, _payload, *, to, namespace) -> None:
+                self.emit_started.set()
+                await self.release_emit.wait()
+
+        server = Server()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = server
+        native._events_emitted_total = 0
+
+        async def exercise() -> None:
+            emission = asyncio.create_task(
+                native._emit_authorized(
+                    "socket-1",
+                    session.session_id,
+                    "telemetry.reconciled",
+                    {"status": "online"},
+                )
+            )
+            invalidation = None
+            try:
+                await asyncio.wait_for(server.emit_started.wait(), timeout=1)
+                with self.assertRaisesRegex(RuntimeError, "asyncio.to_thread"):
+                    sessions.revoke(session.session_id)
+                with self.assertRaisesRegex(RuntimeError, "asyncio.to_thread"):
+                    sessions.revoke_all_except(keep_session.session_id)
+                self.assertIsNotNone(sessions.get(session.session_id, touch=False))
+                self.assertIsNotNone(
+                    sessions.get(keep_session.session_id, touch=False)
+                )
+
+                invalidation = asyncio.create_task(
+                    sessions.revoke_all_except_async(keep_session.session_id)
+                )
+                await asyncio.sleep(0.05)
+                self.assertFalse(
+                    invalidation.done(),
+                    "the async helper must leave the event loop responsive while waiting",
+                )
+                server.release_emit.set()
+                self.assertTrue(await asyncio.wait_for(emission, timeout=1))
+                self.assertEqual(await asyncio.wait_for(invalidation, timeout=1), 1)
+                self.assertIsNone(sessions.get(session.session_id, touch=False))
+                self.assertIsNotNone(
+                    sessions.get(keep_session.session_id, touch=False)
+                )
+            finally:
+                server.release_emit.set()
+                pending = [emission]
+                if invalidation is not None:
+                    pending.append(invalidation)
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        asyncio.run(exercise())
+
+    def test_bulk_revoke_covers_session_rotated_while_waiting_for_emit(self) -> None:
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-secret", role="owner")
+        keep_session = sessions.create(
+            "operator-keep", "test-only-secret", role="owner"
+        )
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url="https://router.example.test",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="sse",
+        )
+
+        class Server:
+            def __init__(self) -> None:
+                self.emit_started = asyncio.Event()
+                self.release_emit = asyncio.Event()
+
+            async def emit(self, _event, _payload, *, to, namespace) -> None:
+                self.emit_started.set()
+                await self.release_emit.wait()
+
+        server = Server()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = server
+        native._events_emitted_total = 0
+
+        async def exercise() -> None:
+            emission = asyncio.create_task(
+                native._emit_authorized(
+                    "socket-1",
+                    session.session_id,
+                    "telemetry.reconciled",
+                    {"status": "online"},
+                )
+            )
+            rotation = None
+            bulk_revoke = None
+            try:
+                await asyncio.wait_for(server.emit_started.wait(), timeout=1)
+                rotation = asyncio.create_task(
+                    sessions.rotate_async(
+                        session.session_id,
+                        "replacement-test-secret",
+                        role="owner",
+                    )
+                )
+
+                deadline = asyncio.get_running_loop().time() + 1
+                while sessions.get(session.session_id, touch=False) is not None:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("rotation did not acquire the session-set gate")
+                    await asyncio.sleep(0.01)
+                self.assertTrue(sessions._session_set_lock.locked())
+
+                bulk_started = threading.Event()
+
+                def bulk_revoke_from_worker() -> int:
+                    bulk_started.set()
+                    return sessions.revoke_all_except(keep_session.session_id)
+
+                bulk_revoke = asyncio.create_task(
+                    asyncio.to_thread(bulk_revoke_from_worker)
+                )
+                self.assertTrue(await asyncio.to_thread(bulk_started.wait, 1))
+                await asyncio.sleep(0.05)
+                self.assertFalse(
+                    bulk_revoke.done(),
+                    "bulk revocation must serialize behind the in-flight rotation",
+                )
+
+                server.release_emit.set()
+                replacement = await asyncio.wait_for(rotation, timeout=1)
+                self.assertIsNotNone(replacement)
+                self.assertEqual(await asyncio.wait_for(bulk_revoke, timeout=1), 1)
+                self.assertIsNone(sessions.get(session.session_id, touch=False))
+                self.assertIsNone(sessions.get(replacement.session_id, touch=False))
+                self.assertIsNotNone(
+                    sessions.get(keep_session.session_id, touch=False)
+                )
+            finally:
+                server.release_emit.set()
+                pending = [emission]
+                if rotation is not None:
+                    pending.append(rotation)
+                if bulk_revoke is not None:
+                    pending.append(bulk_revoke)
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        asyncio.run(exercise())
+
+    def test_socketio_cancelled_emit_drains_child_enqueue_before_revoke(self) -> None:
+        import threading
+
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-secret", role="owner")
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url="https://router.example.test",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="sse",
+        )
+
+        class Server:
+            def __init__(self) -> None:
+                self.child_started = asyncio.Event()
+                self.release_child = asyncio.Event()
+                self.queued: list[str] = []
+
+            async def emit(self, event, _payload, *, to, namespace) -> None:
+                # Mirror AsyncManager.emit: child sends continue if its waiter
+                # is cancelled unless the caller drains the manager task.
+                child = asyncio.create_task(self._enqueue(event))
+                await asyncio.wait((child,))
+
+            async def _enqueue(self, event: str) -> None:
+                self.child_started.set()
+                await self.release_child.wait()
+                self.queued.append(event)
+
+        server = Server()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = server
+        native._events_emitted_total = 0
+        invalidation_started = threading.Event()
+
+        async def exercise() -> None:
+            emission = asyncio.create_task(
+                native._emit_authorized(
+                    "socket-1",
+                    session.session_id,
+                    "telemetry.reconciled",
+                    {"status": "online"},
+                )
+            )
+            invalidation = None
+            try:
+                await asyncio.wait_for(server.child_started.wait(), timeout=1)
+                emission.cancel()
+
+                def revoke():
+                    invalidation_started.set()
+                    return sessions.revoke(session.session_id)
+
+                invalidation = asyncio.create_task(asyncio.to_thread(revoke))
+                self.assertTrue(
+                    await asyncio.to_thread(invalidation_started.wait, 1),
+                    "revoke worker must start before checking its wait",
+                )
+                await asyncio.sleep(0.05)
+                self.assertFalse(
+                    invalidation.done(),
+                    "revoke must wait for a child enqueue started by a cancelled emit",
+                )
+
+                server.release_child.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await asyncio.wait_for(emission, timeout=1)
+                self.assertTrue(await asyncio.wait_for(invalidation, timeout=1))
+                self.assertEqual(server.queued, ["telemetry.reconciled"])
+            finally:
+                server.release_child.set()
+                pending = [emission]
+                if invalidation is not None:
+                    pending.append(invalidation)
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        asyncio.run(exercise())
+
     def test_socketio_cancelled_connect_keeps_role_check_slot_until_worker_finishes(self) -> None:
         import threading
 
@@ -1360,6 +1890,18 @@ class ASGIContractTests(unittest.TestCase):
         gateway.publish([TelemetryEvent("telemetry.reconciled", 1, 100, {"status": "online"})])
 
         class Runtime:
+            delivery_lock = threading.Lock()
+
+            @staticmethod
+            def role_check_lock_for_session(_session_id: str):
+                return Runtime.delivery_lock
+
+            @staticmethod
+            def cached_principal_for_session(
+                _session_id: str, *, role_check_lock_held: bool = False
+            ):
+                return True, principal
+
             @staticmethod
             def principal_for_session(
                 _session_id: str, *, force_role_check: bool = False
@@ -1396,6 +1938,7 @@ class ASGIContractTests(unittest.TestCase):
                 )
                 self.assertEqual(gateway.metrics()["published_events"], 2)
             finally:
+                native.server.release_emit.set()
                 pump.cancel()
                 await asyncio.gather(pump, return_exceptions=True)
 
@@ -1452,6 +1995,17 @@ class ASGIContractTests(unittest.TestCase):
 
         class Runtime:
             supervisor = Supervisor()
+            delivery_lock = threading.Lock()
+
+            @staticmethod
+            def role_check_lock_for_session(_session_id: str):
+                return Runtime.delivery_lock
+
+            @staticmethod
+            def cached_principal_for_session(
+                _session_id: str, *, role_check_lock_held: bool = False
+            ):
+                return True, principal
 
             @staticmethod
             def principal_for_session(
@@ -1704,6 +2258,17 @@ class ASGIContractTests(unittest.TestCase):
 
         class Runtime:
             gateway = None
+            delivery_lock = threading.Lock()
+
+            @staticmethod
+            def role_check_lock_for_session(_session_id: str):
+                return Runtime.delivery_lock
+
+            @staticmethod
+            def cached_principal_for_session(
+                _session_id: str, *, role_check_lock_held: bool = False
+            ):
+                return True, Principal() if state["authorized"] else None
 
             @staticmethod
             def principal_for_session(
@@ -1759,6 +2324,17 @@ class ASGIContractTests(unittest.TestCase):
 
         class Runtime:
             gateway = None
+            delivery_lock = threading.Lock()
+
+            @staticmethod
+            def role_check_lock_for_session(_session_id: str):
+                return Runtime.delivery_lock
+
+            @staticmethod
+            def cached_principal_for_session(
+                _session_id: str, *, role_check_lock_held: bool = False
+            ):
+                return True, Principal() if state["authorized"] else None
 
             @staticmethod
             def principal_for_session(
