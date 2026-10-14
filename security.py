@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import secrets
@@ -123,8 +124,111 @@ class SessionStore:
         self._lock = threading.RLock()
         self._role_checked_at: dict[str, float] = {}
         self._role_check_locks: dict[str, threading.Lock] = {}
+        self._invalidating: set[str] = set()
+        # Serializes mutations that can introduce a new session ID against
+        # bulk revocation, so a concurrent rotate/login cannot escape it.
+        self._session_set_lock = threading.Lock()
+
+    @staticmethod
+    def _running_in_event_loop() -> bool:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        return True
+
+    @classmethod
+    def _acquire_sync_lock(
+        cls, check_lock: threading.Lock, *, blocking: bool = True
+    ) -> bool:
+        if not blocking:
+            return check_lock.acquire(blocking=False)
+        if cls._running_in_event_loop():
+            if check_lock.acquire(blocking=False):
+                return True
+            raise RuntimeError(
+                "SessionStore is synchronous; await its async helper or offload "
+                "the call with asyncio.to_thread() from an event loop"
+            )
+        check_lock.acquire()
+        return True
+
+    @classmethod
+    def _acquire_role_check_locks_in_event_loop(
+        cls, check_locks: list[threading.Lock]
+    ) -> list[threading.Lock] | None:
+        if not cls._running_in_event_loop():
+            return None
+        acquired: list[threading.Lock] = []
+        for check_lock in check_locks:
+            if check_lock.acquire(blocking=False):
+                acquired.append(check_lock)
+                continue
+            for held_lock in reversed(acquired):
+                held_lock.release()
+            raise RuntimeError(
+                "SessionStore is synchronous; await its async helper or offload "
+                "the call with asyncio.to_thread() from an event loop"
+            )
+        return acquired
+
+    def _role_lock_for_mutation(
+        self, session_id: str, *, routeros_only: bool = False
+    ) -> tuple[threading.Lock, bool] | None:
+        """Return the delivery lock without holding the store lock while waiting."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None or (routeros_only and session.auth_method != "routeros"):
+                return None
+            check_lock = self._role_check_locks.setdefault(
+                session_id, threading.Lock()
+            )
+            acquired = False
+            if self._running_in_event_loop():
+                if not check_lock.acquire(blocking=False):
+                    raise RuntimeError(
+                        "SessionStore is synchronous; await its async helper or "
+                        "offload the call with asyncio.to_thread() from an event loop"
+                    )
+                acquired = True
+            self._invalidating.add(session_id)
+            return check_lock, acquired
+
+    def _is_expired(self, session: Session, current: float) -> bool:
+        return (
+            current - session.last_seen >= self.idle_seconds
+            or current - session.created_at >= self.absolute_seconds
+        )
+
+    def _drop_session_locked(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+        self._role_checked_at.pop(session_id, None)
+        self._role_check_locks.pop(session_id, None)
+        self._invalidating.discard(session_id)
 
     def create(
+        self,
+        username: str,
+        password: str,
+        now: float | None = None,
+        role: str = "owner",
+        source_address: str = "",
+        user_agent: str = "",
+    ) -> Session:
+        self._acquire_sync_lock(self._session_set_lock)
+        try:
+            return self._create_with_session_set_lock(
+                username,
+                password,
+                now=now,
+                role=role,
+                source_address=source_address,
+                user_agent=user_agent,
+            )
+        finally:
+            self._session_set_lock.release()
+
+    def _create_with_session_set_lock(
         self,
         username: str,
         password: str,
@@ -146,8 +250,8 @@ class SessionStore:
             user_agent=str(user_agent or "")[:256],
             reauthenticated_at=current,
         )
+        self.purge(current)
         with self._lock:
-            self.purge(current)
             account_sessions = sum(
                 existing.username.casefold() == username.casefold()
                 for existing in self._sessions.values()
@@ -164,24 +268,55 @@ class SessionStore:
         now: float | None = None,
         *,
         touch: bool = True,
+        role_check_lock_held: bool = False,
+        wait_for_role_check_lock: bool = True,
     ) -> Session | None:
         if not session_id:
             return None
         current = time.time() if now is None else now
         with self._lock:
             session = self._sessions.get(session_id)
-            if session is None:
+            if session is None or session_id in self._invalidating:
                 return None
-            idle_expired = current - session.last_seen >= self.idle_seconds
-            absolute_expired = current - session.created_at >= self.absolute_seconds
-            if idle_expired or absolute_expired:
-                self._sessions.pop(session_id, None)
-                self._role_checked_at.pop(session_id, None)
-                self._role_check_locks.pop(session_id, None)
-                return None
-            if touch:
-                session.last_seen = current
-            return session
+            if not self._is_expired(session, current):
+                if touch:
+                    session.last_seen = current
+                return session
+            check_lock = self._role_check_locks.setdefault(
+                session_id, threading.Lock()
+            )
+
+        if role_check_lock_held:
+            with self._lock:
+                session = self._sessions.get(session_id)
+                if session is None or session_id in self._invalidating:
+                    return None
+                current = time.time() if now is None else now
+                if self._is_expired(session, current):
+                    self._drop_session_locked(session_id)
+                    return None
+                if touch:
+                    session.last_seen = current
+                return session
+
+        if not self._acquire_sync_lock(
+            check_lock, blocking=wait_for_role_check_lock
+        ):
+            return None
+        try:
+            with self._lock:
+                session = self._sessions.get(session_id)
+                if session is None or session_id in self._invalidating:
+                    return None
+                current = time.time() if now is None else now
+                if self._is_expired(session, current):
+                    self._drop_session_locked(session_id)
+                    return None
+                if touch:
+                    session.last_seen = current
+                return session
+        finally:
+            check_lock.release()
 
     def cached_role_session(
         self,
@@ -202,17 +337,8 @@ class SessionStore:
             session = self._sessions.get(session_id)
             if session is None:
                 return True, None
-            if (
-                current - session.last_seen >= self.idle_seconds
-                or current - session.created_at >= self.absolute_seconds
-            ):
-                self._sessions.pop(session_id, None)
-                self._role_checked_at.pop(session_id, None)
-                self._role_check_locks.pop(session_id, None)
+            if session_id in self._invalidating:
                 return True, None
-            if session.auth_method != "routeros":
-                return True, session
-
             check_lock = self._role_check_locks.get(session_id)
             if (
                 check_lock is not None
@@ -220,6 +346,11 @@ class SessionStore:
                 and not role_check_lock_held
             ):
                 return False, None
+            if self._is_expired(session, current):
+                self._drop_session_locked(session_id)
+                return True, None
+            if session.auth_method != "routeros":
+                return True, session
             checked_at = self._role_checked_at.get(session_id, session.created_at)
             elapsed = current - checked_at
             fresh = 0 <= elapsed < max(0, interval_seconds)
@@ -242,6 +373,22 @@ class SessionStore:
         role: str,
         now: float | None = None,
     ) -> Session | None:
+        self._acquire_sync_lock(self._session_set_lock)
+        try:
+            return self._rotate_with_session_set_lock(
+                session_id, password, role=role, now=now
+            )
+        finally:
+            self._session_set_lock.release()
+
+    def _rotate_with_session_set_lock(
+        self,
+        session_id: str,
+        password: str,
+        *,
+        role: str,
+        now: float | None = None,
+    ) -> Session | None:
         """Replace a live RouterOS session after successful re-authentication.
 
         The old reference and CSRF tokens are invalidated in the same critical
@@ -251,39 +398,42 @@ class SessionStore:
         if not session_id:
             return None
         current = time.time() if now is None else now
-        with self._lock:
-            existing = self._sessions.get(session_id)
-            if existing is None:
-                return None
-            if existing.auth_method != "routeros":
-                return None
-            if (
-                current - existing.last_seen >= self.idle_seconds
-                or current - existing.created_at >= self.absolute_seconds
-            ):
-                self._sessions.pop(session_id, None)
-                self._role_checked_at.pop(session_id, None)
-                self._role_check_locks.pop(session_id, None)
-                return None
+        lock_and_state = self._role_lock_for_mutation(
+            session_id, routeros_only=True
+        )
+        if lock_and_state is None:
+            return None
+        check_lock, acquired = lock_and_state
+        if not acquired:
+            self._acquire_sync_lock(check_lock)
+        try:
+            with self._lock:
+                existing = self._sessions.get(session_id)
+                if existing is None:
+                    return None
+                current = time.time() if now is None else now
+                if self._is_expired(existing, current):
+                    self._drop_session_locked(session_id)
+                    return None
 
-            replacement = Session(
-                session_id=secrets.token_urlsafe(32),
-                username=existing.username,
-                password=password,
-                csrf_token=secrets.token_urlsafe(32),
-                created_at=current,
-                last_seen=current,
-                role=normalize_role(role),
-                source_address=existing.source_address,
-                user_agent=existing.user_agent,
-                reauthenticated_at=current,
-            )
-            self._sessions.pop(session_id, None)
-            self._role_checked_at.pop(session_id, None)
-            self._role_check_locks.pop(session_id, None)
-            self._sessions[replacement.session_id] = replacement
-            self._role_checked_at[replacement.session_id] = current
-            return replacement
+                replacement = Session(
+                    session_id=secrets.token_urlsafe(32),
+                    username=existing.username,
+                    password=password,
+                    csrf_token=secrets.token_urlsafe(32),
+                    created_at=current,
+                    last_seen=current,
+                    role=normalize_role(role),
+                    source_address=existing.source_address,
+                    user_agent=existing.user_agent,
+                    reauthenticated_at=current,
+                )
+                self._drop_session_locked(session_id)
+                self._sessions[replacement.session_id] = replacement
+                self._role_checked_at[replacement.session_id] = current
+                return replacement
+        finally:
+            check_lock.release()
 
     @staticmethod
     def _role_is_subset(left: str, right: str) -> bool:
@@ -313,7 +463,10 @@ class SessionStore:
             return session
         current = time.time() if now is None else now
         with self._lock:
-            if self._sessions.get(session_id) is not session:
+            if (
+                self._sessions.get(session_id) is not session
+                or session_id in self._invalidating
+            ):
                 return None
             checked_at = self._role_checked_at.get(session_id, session.created_at)
             elapsed = current - checked_at
@@ -326,9 +479,14 @@ class SessionStore:
             acquired = check_lock.acquire(blocking=False)
 
         if not acquired:
-            check_lock.acquire()
+            self._acquire_sync_lock(check_lock)
         try:
-            session = self.get(session_id, now=now, touch=False)
+            session = self.get(
+                session_id,
+                now=now,
+                touch=False,
+                role_check_lock_held=True,
+            )
             if session is None or session.auth_method != "routeros":
                 return session
             current = time.time() if now is None else now
@@ -344,11 +502,11 @@ class SessionStore:
                 # RouterOS is the source of truth for every session role. If it
                 # cannot verify the account, retaining even read-only access
                 # would keep telemetry streams authorized from stale identity.
-                self.destroy(session_id)
+                self.destroy(session_id, role_check_lock_held=True)
                 return None
             checked_at = time.time() if now is None else now
             if resolved_role is None:
-                self.destroy(session_id)
+                self.destroy(session_id, role_check_lock_held=True)
                 return None
 
             current_role = normalize_role(session.role)
@@ -356,38 +514,74 @@ class SessionStore:
             if self._role_is_subset(resolved_role, current_role):
                 session.role = resolved_role
             elif not self._role_is_subset(current_role, resolved_role):
-                self.destroy(session_id)
+                self.destroy(session_id, role_check_lock_held=True)
                 return None
             # A role increase leaves the established privilege set unchanged;
             # the operator must sign in again to obtain the new permissions.
             with self._lock:
-                if self._sessions.get(session_id) is not session:
+                if (
+                    self._sessions.get(session_id) is not session
+                    or session_id in self._invalidating
+                ):
                     return None
                 self._role_checked_at[session_id] = checked_at
             return session
         finally:
             check_lock.release()
 
-    def destroy(self, session_id: str) -> None:
-        with self._lock:
-            self._sessions.pop(session_id, None)
-            self._role_checked_at.pop(session_id, None)
-            self._role_check_locks.pop(session_id, None)
+    def destroy(self, session_id: str, *, role_check_lock_held: bool = False) -> None:
+        check_lock = None
+        if not role_check_lock_held:
+            lock_and_state = self._role_lock_for_mutation(session_id)
+            if lock_and_state is None:
+                return
+            check_lock, acquired = lock_and_state
+            if not acquired:
+                self._acquire_sync_lock(check_lock)
+        try:
+            with self._lock:
+                self._drop_session_locked(session_id)
+        finally:
+            if check_lock is not None:
+                check_lock.release()
 
     def purge(self, now: float | None = None) -> int:
         current = time.time() if now is None else now
         with self._lock:
-            expired = [
+            expired = sorted(
                 key
                 for key, value in self._sessions.items()
-                if current - value.last_seen >= self.idle_seconds
-                or current - value.created_at >= self.absolute_seconds
-            ]
+                if self._is_expired(value, current)
+            )
+            locks: list[threading.Lock] = []
             for key in expired:
-                self._sessions.pop(key, None)
-                self._role_checked_at.pop(key, None)
-                self._role_check_locks.pop(key, None)
-            return len(expired)
+                locks.append(
+                    self._role_check_locks.setdefault(key, threading.Lock())
+                )
+            acquired = self._acquire_role_check_locks_in_event_loop(locks)
+            if acquired is not None:
+                try:
+                    self._invalidating.update(expired)
+                    for key in expired:
+                        self._drop_session_locked(key)
+                    return len(expired)
+                finally:
+                    for check_lock in reversed(acquired):
+                        check_lock.release()
+            self._invalidating.update(expired)
+        for check_lock in locks:
+            check_lock.acquire()
+        try:
+            removed = 0
+            with self._lock:
+                for key in expired:
+                    if key in self._sessions:
+                        self._drop_session_locked(key)
+                        removed += 1
+            return removed
+        finally:
+            for check_lock in reversed(locks):
+                check_lock.release()
 
     def active(self, now: float | None = None) -> list[Session]:
         """Return a snapshot for in-memory background work without exposing storage."""
@@ -431,22 +625,89 @@ class SessionStore:
         return result
 
     def revoke(self, session_id: str) -> bool:
-        """Revoke one dashboard session and report whether it existed."""
-        with self._lock:
-            existed = self._sessions.pop(session_id, None) is not None
-            self._role_checked_at.pop(session_id, None)
-            self._role_check_locks.pop(session_id, None)
-            return existed
+        """Revoke one dashboard session after any authorized emit completes."""
+        lock_and_state = self._role_lock_for_mutation(session_id)
+        if lock_and_state is None:
+            return False
+        check_lock, acquired = lock_and_state
+        if not acquired:
+            self._acquire_sync_lock(check_lock)
+        try:
+            with self._lock:
+                existed = session_id in self._sessions
+                self._drop_session_locked(session_id)
+                return existed
+        finally:
+            check_lock.release()
 
     def revoke_all_except(self, session_id: str) -> int:
+        self._acquire_sync_lock(self._session_set_lock)
+        try:
+            return self._revoke_all_except_with_session_set_lock(session_id)
+        finally:
+            self._session_set_lock.release()
+
+    def _revoke_all_except_with_session_set_lock(self, session_id: str) -> int:
         """Revoke every dashboard session except the caller's session."""
         with self._lock:
-            candidates = [key for key in self._sessions if key != session_id]
+            candidates = sorted(key for key in self._sessions if key != session_id)
+            locks: list[threading.Lock] = []
             for key in candidates:
-                self._sessions.pop(key, None)
-                self._role_checked_at.pop(key, None)
-                self._role_check_locks.pop(key, None)
-            return len(candidates)
+                locks.append(
+                    self._role_check_locks.setdefault(key, threading.Lock())
+                )
+            acquired = self._acquire_role_check_locks_in_event_loop(locks)
+            if acquired is not None:
+                try:
+                    self._invalidating.update(candidates)
+                    for key in candidates:
+                        self._drop_session_locked(key)
+                    return len(candidates)
+                finally:
+                    for check_lock in reversed(acquired):
+                        check_lock.release()
+            self._invalidating.update(candidates)
+        for check_lock in locks:
+            check_lock.acquire()
+        try:
+            with self._lock:
+                existing = [key for key in candidates if key in self._sessions]
+                for key in existing:
+                    self._drop_session_locked(key)
+                return len(existing)
+        finally:
+            for check_lock in reversed(locks):
+                check_lock.release()
+
+    async def get_async(
+        self, session_id: str, now: float | None = None, *, touch: bool = True
+    ) -> Session | None:
+        """Run the synchronous lookup off-loop when expiry may wait on delivery."""
+        return await asyncio.to_thread(self.get, session_id, now, touch=touch)
+
+    async def destroy_async(self, session_id: str) -> None:
+        await asyncio.to_thread(self.destroy, session_id)
+
+    async def rotate_async(
+        self,
+        session_id: str,
+        password: str,
+        *,
+        role: str,
+        now: float | None = None,
+    ) -> Session | None:
+        return await asyncio.to_thread(
+            self.rotate, session_id, password, role=role, now=now
+        )
+
+    async def purge_async(self, now: float | None = None) -> int:
+        return await asyncio.to_thread(self.purge, now)
+
+    async def revoke_async(self, session_id: str) -> bool:
+        return await asyncio.to_thread(self.revoke, session_id)
+
+    async def revoke_all_except_async(self, session_id: str) -> int:
+        return await asyncio.to_thread(self.revoke_all_except, session_id)
 
 
 class LoginRateLimiter:

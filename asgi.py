@@ -450,18 +450,7 @@ class NativeSocketIO:
         """Hold the role-check lock across the final check and event enqueue."""
         lock_for_session = getattr(self.runtime, "role_check_lock_for_session", None)
         if not callable(lock_for_session):
-            principal = await self._principal_for_session_async(
-                session_id, wait_for_capacity=True
-            )
-            if principal is None or not principal.may_stream:
-                return False
-            await self._emit(
-                event,
-                payload,
-                to=sid,
-                count_event=event != "telemetry.health",
-            )
-            return True
+            return False
 
         while True:
             role_lock = lock_for_session(session_id)
@@ -481,7 +470,7 @@ class NativeSocketIO:
                 if cache_is_authoritative:
                     if principal is None or not principal.may_stream:
                         return False
-                    await self._emit(
+                    await self._emit_and_drain(
                         event,
                         payload,
                         to=sid,
@@ -500,6 +489,40 @@ class NativeSocketIO:
             )
             if principal is None or not principal.may_stream:
                 return False
+
+    async def _emit_and_drain(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+        *,
+        to: str,
+        count_event: bool = True,
+    ) -> None:
+        """Keep the session gate until Socket.IO's child sends have drained.
+
+        AsyncManager.emit can leave child send tasks running when its waiter is
+        cancelled. Shield the manager call and, on cancellation, retain the
+        per-session gate until that call finishes so invalidation cannot report
+        completion while an earlier enqueue is still in progress.
+        """
+        emission = asyncio.create_task(
+            self._emit(event, payload, to=to, count_event=count_event)
+        )
+        try:
+            await asyncio.shield(emission)
+        except asyncio.CancelledError:
+            while not emission.done():
+                try:
+                    await asyncio.shield(emission)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:  # noqa: BLE001 - consume failed child send before releasing gate
+                    break
+            try:
+                emission.result()
+            except (Exception, asyncio.CancelledError):
+                pass
+            raise
 
     async def _emit(
         self,

@@ -134,7 +134,12 @@ class TelemetryRuntime:
         must perform that refresh before authorizing or emitting telemetry.
         """
         if getattr(self, "role_resolver", None) is None:
-            session = self.sessions.get(session_id, touch=False)
+            session = self.sessions.get(
+                session_id,
+                touch=False,
+                role_check_lock_held=role_check_lock_held,
+                wait_for_role_check_lock=False,
+            )
             return True, TelemetryPrincipal.from_session(session)
         fresh, session = self.sessions.cached_role_session(
             session_id,
