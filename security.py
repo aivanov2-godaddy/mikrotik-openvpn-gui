@@ -183,6 +183,57 @@ class SessionStore:
                 session.last_seen = current
             return session
 
+    def cached_role_session(
+        self,
+        session_id: str,
+        *,
+        now: float | None = None,
+        interval_seconds: int = SESSION_ROLE_REVALIDATION_SECONDS,
+        role_check_lock_held: bool = False,
+    ) -> tuple[bool, Session | None]:
+        """Return the session only when its RouterOS role cache is still fresh.
+
+        The boolean distinguishes a cache miss (which needs a RouterOS lookup)
+        from a missing or expired session (which is already a definitive denial).
+        This read never contacts RouterOS and never extends the idle lifetime.
+        """
+        current = time.time() if now is None else now
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return True, None
+            if (
+                current - session.last_seen >= self.idle_seconds
+                or current - session.created_at >= self.absolute_seconds
+            ):
+                self._sessions.pop(session_id, None)
+                self._role_checked_at.pop(session_id, None)
+                self._role_check_locks.pop(session_id, None)
+                return True, None
+            if session.auth_method != "routeros":
+                return True, session
+
+            check_lock = self._role_check_locks.get(session_id)
+            if (
+                check_lock is not None
+                and check_lock.locked()
+                and not role_check_lock_held
+            ):
+                return False, None
+            checked_at = self._role_checked_at.get(session_id, session.created_at)
+            elapsed = current - checked_at
+            fresh = 0 <= elapsed < max(0, interval_seconds)
+            return (True, session) if fresh else (False, None)
+
+    def role_check_lock(self, session_id: str) -> threading.Lock | None:
+        """Return the per-session lock shared by role refresh and delivery."""
+        if not session_id:
+            return None
+        with self._lock:
+            if session_id not in self._sessions:
+                return None
+            return self._role_check_locks.setdefault(session_id, threading.Lock())
+
     def rotate(
         self,
         session_id: str,
@@ -262,12 +313,20 @@ class SessionStore:
             return session
         current = time.time() if now is None else now
         with self._lock:
+            if self._sessions.get(session_id) is not session:
+                return None
             checked_at = self._role_checked_at.get(session_id, session.created_at)
-            if current - checked_at < max(0, interval_seconds):
-                return session
+            elapsed = current - checked_at
             check_lock = self._role_check_locks.setdefault(session_id, threading.Lock())
+            if (
+                0 <= elapsed < max(0, interval_seconds)
+                and not check_lock.locked()
+            ):
+                return session
+            acquired = check_lock.acquire(blocking=False)
 
-        check_lock.acquire()
+        if not acquired:
+            check_lock.acquire()
         try:
             session = self.get(session_id, now=now, touch=False)
             if session is None or session.auth_method != "routeros":
@@ -275,7 +334,8 @@ class SessionStore:
             current = time.time() if now is None else now
             with self._lock:
                 checked_at = self._role_checked_at.get(session_id, session.created_at)
-                if current - checked_at < max(0, interval_seconds):
+                elapsed = current - checked_at
+                if 0 <= elapsed < max(0, interval_seconds):
                     return session
 
             try:

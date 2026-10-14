@@ -30,6 +30,8 @@ from security import SECURITY_HEADERS
 ASGIMessage = dict[str, Any]
 Send = Callable[[ASGIMessage], Awaitable[None]]
 Receive = Callable[[], Awaitable[ASGIMessage]]
+_SOCKETIO_ROLE_CHECK_LIMIT = 4
+_SOCKETIO_ROLE_CHECK_SLOTS = threading.BoundedSemaphore(_SOCKETIO_ROLE_CHECK_LIMIT)
 
 
 def _header_map(scope: Mapping[str, Any]) -> dict[str, str]:
@@ -308,6 +310,60 @@ class NativeSocketIO:
         self.server.on("disconnect", self.disconnect, namespace=self.namespace)
         self.server.on("telemetry.subscribe", self.subscribe, namespace=self.namespace)
 
+    async def _principal_for_session_async(
+        self,
+        session_id: str,
+        *,
+        force_role_check: bool = False,
+        wait_for_capacity: bool = False,
+    ) -> Any | None:
+        """Revalidate an ASGI session without blocking the event loop.
+
+        Fresh local role-cache hits need no worker slot. RouterOS role
+        resolution is synchronous, so network checks are bounded per process.
+        Established streams may wait asynchronously for a slot; new connects
+        fail closed when capacity is unavailable. The slot is released when
+        the worker actually finishes, even if its Socket.IO task is cancelled.
+        """
+        if not force_role_check:
+            cached_lookup = getattr(self.runtime, "cached_principal_for_session", None)
+            if callable(cached_lookup):
+                try:
+                    cache_is_authoritative, principal = cached_lookup(session_id)
+                except Exception:  # noqa: BLE001 - cache failures fail closed
+                    return None
+                if cache_is_authoritative:
+                    return principal
+
+        loop = asyncio.get_running_loop()
+        if wait_for_capacity:
+            while not _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False):
+                await asyncio.sleep(0.025)
+        elif not _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False):
+            return None
+
+        def lookup_principal() -> Any | None:
+            try:
+                return self.runtime.principal_for_session(
+                    session_id, force_role_check=force_role_check
+                )
+            except Exception:  # noqa: BLE001 - resolver failures fail closed
+                return None
+            finally:
+                _SOCKETIO_ROLE_CHECK_SLOTS.release()
+
+        try:
+            lookup = loop.run_in_executor(None, lookup_principal)
+        except Exception:
+            _SOCKETIO_ROLE_CHECK_SLOTS.release()
+            return None
+        try:
+            return await asyncio.shield(lookup)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return None
+
     async def connect(self, sid: str, environ: Mapping[str, Any], auth: Any = None) -> bool:
         # Engine.IO/Socket.IO may retry a namespace connect while the transport
         # is recovering. Keep one gateway subscription and pump per client SID.
@@ -315,10 +371,11 @@ class NativeSocketIO:
             scope = environ.get("asgi.scope", {})
             session_id = _session_id(scope)
             bound_session_id = self._session_ids.get(sid, "")
-            try:
-                principal = self.runtime.principal_for_session(bound_session_id)
-            except Exception:  # noqa: BLE001 - resolver failures fail closed
-                principal = None
+            principal = await self._principal_for_session_async(
+                bound_session_id,
+                force_role_check=True,
+                wait_for_capacity=True,
+            )
             if (
                 not bound_session_id
                 or session_id != bound_session_id
@@ -330,7 +387,9 @@ class NativeSocketIO:
                 return False
             return True
         scope = environ.get("asgi.scope", {})
-        principal = self.runtime.principal_for_session(_session_id(scope))
+        principal = await self._principal_for_session_async(
+            _session_id(scope), force_role_check=True
+        )
         if principal is None or not principal.may_stream:
             self._rejected_connections_total += 1
             return False
@@ -360,25 +419,99 @@ class NativeSocketIO:
     async def subscribe(self, sid: str, data: Any = None) -> dict[str, Any]:
         subscription = self._subscriptions.get(sid)
         session_id = self._session_ids.get(sid)
-        principal = self.runtime.principal_for_session(session_id or "")
-        if not subscription or principal is None or not principal.may_stream:
+        if not subscription or not session_id:
+            return {"protocol_version": 1, "frames": []}
+        principal = await self._principal_for_session_async(
+            session_id, wait_for_capacity=True
+        )
+        if principal is None or not principal.may_stream:
             return {"protocol_version": 1, "frames": []}
         after = data.get("after_sequence") if isinstance(data, Mapping) else None
         frames = []
         for frame in self.runtime.gateway.poll(subscription, after_sequence=after):
-            # A single poll can return a backlog. Revalidate immediately before
-            # every send so revocation during a batch cannot leak later frames.
-            principal = self.runtime.principal_for_session(session_id or "")
-            if principal is None or not principal.may_stream:
+            # A single poll can return a backlog. Serialize the final
+            # authorization check with RouterOS role refresh through enqueue.
+            emitted = await self._emit_authorized(
+                sid, session_id, frame["event"], frame
+            )
+            if not emitted:
                 await self.server.disconnect(sid, namespace=self.namespace)
                 break
-            await self._emit(frame["event"], frame, to=sid)
             frames.append(frame)
         return {"protocol_version": 1, "frames": frames}
 
-    async def _emit(self, event: str, payload: Mapping[str, Any], *, to: str) -> None:
+    async def _emit_authorized(
+        self,
+        sid: str,
+        session_id: str,
+        event: str,
+        payload: Mapping[str, Any],
+    ) -> bool:
+        """Hold the role-check lock across the final check and event enqueue."""
+        lock_for_session = getattr(self.runtime, "role_check_lock_for_session", None)
+        if not callable(lock_for_session):
+            principal = await self._principal_for_session_async(
+                session_id, wait_for_capacity=True
+            )
+            if principal is None or not principal.may_stream:
+                return False
+            await self._emit(
+                event,
+                payload,
+                to=sid,
+                count_event=event != "telemetry.health",
+            )
+            return True
+
+        while True:
+            role_lock = lock_for_session(session_id)
+            if role_lock is None:
+                return False
+            while not role_lock.acquire(blocking=False):
+                await asyncio.sleep(0.025)
+            try:
+                cache_lookup = getattr(
+                    self.runtime, "cached_principal_for_session", None
+                )
+                if not callable(cache_lookup):
+                    return False
+                cache_is_authoritative, principal = cache_lookup(
+                    session_id, role_check_lock_held=True
+                )
+                if cache_is_authoritative:
+                    if principal is None or not principal.may_stream:
+                        return False
+                    await self._emit(
+                        event,
+                        payload,
+                        to=sid,
+                        count_event=event != "telemetry.health",
+                    )
+                    return True
+            except Exception:  # noqa: BLE001 - authorization failures fail closed
+                return False
+            finally:
+                role_lock.release()
+
+            # Release the role lock before a potentially blocking RouterOS
+            # lookup, then loop and reacquire it before emitting any payload.
+            principal = await self._principal_for_session_async(
+                session_id, wait_for_capacity=True
+            )
+            if principal is None or not principal.may_stream:
+                return False
+
+    async def _emit(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+        *,
+        to: str,
+        count_event: bool = True,
+    ) -> None:
         await self.server.emit(event, payload, to=to, namespace=self.namespace)
-        self._events_emitted_total += 1
+        if count_event:
+            self._events_emitted_total += 1
 
     def _health_payload(self) -> dict[str, Any]:
         """Return only the upstream stream state needed for a live indicator."""
@@ -401,34 +534,36 @@ class NativeSocketIO:
         try:
             while sid in self._subscriptions:
                 session_id = self._session_ids.get(sid, "")
-                principal = self.runtime.principal_for_session(session_id)
+                principal = await self._principal_for_session_async(
+                    session_id, wait_for_capacity=True
+                )
                 if principal is None or not principal.may_stream:
                     await self.server.disconnect(sid, namespace=self.namespace)
                     return
                 for frame in self.runtime.gateway.poll(subscription):
                     # Do not let an already-polled backlog outlive its session
                     # or streaming capability if authorization changes mid-batch.
-                    principal = self.runtime.principal_for_session(session_id)
-                    if principal is None or not principal.may_stream:
+                    emitted = await self._emit_authorized(
+                        sid, session_id, frame["event"], frame
+                    )
+                    if not emitted:
                         await self.server.disconnect(sid, namespace=self.namespace)
                         return
-                    await self._emit(frame["event"], frame, to=sid)
                 now = asyncio.get_running_loop().time()
                 if now >= next_health_heartbeat:
                     # A quiet RouterOS listen stream can be healthy even when
                     # no session event has changed recently. Send a small,
                     # redacted health heartbeat so the UI distinguishes that
                     # from a disconnected or degraded upstream stream.
-                    principal = self.runtime.principal_for_session(session_id)
-                    if principal is None or not principal.may_stream:
-                        await self.server.disconnect(sid, namespace=self.namespace)
-                        return
-                    await self.server.emit(
+                    emitted = await self._emit_authorized(
+                        sid,
+                        session_id,
                         "telemetry.health",
                         self._health_payload(),
-                        to=sid,
-                        namespace=self.namespace,
                     )
+                    if not emitted:
+                        await self.server.disconnect(sid, namespace=self.namespace)
+                        return
                     self._health_heartbeats_total = getattr(self, "_health_heartbeats_total", 0) + 1
                     next_health_heartbeat = now + 5.0
                 await asyncio.sleep(0.25)

@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from typing import Any, Callable, Iterable, Mapping
 
 from routeros_binary import RouterOSBinaryConnection
-from security import SessionStore
+from security import SESSION_ROLE_REVALIDATION_SECONDS, SessionStore
 from telemetry_broker import TelemetryBroker, TelemetryEvent
 from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
 from telemetry_state import TelemetryRuntimeState
@@ -112,14 +112,41 @@ class TelemetryRuntime:
             value["supervisor"] = self.supervisor.health().as_dict()
         return value
 
-    def principal_for_session(self, session_id: str) -> TelemetryPrincipal | None:
+    def principal_for_session(
+        self, session_id: str, *, force_role_check: bool = False
+    ) -> TelemetryPrincipal | None:
         # Live-stream authorization is a read-only revalidation, not evidence
         # of operator activity. Otherwise an unattended socket could keep an
         # otherwise-idle dashboard session alive indefinitely.
-        session = self.revalidate_session(session_id)
+        session = self.revalidate_session(
+            session_id, force_role_check=force_role_check
+        )
         if session is None:
             return None
         return TelemetryPrincipal.from_session(session)
+
+    def cached_principal_for_session(
+        self, session_id: str, *, role_check_lock_held: bool = False
+    ) -> tuple[bool, TelemetryPrincipal | None]:
+        """Resolve only from local state, reporting whether it is authoritative.
+
+        A false first element means a RouterOS role refresh is due; callers
+        must perform that refresh before authorizing or emitting telemetry.
+        """
+        if getattr(self, "role_resolver", None) is None:
+            session = self.sessions.get(session_id, touch=False)
+            return True, TelemetryPrincipal.from_session(session)
+        fresh, session = self.sessions.cached_role_session(
+            session_id,
+            interval_seconds=SESSION_ROLE_REVALIDATION_SECONDS,
+            role_check_lock_held=role_check_lock_held,
+        )
+        principal = TelemetryPrincipal.from_session(session) if session is not None else None
+        return fresh, principal
+
+    def role_check_lock_for_session(self, session_id: str) -> threading.Lock | None:
+        """Return the lock that serializes RouterOS role refresh and delivery."""
+        return self.sessions.role_check_lock(session_id)
 
     def revalidate_session(self, session_id: str, *, force_role_check: bool = False):
         """Re-check a dashboard session and its RouterOS-derived role.
@@ -135,7 +162,7 @@ class TelemetryRuntime:
         return self.sessions.revalidate_role(
             session_id,
             role_resolver,
-            interval_seconds=0 if force_role_check else 15,
+            interval_seconds=0 if force_role_check else SESSION_ROLE_REVALIDATION_SECONDS,
         )
 
     def _connection(self) -> RouterOSBinaryConnection:

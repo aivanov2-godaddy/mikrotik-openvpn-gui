@@ -58,7 +58,7 @@ them into support logs or issue reports.
 | `policies.read` | `GET /api/policy-templates` | Reveals saved policy-template definitions and assignments; separate from `policies.manage`. |
 | `session.manage` | `DELETE /api/admin/sessions/{id}`, `POST /api/sessions/{id}/preview`, `DELETE /api/sessions/{id}` | Revoking another dashboard session requires CSRF, `session.manage`, and a fresh verification of the current RouterOS account password; attempts are rate-limited and the password is neither persisted nor audited. The current session cannot revoke itself. VPN-session termination remains a separate review-first RouterOS mutation: preview is non-mutating and apply rechecks the reviewed state. Review receipts are one-time, bound to the issuing dashboard session and exact reviewed intent/state; another session cannot apply them. |
 | `users.manage` | `POST /api/users*`, `PATCH /api/users/{id}`, `DELETE /api/users/{id}`, `POST /api/users/{id}/suspend`, `/restore`, `POST /api/bulk/{preview,apply}` for `suspend`/`tag` | User/profile-issuing account changes. Bulk action selects its capability from the validated action. |
-| `profiles.read` / `profiles.manage` | `POST /api/profile/diagnose`; `POST /api/users/{id}/profiles*`; `POST /api/profile-migrations/{old-certificate}/steps/{imported,tested}` | Profile diagnosis is non-mutating; profile issuance is a RouterOS mutation. Migration-step writes are operator attestations: the handler verifies both certificates are currently active and the replacement is under the configured CA, but RouterOS cannot prove which client certificate a particular VPN session used. |
+| `profiles.read` / `profiles.manage` | `GET /api/certificate-settings`; `POST /api/profile/diagnose`; `POST /api/users/{id}/profiles*`; `POST /api/profile-migrations/{old-certificate}/steps/{imported,tested}` | Certificate settings and profile diagnosis are read-only; profile issuance is a RouterOS mutation. Migration-step writes are operator attestations: the handler verifies both certificates are currently active and the replacement is under the configured CA, but RouterOS cannot prove which client certificate a particular VPN session used. |
 | `device.manage` | `POST /api/devices/{id}/revoke*`, `POST /api/profile-migrations/{legacy_certificate}/revoke*`, `POST /api/bulk/{preview,apply}` for `revoke` | Revocation requires an authenticated RouterOS session, CSRF validation, exact target-name confirmation, a reason, and a session-bound review of current RouterOS state. A migration replacement must be imported and marked tested while an active session for the VPN user is observed; this test step is explicitly an operator attestation, because RouterOS cannot attribute a session to a specific certificate. The replacement must match the configured CA and VPN-user identity and have a parseable positive RouterOS `expires-after` duration; missing or unknown remaining validity fails closed. After revocation, RouterOS read-back must confirm the old certificate is revoked and the reviewed replacement remains unchanged, active, and unexpired; otherwise the partial result is persisted and shown as “replacement needs review,” while local state reflects the confirmed old-certificate revocation. Revocation does not terminate an existing VPN session. |
 | `policies.manage` | `POST`/`PATCH /api/policy-templates*`, `POST /api/network/segment-plan` | Template apply and segment planning are review-first; the plan endpoint itself does not change RouterOS. |
 | `security.manage` | `GET /api/admin/api-tokens`, `POST`/`DELETE /api/admin/api-tokens*`, `POST /api/admin/break-glass/plan`, `POST /api/openvpn-foundation-plan` | Token creation and revocation also require a RouterOS password reauthentication no more than five minutes old; missing/stale step-up is denied with HTTP 428. Break-glass/foundation endpoints return plans and do not apply commands. |
@@ -66,8 +66,9 @@ them into support logs or issue reports.
 | `backup.manage` | `GET /api/backups/metadata.zip`, `POST /api/backups/{preflight,validate,restore-plan}` | Metadata backup includes VPN-user emails, device/certificate identifiers, policy/control settings, alert/audit/deployment/health records, and connection history, including operator/client/VPN addresses and RouterOS session identifiers. It excludes RouterOS configuration, credentials, private keys, and client profile files. Store the archive as sensitive data. Validation and restore-plan routes do not restore data. |
 | `alert.manage` | `POST /api/alerts/{id}/ack` | Acknowledges a dashboard alert. |
 
-Authenticated, non-mutating routes such as `GET /api/users` and review-only
-setup plans are session-gated; they do not imply RouterOS write permission.
+Authenticated, non-mutating routes such as `GET /api/users` and the review-only
+`POST /api/setup-plan` are session-gated; they do not imply RouterOS write
+permission.
 Creating or revoking a scoped API token additionally requires a successful
 RouterOS password re-authentication within the preceding five minutes. The
 server enforces this window (HTTP 428 when missing or stale); the dashboard
@@ -143,10 +144,14 @@ security, and ASGI run passed 158 tests, and hosted CI passed before release.
 
 This internal code review is not an external penetration test or compliance
 assessment. Role-derived authorization for ordinary authenticated reads and
-live streams is rechecked at most every 15 seconds; privileged management
-actions force an immediate role lookup. An exhaustive all-dispatch route-by-role
-and route-by-token-scope inventory, maximum physical-router revocation latency,
-and independently verified authenticated production-proxy behavior remain
+already-open live streams is rechecked at most every 15 seconds; each new or
+repeated Socket.IO namespace connect forces an immediate RouterOS role lookup.
+Socket.IO connect, poll, and pump authorization lookups run off the ASGI event
+loop, with at most four in flight per process; checks fail closed when all
+worker slots are occupied. Privileged management actions also force an
+immediate role lookup. An exhaustive all-dispatch route-by-role and
+route-by-token-scope inventory, maximum physical-router revocation latency, and
+independently verified authenticated production-proxy behavior remain
 unverified.
 
 ## Independent handler review — 2026-10-08
@@ -192,6 +197,34 @@ boundary.
 This establishes the repository's configured bound only; physical RouterOS
 response latency and whether a 15-second window meets operational policy remain
 unverified.
+
+## Follow-up reconnect review — 2026-10-14
+
+A bounded read-only review of the authorization source found that the route
+inventory omitted `GET /api/certificate-settings` and did not name the
+session-gated, review-only `POST /api/setup-plan`. It also found that a Socket.IO
+namespace connection could reuse a warm 15-second RouterOS-role cache. A
+disabled account could therefore reconnect before the next periodic role
+lookup. The current implementation now forces a RouterOS role lookup for both
+initial and repeated namespace connects; a regression leaves the cache warm,
+disables the account, and verifies both connection forms fail closed in
+`test_socketio_connection_forces_routeros_revalidation_with_warm_cache`.
+Already-open streams retain the configured 15-second periodic check. A negative
+wall-clock elapsed time is treated as stale rather than extending the cache;
+the clock-rollback regression verifies this for both forced and periodic
+checks. All ASGI Socket.IO role lookups (fresh/repeated connects, polls, and
+live pump checks) run in worker threads, bounded to four concurrent checks per
+process; saturated slots fail authorization closed without queueing more
+router requests. Cancellation of a pending check keeps its slot occupied until
+the blocking lookup actually finishes. Regressions verify event-loop offload
+for connect/poll/pump paths, fail-closed saturation, and cancellation-safe slot
+release.
+
+The review also found one omitted traceability row in the ASVS evidence map and
+confirmed the in-memory RouterOS-password exposure remains an explicitly
+unaccepted residual risk. These documentation/test changes do not establish
+physical-router revocation latency, deployed proxy behavior, or a formal risk
+acceptance; those remain open under #200.
 
 The focused application/session/ASGI/polling suites passed 272 tests; the
 telemetry-runtime and supervisor suites passed 20 tests after adding the cache

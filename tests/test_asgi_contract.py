@@ -60,7 +60,9 @@ class ASGIContractTests(unittest.TestCase):
             ))
 
             class Runtime:
-                def principal_for_session(self, session_id: str) -> TelemetryPrincipal | None:
+                def principal_for_session(
+                    self, session_id: str, *, force_role_check: bool = False
+                ) -> TelemetryPrincipal | None:
                     current = sessions.get(session_id, touch=False)
                     return TelemetryPrincipal.from_session(current) if current is not None else None
 
@@ -402,7 +404,9 @@ class ASGIContractTests(unittest.TestCase):
             gateway = Gateway()
 
             class Runtime:
-                def principal_for_session(self, session_id: str) -> TelemetryPrincipal | None:
+                def principal_for_session(
+                    self, session_id: str, *, force_role_check: bool = False
+                ) -> TelemetryPrincipal | None:
                     current = sessions.get(session_id, touch=False)
                     return TelemetryPrincipal.from_session(current) if current is not None else None
 
@@ -724,6 +728,529 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(native._session_ids, {})
         self.assertEqual(native._tasks, {})
 
+    def test_socketio_connection_forces_routeros_revalidation_with_warm_cache(self) -> None:
+        from asgi import NativeSocketIO
+
+        for existing_sid in (False, True):
+            with self.subTest(existing_sid=existing_sid):
+                sessions = SessionStore()
+                session = sessions.create("operator", "router-password-marker", role="owner")
+                routeros_state = {"enabled": True}
+                role_lookups = 0
+
+                def resolve_role(_session) -> str | None:
+                    nonlocal role_lookups
+                    role_lookups += 1
+                    return "owner" if routeros_state["enabled"] else None
+
+                runtime = TelemetryRuntime(
+                    sessions=sessions,
+                    rest_url="https://router.example.test",
+                    ca_file=None,
+                    insecure_tls=False,
+                    api_ssl_port=8729,
+                    requested_transport="sse",
+                    role_resolver=resolve_role,
+                )
+                principal = runtime.principal_for_session(
+                    session.session_id, force_role_check=True
+                )
+                self.assertIsNotNone(principal)
+                self.assertEqual(role_lookups, 1)
+                # Keep the role cache warm: connect must not depend on callers
+                # clearing this state when RouterOS disables the account.
+                self.assertGreater(sessions._role_checked_at[session.session_id], 0)
+                routeros_state["enabled"] = False
+
+                sid = "socket-reconnect" if existing_sid else "socket-new"
+                native = object.__new__(NativeSocketIO)
+                native.runtime = runtime
+                native._subscriptions = {}
+                native._session_ids = {}
+                native._tasks = {}
+                native._connections_total = 0
+                native._disconnects_total = 0
+                native._rejected_connections_total = 0
+                if existing_sid:
+                    native._subscriptions[sid] = runtime.gateway.open(principal)
+                    native._session_ids[sid] = session.session_id
+
+                environ = {
+                    "asgi.scope": {
+                        "headers": [
+                            (b"cookie", f"vpn_session={session.session_id}".encode("ascii"))
+                        ],
+                    },
+                }
+
+                async def attempt() -> bool:
+                    accepted = await native.connect(sid, environ)
+                    if accepted:
+                        await native.disconnect(sid)
+                    return accepted
+
+                accepted = asyncio.run(attempt())
+
+                self.assertFalse(accepted)
+                self.assertEqual(role_lookups, 2)
+                self.assertIsNone(sessions.get(session.session_id, touch=False))
+                self.assertEqual(runtime.gateway.client_count, 0)
+                self.assertEqual(native._rejected_connections_total, 1)
+                self.assertEqual(native._subscriptions, {})
+                self.assertEqual(native._session_ids, {})
+                self.assertEqual(native._tasks, {})
+                self.assertEqual(native._disconnects_total, int(existing_sid))
+
+    def test_socketio_connect_runs_role_lookup_off_loop_and_fails_closed_at_capacity(self) -> None:
+        import threading
+
+        from asgi import (
+            NativeSocketIO,
+            _SOCKETIO_ROLE_CHECK_LIMIT,
+            _SOCKETIO_ROLE_CHECK_SLOTS,
+        )
+
+        class Principal:
+            may_stream = False
+
+        class Runtime:
+            calls = 0
+            lookup_thread_id = 0
+            forced = False
+
+            def principal_for_session(
+                self, _session_id: str, *, force_role_check: bool = False
+            ) -> Principal:
+                self.calls += 1
+                self.lookup_thread_id = threading.get_ident()
+                self.forced = force_role_check
+                return Principal()
+
+        runtime = Runtime()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native._subscriptions = {}
+        native._session_ids = {}
+        native._tasks = {}
+        native._connections_total = 0
+        native._disconnects_total = 0
+        native._rejected_connections_total = 0
+        environ = {
+            "asgi.scope": {
+                "headers": [(b"cookie", b"vpn_session=valid-session")],
+            },
+        }
+        event_loop_thread_id = 0
+
+        async def attempt() -> bool:
+            nonlocal event_loop_thread_id
+            event_loop_thread_id = threading.get_ident()
+            return await native.connect("socket-1", environ)
+
+        self.assertFalse(asyncio.run(attempt()))
+        self.assertTrue(runtime.forced)
+        self.assertNotEqual(runtime.lookup_thread_id, event_loop_thread_id)
+        self.assertEqual(native._rejected_connections_total, 1)
+
+        acquired = 0
+        try:
+            for _ in range(_SOCKETIO_ROLE_CHECK_LIMIT):
+                self.assertTrue(_SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False))
+                acquired += 1
+            runtime.calls = 0
+            self.assertFalse(asyncio.run(native.connect("socket-2", environ)))
+            self.assertEqual(runtime.calls, 0)
+        finally:
+            for _ in range(acquired):
+                _SOCKETIO_ROLE_CHECK_SLOTS.release()
+
+    def test_socketio_fresh_role_cache_bypasses_worker_capacity(self) -> None:
+        from asgi import (
+            NativeSocketIO,
+            _SOCKETIO_ROLE_CHECK_LIMIT,
+            _SOCKETIO_ROLE_CHECK_SLOTS,
+        )
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-secret", role="owner")
+        role_lookups = 0
+
+        def resolve_role(_session) -> str:
+            nonlocal role_lookups
+            role_lookups += 1
+            return "owner"
+
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url="https://router.example.test",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="sse",
+            role_resolver=resolve_role,
+        )
+        self.assertIsNotNone(
+            runtime.principal_for_session(session.session_id, force_role_check=True)
+        )
+        self.assertEqual(role_lookups, 1)
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        acquired = 0
+        try:
+            for _ in range(_SOCKETIO_ROLE_CHECK_LIMIT):
+                self.assertTrue(_SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False))
+                acquired += 1
+
+            principal = asyncio.run(
+                native._principal_for_session_async(
+                    session.session_id, wait_for_capacity=True
+                )
+            )
+
+            self.assertIsNotNone(principal)
+            self.assertTrue(principal.may_stream)
+            self.assertEqual(role_lookups, 1)
+        finally:
+            for _ in range(acquired):
+                _SOCKETIO_ROLE_CHECK_SLOTS.release()
+
+    def test_socketio_stale_role_refresh_waits_for_capacity_without_denial(self) -> None:
+        import threading
+
+        from asgi import (
+            NativeSocketIO,
+            _SOCKETIO_ROLE_CHECK_LIMIT,
+            _SOCKETIO_ROLE_CHECK_SLOTS,
+        )
+
+        class Principal:
+            may_stream = True
+
+        principal = Principal()
+
+        class Runtime:
+            calls = 0
+            lookup_thread_id = 0
+
+            def cached_principal_for_session(self, _session_id: str):
+                return False, None
+
+            def principal_for_session(
+                self, _session_id: str, *, force_role_check: bool = False
+            ) -> Principal:
+                self.calls += 1
+                self.lookup_thread_id = threading.get_ident()
+                return principal
+
+        runtime = Runtime()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        loop_thread_id = 0
+        acquired = 0
+
+        async def attempt() -> Principal | None:
+            nonlocal acquired, loop_thread_id
+            loop_thread_id = threading.get_ident()
+            task = asyncio.create_task(
+                native._principal_for_session_async(
+                    "active-session", wait_for_capacity=True
+                )
+            )
+            await asyncio.sleep(0.05)
+            self.assertFalse(task.done())
+            self.assertEqual(runtime.calls, 0)
+
+            _SOCKETIO_ROLE_CHECK_SLOTS.release()
+            acquired -= 1
+            return await asyncio.wait_for(task, timeout=1)
+
+        try:
+            for _ in range(_SOCKETIO_ROLE_CHECK_LIMIT):
+                self.assertTrue(_SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False))
+                acquired += 1
+
+            resolved = asyncio.run(attempt())
+            self.assertIs(resolved, principal)
+            self.assertEqual(runtime.calls, 1)
+            self.assertNotEqual(runtime.lookup_thread_id, loop_thread_id)
+        finally:
+            for _ in range(acquired):
+                _SOCKETIO_ROLE_CHECK_SLOTS.release()
+
+    def test_socketio_cache_waits_for_inflight_forced_refresh_and_denial(self) -> None:
+        import threading
+
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-secret", role="owner")
+        resolver_started = threading.Event()
+        release_resolver = threading.Event()
+        role_lookups = 0
+
+        def resolve_role(_session) -> str | None:
+            nonlocal role_lookups
+            role_lookups += 1
+            if role_lookups == 1:
+                return "owner"
+            resolver_started.set()
+            release_resolver.wait(timeout=2)
+            return None
+
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url="https://router.example.test",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="sse",
+            role_resolver=resolve_role,
+        )
+        self.assertIsNotNone(
+            runtime.principal_for_session(session.session_id, force_role_check=True)
+        )
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+
+        async def exercise() -> None:
+            forced_refresh = asyncio.create_task(
+                native._principal_for_session_async(
+                    session.session_id, force_role_check=True
+                )
+            )
+            stream_refresh = None
+            try:
+                self.assertTrue(await asyncio.to_thread(resolver_started.wait, 1))
+                authoritative, cached = runtime.cached_principal_for_session(
+                    session.session_id
+                )
+                self.assertFalse(authoritative)
+                self.assertIsNone(cached)
+
+                stream_refresh = asyncio.create_task(
+                    native._principal_for_session_async(
+                        session.session_id, wait_for_capacity=True
+                    )
+                )
+                await asyncio.sleep(0.05)
+                self.assertFalse(stream_refresh.done())
+
+                release_resolver.set()
+                results = await asyncio.wait_for(
+                    asyncio.gather(forced_refresh, stream_refresh), timeout=1
+                )
+                self.assertEqual(results, [None, None])
+                self.assertIsNone(sessions.get(session.session_id, touch=False))
+            finally:
+                release_resolver.set()
+                pending = [forced_refresh]
+                if stream_refresh is not None:
+                    pending.append(stream_refresh)
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        asyncio.run(exercise())
+
+    def test_socketio_event_enqueue_is_serialized_with_role_refresh(self) -> None:
+        import threading
+
+        from asgi import NativeSocketIO
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-secret", role="owner")
+        role_lookups = 0
+        forced_lookup_started = threading.Event()
+
+        def resolve_role(_session) -> str:
+            nonlocal role_lookups
+            role_lookups += 1
+            if role_lookups > 1:
+                forced_lookup_started.set()
+            return "owner"
+
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url="https://router.example.test",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="sse",
+            role_resolver=resolve_role,
+        )
+        self.assertIsNotNone(
+            runtime.principal_for_session(session.session_id, force_role_check=True)
+        )
+
+        class Server:
+            def __init__(self) -> None:
+                self.emit_started = asyncio.Event()
+                self.release_emit = asyncio.Event()
+                self.emitted: list[str] = []
+
+            async def emit(self, event, _payload, *, to, namespace) -> None:
+                self.emit_started.set()
+                await self.release_emit.wait()
+                self.emitted.append(event)
+
+        server = Server()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = server
+        native._events_emitted_total = 0
+
+        async def exercise() -> None:
+            emission = asyncio.create_task(
+                native._emit_authorized(
+                    "socket-1",
+                    session.session_id,
+                    "telemetry.reconciled",
+                    {"status": "online"},
+                )
+            )
+            forced_refresh = None
+            try:
+                await asyncio.wait_for(server.emit_started.wait(), timeout=1)
+                forced_refresh = asyncio.create_task(
+                    native._principal_for_session_async(
+                        session.session_id, force_role_check=True
+                    )
+                )
+                await asyncio.sleep(0.05)
+                self.assertFalse(forced_lookup_started.is_set())
+                self.assertFalse(forced_refresh.done())
+
+                server.release_emit.set()
+                self.assertTrue(await asyncio.wait_for(emission, timeout=1))
+                self.assertIsNotNone(await asyncio.wait_for(forced_refresh, timeout=1))
+                self.assertEqual(server.emitted, ["telemetry.reconciled"])
+                self.assertEqual(role_lookups, 2)
+            finally:
+                server.release_emit.set()
+                pending = [emission]
+                if forced_refresh is not None:
+                    pending.append(forced_refresh)
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        asyncio.run(exercise())
+
+    def test_socketio_cancelled_connect_keeps_role_check_slot_until_worker_finishes(self) -> None:
+        import threading
+
+        from asgi import (
+            NativeSocketIO,
+            _SOCKETIO_ROLE_CHECK_LIMIT,
+            _SOCKETIO_ROLE_CHECK_SLOTS,
+        )
+
+        started = threading.Event()
+        finish = threading.Event()
+
+        class Principal:
+            may_stream = False
+
+        class Runtime:
+            def principal_for_session(
+                self, _session_id: str, *, force_role_check: bool = False
+            ) -> Principal:
+                started.set()
+                finish.wait(timeout=2)
+                return Principal()
+
+        native = object.__new__(NativeSocketIO)
+        native.runtime = Runtime()
+        native._subscriptions = {}
+        native._session_ids = {}
+        native._tasks = {}
+        native._connections_total = 0
+        native._disconnects_total = 0
+        native._rejected_connections_total = 0
+        environ = {
+            "asgi.scope": {
+                "headers": [(b"cookie", b"vpn_session=valid-session")],
+            },
+        }
+
+        async def exercise() -> None:
+            task = asyncio.create_task(native.connect("socket-cancelled", environ))
+            self.assertTrue(await asyncio.to_thread(started.wait, 1))
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+            acquired = 0
+            try:
+                for _ in range(_SOCKETIO_ROLE_CHECK_LIMIT - 1):
+                    self.assertTrue(_SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False))
+                    acquired += 1
+                self.assertFalse(_SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False))
+                finish.set()
+                for _ in range(100):
+                    if _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False):
+                        acquired += 1
+                        break
+                    await asyncio.sleep(0.01)
+                self.assertEqual(acquired, _SOCKETIO_ROLE_CHECK_LIMIT)
+            finally:
+                for _ in range(acquired):
+                    _SOCKETIO_ROLE_CHECK_SLOTS.release()
+
+        try:
+            asyncio.run(exercise())
+        finally:
+            finish.set()
+
+    def test_socketio_subscription_and_pump_revalidate_off_loop(self) -> None:
+        import threading
+
+        from asgi import NativeSocketIO
+
+        class Principal:
+            may_stream = False
+
+        class Runtime:
+            def __init__(self) -> None:
+                self.lookup_thread_ids: list[int] = []
+                self.force_checks: list[bool] = []
+
+            def principal_for_session(
+                self, _session_id: str, *, force_role_check: bool = False
+            ) -> Principal:
+                self.lookup_thread_ids.append(threading.get_ident())
+                self.force_checks.append(force_role_check)
+                return Principal()
+
+        class Server:
+            def __init__(self) -> None:
+                self.disconnects: list[tuple[str, str]] = []
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnects.append((sid, namespace))
+
+        runtime = Runtime()
+        server = Server()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native.server = server
+        native._subscriptions = {"socket-1": "subscription-1"}
+        native._session_ids = {"socket-1": "valid-session"}
+        native._tasks = {}
+        loop_thread_id = 0
+
+        async def exercise() -> dict[str, object]:
+            nonlocal loop_thread_id
+            loop_thread_id = threading.get_ident()
+            subscription_result = await native.subscribe("socket-1")
+            await native._pump("socket-1", "subscription-1")
+            return subscription_result
+
+        self.assertEqual(
+            asyncio.run(exercise()), {"protocol_version": 1, "frames": []}
+        )
+        self.assertEqual(len(runtime.lookup_thread_ids), 2)
+        self.assertTrue(all(thread_id != loop_thread_id for thread_id in runtime.lookup_thread_ids))
+        self.assertEqual(runtime.force_checks, [False, False])
+        self.assertEqual(server.disconnects, [("socket-1", NativeSocketIO.namespace)])
+
     @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
     def test_repeated_socketio_connect_revalidates_session_and_closes_namespace(self) -> None:
         import socketio
@@ -739,7 +1266,9 @@ class ASGIContractTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.authorized = True
 
-            def principal_for_session(self, session_id: str) -> Principal | None:
+            def principal_for_session(
+                self, session_id: str, *, force_role_check: bool = False
+            ) -> Principal | None:
                 return Principal() if self.authorized and session_id == "valid-session" else None
 
         class Gateway:
@@ -832,7 +1361,9 @@ class ASGIContractTests(unittest.TestCase):
 
         class Runtime:
             @staticmethod
-            def principal_for_session(_session_id: str) -> TelemetryPrincipal:
+            def principal_for_session(
+                _session_id: str, *, force_role_check: bool = False
+            ) -> TelemetryPrincipal:
                 return principal
 
         class SlowServer:
@@ -923,7 +1454,9 @@ class ASGIContractTests(unittest.TestCase):
             supervisor = Supervisor()
 
             @staticmethod
-            def principal_for_session(_session_id: str):
+            def principal_for_session(
+                _session_id: str, *, force_role_check: bool = False
+            ):
                 return principal
 
         class Gateway:
@@ -965,7 +1498,9 @@ class ASGIContractTests(unittest.TestCase):
 
         class RevokedRuntime:
             @staticmethod
-            def principal_for_session(_session_id: str) -> None:
+            def principal_for_session(
+                _session_id: str, *, force_role_check: bool = False
+            ) -> None:
                 return None
 
         class FakeServer:
@@ -993,7 +1528,9 @@ class ASGIContractTests(unittest.TestCase):
 
         class RestrictedRuntime:
             @staticmethod
-            def principal_for_session(_session_id: str) -> TelemetryPrincipal:
+            def principal_for_session(
+                _session_id: str, *, force_role_check: bool = False
+            ) -> TelemetryPrincipal:
                 return TelemetryPrincipal(
                     True,
                     auth_method="routeros",
@@ -1169,7 +1706,9 @@ class ASGIContractTests(unittest.TestCase):
             gateway = None
 
             @staticmethod
-            def principal_for_session(_session_id: str) -> Principal | None:
+            def principal_for_session(
+                _session_id: str, *, force_role_check: bool = False
+            ) -> Principal | None:
                 return Principal() if state["authorized"] else None
 
         class Gateway:
@@ -1222,7 +1761,9 @@ class ASGIContractTests(unittest.TestCase):
             gateway = None
 
             @staticmethod
-            def principal_for_session(_session_id: str) -> Principal | None:
+            def principal_for_session(
+                _session_id: str, *, force_role_check: bool = False
+            ) -> Principal | None:
                 return Principal() if state["authorized"] else None
 
         class Gateway:

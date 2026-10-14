@@ -23,6 +23,11 @@ class FrontendLiveUpdateContractTests(unittest.TestCase):
         self.assertIn("browser-tests/session-reauth.spec.js", authorization)
         self.assertIn("expectNoDocumentReload", browser)
 
+    def test_route_authorization_inventory_names_read_only_and_certificate_routes(self) -> None:
+        authorization = (ROOT / "docs" / "ROUTE_AUTHORIZATION.md").read_text(encoding="utf-8")
+        self.assertIn("GET /api/certificate-settings", authorization)
+        self.assertIn("POST /api/setup-plan", authorization)
+
     def test_policy_template_apply_requires_the_current_review_receipt(self) -> None:
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("form.dataset.policyReviewToken = payload.review_token || ''", source)
