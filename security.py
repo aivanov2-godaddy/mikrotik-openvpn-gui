@@ -172,8 +172,8 @@ class SessionStore:
             session = self._sessions.get(session_id)
             if session is None:
                 return None
-            idle_expired = current - session.last_seen > self.idle_seconds
-            absolute_expired = current - session.created_at > self.absolute_seconds
+            idle_expired = current - session.last_seen >= self.idle_seconds
+            absolute_expired = current - session.created_at >= self.absolute_seconds
             if idle_expired or absolute_expired:
                 self._sessions.pop(session_id, None)
                 self._role_checked_at.pop(session_id, None)
@@ -207,8 +207,8 @@ class SessionStore:
             if existing.auth_method != "routeros":
                 return None
             if (
-                current - existing.last_seen > self.idle_seconds
-                or current - existing.created_at > self.absolute_seconds
+                current - existing.last_seen >= self.idle_seconds
+                or current - existing.created_at >= self.absolute_seconds
             ):
                 self._sessions.pop(session_id, None)
                 self._role_checked_at.pop(session_id, None)
@@ -320,8 +320,8 @@ class SessionStore:
             expired = [
                 key
                 for key, value in self._sessions.items()
-                if current - value.last_seen > self.idle_seconds
-                or current - value.created_at > self.absolute_seconds
+                if current - value.last_seen >= self.idle_seconds
+                or current - value.created_at >= self.absolute_seconds
             ]
             for key in expired:
                 self._sessions.pop(key, None)
