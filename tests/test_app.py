@@ -2645,12 +2645,18 @@ class DashboardIntegrationTests(unittest.TestCase):
         owner_cookie = self.cookie
         owner = self.server.context.sessions.get(owner_cookie.split("=", 1)[1], touch=False)
         self.assertIsNotNone(owner)
-        viewer = self.server.context.sessions.create(
-            "viewer",
-            "viewer-password",
-            role="read_only",
-            source_address="203.0.113.41",
-            user_agent="Synthetic read-only browser",
+        # Use a scoped API token for a genuine sessions.read-only principal.
+        # A synthetic RouterOS session would be force-revalidated against the
+        # mock account and could not prove this response-field contract.
+        viewer_token = "vpt_" + "v" * 48
+        viewer_token_hash = hashlib.sha256(viewer_token.encode("utf-8")).hexdigest()
+        self.server.context.store.create_api_token(
+            token_id="session-read-field-contract",
+            token_hash=viewer_token_hash,
+            label="session inventory reader",
+            actor="viewer",
+            capabilities=["sessions.read"],
+            expires_at=2_000_000_000,
         )
 
         # Query parameters cannot opt a sessions.read-only caller into raw
@@ -2659,7 +2665,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.request(
             "GET",
             "/api/admin/sessions?include_identifiers=true",
-            headers={"Cookie": f"vpn_session={viewer.session_id}"},
+            headers={"Authorization": f"Bearer {viewer_token}", "Cookie": ""},
         )
         self.assertEqual(status, 200)
         viewer_response = json.loads(payload)
@@ -2687,9 +2693,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertEqual(item["id"], "")
         serialized_viewer = json.dumps(viewer_response)
         self.assertNotIn(owner.session_id, serialized_viewer)
-        self.assertNotIn(viewer.session_id, serialized_viewer)
-        self.assertNotIn("viewer-password", serialized_viewer)
-        self.assertNotIn(viewer.csrf_token, serialized_viewer)
+        self.assertNotIn(viewer_token, serialized_viewer)
+        self.assertNotIn(viewer_token_hash, serialized_viewer)
 
         status, _, payload = self.request(
             "GET",
@@ -2700,7 +2705,51 @@ class DashboardIntegrationTests(unittest.TestCase):
         owner_response = json.loads(payload)
         disclosed_ids = {item["id"] for item in owner_response["sessions"]}
         self.assertIn(owner.session_id, disclosed_ids)
-        self.assertIn(viewer.session_id, disclosed_ids)
+
+    def test_warm_role_downgrade_hides_admin_session_ids_from_api(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "owner")
+        other_session = self.server.context.sessions.create("admin", "routerpass", role="owner")
+
+        status, _, owner_payload = self.request("GET", "/api/admin/sessions")
+        self.assertEqual(status, 200)
+        self.assertIn(session_id.encode("ascii"), owner_payload)
+        self.assertIn(other_session.session_id.encode("ascii"), owner_payload)
+
+        # The ordinary 15-second role cache remains warm. The read-only role
+        # retains sessions.read, but must lose raw session IDs immediately.
+        self.mock.state.admin_group = "read"
+        status, _, payload = self.request("GET", "/api/admin/sessions")
+
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertEqual(session.role, "read_only")
+        response = json.loads(payload)
+        self.assertTrue(response["sessions"])
+        self.assertTrue(all(row["id"] == "" for row in response["sessions"]))
+        self.assertTrue(any(row["username"] == "admin" for row in response["sessions"]))
+        self.assertNotIn(session_id.encode("ascii"), payload)
+        self.assertNotIn(other_session.session_id.encode("ascii"), payload)
+
+    def test_routeros_role_lookup_failure_hides_admin_session_ids_from_api(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "owner")
+
+        # A failed role lookup cannot prove the former management capability.
+        self.mock.state.admin_user_read_error = 503
+        status, _, payload = self.request("GET", "/api/admin/sessions")
+
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertEqual(session.role, "read_only")
+        response = json.loads(payload)
+        self.assertTrue(response["sessions"])
+        self.assertTrue(all(row["id"] == "" for row in response["sessions"]))
+        self.assertNotIn(session_id.encode("ascii"), payload)
 
     def test_admin_api_token_response_uses_metadata_only_allowlist(self) -> None:
         self.login()
@@ -3426,6 +3475,38 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, audit_payload = self.request("GET", "/api/audit.json", headers={"Cookie": self.cookie})
         self.assertEqual(status, 403)
         self.assertNotIn(b"warm-role-audit-marker", audit_payload)
+
+    def test_warm_role_downgrade_hides_admin_session_ids_from_dashboard(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        other_session = self.server.context.sessions.create("admin", "routerpass", role="owner")
+
+        status, _, owner_page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(session_id.encode("ascii"), owner_page)
+        self.assertIn(other_session.session_id.encode("ascii"), owner_page)
+
+        self.mock.state.admin_group = "read"
+        original_revalidate = self.server.telemetry_runtime.revalidate_session
+        with mock.patch.object(
+            self.server.telemetry_runtime,
+            "revalidate_session",
+            wraps=original_revalidate,
+        ) as revalidate:
+            status, _, page = self.request("GET", "/dashboard")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(session.role, "read_only")
+        self.assertIn(b"Active administrator sessions", page)
+        self.assertNotIn(session_id.encode("ascii"), page)
+        self.assertNotIn(other_session.session_id.encode("ascii"), page)
+        forced_role_checks = [
+            call for call in revalidate.call_args_list
+            if call.kwargs.get("force_role_check") is True
+        ]
+        self.assertEqual(len(forced_role_checks), 1)
 
     def test_disabled_warm_auditor_does_not_reuse_stale_request_audit_allow(self) -> None:
         self.mock.state.admin_group = "audit"
