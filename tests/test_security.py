@@ -243,6 +243,64 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(session.last_seen, 100)
         self.assertIsNone(store.get(session.session_id, now=111, touch=False))
 
+    def test_cached_role_session_only_authorizes_a_fresh_routeros_role(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "router-secret", role="owner", now=100)
+
+        fresh, cached = store.cached_role_session(session.session_id, now=114)
+        self.assertTrue(fresh)
+        self.assertIs(cached, session)
+        self.assertEqual(session.last_seen, 100)
+
+        stale, cached = store.cached_role_session(session.session_id, now=115)
+        self.assertFalse(stale)
+        self.assertIsNone(cached)
+
+        store._role_checked_at[session.session_id] = 200
+        rolled_back, cached = store.cached_role_session(session.session_id, now=101)
+        self.assertFalse(rolled_back)
+        self.assertIsNone(cached)
+
+    def test_cached_role_session_is_unavailable_during_forced_revalidation(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "router-secret", role="owner", now=100)
+        self.assertIs(
+            store.revalidate_role(
+                session.session_id, lambda _session: "owner", now=101, interval_seconds=0
+            ),
+            session,
+        )
+        resolver_started = threading.Event()
+        release_resolver = threading.Event()
+
+        def delayed_resolver(_session) -> str:
+            resolver_started.set()
+            release_resolver.wait(timeout=2)
+            return "owner"
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            refresh = executor.submit(
+                store.revalidate_role,
+                session.session_id,
+                delayed_resolver,
+                now=102,
+                interval_seconds=0,
+            )
+            try:
+                self.assertTrue(resolver_started.wait(timeout=1))
+                authoritative, cached = store.cached_role_session(
+                    session.session_id, now=103
+                )
+                self.assertFalse(authoritative)
+                self.assertIsNone(cached)
+            finally:
+                release_resolver.set()
+            self.assertIs(refresh.result(timeout=1), session)
+
+        authoritative, cached = store.cached_role_session(session.session_id, now=103)
+        self.assertTrue(authoritative)
+        self.assertIs(cached, session)
+
     def test_routeros_role_revalidation_downgrades_without_extending_idle_lifetime(self) -> None:
         store = SessionStore()
         session = store.create("admin", "router-secret", role="owner", now=100)
@@ -271,6 +329,33 @@ class SecurityTests(unittest.TestCase):
             session,
         )
         self.assertEqual(session.role, "read_only")
+
+    def test_routeros_role_revalidation_treats_clock_rollback_as_stale(self) -> None:
+        for interval_seconds in (0, 15):
+            with self.subTest(interval_seconds=interval_seconds):
+                store = SessionStore()
+                session = store.create("admin", "router-secret", role="owner", now=100)
+                # The check timestamp is ahead of the current wall clock, as
+                # after a system-clock rollback. It must not authorize from a
+                # cache whose age cannot be established.
+                store._role_checked_at[session.session_id] = 200
+                calls = 0
+
+                def account_is_disabled(_session) -> None:
+                    nonlocal calls
+                    calls += 1
+                    return None
+
+                self.assertIsNone(
+                    store.revalidate_role(
+                        session.session_id,
+                        account_is_disabled,
+                        now=101,
+                        interval_seconds=interval_seconds,
+                    )
+                )
+                self.assertEqual(calls, 1)
+                self.assertIsNone(store.get(session.session_id, now=101, touch=False))
 
     def test_routeros_role_revalidation_revokes_missing_or_incomparable_identity(self) -> None:
         missing_store = SessionStore()
