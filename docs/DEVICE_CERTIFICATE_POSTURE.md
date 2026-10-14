@@ -84,6 +84,24 @@ test as operator-confirmed and does not claim cryptographic attribution. Older
 migration records without this live-session observation must be re-confirmed
 before the legacy certificate can be retired.
 
+## Read-only router observation — 2026-10-14
+
+An operator-side WinBox inspection found the OpenVPN CA certificate present
+and marked as a trusted authority with a private key (RSA-2048/SHA-256). Its
+CA CRL Host field was blank. A separate CRL-flagged certificate was present
+with an internal-host value configured, but the RouterOS CRL inventory did
+not show a clearly attributable current entry for the OpenVPN CA. The issuer
+relationship and CRL freshness therefore remain unverified. Certificate
+names, fingerprints, serials, and private addresses are intentionally omitted.
+
+This was a point-in-time, read-only inspection: no certificates, CRL settings,
+users, or sessions were changed. RouterOS Active Connections showed zero
+sessions at the time, so existing-session behavior could not be observed. No
+certificate was revoked and no fresh connection-rejection test was performed.
+The dashboard was not authenticated during this evidence collection, so live
+dashboard propagation was not observed. This is a concrete configuration
+observation, not an acceptance pass.
+
 ## Validation
 
 Run the focused checks with:

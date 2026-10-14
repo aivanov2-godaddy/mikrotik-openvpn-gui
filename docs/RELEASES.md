@@ -18,7 +18,7 @@ operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline runtime candidate is PR #709; its changes and immutable artifacts are
+mainline runtime candidate is PR #714; its changes and immutable artifacts are
 recorded below, but candidate-specific RouterOS acceptance remains open. The
 broader candidate highlights are stricter live-data field allowlists and
 session revalidation, safer staged certificate renewal, improved telemetry
@@ -63,7 +63,30 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #709 — 2026-10-14
+### Latest published mainline candidate — PR #714 — 2026-10-14
+
+PR [#714](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/714)
+merged as `4e9b7a803f45224a6906ad5feb92c0baf600437a`. It bounds ASGI request
+bodies at the application's 64 KiB limit, rejects oversized requests before
+unbounded buffering, and adds real-server connection-close regression tests.
+Publisher run
+[#38582850210](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38582850210)
+passed source/pre-commit and secret checks, compilation, unit/mock and rendered
+browser tests, ARM64/AMD64 builds, provenance/SBOM attestation verification,
+stable-manifest read-back, and published-runtime smoke tests.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-4e9b7a803f45224a6906ad5feb92c0baf600437a-arm64` | `sha256:87c7f80138ae9ca1c88cedcc04748848680582aa324ab9abe8da36f96c0a7fa8` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-4e9b7a803f45224a6906ad5feb92c0baf600437a-amd64` | `sha256:ad230039470a519d58bba0cc6236d9023c2976060c3c6f51d481dd0df4247940` |
+
+The stable manifest was published and read back with these immutable tags.
+Candidate-specific RouterOS acceptance remains incomplete; publication and CI
+smoke tests do not prove deployment or live compatibility. No canary or
+production promotion is claimed. No new numbered release was created; v2.7.0
+remains the latest formal version.
+
+### Previously published mainline candidate — PR #709 — 2026-10-14
 
 PR [#709](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/709)
 merged as `27708980031be0bf114794610187437ebe26ad02`. It closes #199 with a
