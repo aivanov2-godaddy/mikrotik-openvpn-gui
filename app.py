@@ -1336,8 +1336,47 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self, *, include_audit: bool = False, include_sessions: bool = False
     ) -> dict[str, Any]:
         """Return local deployment history, health timeline, and rollback state."""
-        events = self.server.context.store.recent_deployment_events(20)
-        health_timeline = self.server.context.store.recent_health_snapshots(30)
+        def text_value(item: dict[str, Any], key: str, limit: int) -> str:
+            value = item.get(key)
+            return value[:limit] if isinstance(value, str) else ""
+
+        def integer_value(item: dict[str, Any], key: str) -> int:
+            value = item.get(key)
+            return value if type(value) is int else 0
+
+        events = [
+            {
+                "id": integer_value(item, "id"),
+                "version": text_value(item, "version", 64),
+                "revision": text_value(item, "revision", 128),
+                "status": text_value(item, "status", 32),
+                "channel": text_value(item, "channel", 32),
+                "created_at": integer_value(item, "created_at"),
+            }
+            for item in self.server.context.store.recent_deployment_events(20)
+            if isinstance(item, dict)
+        ]
+        health_timeline = []
+        for item in self.server.context.store.recent_health_snapshots(30):
+            if not isinstance(item, dict):
+                continue
+            checks = item.get("checks")
+            health_timeline.append({
+                "id": integer_value(item, "id"),
+                "overall": text_value(item, "overall", 24),
+                "healthy_count": integer_value(item, "healthy_count"),
+                "warning_count": integer_value(item, "warning_count"),
+                "unavailable_count": integer_value(item, "unavailable_count"),
+                "created_at": integer_value(item, "created_at"),
+                "checks": [
+                    {
+                        "id": text_value(check, "id", 64),
+                        "status": text_value(check, "status", 24),
+                    }
+                    for check in checks[:50]
+                    if isinstance(check, dict)
+                ] if isinstance(checks, list) else [],
+            })
         operations = operations_timeline(
             self.server.context.store.recent_audit(100) if include_audit else [],
             events,
