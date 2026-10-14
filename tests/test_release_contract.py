@@ -23,7 +23,7 @@ class ReleaseContractTests(unittest.TestCase):
             next_job = re.search(r"(?m)^  [A-Za-z0-9_-]+:\s*$", source[job_start:])
             job = source[job_start : job_start + next_job.start()] if next_job else source[job_start:]
             folded_condition = re.search(
-                r"(?m)^    if: >-\n((?:^      [^\n]*\n)+)", job
+                r"(?m)^    if: >-\n((?:^ {6,}[^\n]*\n)+)", job
             )
             if not folded_condition:
                 return None
@@ -31,6 +31,11 @@ class ReleaseContractTests(unittest.TestCase):
 
         self.assertIn("  workflow_dispatch:\n", container)
         self.assertIn("  workflow_dispatch:\n", release_notes)
+        publish_job = container.split("  publish:\n", maxsplit=1)[1].split(
+            "  publish-stable-manifest:\n", maxsplit=1
+        )[0]
+        self.assertIn("packages: write", publish_job)
+        self.assertIn("attestations: write", publish_job)
         self.assertEqual(
             condition(container, "publish"),
             "github.event_name != 'workflow_dispatch' || "
@@ -41,9 +46,19 @@ class ReleaseContractTests(unittest.TestCase):
             "github.event_name == 'push' || "
             "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
         )
+        self.assertIn("  contents: write\n", release_notes)
 
         release_job = release_notes.split("  release:\n", maxsplit=1)[1]
         self.assertIn("if: github.event_name == 'push' || inputs.dry_run == false", release_job)
+
+        manifest_job = container.split("  publish-stable-manifest:\n", maxsplit=1)[1]
+        self.assertIn("      contents: write\n", manifest_job)
+        self.assertEqual(
+            condition(container, "publish-stable-manifest"),
+            "github.event_name == 'push' && "
+            "(github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || "
+            "(github.ref_type == 'tag' && startsWith(github.ref_name, 'v')))",
+        )
 
     def test_container_digest_summary_is_strict_and_does_not_interpret_markdown(self) -> None:
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
