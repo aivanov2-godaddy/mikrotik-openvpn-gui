@@ -1571,6 +1571,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except RouterOSError as error:
                 self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
             return
+        if path == "/api/certificate-settings":
+            session = self._require_session(api=True)
+            if (
+                not session
+                or not self._require_routeros_session(session)
+                or not self._require_capability(session, "profiles.read")
+            ):
+                return
+            try:
+                observed = self.server.context.router.get_certificate_settings(
+                    self._credentials(session)
+                )
+                if not isinstance(observed, dict):
+                    observed = {}
+                crl_store = str(observed.get("crl_store", "")).strip().casefold()
+                if crl_store not in {"system", "ram"}:
+                    crl_store = "unknown"
+                self._json({
+                    "status": "observed",
+                    "observed_at": int(time.time()),
+                    "crl_download": observed.get("crl_download") if isinstance(observed.get("crl_download"), bool) else None,
+                    "crl_use": observed.get("crl_use") if isinstance(observed.get("crl_use"), bool) else None,
+                    "crl_store": crl_store,
+                    "downloaded_ovpn_ca_crl_current": observed.get("downloaded_ovpn_ca_crl_current") if isinstance(observed.get("downloaded_ovpn_ca_crl_current"), bool) else None,
+                    "router_hosted_ovpn_ca_crl": observed.get("router_hosted_ovpn_ca_crl") if isinstance(observed.get("router_hosted_ovpn_ca_crl"), bool) else None,
+                })
+            except RouterOSError:
+                self._json(
+                    {"status": "unavailable", "observed_at": int(time.time())},
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+            return
         if path == "/api/bulk/views":
             session = self._require_session(api=True)
             if not session or not self._require_capability(session, "sessions.read"):

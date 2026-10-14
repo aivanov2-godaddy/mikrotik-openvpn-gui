@@ -437,20 +437,38 @@ class RouterOSClientTests(unittest.TestCase):
             certificate_settings = client.get_certificate_settings(credentials)
             self.assertFalse(certificate_settings["crl_use"])
             self.assertFalse(certificate_settings["crl_ready"])
+            self.assertEqual(certificate_settings["crl_store"], "system")
+            self.assertFalse(certificate_settings["downloaded_ovpn_ca_crl_current"])
             mock.state.certificate_settings[0]["crl-use"] = "true"
             mock.state.certificates["*CA"]["ca-crl-host"] = "crl.router.example.test"
-            self.assertTrue(client.get_certificate_settings(credentials)["router_hosted_ovpn_ca_crl"])
-            self.assertTrue(client.get_certificate_settings(credentials)["crl_ready"])
+            hosted_settings = client.get_certificate_settings(credentials)
+            self.assertTrue(hosted_settings["router_hosted_ovpn_ca_crl"])
+            self.assertFalse(hosted_settings["downloaded_ovpn_ca_crl_current"])
             mock.state.certificates["*CA"].pop("ca-crl-host")
             mock.state.certificate_crls = [{
                 "cert": "vpn-ca",
                 "revoked": "0",
-                "last-update": "2026-09-11 12:00:00",
                 # Keep the fixture safely in the future so the test remains
                 # deterministic when the suite runs on or after today's date.
                 "next-update": "2036-08-03 00:00:00",
             }]
-            self.assertTrue(client.get_certificate_settings(credentials)["crl_ready"])
+            crl_queries = []
+            request = client._request
+
+            def record_crl_query(method, path, *args, **kwargs):
+                if path == "/certificate/crl":
+                    crl_queries.append(kwargs.get("query"))
+                return request(method, path, *args, **kwargs)
+
+            with patch.object(client, "_request", side_effect=record_crl_query):
+                current_settings = client.get_certificate_settings(credentials)
+
+            self.assertTrue(current_settings["downloaded_ovpn_ca_crl_current"])
+            self.assertTrue(current_settings["crl_ready"])
+            self.assertEqual(crl_queries, [{
+                "cert": "vpn-ca",
+                ".proplist": "cert,revoked,next-update",
+            }])
             certificates = client.list_ovpn_client_certificates(credentials)
             self.assertEqual(
                 [item["name"] for item in certificates],

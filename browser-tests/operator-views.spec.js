@@ -81,6 +81,50 @@ for (const view of views) {
   });
 }
 
+test('Device Profiles CRL configuration refreshes automatically only while its view is open', async ({ page }) => {
+  let requests = 0;
+  let available = true;
+  await page.route('**/api/certificate-settings', (route) => {
+    requests += 1;
+    if (!available) {
+      return route.fulfill({ status: 502, json: { status: 'unavailable', observed_at: 1791028800 } });
+    }
+    return route.fulfill({
+      status: 200,
+      json: {
+        status: 'observed', observed_at: 1791028800,
+        crl_download: true, crl_use: true, crl_store: 'ram',
+        downloaded_ovpn_ca_crl_current: true, router_hosted_ovpn_ca_crl: false,
+      },
+    });
+  });
+
+  const disclosure = page.locator('[data-crl-settings]');
+  await expect(disclosure).toBeAttached();
+  expect(requests, 'certificate settings stay unloaded on unrelated views').toBe(0);
+  await page.getByRole('link', { name: 'Device Profiles', exact: true }).click();
+  await expect(page.locator('[data-crl-settings-state]')).toContainText('Observed');
+  expect(requests).toBe(1);
+  await expect(disclosure).not.toHaveAttribute('open', '');
+  await disclosure.locator('summary').click();
+  await expect(page.locator('[data-crl-download]')).toHaveText('Enabled');
+  await expect(page.locator('[data-crl-use]')).toHaveText('Enabled');
+  await expect(page.locator('[data-crl-store]')).toHaveText('RAM (volatile)');
+  await expect(page.locator('[data-downloaded-ca-crl]')).toHaveText('Present and current');
+  await expect(page.locator('[data-router-hosted-crl]')).toHaveText('Not configured');
+
+  available = false;
+  await page.clock.fastForward(30_000);
+  await expect(page.locator('[data-crl-settings-state]')).toContainText('Unavailable');
+  await expect(page.locator('[data-crl-download]')).toHaveText('Unknown');
+  expect(requests).toBe(2);
+
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click();
+  await page.clock.fastForward(30_000);
+  expect(requests, 'leaving Device Profiles stops its background refresh').toBe(2);
+  await expect(page.locator('#overview')).not.toContainText('RouterOS CRL configuration');
+});
+
 test('failed service-health refresh marks cached checks unavailable and stale', async ({ page }, testInfo) => {
   await page.getByRole('link', { name: 'Service Health', exact: true }).click();
   await page.route('**/api/service-health', (route) => route.abort('failed'));
