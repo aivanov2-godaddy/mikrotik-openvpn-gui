@@ -398,6 +398,16 @@ Never enable insecure TLS or expose either API to the Internet. Use a dedicated
 read-only RouterOS account with only the `read`, `api`, and `rest-api` policies;
 do not grant `write`, `policy`, or `sensitive`.
 
+The sampler reads the RouterOS version from the allowlisted system-resource
+response and selects the matching container lifecycle fields: `status` on
+RouterOS 7.19 and earlier, and the `running`, `stopped`, `starting`, `stopping`,
+and `healthy` flags on RouterOS 7.20 and later. Binary API and HTTPS REST use
+the same version rule and shared lifecycle normalizer as the deployment tool.
+Missing or malformed versions, unknown lifecycle values, contradictory state
+flags, or unhealthy signals fail closed; a transition flag is never treated as
+stopped. The collector never retries a failed property query with a broader
+record dump.
+
 The sampler accepts Binary API and REST credentials only from process
 environment variables, with separate masked password prompts as fallback. Set
 the REST URL as a credential-free HTTPS origin (no `/rest` suffix is required).

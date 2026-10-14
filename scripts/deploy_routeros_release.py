@@ -23,18 +23,22 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+if __package__ in {None, ""}:
+    from routeros_container_state import (
+        STATUS_FAILURES as _STATUS_FAILURES,
+        has_container_lifecycle_signal as _has_lifecycle_signal,
+        normalize_container_status as _status,
+    )
+else:
+    from .routeros_container_state import (
+        STATUS_FAILURES as _STATUS_FAILURES,
+        has_container_lifecycle_signal as _has_lifecycle_signal,
+        normalize_container_status as _status,
+    )
+
 
 _IMAGE_PATTERN = re.compile(
     r"^(?:ghcr\.io/)?[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):sha-(?P<revision>[0-9a-f]{40})(?:-(?P<architecture>arm64|amd64))?$"
-)
-_STATUS_FAILURES = {"failed", "invalid", "error", "unhealthy"}
-_LIFECYCLE_KEYS = (
-    "status",
-    "running",
-    ".running",
-    "stopped",
-    "healthy",
-    "healthcheck-status",
 )
 _EMPTY_STOP_CONFIRMATIONS = 2
 
@@ -162,65 +166,6 @@ def _find_target(client: RouterOSRest, name: str) -> dict[str, Any]:
     if not container_id:
         raise DeploymentError("RouterOS container record did not include an id")
     return client.container(container_id)
-
-
-def _status(record: dict[str, Any]) -> str:
-    pull_failed = str(record.get("download/extract failed", "")).casefold()
-    has_pull_failure = pull_failed in {"true", "yes", "1"}
-    status = str(record.get("status", "")).casefold()
-    if status:
-        # A HEALTHCHECK-enabled image is reported as `healthy` by newer
-        # RouterOS builds; treat that as the running gate for this deployer.
-        if status == "healthy":
-            return "failed" if has_pull_failure else "running"
-        if status in {"running", "starting", "starting-with-healthcheck"}:
-            return "failed" if has_pull_failure else status
-        return status
-    # Some RouterOS REST builds expose the container state as a string
-    # `.running` flag instead of the CLI `status` field.
-    running = str(record.get("running", record.get(".running", ""))).casefold()
-    if running in {"true", "yes", "1"}:
-        return "failed" if has_pull_failure else "running"
-    if running in {"false", "no", "0"}:
-        return "stopped"
-    # RouterOS 7.24 exposes the lifecycle flag as `stopped` on some
-    # container records.  It is the inverse of `running`, so normalize it
-    # when it positively confirms that the container is stopped.  A false
-    # value only means startup has progressed past the stopped state; it is
-    # not sufficient evidence that the application is ready.
-    stopped = str(record.get("stopped", "")).casefold()
-    if stopped in {"true", "yes", "1"}:
-        return "stopped"
-    # RouterOS reports a positive health probe separately from lifecycle
-    # state.  Only a healthy container is ready for traffic and for the
-    # deployment gate; an unhealthy probe is an explicit failure.
-    healthy = str(record.get("healthy", "")).casefold()
-    if healthy in {"true", "yes", "1"}:
-        return "failed" if has_pull_failure else "running"
-    if healthy in {"false", "no", "0"}:
-        return "unhealthy"
-    # RouterOS 7.24 may expose only the container health-probe result.  The
-    # value is formatted as ``good, output: ...`` for a passing probe and as
-    # a failure word when the probe cannot reach the application.
-    healthcheck = str(record.get("healthcheck-status", "")).casefold().strip()
-    if healthcheck.startswith("good"):
-        return "failed" if has_pull_failure else "running"
-    if healthcheck.startswith(("bad", "failed", "error", "unhealthy")):
-        return "unhealthy"
-    # RouterOS keeps a failed pull marker even after the container has been
-    # stopped.  Preserve it as an explicit failure for the start gate.
-    if has_pull_failure:
-        return "failed"
-    return ""
-
-
-def _has_lifecycle_signal(record: dict[str, Any]) -> bool:
-    """Return whether RouterOS supplied a non-empty lifecycle/probe value."""
-
-    return any(
-        record.get(key) is not None and str(record.get(key)).strip()
-        for key in _LIFECYCLE_KEYS
-    )
 
 
 def _wait_for(
