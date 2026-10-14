@@ -16,14 +16,15 @@ This public release record documents repository commits, published artifacts,
 and CI provenance only. RouterOS deployment state, live measurements, and
 operator/session details are kept in private operational records.
 
-The latest formal versioned release remains **v2.7.0**. A v2.8.0 release
-candidate is being prepared from the merged work through PR #692, but it has
-not been tagged or published. Its highlights are stricter live-data field
-allowlists and session revalidation, safer staged certificate renewal, improved
-telemetry recovery, and evidence-gated RouterOS canary promotion. RouterOS
-acceptance for the current candidate is still open; per the release procedure
-below, do not tag or publish v2.8.0 until candidate-specific canary acceptance
-passes. Earlier releases introduced the v2.1 mobile administrator workflows,
+The latest formal versioned release remains **v2.7.0**. The next planned
+version, v2.8.0, has not been tagged or published. The latest published
+mainline runtime candidate is PR #702; its changes and immutable artifacts are
+recorded below, but candidate-specific RouterOS acceptance remains open. The
+broader candidate highlights are stricter live-data field allowlists and
+session revalidation, safer staged certificate renewal, improved telemetry
+recovery, and evidence-gated RouterOS canary promotion. Do not tag or publish
+v2.8.0 until candidate-specific canary acceptance passes. Earlier releases
+introduced the v2.1 mobile administrator workflows,
 v2.2 administrator roles and authentication audit, v2.3 enterprise operations
 foundations, v2.4 bulk operations and saved views, and v2.5 Binary API live
 telemetry with the Socket.IO gateway and fallback paths. v2.6 adds Redis/outbox
@@ -62,7 +63,30 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #692 — 2026-10-13
+### Latest published mainline candidate — PR #702 — 2026-10-14
+
+PR [#702](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/702)
+merged as `7c91a0f3425ca729cb6ffe12004c2a6e787ac97d`. It adds a read-only
+RouterOS CRL configuration observation to Device Profiles; it does not claim
+CRL freshness or end-to-end revocation enforcement. Publisher run
+[#38519276211](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38519276211)
+passed source verification (including 651 unit/mock tests), 229 rendered
+browser checks, ARM64/AMD64 builds, provenance and SPDX SBOM attestation
+verification, stable-manifest read-back, and published-runtime smoke tests.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-7c91a0f3425ca729cb6ffe12004c2a6e787ac97d-arm64` | `sha256:4682a2eed339aec7e4d77173f017be8510f4ad06227dfd4e92846a2345e11595` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-7c91a0f3425ca729cb6ffe12004c2a6e787ac97d-amd64` | `sha256:23fd167259d2dab2acdd7dee6e14b6741811fc438591cee3571ccb0ba18d6082` |
+
+The stable manifest was published and read back by the workflow with these
+immutable architecture tags. The controlled 30-minute canary acceptance window
+is not complete; event latency/freshness, recovery, event integrity, Redis
+delivery, resource soak, restore, and rollback evidence remain outstanding.
+No production promotion is claimed. No new numbered release was created;
+v2.7.0 remains the latest formal version.
+
+### Previously published mainline candidate — PR #692 — 2026-10-13
 
 PR [#692](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/692)
 merged as `8f68314bb54cc008edc02bf26e00cdaaa48284f3`. It revalidates the
@@ -94,7 +118,7 @@ disconnect read-back settling window so a just-terminated session is not
 mistaken for a failed termination. Its publisher run
 [#38449932684](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
 published AMD64 and ARM64 images, verified image and SPDX SBOM attestations, and
-passed published-runtime smoke tests. It has been superseded by PR #692 as the
+passed published-runtime smoke tests. It has been superseded by PR #702 as the
 latest mainline candidate.
 
 | Platform | Immutable image tag | Published digest |
