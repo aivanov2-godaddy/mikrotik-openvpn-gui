@@ -353,6 +353,15 @@ does not claim production acceptance or close issue #200.
   configured dashboard origin before SSE performs RouterOS reads; clients that
   omit the header still face the same session/capability checks. Real-browser
   and reverse-proxy revocation timing remain untested.
+- The ASGI HTTP adapter shares the existing 64 KiB request-body bound. It rejects
+  an oversized declared `Content-Length` before reading and enforces the same cap
+  over actual ASGI chunks, including requests with malformed or absent length
+  metadata. Overflow returns HTTP 413; HTTP/1.0 and HTTP/1.1 responses close the
+  connection rather than draining an unbounded unread body. Boundary, duplicate
+  header, streamed overflow, and pinned-Uvicorn connection-close regressions are
+  in `tests/test_asgi_contract.py`. This is repository-level availability
+  hardening, not an additional ASVS conformance claim; reverse-proxy and
+  deployed-server request limits still require operational verification.
 
 ## Repository hardening and export privacy — 2026-10-05
 
