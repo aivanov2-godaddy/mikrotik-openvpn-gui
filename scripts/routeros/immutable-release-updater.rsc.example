@@ -392,7 +392,7 @@
     :log info ("vpn-gui immutable updater: canary staged; full acceptance and explicit promotion controller required; production unchanged " . $image)
     }
 } do={
-    :log error ("vpn-gui immutable updater: update failed: " . $updaterError . " code=" . ($updaterErrorAttributes->"code"))
+    :log error "vpn-gui immutable updater: update failed; details redacted"
 }
 :set vpnGuiImmutableUpdateLock false
 

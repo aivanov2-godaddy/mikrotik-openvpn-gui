@@ -147,8 +147,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('"\\\"revision\\\":\\\""', updater)
         self.assertIn(":onerror fetchError,fetchAttributes in={", executable)
         self.assertIn(":onerror updaterError,updaterErrorAttributes in={", executable)
-        self.assertIn('"vpn-gui immutable updater: update failed: " . $updaterError', executable)
-        self.assertIn('$updaterErrorAttributes->"code"', executable)
+        self.assertIn('"vpn-gui immutable updater: update failed; details redacted"', executable)
+        self.assertNotIn("$updaterError", executable)
+        self.assertNotIn("$updaterErrorAttributes", executable)
         self.assertNotIn("see preceding log entry", executable)
         for reason in (
             "fetch-error",
