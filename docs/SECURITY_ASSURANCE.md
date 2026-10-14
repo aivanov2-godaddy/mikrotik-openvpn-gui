@@ -258,6 +258,25 @@ CI remains the authoritative repository test result for a proposed commit. A
 passing suite only establishes the assertions in those tests; it is not a
 blanket pass for ASVS, OWASP, or production security.
 
+## Repository revalidation — 2026-10-14
+
+At source commit `213ff6a155bb9bacce74c06797ff9473f95a432c`, the following
+focused suites passed locally:
+
+- `python -m unittest tests.test_asgi_contract` — 28 tests passed.
+- `python -m unittest tests.test_security` — 42 tests passed.
+- Five targeted `DashboardIntegrationTests` for CSRF-safe logout, SSE revocation
+  and reconnect, Socket.IO revocation, and RouterOS role-change revalidation —
+  all passed.
+- `python -m unittest tests.test_app.DevicePostureTests tests.test_app.CertificateExpiryParsingTests`
+  — 4 tests passed.
+- `python -m unittest tests.test_routeros` — 36 tests passed.
+
+These are repository-level results only. No live RouterOS, public-proxy,
+Cloudflare Access, host-memory, or deployed-log checks were performed in this
+run. The external items below therefore remain **NOT VERIFIED**; this update
+does not claim production acceptance or close issue #200.
+
 ## Security design notes and residual risks
 
 - RouterOS remains the identity and credential authority. After successful
