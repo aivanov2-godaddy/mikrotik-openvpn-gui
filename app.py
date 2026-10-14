@@ -1001,7 +1001,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials, cookies, private keys, and profile contents are never
         included.
         """
-        if session.auth_method == "routeros" and capability.endswith(".manage"):
+        role_revalidated = session.auth_method == "routeros" and capability.endswith(".manage")
+        if role_revalidated:
             session = self.server.telemetry_runtime.revalidate_session(
                 session.session_id,
                 force_role_check=True,
@@ -1009,7 +1010,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if session is None:
                 self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
                 return False
-        allowed = self._capability_allowed(session, capability)
+        # Management routes already performed the forced RouterOS role check
+        # above. Evaluate that returned session directly rather than forcing a
+        # second role lookup through _capability_allowed.
+        allowed = (
+            self._session_has_capability(session, capability)
+            if role_revalidated
+            else self._capability_allowed(session, capability)
+        )
         if allowed:
             return True
         target = action or urllib.parse.urlsplit(self.path).path
@@ -1050,33 +1058,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         return False
 
-    def _capability_allowed(self, session: Session, capability: str) -> bool:
-        """Check a capability without emitting an error response."""
-        if capability == "audit.read" and session.auth_method == "routeros":
-            checks = getattr(self, "_audit_role_checks_this_request", None)
-            if not isinstance(checks, dict):
-                checks = {}
-                self._audit_role_checks_this_request = checks
-            session_id = session.session_id
-            if session_id in checks:
-                return checks[session_id]
-            session = self.server.telemetry_runtime.revalidate_session(
-                session_id,
-                force_role_check=True,
-            )
-            if session is None:
-                checks[session_id] = False
-                return False
-            allowed = (
-                capability in session.capabilities
-                if session.capabilities is not None
-                else has_capability(session.role, capability)
-            )
-            checks[session_id] = allowed
-            return allowed
+    @staticmethod
+    def _session_has_capability(session: Session, capability: str) -> bool:
         if session.capabilities is not None:
             return capability in session.capabilities
         return has_capability(session.role, capability)
+
+    def _capability_allowed(self, session: Session, capability: str) -> bool:
+        """Check a capability without emitting an error response."""
+        if capability in {"audit.read", "session.manage"} and session.auth_method == "routeros":
+            refreshed_sessions = getattr(self, "_sensitive_role_sessions_this_request", None)
+            if not isinstance(refreshed_sessions, dict):
+                refreshed_sessions = {}
+                self._sensitive_role_sessions_this_request = refreshed_sessions
+            session_id = session.session_id
+            if session_id not in refreshed_sessions:
+                refreshed_sessions[session_id] = self.server.telemetry_runtime.revalidate_session(
+                    session_id,
+                    force_role_check=True,
+                )
+            refreshed_session = refreshed_sessions[session_id]
+            return refreshed_session is not None and self._session_has_capability(
+                refreshed_session,
+                capability,
+            )
+        return self._session_has_capability(session, capability)
 
     def _require_operator(self, session: Session) -> bool:
         """Compatibility guard for routine administration operations."""
@@ -1392,9 +1398,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
 
     def do_GET(self) -> None:
-        # Audit disclosure can appear in multiple response fields. Revalidate
-        # the RouterOS role once per request, not once per rendered field.
-        self._audit_role_checks_this_request: dict[str, bool] = {}
+        # Sensitive audit and administrator-session projections can appear in
+        # the same response. Revalidate once per RouterOS session per request
+        # and reuse the fresh session snapshot across those capability checks.
+        self._sensitive_role_sessions_this_request: dict[str, Session | None] = {}
         parsed_url = urllib.parse.urlsplit(self.path)
         path = parsed_url.path
         if path == "/socket.io/":
@@ -2449,7 +2456,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session.session_id,
             force_role_check=True,
         )
-        if refreshed is None or not self._capability_allowed(refreshed, "session.manage"):
+        if refreshed is None or not self._session_has_capability(refreshed, "session.manage"):
             self._json({"error": "Authentication or session-management permission changed; no session was revoked"}, status=HTTPStatus.FORBIDDEN)
             return
         if not self.server.context.sessions.revoke(session_id):
