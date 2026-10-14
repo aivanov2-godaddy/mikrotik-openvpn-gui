@@ -16,7 +16,15 @@ import threading
 from http.cookies import SimpleCookie
 from typing import Any, Awaitable, Callable, Mapping
 
-from app import DashboardHandler, DashboardServer, RedirectHandler, build_context, drop_runtime_privileges
+from app import (
+    MAX_REQUEST_BODY_BYTES,
+    DashboardHandler,
+    DashboardServer,
+    RedirectHandler,
+    build_context,
+    drop_runtime_privileges,
+)
+from security import SECURITY_HEADERS
 
 
 ASGIMessage = dict[str, Any]
@@ -75,6 +83,36 @@ class DashboardHTTPASGI:
         """Disable Uvicorn's independent X-Forwarded-For client rewriting."""
         return {"proxy_headers": False, "forwarded_allow_ips": ""}
 
+    @staticmethod
+    def _declared_body_exceeds_limit(scope: Mapping[str, Any]) -> bool:
+        for key, value in scope.get("headers", []):
+            if bytes(key).lower() != b"content-length":
+                continue
+            try:
+                length = int(bytes(value).strip(), 10)
+            except (TypeError, ValueError):
+                continue
+            if length > MAX_REQUEST_BODY_BYTES:
+                return True
+        return False
+
+    @staticmethod
+    async def _reject_oversized_body(scope: Mapping[str, Any], send: Send) -> None:
+        headers = [
+            (b"content-length", b"0"),
+            (b"cache-control", b"no-store"),
+            *(
+                (key.lower().encode("latin-1"), value.encode("latin-1"))
+                for key, value in SECURITY_HEADERS.items()
+            ),
+        ]
+        if scope.get("http_version") in {"1.0", "1.1"}:
+            # The ASGI server may otherwise keep reading a rejected, unread body
+            # on a persistent HTTP/1 connection after we have sent the response.
+            headers.append((b"connection", b"close"))
+        await send({"type": "http.response.start", "status": 413, "headers": headers})
+        await send({"type": "http.response.body", "body": b""})
+
     async def __call__(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
             await send({
@@ -84,6 +122,9 @@ class DashboardHTTPASGI:
             })
             await send({"type": "http.response.body", "body": b""})
             return
+        if self._declared_body_exceeds_limit(scope):
+            await self._reject_oversized_body(scope, send)
+            return
         body = bytearray()
         while True:
             message = await receive()
@@ -91,7 +132,11 @@ class DashboardHTTPASGI:
                 return
             if message.get("type") != "http.request":
                 continue
-            body.extend(message.get("body", b""))
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > MAX_REQUEST_BODY_BYTES:
+                await self._reject_oversized_body(scope, send)
+                return
+            body.extend(chunk)
             if not message.get("more_body", False):
                 break
         request = self._request_bytes(scope, bytes(body))

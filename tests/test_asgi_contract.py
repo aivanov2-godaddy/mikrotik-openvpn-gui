@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from asgi import DashboardHTTPASGI
+from app import MAX_REQUEST_BODY_BYTES
 from routeros_binary import RouterOSReply
 from security import SessionStore
 from telemetry_runtime import TelemetryRuntime
@@ -1280,6 +1281,206 @@ class ASGIContractTests(unittest.TestCase):
         self.assertIn(b"Content-Length: 2", request)
         self.assertNotIn(b"keep-alive", request)
         self.assertNotIn(b"chunked", request)
+
+    def test_http_adapter_rejects_oversized_declared_body_before_reading(self) -> None:
+        application = DashboardHTTPASGI(object())
+        messages: list[dict[str, object]] = []
+        receive_calls = 0
+
+        async def receive() -> dict[str, object]:
+            nonlocal receive_calls
+            receive_calls += 1
+            raise AssertionError("oversized declared bodies must be rejected before receive")
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        scope = {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "raw_path": b"/api/example",
+            "headers": [
+                (b"content-length", b"0"),
+                (b"Content-Length", str(MAX_REQUEST_BODY_BYTES + 1).encode("ascii")),
+            ],
+        }
+        with mock.patch.object(DashboardHTTPASGI, "_request_bytes") as request_bytes:
+            asyncio.run(application(scope, receive, send))
+
+        self.assertEqual(receive_calls, 0)
+        request_bytes.assert_not_called()
+        self.assertEqual(messages[0]["status"], 413)
+        headers = dict(messages[0]["headers"])
+        self.assertEqual(headers[b"content-length"], b"0")
+        self.assertEqual(headers[b"connection"], b"close")
+        self.assertEqual(messages[1], {"type": "http.response.body", "body": b""})
+
+    def test_http_adapter_accepts_body_at_exact_limit(self) -> None:
+        application = DashboardHTTPASGI(object())
+        fake_client, fake_handler_socket = socket.socketpair()
+        receive_calls = 0
+
+        async def receive() -> dict[str, object]:
+            nonlocal receive_calls
+            receive_calls += 1
+            if receive_calls == 1:
+                return {
+                    "type": "http.request",
+                    "body": b"x" * MAX_REQUEST_BODY_BYTES,
+                    "more_body": False,
+                }
+            await asyncio.Future()
+
+        async def send(message: dict[str, object]) -> None:
+            raise AssertionError(f"unexpected ASGI response: {message!r}")
+
+        scope = {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "raw_path": b"/api/example",
+            "headers": [(b"content-length", str(MAX_REQUEST_BODY_BYTES).encode("ascii"))],
+        }
+        async def run_application() -> None:
+            with (
+                mock.patch("asgi.socket.socketpair", return_value=(fake_client, fake_handler_socket)),
+                mock.patch("asgi.DashboardHandler"),
+                mock.patch.object(
+                    DashboardHTTPASGI, "_request_bytes", return_value=b"request"
+                ) as request_bytes,
+                mock.patch.object(DashboardHTTPASGI, "_stream_response", return_value=None),
+            ):
+                await application(scope, receive, send)
+                request_bytes.assert_called_once()
+                self.assertEqual(len(request_bytes.call_args.args[1]), MAX_REQUEST_BODY_BYTES)
+
+        try:
+            asyncio.run(run_application())
+            self.assertEqual(receive_calls, 1)
+            fake_handler_socket.settimeout(1)
+            self.assertEqual(fake_handler_socket.recv(7), b"request")
+            self.assertEqual(fake_client.fileno(), -1)
+        finally:
+            fake_handler_socket.close()
+
+    def test_http_adapter_caps_streamed_body_and_stops_receiving_on_overflow(self) -> None:
+        application = DashboardHTTPASGI(object())
+        messages: list[dict[str, object]] = []
+        chunks = [
+            {"type": "http.request", "body": b"x" * MAX_REQUEST_BODY_BYTES, "more_body": True},
+            {"type": "http.request", "body": b"y", "more_body": True},
+            {"type": "http.request", "body": b"unused", "more_body": False},
+        ]
+        receive_calls = 0
+
+        async def receive() -> dict[str, object]:
+            nonlocal receive_calls
+            message = chunks[receive_calls]
+            receive_calls += 1
+            return message
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        scope = {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "raw_path": b"/api/example",
+            "headers": [(b"content-length", b"not-a-number")],
+        }
+        with mock.patch.object(DashboardHTTPASGI, "_request_bytes") as request_bytes:
+            asyncio.run(application(scope, receive, send))
+
+        self.assertEqual(receive_calls, 2)
+        request_bytes.assert_not_called()
+        self.assertEqual(messages[0]["status"], 413)
+        headers = dict(messages[0]["headers"])
+        self.assertEqual(headers[b"content-length"], b"0")
+        self.assertEqual(headers[b"connection"], b"close")
+        self.assertEqual(messages[1], {"type": "http.response.body", "body": b""})
+
+    def test_http_adapter_rejects_single_oversized_stream_chunk(self) -> None:
+        application = DashboardHTTPASGI(object())
+        messages: list[dict[str, object]] = []
+        receive_calls = 0
+
+        async def receive() -> dict[str, object]:
+            nonlocal receive_calls
+            receive_calls += 1
+            return {
+                "type": "http.request",
+                "body": b"x" * (MAX_REQUEST_BODY_BYTES + 1),
+                "more_body": True,
+            }
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        scope = {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "raw_path": b"/api/example",
+            "headers": [],
+        }
+        with mock.patch.object(DashboardHTTPASGI, "_request_bytes") as request_bytes:
+            asyncio.run(application(scope, receive, send))
+
+        self.assertEqual(receive_calls, 1)
+        request_bytes.assert_not_called()
+        self.assertEqual(messages[0]["status"], 413)
+        self.assertEqual(dict(messages[0]["headers"])[b"connection"], b"close")
+
+    def test_http_adapter_closes_http11_connection_after_early_413(self) -> None:
+        if not importlib.util.find_spec("uvicorn"):
+            self.skipTest("Uvicorn is not installed")
+
+        import uvicorn
+
+        async def exercise() -> bytes:
+            application = DashboardHTTPASGI(object())
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(128)
+            listener.setblocking(False)
+            host, port = listener.getsockname()
+            server = uvicorn.Server(
+                uvicorn.Config(application, log_level="critical", lifespan="off", access_log=False)
+            )
+            server_task = asyncio.create_task(server.serve(sockets=[listener]))
+            writer: asyncio.StreamWriter | None = None
+            try:
+                deadline = asyncio.get_running_loop().time() + 5
+                while not server.started and not server_task.done():
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("test ASGI server did not start")
+                    await asyncio.sleep(0.01)
+
+                reader, writer = await asyncio.open_connection(host, port)
+                body = b"x" * (MAX_REQUEST_BODY_BYTES + 1)
+                writer.write(
+                    b"POST /api/example HTTP/1.1\r\n"
+                    b"Host: localhost\r\n"
+                    + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+                    + body
+                )
+                await writer.drain()
+                return await asyncio.wait_for(reader.read(), timeout=5)
+            finally:
+                if writer is not None:
+                    writer.close()
+                    await writer.wait_closed()
+                server.should_exit = True
+                await asyncio.wait_for(server_task, timeout=5)
+
+        response = asyncio.run(exercise())
+        headers, body = response.split(b"\r\n\r\n", 1)
+        self.assertIn(b"HTTP/1.1 413", headers)
+        self.assertIn(b"connection: close", headers.lower())
+        self.assertEqual(body, b"")
 
     def test_http_adapter_uses_asgi_peer_for_trusted_proxy_resolution_and_client_identity(self) -> None:
         from app import DashboardHandler

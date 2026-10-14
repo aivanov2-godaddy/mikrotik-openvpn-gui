@@ -77,6 +77,7 @@ SERVICE_HEALTH_FIELDS = frozenset({"overall", "checked_at", "checks"})
 SERVICE_HEALTH_CHECK_FIELDS = frozenset({"id", "name", "status", "impact", "remediation"})
 SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 5.0
 SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.25
+MAX_REQUEST_BODY_BYTES = 64 * 1024
 STATUS_ROUTER_FIELDS = frozenset(
     {
         "cpu-load",
@@ -928,7 +929,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             headers["Set-Cookie"] = cookie
         self._headers(HTTPStatus.SEE_OTHER, "text/plain; charset=utf-8", 0, extra=headers)
 
-    def _read_body(self, maximum: int = 64 * 1024) -> bytes:
+    def _read_body(self, maximum: int = MAX_REQUEST_BODY_BYTES) -> bytes:
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
