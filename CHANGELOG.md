@@ -8,6 +8,8 @@ semantic-version style release tags.
 
 ### Added
 
+- Show read-only RouterOS CRL configuration on Device Profiles, distinguishing
+  a current downloaded OpenVPN CA CRL from Router-hosted CRL configuration.
 - Require a privacy-safe, TLS-verified RouterOS REST/Binary snapshot parity
   check in formal hardware acceptance; mismatches and REST failures fail closed.
 - Join the private read-only RouterOS resource/container soak report to the app

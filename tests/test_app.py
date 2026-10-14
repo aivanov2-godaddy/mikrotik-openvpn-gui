@@ -1809,6 +1809,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"does not prove CRL enforcement", page)
         self.assertNotIn(b"Certificate revocation checks", page)
         self.assertNotIn(b"Per-device revocation needs CA migration", page)
+        overview_start = page.index(b'data-view="overview"')
+        profiles_start = page.index(b'data-view="profile-security"')
+        self.assertNotIn(b"RouterOS CRL configuration", page[overview_start:profiles_start])
+        self.assertIn(b"RouterOS CRL configuration", page[profiles_start:])
 
         self.assertIn(b"ovpn-user-one-device-a", page)
         self.assertIn(b"What happens under the hood", page)
@@ -2050,6 +2054,66 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn("must-not-leak", payload.decode("utf-8"))
         self.assertNotIn("service", user)
 
+    def test_certificate_settings_api_is_read_only_and_projects_only_safe_fields(self) -> None:
+        self.login()
+        observed = {
+            "crl_download": True,
+            "crl_use": True,
+            "crl_store": "system",
+            "downloaded_ovpn_ca_crl_current": True,
+            "router_hosted_ovpn_ca_crl": False,
+            "crl_ready": True,
+            "ca_name": "PRIVATE-CA-NAME",
+            "private_key": "PRIVATE-KEY-MUST-NOT-LEAK",
+            "crl_contents": "CRL-CONTENTS-MUST-NOT-LEAK",
+        }
+        with mock.patch.object(
+            self.server.context.router, "get_certificate_settings", return_value=observed
+        ) as read_settings:
+            status, _, payload = self.request("GET", "/api/certificate-settings")
+
+        self.assertEqual(status, 200)
+        response = json.loads(payload)
+        self.assertEqual(
+            set(response),
+            {
+                "status", "observed_at", "crl_download", "crl_use", "crl_store",
+                "downloaded_ovpn_ca_crl_current", "router_hosted_ovpn_ca_crl",
+            },
+        )
+        self.assertEqual(response["status"], "observed")
+        self.assertEqual(response["crl_store"], "system")
+        self.assertTrue(response["downloaded_ovpn_ca_crl_current"])
+        self.assertNotIn("MUST-NOT-LEAK", payload.decode("utf-8"))
+        self.assertNotIn("PRIVATE-CA-NAME", payload.decode("utf-8"))
+        read_settings.assert_called_once()
+
+    def test_certificate_settings_api_reports_unknown_when_routeros_read_fails(self) -> None:
+        self.login()
+        with mock.patch.object(
+            self.server.context.router,
+            "get_certificate_settings",
+            side_effect=RouterOSError("sensitive RouterOS response must not leak"),
+        ):
+            status, _, payload = self.request("GET", "/api/certificate-settings")
+
+        self.assertEqual(status, 502)
+        self.assertEqual(set(json.loads(payload)), {"status", "observed_at"})
+        self.assertEqual(json.loads(payload)["status"], "unavailable")
+        self.assertNotIn("sensitive", payload.decode("utf-8"))
+
+    def test_certificate_settings_api_accepts_routeros_ram_store(self) -> None:
+        self.login()
+        with mock.patch.object(
+            self.server.context.router,
+            "get_certificate_settings",
+            return_value={"crl_store": "ram"},
+        ):
+            status, _, payload = self.request("GET", "/api/certificate-settings")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["crl_store"], "ram")
+
     def test_policy_template_api_projects_storage_records_to_allowlisted_fields(self) -> None:
         self.login()
         template = {
@@ -2142,7 +2206,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         read_routes = (
             "/api/telemetry", "/api/admin/sessions", "/api/admin/api-tokens",
             "/api/reports/compliance.zip", "/api/reports/diagnostics.zip",
-            "/api/release/verify", "/api/policy-templates", "/api/users",
+            "/api/release/verify", "/api/policy-templates", "/api/users", "/api/certificate-settings",
             "/api/bulk/views", "/api/status", "/api/service-health",
             "/api/observability", "/api/setup-preflight", "/api/audit.csv",
             "/api/audit.json", "/api/operations-timeline.json", "/api/backups/metadata.zip", "/api/connections.csv",
@@ -2494,6 +2558,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("GET", literal("/api/release/verify"), "/api/release/verify", ("health.read",), {}),
             ("GET", literal("/api/policy-templates"), "/api/policy-templates", ("policies.read",), {}),
             ("GET", literal("/api/users"), "/api/users", ("users.read",), {}),
+            ("GET", literal("/api/certificate-settings"), "/api/certificate-settings", ("profiles.read",), {}),
             ("GET", literal("/api/bulk/views"), "/api/bulk/views", ("sessions.read",), {}),
             ("GET", literal("/api/status"), "/api/status", (), {}),
             ("GET", literal("/api/service-health"), "/api/service-health", ("health.read",), {}),
@@ -3338,6 +3403,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         routeros_session_routes = {
             "/api/events": b"Live router events require an authenticated RouterOS session",
             "/api/status": b"authenticated RouterOS dashboard session",
+            "/api/certificate-settings": b"authenticated RouterOS dashboard session",
             "/api/users": b"authenticated RouterOS dashboard session",
             "/api/telemetry": b"authenticated RouterOS dashboard session",
         }

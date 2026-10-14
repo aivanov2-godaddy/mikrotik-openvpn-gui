@@ -40,6 +40,18 @@ Certificate names and fingerprint display remain part of the operator
 inventory UI; profile archives and private keys are never persisted or added
 to telemetry, logs, or reports.
 
+The Device Profiles page also shows a collapsed, automatically refreshed
+summary of RouterOS CRL configuration (download/use/storage), whether a
+current downloaded CRL for the configured OpenVPN CA was observed, and whether
+that CA has RouterOS-hosted CRL configuration. RouterOS storage values are
+`ram` (volatile) and `system`. The read-only endpoint returns only these
+allowlisted booleans, the storage enum, and an observation timestamp; it
+excludes CA names, CRL contents, and keys.
+This is deliberately not a Dashboard overview alert, pass/fail check, or
+security-score input. Configuration and inventory observation still do not
+verify that a Router-hosted URL is reachable or serves a fresh CRL, prove
+end-to-end revocation enforcement, or establish fresh-connection rejection.
+
 ## Lost profile recovery
 
 Issued private keys are not retained for later re-download. The VPN Users
