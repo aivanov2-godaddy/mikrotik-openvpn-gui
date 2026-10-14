@@ -24,6 +24,47 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_certificate_settings_rejects_stale_malformed_missing_or_wrong_ca_crls(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            mock.state.certificate_settings[0].update({
+                "crl-download": "true",
+                "crl-use": "true",
+                "crl-store": "system",
+            })
+            mock.state.certificates["*CA"]["trusted"] = "no"
+
+            invalid_crls = {
+                "stale expiry": [{
+                    "cert": "vpn-ca",
+                    "revoked": "0",
+                    "next-update": "2000-01-01 00:00:00",
+                }],
+                "malformed expiry": [{
+                    "cert": "vpn-ca",
+                    "revoked": "0",
+                    "next-update": "not-a-routeros-date",
+                }],
+                "missing expiry": [{
+                    "cert": "vpn-ca",
+                    "revoked": "0",
+                }],
+                "different CA": [{
+                    "cert": "another-ca",
+                    "revoked": "0",
+                    "next-update": "2036-08-03 00:00:00",
+                }],
+            }
+
+            for case, crls in invalid_crls.items():
+                with self.subTest(case=case):
+                    mock.state.certificate_crls = crls
+                    settings = client.get_certificate_settings(credentials)
+                    self.assertFalse(settings["downloaded_ovpn_ca_crl_current"])
+                    self.assertFalse(settings["router_hosted_ovpn_ca_crl"])
+                    self.assertFalse(settings["crl_ready"])
+
     def test_admin_role_lookup_fails_closed_for_unknown_disabled_or_unavailable_accounts(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
