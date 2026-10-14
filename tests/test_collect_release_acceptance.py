@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from scripts.collect_release_acceptance import apply_stream_acceptance, collect
+from scripts.sqlite_restore_verifier import verify_sqlite_restore
+from store import MetadataStore
 
 
 REVISION = "a" * 40
@@ -249,6 +251,8 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("--production-api-token-env", output.getvalue())
         self.assertIn("--stream-observer-report", output.getvalue())
         self.assertIn("--telemetry-acceptance-input", output.getvalue())
+        self.assertIn("--canary-sqlite-backup", output.getvalue())
+        self.assertIn("--production-sqlite-backup", output.getvalue())
 
     def test_routeros_soak_report_is_required_before_app_collection_starts(self) -> None:
         from scripts import collect_release_acceptance as collector
@@ -513,6 +517,9 @@ class ReleaseCollectionTests(unittest.TestCase):
         registry_digests: dict[str, str | None] | None = None,
         clear_prior_production_runtime_evidence: bool = False,
         omit_prior_production_digest: bool = False,
+        missing_sqlite_backups: tuple[str, ...] = (),
+        corrupt_sqlite_backups: tuple[str, ...] = (),
+        extra_sqlite_backup_paths: dict[str, str | Path] | None = None,
         cookie: str | None = "session=secret-cookie",
         metrics_tokens: dict[str, str] | None = None,
     ) -> tuple[int, dict[str, object], list[tuple[str, str | None, str | None]]]:
@@ -649,29 +656,46 @@ class ReleaseCollectionTests(unittest.TestCase):
             )
             return 200, payload.encode()
 
-        code, report = collect(
-            source,
-            readyz_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
-            metrics_urls=(
-                {
-                    **{"canary": "https://192.168.1.2"},
-                    **({"production": "https://private.example"} if include_production_metrics else {}),
-                }
-                if include_metrics else None
-            ),
-            cookie=cookie,
-            metrics_tokens=metrics_tokens,
-            duration_seconds=1800,
-            interval_seconds=60,
-            probe=probe,
-            registry_probe=lambda image, *, timeout: resolved_registry_digests.get(image),
-            clock=time.clock,
-            sleep=time.sleep,
-            monotonic=time.monotonic,
-            minimum_soak_seconds=1,
-            minimum_health_samples=2,
-            phase=phase,
-        )
+        backup_directory = tempfile.TemporaryDirectory(prefix="release-acceptance-backups-")
+        try:
+            backup_paths: dict[str, str | Path] = {}
+            restore_environments = ("canary",) if phase == "canary-prepromotion" else ("canary", "production")
+            for environment in restore_environments:
+                if environment in missing_sqlite_backups:
+                    continue
+                store = MetadataStore(str(Path(backup_directory.name) / f"{environment}-live.sqlite3"))
+                backup_path = Path(backup_directory.name) / f"{environment}-backup.sqlite3"
+                store.backup_database(str(backup_path))
+                if environment in corrupt_sqlite_backups:
+                    backup_path.write_bytes(b"not a sqlite database")
+                backup_paths[environment] = backup_path
+            backup_paths.update(extra_sqlite_backup_paths or {})
+            code, report = collect(
+                source,
+                readyz_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
+                sqlite_backup_paths=backup_paths,
+                metrics_urls=(
+                    {
+                        **{"canary": "https://192.168.1.2"},
+                        **({"production": "https://private.example"} if include_production_metrics else {}),
+                    }
+                    if include_metrics else None
+                ),
+                cookie=cookie,
+                metrics_tokens=metrics_tokens,
+                duration_seconds=1800,
+                interval_seconds=60,
+                probe=probe,
+                registry_probe=lambda image, *, timeout: resolved_registry_digests.get(image),
+                clock=time.clock,
+                sleep=time.sleep,
+                monotonic=time.monotonic,
+                minimum_soak_seconds=1,
+                minimum_health_samples=2,
+                phase=phase,
+            )
+        finally:
+            backup_directory.cleanup()
         started = report["evidence"]["collection"]["started_at"]
         ended = report["evidence"]["collection"]["ended_at"]
         observer = {
@@ -740,6 +764,13 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(telemetry_slo["gateway_delivery_p95_max_seconds"], 0.5)
         self.assertEqual(telemetry_slo["supervisor_non_healthy_samples"], 0)
         self.assertIn("does not measure RouterOS-to-browser session-change latency", telemetry_slo["meaning"])
+        restore_checks = collected["collection"]["sqlite_restore_verification"]["checks"]
+        self.assertEqual([check["environment"] for check in restore_checks], ["canary", "production"])
+        self.assertTrue(all(check["verified"] for check in restore_checks))
+        self.assertTrue(all(check["source_opened_read_only"] for check in restore_checks))
+        self.assertTrue(all(check["restored_integrity"] for check in restore_checks))
+        self.assertTrue(all(check["restored_data_counts_match"] for check in restore_checks))
+        self.assertTrue(all(check["temporary_copy_removed"] for check in restore_checks))
         supervisor = report["deployments"][0]["metrics"]["telemetry_supervisor"]
         self.assertEqual(supervisor["status_last"], "healthy")
         self.assertEqual(supervisor["reconnects"]["delta"], 1)
@@ -755,6 +786,27 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertNotIn("private-label", serialized)
         self.assertNotIn("session=secret-cookie", serialized)
         self.assertNotIn("192.168.1.2", serialized)
+
+    def test_missing_local_backups_override_optimistic_input_and_fail_closed(self) -> None:
+        code, report, _ = self.run_collection(missing_sqlite_backups=("canary", "production"))
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_sqlite_restore_unverified", report["failed_gates"])
+        self.assertIn("production_sqlite_restore_unverified", report["failed_gates"])
+        self.assertFalse(report["evidence"]["deployments"][0]["sqlite_restore_verified"])
+        self.assertFalse(report["evidence"]["deployments"][1]["sqlite_restore_verified"])
+        checks = report["evidence"]["collection"]["sqlite_restore_verification"]["checks"]
+        self.assertEqual([check["failure_code"] for check in checks], ["backup_missing", "backup_missing"])
+        self.assertNotIn("release-acceptance-backups-", json.dumps(report))
+
+    def test_corrupt_canary_backup_fails_only_its_restore_gate(self) -> None:
+        code, report, _ = self.run_collection(corrupt_sqlite_backups=("canary",))
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_sqlite_restore_unverified", report["failed_gates"])
+        self.assertNotIn("production_sqlite_restore_unverified", report["failed_gates"])
+        checks = report["evidence"]["collection"]["sqlite_restore_verification"]["checks"]
+        self.assertEqual([check["failure_code"] for check in checks], ["invalid_sqlite", None])
 
     def test_per_environment_api_tokens_are_sent_only_to_their_metrics_origin(self) -> None:
         code, report, seen = self.run_collection(
@@ -780,12 +832,17 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertNotIn("vpt_" + "p" * 48, serialized)
 
     def test_pre_promotion_does_not_use_or_require_production_metrics_token(self) -> None:
-        code, report, seen = self.run_collection(
-            phase="canary-prepromotion",
-            production_revision="c" * 40,
-            cookie=None,
-            metrics_tokens={"canary": "vpt_" + "c" * 48, "production": "vpt_" + "p" * 48},
-        )
+        with patch(
+            "scripts.collect_release_acceptance.verify_sqlite_restore",
+            wraps=verify_sqlite_restore,
+        ) as restore_spy:
+            code, report, seen = self.run_collection(
+                phase="canary-prepromotion",
+                production_revision="c" * 40,
+                extra_sqlite_backup_paths={"production": "unused-private-production-backup.sqlite3"},
+                cookie=None,
+                metrics_tokens={"canary": "vpt_" + "c" * 48, "production": "vpt_" + "p" * 48},
+            )
 
         self.assertEqual(code, 0)
         self.assertTrue(report["passed"])
@@ -794,6 +851,12 @@ class ReleaseCollectionTests(unittest.TestCase):
             for url, _, api_token in seen
         ))
         self.assertNotIn("vpt_" + "p" * 48, json.dumps(report))
+        checks = report["evidence"]["collection"]["sqlite_restore_verification"]["checks"]
+        self.assertEqual([check["environment"] for check in checks], ["canary"])
+        restore_spy.assert_called_once()
+        self.assertIn("canary-backup", str(restore_spy.call_args.args[0]))
+        self.assertIsNone(report["evidence"]["deployments"][1]["sqlite_restore_verified"])
+        self.assertNotIn("unused-private-production-backup", json.dumps(report))
 
     def test_measured_telemetry_slo_violations_fail_closed(self) -> None:
         code, report, _ = self.run_collection(
@@ -1098,6 +1161,9 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "ended_at": ended,
                     "duration_seconds": 1800,
                 })
+                collected_evidence["collection"]["sqlite_restore_verification"]["checks"][0][
+                    "checked_at"
+                ] = "2026-10-02T10:50:00Z"
                 stream_evidence = collected_evidence["collection"]["stream_acceptance"]
                 stream_evidence["stream_observation"].update({
                     "started_at": started, "ended_at": ended, "duration_seconds": 1800,

@@ -3,8 +3,9 @@
 RouterOS-specific measurements remain operator-supplied in the evidence file.
 The canary-prepromotion phase verifies the candidate while production stays on
 its recorded prior revision. The postpromotion phase requires both environments
-on the same candidate. Probes are read-only; the candidate digest (and, after
-promotion, the production digest) is checked against GHCR before the soak.
+on the same candidate. Network probes are read-only; SQLite restore checks use
+only private local sources and a temporary copy. The candidate digest (and,
+after promotion, the production digest) is checked against GHCR before the soak.
 """
 
 from __future__ import annotations
@@ -28,9 +29,11 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 try:
     from release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
     from stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
+    from sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
 except ModuleNotFoundError:
     from scripts.release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
     from scripts.stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
+    from scripts.sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
 
 
 MAX_RESPONSE_BYTES = 1_000_000
@@ -752,6 +755,7 @@ def collect(
     evidence: Any,
     *,
     readyz_urls: dict[str, str],
+    sqlite_backup_paths: dict[str, str | os.PathLike[str]] | None = None,
     metrics_urls: dict[str, str] | None = None,
     cookie: str | None = None,
     metrics_tokens: dict[str, str] | None = None,
@@ -771,11 +775,59 @@ def collect(
         raise ValueError("evidence must use vpn-dashboard-release-evidence-v2")
     if phase not in {"canary-prepromotion", "postpromotion"}:
         raise ValueError("phase must be canary-prepromotion or postpromotion")
+    if sqlite_backup_paths is None:
+        sqlite_backup_paths = {}
+    if not isinstance(sqlite_backup_paths, dict) or set(sqlite_backup_paths).difference(ENVIRONMENTS):
+        raise ValueError("SQLite backup paths must be keyed by canary or production")
     # The shared validator enforces every field's type, enum, bounds, and
-    # timestamp format, then returns a strict allowlisted projection. Use that
-    # projection as the only source of caller-supplied values in output.
-    _, validated_evidence = validate_evidence(evidence, phase=phase)
+    # timestamp format, then returns a strict allowlisted projection. The
+    # operator's SQLite restore claim is deliberately discarded before this
+    # validation; it is replaced only with the local restore rehearsal result.
+    validation_input = dict(evidence)
+    raw_deployments = evidence.get("deployments")
+    if isinstance(raw_deployments, list):
+        validation_deployments = []
+        for index, deployment in enumerate(raw_deployments):
+            if not isinstance(deployment, dict):
+                validation_deployments.append(deployment)
+                continue
+            sanitized = dict(deployment)
+            sanitized.pop("sqlite_restore_verified", None)
+            sanitized.pop("sqlite_restore_verified_at", None)
+            if not (phase == "canary-prepromotion" and index == 1):
+                sanitized["sqlite_restore_verified"] = False
+            validation_deployments.append(sanitized)
+        validation_input["deployments"] = validation_deployments
+    _, validated_evidence = validate_evidence(validation_input, phase=phase)
     records = validated_evidence["deployments"]
+    restore_environments = ("canary",) if phase == "canary-prepromotion" else ENVIRONMENTS
+    restore_checks: list[dict[str, Any]] = []
+    restore_failure_gates: list[str] = []
+    for environment in restore_environments:
+        verification = verify_sqlite_restore(sqlite_backup_paths.get(environment))
+        checked_at = clock()
+        verified = verification.get("verified") is True
+        checked_at_text = checked_at.isoformat()
+        record = records[ENVIRONMENTS.index(environment)]
+        record["sqlite_restore_verified"] = verified
+        record["sqlite_restore_verified_at"] = checked_at_text if verified else None
+        restore_checks.append({
+            "environment": environment,
+            "checked_at": checked_at_text,
+            "verified": verified,
+            "source_opened_read_only": verification.get("source_opened_read_only") is True,
+            "restored_integrity": verification.get("restored_integrity") is True,
+            "required_schema_present": verification.get("required_schema_present") is True,
+            "restored_data_counts_match": verification.get("restored_data_counts_match") is True,
+            "temporary_copy_removed": verification.get("temporary_copy_removed") is True,
+            "failure_code": verification.get("failure_code"),
+        })
+        if not verified:
+            restore_failure_gates.append(f"{environment}_sqlite_restore_unverified")
+    sqlite_restore_verification = {
+        "format": RESTORE_REPORT_FORMAT,
+        "checks": restore_checks,
+    }
     if not math.isfinite(duration_seconds) or duration_seconds <= 0 or duration_seconds > MAX_DURATION_SECONDS:
         raise ValueError("duration must be greater than zero and no more than 86400 seconds")
     if duration_seconds < minimum_soak_seconds:
@@ -841,7 +893,7 @@ def collect(
         for environment in ENVIRONMENTS
     }
     registry_verification: list[dict[str, Any]] = []
-    failed_gates: list[str] = []
+    failed_gates: list[str] = list(restore_failure_gates)
     registry_environments = ("canary",) if phase == "canary-prepromotion" else ENVIRONMENTS
     for environment in registry_environments:
         image = safe_records[environment]["image"]
@@ -1130,6 +1182,7 @@ def collect(
             "router_runtime_digest_verified": False,
             "stream_acceptance": None,
             "registry_digest_verification": registry_verification,
+            "sqlite_restore_verification": sqlite_restore_verification,
         },
     }
     summary["passed"] = not failed_gates
@@ -1163,6 +1216,14 @@ def main() -> int:
     )
     parser.add_argument("--canary-url", required=True, help="private app origin, without path")
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
+    parser.add_argument(
+        "--canary-sqlite-backup",
+        help="local private canary SQLite backup to restore into a temporary copy; never written to the report",
+    )
+    parser.add_argument(
+        "--production-sqlite-backup",
+        help="local private production SQLite backup (required for postpromotion; never read prepromotion)",
+    )
     parser.add_argument("--canary-metrics-url", required=True, help="canary app origin for authenticated /metrics")
     parser.add_argument("--production-metrics-url", help="production app origin for authenticated /metrics (required for postpromotion acceptance)")
     parser.add_argument("--cookie-env", help="legacy environment variable containing a short-lived session Cookie header value")
@@ -1203,9 +1264,15 @@ def main() -> int:
         }
         if args.phase == "canary-prepromotion":
             metrics_urls.pop("production", None)
+        sqlite_backup_paths = {}
+        if args.canary_sqlite_backup:
+            sqlite_backup_paths["canary"] = args.canary_sqlite_backup
+        if args.phase == "postpromotion" and args.production_sqlite_backup:
+            sqlite_backup_paths["production"] = args.production_sqlite_backup
         code, summary = collect(
             evidence,
             readyz_urls={"canary": args.canary_url, "production": args.production_url},
+            sqlite_backup_paths=sqlite_backup_paths,
             metrics_urls=metrics_urls,
             cookie=cookie,
             metrics_tokens=metrics_tokens,
