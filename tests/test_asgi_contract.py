@@ -6,6 +6,9 @@ import json
 import socket
 import time
 import unittest
+from email.message import Message
+from types import SimpleNamespace
+from unittest import mock
 
 from asgi import DashboardHTTPASGI
 from routeros_binary import RouterOSReply
@@ -1122,6 +1125,233 @@ class ASGIContractTests(unittest.TestCase):
         self.assertIn(b"Content-Length: 2", request)
         self.assertNotIn(b"keep-alive", request)
         self.assertNotIn(b"chunked", request)
+
+    def test_http_adapter_uses_asgi_peer_for_trusted_proxy_resolution_and_client_identity(self) -> None:
+        from app import DashboardHandler
+
+        application = DashboardHTTPASGI(object())
+        context = SimpleNamespace(config=SimpleNamespace(
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10",),
+        ))
+        observed: list[tuple[str, str]] = []
+        current_headers: list[tuple[bytes, bytes]] = []
+
+        class CapturingHandler:
+            def __init__(
+                self,
+                request: socket.socket,
+                client_address: tuple[str, int],
+                _server: object,
+            ) -> None:
+                self.client_address = client_address
+                self.server = SimpleNamespace(context=context)
+                self.headers = Message()
+                for name, value in current_headers:
+                    self.headers.add_header(name.decode("latin-1"), value.decode("latin-1"))
+                observed.append((client_address[0], DashboardHandler._client_ip(self)))
+                request.recv(65536)
+                request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                request.close()
+
+        async def exercise() -> list[int]:
+            statuses: list[int] = []
+            cases = (
+                ("192.0.2.10", "198.51.100.10, 203.0.113.42"),
+                ("198.51.100.77", "203.0.113.43"),
+                (None, "203.0.113.44"),
+            )
+            with mock.patch("asgi.DashboardHandler", CapturingHandler):
+                for peer, forwarded in cases:
+                    current_headers[:] = [
+                        (b"host", b"dashboard.example"),
+                        (b"x-forwarded-for", forwarded.encode("ascii")),
+                    ]
+                    scope = {
+                        "type": "http",
+                        "asgi": {"version": "3.0"},
+                        "http_version": "1.1",
+                        "method": "GET",
+                        "scheme": "https",
+                        "path": "/",
+                        "raw_path": b"/",
+                        "query_string": b"",
+                        "headers": current_headers.copy(),
+                        "client": (peer, 54321) if peer is not None else None,
+                        "server": ("dashboard.example", 443),
+                    }
+                    request_received = False
+                    messages: list[dict[str, object]] = []
+
+                    async def receive() -> dict[str, object]:
+                        nonlocal request_received
+                        if not request_received:
+                            request_received = True
+                            return {"type": "http.request", "body": b"", "more_body": False}
+                        await asyncio.Future()
+
+                    async def send(message: dict[str, object]) -> None:
+                        messages.append(message)
+
+                    await application(scope, receive, send)
+                    statuses.append(next(
+                        int(message["status"])
+                        for message in messages
+                        if message.get("type") == "http.response.start"
+                    ))
+            return statuses
+
+        self.assertEqual(asyncio.run(exercise()), [200, 200, 200])
+        self.assertEqual(
+            observed,
+            [
+                ("192.0.2.10", "203.0.113.42"),
+                ("198.51.100.77", "198.51.100.77"),
+                ("unknown", "unknown"),
+            ],
+        )
+        self.assertNotEqual(observed[0][1], observed[1][1])
+
+    def test_uvicorn_proxy_header_rewriting_is_disabled(self) -> None:
+        from asgi import DashboardHTTPASGI
+        self.assertEqual(
+            DashboardHTTPASGI._uvicorn_proxy_options(),
+            {"proxy_headers": False, "forwarded_allow_ips": ""},
+        )
+
+    def test_trusted_proxy_scheme_middleware_preserves_configured_client_header(self) -> None:
+        from app import DashboardHandler
+        from asgi import DashboardHTTPASGI, TrustedProxySchemeASGI
+
+        http_adapter = DashboardHTTPASGI(object())
+        context = SimpleNamespace(config=SimpleNamespace(
+            trusted_proxy_header="CF-Connecting-IP",
+            trusted_proxy_sources=("192.0.2.10",),
+        ))
+        observed_clients: list[tuple[str, str]] = []
+        observed_schemes: list[str] = []
+        current_headers: list[tuple[bytes, bytes]] = []
+
+        class CapturingHandler:
+            def __init__(
+                self,
+                request: socket.socket,
+                client_address: tuple[str, int],
+                _server: object,
+            ) -> None:
+                self.client_address = client_address
+                self.server = SimpleNamespace(context=context)
+                self.headers = Message()
+                for name, value in current_headers:
+                    self.headers.add_header(name.decode("latin-1"), value.decode("latin-1"))
+                observed_clients.append((client_address[0], DashboardHandler._client_ip(self)))
+                request.recv(65536)
+                request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                request.close()
+
+        async def record_scope(scope, receive, send) -> None:
+            observed_schemes.append(str(scope["scheme"]))
+            await http_adapter(scope, receive, send)
+
+        application = TrustedProxySchemeASGI(record_scope, ("192.0.2.10",))
+
+        async def exercise() -> list[int]:
+            statuses: list[int] = []
+            cases = (
+                ("192.0.2.10", "203.0.113.50", "198.51.100.50", "https"),
+                ("192.0.2.10", "203.0.113.51", "malformed-xff", "https"),
+                ("198.51.100.77", "203.0.113.52", "203.0.113.53", "https"),
+                (None, "203.0.113.54", "203.0.113.55", "https"),
+            )
+            with mock.patch("asgi.DashboardHandler", CapturingHandler):
+                for peer, cf_address, forwarded, proto in cases:
+                    current_headers[:] = [
+                        (b"host", b"dashboard.example"),
+                        (b"cf-connecting-ip", cf_address.encode("ascii")),
+                        (b"x-forwarded-for", forwarded.encode("ascii")),
+                        (b"x-forwarded-proto", proto.encode("ascii")),
+                    ]
+                    scope = {
+                        "type": "http",
+                        "asgi": {"version": "3.0"},
+                        "http_version": "1.1",
+                        "method": "GET",
+                        "scheme": "http",
+                        "path": "/",
+                        "raw_path": b"/",
+                        "query_string": b"",
+                        "headers": current_headers.copy(),
+                        "client": (peer, 54321) if peer is not None else None,
+                        "server": ("dashboard.example", 443),
+                    }
+                    request_received = False
+                    messages: list[dict[str, object]] = []
+
+                    async def receive() -> dict[str, object]:
+                        nonlocal request_received
+                        if not request_received:
+                            request_received = True
+                            return {"type": "http.request", "body": b"", "more_body": False}
+                        await asyncio.Future()
+
+                    async def send(message: dict[str, object]) -> None:
+                        messages.append(message)
+
+                    await application(scope, receive, send)
+                    statuses.append(next(
+                        int(message["status"])
+                        for message in messages
+                        if message.get("type") == "http.response.start"
+                    ))
+            return statuses
+
+        self.assertEqual(asyncio.run(exercise()), [200, 200, 200, 200])
+        self.assertEqual(
+            observed_clients,
+            [
+                ("192.0.2.10", "203.0.113.50"),
+                ("192.0.2.10", "203.0.113.51"),
+                ("198.51.100.77", "198.51.100.77"),
+                ("unknown", "unknown"),
+            ],
+        )
+        self.assertEqual(observed_schemes, ["https", "https", "http", "http"])
+
+    def test_trusted_proxy_scheme_middleware_maps_websocket_scheme_only_for_trusted_peer(self) -> None:
+        from asgi import TrustedProxySchemeASGI
+
+        observed: list[tuple[object, str]] = []
+
+        async def capture_scope(scope, _receive, _send) -> None:
+            observed.append((scope.get("client"), str(scope["scheme"])))
+
+        application = TrustedProxySchemeASGI(capture_scope, ("192.0.2.10",))
+
+        async def exercise() -> None:
+            for peer in ("192.0.2.10", "198.51.100.77"):
+                await application(
+                    {
+                        "type": "websocket",
+                        "scheme": "ws",
+                        "client": (peer, 3000),
+                        "headers": [(b"x-forwarded-proto", b"https")],
+                    },
+                    None,
+                    None,
+                )
+
+        asyncio.run(exercise())
+        self.assertEqual(
+            observed,
+            [
+                (("192.0.2.10", 3000), "wss"),
+                (("198.51.100.77", 3000), "ws"),
+            ],
+        )
 
     def test_stream_response_finishes_from_content_length_without_socket_eof(self) -> None:
         client, server = socket.socketpair()

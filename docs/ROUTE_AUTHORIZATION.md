@@ -100,9 +100,10 @@ the session is revoked. The dashboard reuses that fresh role snapshot for other
 sensitive projections in the same response. Query parameters do not change the
 decision. The endpoint omits passwords and CSRF tokens. Regression coverage
 verifies the exact response keys for a `sessions.read`-only API token and an
-owner, query-parameter resistance, warm role downgrades across multiple live
-sessions in both API and dashboard responses, fail-closed role-lookup errors,
-and one forced role check per dashboard response.
+owner, identifier projection across all five RouterOS roles, query-parameter
+resistance, warm role downgrades across multiple live sessions in both API and
+dashboard responses, fail-closed role-lookup errors, and one forced role check
+per dashboard response.
 
 `GET /api/telemetry` is intentionally limited to a RouterOS-authenticated
 dashboard session, including the `read_only` role, and returns transport
@@ -114,8 +115,17 @@ read-only role boundary test verifies this explicit exception.
 
 Automated route tests establish current dispatch-form coverage, anonymous/CSRF,
 all current GET API-token route/scope combinations, and route-by-role capability
-assertions. They do not replace a code-owner review of every handler, provide
-an external penetration test, or verify behavior behind the production proxy.
+assertions. The ASGI HTTP adapter passes `scope["client"]` to the existing
+handler instead of the adapter's internal socket-pair label. Uvicorn's
+automatic client-address rewriting is disabled so it cannot override the
+application's configured forwarded-client header. A small ASGI wrapper adjusts
+only the external scheme for an exact configured proxy peer, preserving the
+original client address for the existing resolver. Regression coverage verifies
+the configured Cloudflare header wins when it differs from X-Forwarded-For,
+untrusted or missing peers cannot spoof client identity or scheme, and HTTP and
+WebSocket schemes are mapped correctly. These tests do not replace a code-owner
+review of every handler, provide an external penetration test, or verify
+behavior behind the production proxy.
 The high-impact router mutation workflow is tracked separately in
 [mutation safety](ROADMAP.md#acceptance-principles).
 

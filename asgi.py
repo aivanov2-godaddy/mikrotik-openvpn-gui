@@ -9,6 +9,7 @@ mutation path and the REST/SSE fallback unchanged during the transport move.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import os
 import socket
 import threading
@@ -43,6 +44,37 @@ class DashboardHTTPASGI:
     def __init__(self, server: DashboardServer) -> None:
         self.server = server
 
+    @staticmethod
+    def _client_address(scope: Mapping[str, Any]) -> tuple[str, int]:
+        """Return the validated network peer supplied by the ASGI server.
+
+        The adapter uses a socket pair internally, so the HTTP handler cannot
+        infer the original network peer from that socket. Preserve the ASGI
+        peer explicitly; an absent or malformed peer fails closed and cannot
+        make a forwarded header trusted.
+        """
+        client = scope.get("client")
+        if not isinstance(client, (tuple, list)) or len(client) < 2:
+            return "unknown", 0
+        host, port = client[0], client[1]
+        if (
+            not isinstance(host, str)
+            or isinstance(port, bool)
+            or not isinstance(port, int)
+            or not 0 <= port <= 65535
+        ):
+            return "unknown", 0
+        try:
+            peer = ipaddress.ip_address(host).compressed
+        except ValueError:
+            return "unknown", 0
+        return peer, port
+
+    @staticmethod
+    def _uvicorn_proxy_options() -> dict[str, Any]:
+        """Disable Uvicorn's independent X-Forwarded-For client rewriting."""
+        return {"proxy_headers": False, "forwarded_allow_ips": ""}
+
     async def __call__(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
             await send({
@@ -66,7 +98,7 @@ class DashboardHTTPASGI:
         client, handler_socket = socket.socketpair()
         thread = threading.Thread(
             target=DashboardHandler,
-            args=(handler_socket, ("asgi", 0), self.server),
+            args=(handler_socket, self._client_address(scope), self.server),
             daemon=True,
         )
         thread.start()
@@ -359,6 +391,52 @@ class NativeSocketIO:
             return
 
 
+class TrustedProxySchemeASGI:
+    """Honor the forwarded scheme only from explicitly trusted proxy peers.
+
+    Uvicorn's proxy middleware rewrites ``scope["client"]`` from X-Forwarded-For
+    regardless of the application's configured client-address header. Keep the
+    original peer intact so ``DashboardHandler`` can apply that configured
+    header itself; this wrapper only adapts the external scheme used by
+    same-origin checks.
+    """
+
+    def __init__(self, app: Any, trusted_proxy_sources: tuple[str, ...]) -> None:
+        self.app = app
+        self.trusted_proxy_sources = frozenset(trusted_proxy_sources)
+
+    async def __call__(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
+        scope_type = scope.get("type")
+        if scope_type not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+
+        peer, _ = DashboardHTTPASGI._client_address(scope)
+        proto_values = [
+            bytes(value).decode("latin-1").strip().casefold()
+            for name, value in scope.get("headers", [])
+            if bytes(name).lower() == b"x-forwarded-proto"
+        ]
+        if peer not in self.trusted_proxy_sources or len(proto_values) != 1:
+            await self.app(scope, receive, send)
+            return
+
+        proto = proto_values[0]
+        if scope_type == "http" and proto in {"http", "https"}:
+            scheme = proto
+        elif scope_type == "websocket" and proto in {"http", "ws"}:
+            scheme = "ws"
+        elif scope_type == "websocket" and proto in {"https", "wss"}:
+            scheme = "wss"
+        else:
+            await self.app(scope, receive, send)
+            return
+
+        forwarded_scope = dict(scope)
+        forwarded_scope["scheme"] = scheme
+        await self.app(forwarded_scope, receive, send)
+
+
 def create_application() -> tuple[Any, DashboardServer, Any]:
     try:
         import socketio
@@ -378,6 +456,10 @@ def create_application() -> tuple[Any, DashboardServer, Any]:
     server.native_socketio = socketio_server
     http_app = DashboardHTTPASGI(server)
     application = socketio.ASGIApp(socketio_server.server, other_asgi_app=http_app, socketio_path="socket.io")
+    application = TrustedProxySchemeASGI(
+        application,
+        context.config.trusted_proxy_sources,
+    )
     return application, server, redirect_server
 
 
@@ -391,6 +473,7 @@ def main() -> None:
             host=os.environ.get("LISTEN_ADDRESS", "0.0.0.0"),
             port=int(os.environ.get("APP_PORT", "8080")),
             log_level="info",
+            **DashboardHTTPASGI._uvicorn_proxy_options(),
         )
     finally:
         redirect_server.shutdown()
