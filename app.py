@@ -595,10 +595,26 @@ def resolve_client_ip(
     trusted_proxy_sources: tuple[str, ...],
 ) -> str:
     if trusted_proxy_header and peer in trusted_proxy_sources:
+        if trusted_proxy_header == "X-Forwarded-For":
+            try:
+                # Resolve a standard proxy chain from the trusted server side:
+                # discard known hops, then use the nearest untrusted address.
+                forwarded = [
+                    ipaddress.ip_address(value.strip()).compressed
+                    for value in forwarded_header.split(",")
+                ]
+            except ValueError:
+                return peer
+            for address in reversed(forwarded):
+                if address not in trusted_proxy_sources:
+                    return address
+            return peer
         try:
-            return ipaddress.ip_address(forwarded_header.split(",", 1)[0].strip()).compressed
+            # Single-address proxy headers such as CF-Connecting-IP must not
+            # contain a forwarded chain.
+            return ipaddress.ip_address(forwarded_header.strip()).compressed
         except ValueError:
-            pass
+            return peer
     return peer
 
 
@@ -804,9 +820,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         peer = self.client_address[0]
         context = self.server.context
         header = context.config.trusted_proxy_header
+        forwarded_header = ""
+        if header:
+            forwarded_header = ", ".join(
+                value.strip() for value in (self.headers.get_all(header, []) or [])
+            )
         return resolve_client_ip(
             peer,
-            self.headers.get(header, "") if header else "",
+            forwarded_header,
             trusted_proxy_header=header,
             trusted_proxy_sources=context.config.trusted_proxy_sources,
         )
@@ -1001,7 +1022,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials, cookies, private keys, and profile contents are never
         included.
         """
-        if session.auth_method == "routeros" and capability.endswith(".manage"):
+        role_revalidated = session.auth_method == "routeros" and capability.endswith(".manage")
+        if role_revalidated:
             session = self.server.telemetry_runtime.revalidate_session(
                 session.session_id,
                 force_role_check=True,
@@ -1009,7 +1031,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if session is None:
                 self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
                 return False
-        allowed = self._capability_allowed(session, capability)
+        # Management routes already performed the forced RouterOS role check
+        # above. Evaluate that returned session directly rather than forcing a
+        # second role lookup through _capability_allowed.
+        allowed = (
+            self._session_has_capability(session, capability)
+            if role_revalidated
+            else self._capability_allowed(session, capability)
+        )
         if allowed:
             return True
         target = action or urllib.parse.urlsplit(self.path).path
@@ -1051,11 +1080,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return False
 
     @staticmethod
-    def _capability_allowed(session: Session, capability: str) -> bool:
-        """Check a capability without emitting an error response."""
+    def _session_has_capability(session: Session, capability: str) -> bool:
         if session.capabilities is not None:
             return capability in session.capabilities
         return has_capability(session.role, capability)
+
+    def _capability_allowed(self, session: Session, capability: str) -> bool:
+        """Check a capability without emitting an error response."""
+        if capability in {"audit.read", "session.manage"} and session.auth_method == "routeros":
+            refreshed_sessions = getattr(self, "_sensitive_role_sessions_this_request", None)
+            if not isinstance(refreshed_sessions, dict):
+                refreshed_sessions = {}
+                self._sensitive_role_sessions_this_request = refreshed_sessions
+            session_id = session.session_id
+            if session_id not in refreshed_sessions:
+                refreshed_sessions[session_id] = self.server.telemetry_runtime.revalidate_session(
+                    session_id,
+                    force_role_check=True,
+                )
+            refreshed_session = refreshed_sessions[session_id]
+            return refreshed_session is not None and self._session_has_capability(
+                refreshed_session,
+                capability,
+            )
+        return self._session_has_capability(session, capability)
 
     def _require_operator(self, session: Session) -> bool:
         """Compatibility guard for routine administration operations."""
@@ -1371,6 +1419,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
 
     def do_GET(self) -> None:
+        # Sensitive audit and administrator-session projections can appear in
+        # the same response. Revalidate once per RouterOS session per request
+        # and reuse the fresh session snapshot across those capability checks.
+        self._sensitive_role_sessions_this_request: dict[str, Session | None] = {}
         parsed_url = urllib.parse.urlsplit(self.path)
         path = parsed_url.path
         if path == "/socket.io/":
@@ -1539,6 +1591,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"users": users})
             except RouterOSError as error:
                 self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
+            return
+        if path == "/api/certificate-settings":
+            session = self._require_session(api=True)
+            if (
+                not session
+                or not self._require_routeros_session(session)
+                or not self._require_capability(session, "profiles.read")
+            ):
+                return
+            try:
+                observed = self.server.context.router.get_certificate_settings(
+                    self._credentials(session)
+                )
+                if not isinstance(observed, dict):
+                    observed = {}
+                crl_store = str(observed.get("crl_store", "")).strip().casefold()
+                if crl_store not in {"system", "ram"}:
+                    crl_store = "unknown"
+                self._json({
+                    "status": "observed",
+                    "observed_at": int(time.time()),
+                    "crl_download": observed.get("crl_download") if isinstance(observed.get("crl_download"), bool) else None,
+                    "crl_use": observed.get("crl_use") if isinstance(observed.get("crl_use"), bool) else None,
+                    "crl_store": crl_store,
+                    "downloaded_ovpn_ca_crl_current": observed.get("downloaded_ovpn_ca_crl_current") if isinstance(observed.get("downloaded_ovpn_ca_crl_current"), bool) else None,
+                    "router_hosted_ovpn_ca_crl": observed.get("router_hosted_ovpn_ca_crl") if isinstance(observed.get("router_hosted_ovpn_ca_crl"), bool) else None,
+                })
+            except RouterOSError:
+                self._json(
+                    {"status": "unavailable", "observed_at": int(time.time())},
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
             return
         if path == "/api/bulk/views":
             session = self._require_session(api=True)
@@ -2425,7 +2509,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session.session_id,
             force_role_check=True,
         )
-        if refreshed is None or not self._capability_allowed(refreshed, "session.manage"):
+        if refreshed is None or not self._session_has_capability(refreshed, "session.manage"):
             self._json({"error": "Authentication or session-management permission changed; no session was revoked"}, status=HTTPStatus.FORBIDDEN)
             return
         if not self.server.context.sessions.revoke(session_id):

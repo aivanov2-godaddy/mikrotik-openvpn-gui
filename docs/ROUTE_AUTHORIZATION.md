@@ -54,7 +54,7 @@ them into support logs or issue reports.
 | --- | --- | --- |
 | `health.read` | `GET /metrics`, `/api/service-health`, `/api/observability`, `/api/setup-preflight`, `/api/release/verify`, `/api/reports/diagnostics.zip`; `POST /api/connection-doctor`, `/api/security/exposure-doctor` | Read-only health, redacted diagnostics, and exposure probes. `/api/observability` requires `health.read`; audit and session-history fields are independently included only with `audit.read` and `sessions.read`. `/api/status` is session-gated and returns the operator's normal dashboard data; it is not a token endpoint. |
 | `users.read` | `GET /api/users` | Requires both a RouterOS-authenticated dashboard session and this explicit capability check. API tokens are not accepted. |
-| `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv`, `/api/bulk/views`, `POST /api/bulk/views`, `DELETE /api/bulk/views/{id}`; with `audit.read`, `GET /api/operations-timeline.json` | Operations timeline export combines audit and session history and therefore requires both capabilities. SSE additionally requires a RouterOS-authenticated dashboard session, rejects an explicitly foreign `Origin` before RouterOS reads, and revalidates its effective capability set while streaming. Origin-less clients remain subject to the same session and capability checks. Saved-view definitions and user filters are not available to health-only tokens; saved-view creation/deletion also checks `sessions.read` after CSRF validation. Administrator-session rows include safe inventory metadata, but raw session IDs are disclosed only when the caller also has `session.manage`; query parameters cannot elevate this field access. |
+| `sessions.read` | `GET /api/admin/sessions`, `/api/events`, `/api/connections.csv`, `/api/usage.csv`, `/api/bulk/views`, `POST /api/bulk/views`, `DELETE /api/bulk/views/{id}`; with `audit.read`, `GET /api/operations-timeline.json` | Operations timeline export combines audit and session history and therefore requires both capabilities. SSE additionally requires a RouterOS-authenticated dashboard session, rejects an explicitly foreign `Origin` before RouterOS reads, and revalidates its effective capability set while streaming. Origin-less clients remain subject to the same session and capability checks. Saved-view definitions and user filters are not available to health-only tokens; saved-view creation/deletion also checks `sessions.read` after CSRF validation. Administrator-session rows include safe inventory metadata, but raw session IDs are disclosed only when the caller also has `session.manage`; RouterOS-backed sessions are force-revalidated immediately before that projection, and a failed role lookup revokes the session and denies the request. Query parameters cannot elevate this field access. |
 | `policies.read` | `GET /api/policy-templates` | Reveals saved policy-template definitions and assignments; separate from `policies.manage`. |
 | `session.manage` | `DELETE /api/admin/sessions/{id}`, `POST /api/sessions/{id}/preview`, `DELETE /api/sessions/{id}` | Revoking another dashboard session requires CSRF, `session.manage`, and a fresh verification of the current RouterOS account password; attempts are rate-limited and the password is neither persisted nor audited. The current session cannot revoke itself. VPN-session termination remains a separate review-first RouterOS mutation: preview is non-mutating and apply rechecks the reviewed state. Review receipts are one-time, bound to the issuing dashboard session and exact reviewed intent/state; another session cannot apply them. |
 | `users.manage` | `POST /api/users*`, `PATCH /api/users/{id}`, `DELETE /api/users/{id}`, `POST /api/users/{id}/suspend`, `/restore`, `POST /api/bulk/{preview,apply}` for `suspend`/`tag` | User/profile-issuing account changes. Bulk action selects its capability from the validated action. |
@@ -92,10 +92,17 @@ For `GET /api/admin/sessions`, `sessions.read` permits the session inventory
 fields `id_hash`, `username`, `role`, `created_at`, `last_seen`, `idle_seconds`,
 `idle_remaining`, `absolute_remaining`, `source_address`, `user_agent`,
 `auth_method`, and `current`; the `id` field is empty unless the caller also
-has `session.manage`. Query parameters do not change this decision. The
-endpoint omits passwords and CSRF tokens. Regression coverage verifies the
-exact response keys for both a read-only caller and an owner, and verifies
-that `?include_identifiers=true` does not disclose raw IDs.
+has `session.manage`. Before disclosure to a RouterOS-authenticated session,
+the server forces a fresh RouterOS role check rather than relying on the
+ordinary role-cache interval. If RouterOS cannot confirm the role, the session
+is reduced to the safe read-only capability set; if the account is unavailable,
+the session is revoked. The dashboard reuses that fresh role snapshot for other
+sensitive projections in the same response. Query parameters do not change the
+decision. The endpoint omits passwords and CSRF tokens. Regression coverage
+verifies the exact response keys for a `sessions.read`-only API token and an
+owner, query-parameter resistance, warm role downgrades across multiple live
+sessions in both API and dashboard responses, fail-closed role-lookup errors,
+and one forced role check per dashboard response.
 
 `GET /api/telemetry` is intentionally limited to a RouterOS-authenticated
 dashboard session, including the `read_only` role, and returns transport
@@ -152,3 +159,33 @@ behavior. Live role changes, session expiry/revocation timing on the deployed
 router, proxy/origin behavior, RouterOS permission review, and independent
 external assessment remain open acceptance items. No production or router
 state was accessed or changed for this review.
+
+## Bounded current-main review — 2026-10-14
+
+Two separate read-only AI-assisted reviewers inspected the authorization
+inventory and live-stream evidence on source commit
+`68bfb6ddf82c2ca89b0b449afe0416bb61f785b1`. The route/role matrix covers the
+current dispatch forms and all five dashboard roles; the literal GET API-token
+scope matrix is separately exercised. This is not an exhaustive query/resource
+state or read/write-field cross-product, and it is not a full independent
+requirement-by-requirement ASVS assessment.
+
+The review found that the ASVS evidence summary did not point to the Binary API
+session stream and interface-sampler revocation tests, despite those behaviors
+being implemented and described elsewhere. The evidence map now references the
+credential-refusal, event/snapshot publish denial, sampler post-read denial, and
+reconnect-with-snapshot regressions. The review also confirmed that active HTTP,
+SSE, and Socket.IO role checks use the 15-second session-role cache. Existing
+active-stream role-change tests forced a cache miss, so a deterministic test was
+added to assert a role downgrade is applied on the first check at that cache
+boundary.
+This establishes the repository's configured bound only; physical RouterOS
+response latency and whether a 15-second window meets operational policy remain
+unverified.
+
+The focused application/session/ASGI/polling suites passed 272 tests; the
+telemetry-runtime and supervisor suites passed 20 tests after adding the cache
+boundary regression. These are local repository tests, not deployment evidence.
+Production proxy/TLS/origin behavior, live RouterOS revocation latency, resource
+state and field-level authorization completeness, and external security review
+remain outstanding. No router or production state was accessed or changed.

@@ -566,7 +566,9 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(native._tasks, {})
 
     @unittest.skipUnless(importlib.util.find_spec("socketio"), "optional Socket.IO runtime is not installed")
-    def test_repeated_socketio_connect_is_idempotent_and_disconnect_closes_once(self) -> None:
+    def test_repeated_socketio_connect_revalidates_session_and_closes_namespace(self) -> None:
+        import socketio
+
         from asgi import NativeSocketIO
 
         class Principal:
@@ -575,9 +577,11 @@ class ASGIContractTests(unittest.TestCase):
         class Runtime:
             gateway = None
 
-            @staticmethod
-            def principal_for_session(session_id: str) -> Principal | None:
-                return Principal() if session_id == "valid-session" else None
+            def __init__(self) -> None:
+                self.authorized = True
+
+            def principal_for_session(self, session_id: str) -> Principal | None:
+                return Principal() if self.authorized and session_id == "valid-session" else None
 
         class Gateway:
             def __init__(self) -> None:
@@ -597,14 +601,7 @@ class ASGIContractTests(unittest.TestCase):
         gateway = Gateway()
         runtime = Runtime()
         runtime.gateway = gateway
-        native = object.__new__(NativeSocketIO)
-        native.runtime = runtime
-        native._subscriptions = {}
-        native._session_ids = {}
-        native._tasks = {}
-        native._connections_total = 0
-        native._disconnects_total = 0
-        native._rejected_connections_total = 0
+        native = NativeSocketIO(runtime)
 
         environ = {
             "asgi.scope": {
@@ -617,7 +614,38 @@ class ASGIContractTests(unittest.TestCase):
             task = native._tasks["socket-1"]
             self.assertTrue(await native.connect("socket-1", environ))
             self.assertIs(native._tasks["socket-1"], task)
-            await native.disconnect("socket-1")
+
+            runtime.authorized = False
+            server = native.server
+            server.environ["engine-1"] = environ
+            manager_disconnects: list[tuple[str, str, bool]] = []
+            packets: list[tuple[str, object]] = []
+
+            async def manager_connect(_engine_sid: str, _namespace: str) -> str:
+                return "socket-1"
+
+            async def manager_disconnect(
+                sid: str, namespace: str, *, ignore_queue: bool = False
+            ) -> None:
+                manager_disconnects.append((sid, namespace, ignore_queue))
+
+            async def send_packet(engine_sid: str, packet: object) -> None:
+                packets.append((engine_sid, packet))
+
+            server.manager.connect = manager_connect
+            server.manager.disconnect = manager_disconnect
+            server._send_packet = send_packet
+            await server._handle_connect("engine-1", native.namespace, None)
+
+            self.assertNotIn("socket-1", native._subscriptions)
+            self.assertNotIn("socket-1", native._session_ids)
+            self.assertNotIn("socket-1", native._tasks)
+            self.assertEqual(manager_disconnects, [("socket-1", native.namespace, True)])
+            self.assertEqual(len(packets), 1)
+            self.assertEqual(packets[0][0], "engine-1")
+            self.assertIsInstance(packets[0][1], socketio.packet.Packet)
+            self.assertEqual(packets[0][1].packet_type, socketio.packet.CONNECT_ERROR)
+            self.assertEqual(packets[0][1].namespace, native.namespace)
 
         asyncio.run(exercise())
 
@@ -625,6 +653,7 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(gateway.closed, ["subscription-1"])
         self.assertEqual(native._connections_total, 1)
         self.assertEqual(native._disconnects_total, 1)
+        self.assertEqual(native._rejected_connections_total, 1)
         self.assertEqual(native._subscriptions, {})
 
     def test_slow_socket_client_does_not_block_gateway_event_ingestion(self) -> None:

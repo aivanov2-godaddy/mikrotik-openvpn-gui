@@ -172,8 +172,8 @@ class SessionStore:
             session = self._sessions.get(session_id)
             if session is None:
                 return None
-            idle_expired = current - session.last_seen > self.idle_seconds
-            absolute_expired = current - session.created_at > self.absolute_seconds
+            idle_expired = current - session.last_seen >= self.idle_seconds
+            absolute_expired = current - session.created_at >= self.absolute_seconds
             if idle_expired or absolute_expired:
                 self._sessions.pop(session_id, None)
                 self._role_checked_at.pop(session_id, None)
@@ -207,8 +207,8 @@ class SessionStore:
             if existing.auth_method != "routeros":
                 return None
             if (
-                current - existing.last_seen > self.idle_seconds
-                or current - existing.created_at > self.absolute_seconds
+                current - existing.last_seen >= self.idle_seconds
+                or current - existing.created_at >= self.absolute_seconds
             ):
                 self._sessions.pop(session_id, None)
                 self._role_checked_at.pop(session_id, None)
@@ -253,9 +253,9 @@ class SessionStore:
         """Refresh RouterOS-derived authorization without extending session idle time.
 
         Role decreases take effect on the existing session. Role increases do not
-        silently elevate an already-authenticated dashboard session. If RouterOS
-        reports an incompatible capability change or the account is gone, revoke
-        the session and require a fresh login.
+        silently elevate an already-authenticated dashboard session. If role
+        lookup fails, identity is missing, or RouterOS reports an incompatible
+        capability change, revoke the session and require a fresh login.
         """
         session = self.get(session_id, now=now, touch=False)
         if session is None or session.auth_method != "routeros":
@@ -281,9 +281,11 @@ class SessionStore:
             try:
                 resolved_role = role_resolver(session)
             except Exception:
-                # RouterOS could not prove the prior privilege set. Retain only
-                # the safe read-only capability set until the next check/login.
-                resolved_role = "read_only"
+                # RouterOS is the source of truth for every session role. If it
+                # cannot verify the account, retaining even read-only access
+                # would keep telemetry streams authorized from stale identity.
+                self.destroy(session_id)
+                return None
             checked_at = time.time() if now is None else now
             if resolved_role is None:
                 self.destroy(session_id)
@@ -318,8 +320,8 @@ class SessionStore:
             expired = [
                 key
                 for key, value in self._sessions.items()
-                if current - value.last_seen > self.idle_seconds
-                or current - value.created_at > self.absolute_seconds
+                if current - value.last_seen >= self.idle_seconds
+                or current - value.created_at >= self.absolute_seconds
             ]
             for key in expired:
                 self._sessions.pop(key, None)

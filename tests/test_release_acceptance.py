@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import io
+import json
+import sys
 import unittest
+from contextlib import redirect_stdout
 from copy import deepcopy
 from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from scripts.release_acceptance import evaluate
+from scripts.release_acceptance import evaluate, main
 
 
 class ReleaseAcceptanceTests(unittest.TestCase):
@@ -495,6 +502,29 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         evidence["deployments"][0]["observation_started_at"] = "2026-10-02T10:00:00"
         with self.assertRaisesRegex(ValueError, "include a timezone"):
             evaluate(evidence, now=self.NOW)
+
+    def test_cli_redacts_private_input_path_when_file_cannot_be_read(self) -> None:
+        with TemporaryDirectory(prefix="private-path-sentinel-") as directory:
+            missing_input = Path(directory) / "missing-evidence.json"
+            output = io.StringIO()
+            with (
+                patch.object(sys, "argv", ["release_acceptance.py", "--input", str(missing_input)]),
+                redirect_stdout(output),
+            ):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 2)
+        rendered = output.getvalue()
+        self.assertNotIn("private-path-sentinel", rendered)
+        self.assertNotIn(str(missing_input), rendered)
+        self.assertEqual(
+            json.loads(rendered),
+            {
+                "passed": False,
+                "failed_gates": ["invalid_input"],
+                "error": "acceptance input is invalid or unreadable; details redacted",
+            },
+        )
 
 
 if __name__ == "__main__":

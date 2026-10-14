@@ -302,11 +302,11 @@ class RouterOSClient:
                     query={"name": credentials.username, ".proplist": "name,group,disabled"},
                 )
             )
-        except RouterOSError as error:
-            # A failed or unsupported privilege lookup must never grant Owner.
-            # Invalid credentials/account disablement revokes; other lookup
-            # failures retain only the least-privileged dashboard role.
-            return None if error.status == 401 else "read_only"
+        except RouterOSError:
+            # RouterOS is the identity and role source of truth. A failed role
+            # lookup cannot prove that this account is still enabled or entitled
+            # to even read-only telemetry, so revoke the established session.
+            return None
         record = next(
             (item for item in records if str(item.get("name", "")) == credentials.username),
             None,
@@ -471,14 +471,19 @@ class RouterOSClient:
             )
         )
         active_ca = ca_records[0] if ca_records else {}
-        crl_records = _records(
-            self._request(
-                "GET",
-                "/certificate/crl",
-                credentials,
-                query={".proplist": "cert,revoked,next-update,last-update"},
+        crl_records = []
+        if self.ovpn_ca:
+            crl_records = _records(
+                self._request(
+                    "GET",
+                    "/certificate/crl",
+                    credentials,
+                    query={
+                        "cert": self.ovpn_ca,
+                        ".proplist": "cert,revoked,next-update",
+                    },
+                )
             )
-        )
         downloaded_ca_crl = any(
             str(item.get("cert", "")) == self.ovpn_ca
             and str(item.get("revoked", "")).casefold() != "unknown"
@@ -501,7 +506,7 @@ class RouterOSClient:
             "crl_download": crl_download,
             "crl_use": crl_use,
             "crl_store": crl_store,
-            "active_ovpn_ca_crl": active_ca_crl,
+            "downloaded_ovpn_ca_crl_current": downloaded_ca_crl,
             "router_hosted_ovpn_ca_crl": router_hosted_ca_crl,
             "crl_ready": crl_download and crl_use and crl_store == "system" and active_ca_crl,
         }

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from config import RuntimeConfig
 from security import SessionStore
@@ -7,6 +8,44 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class TelemetryRuntimeFreshnessTests(unittest.TestCase):
+    def test_live_stream_role_downgrade_is_applied_at_15_second_cache_deadline(self) -> None:
+        config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
+        sessions = SessionStore()
+        clock = {"now": 100.0}
+        routeros_state = {"role": "owner"}
+        role_checks = []
+
+        def resolve_role(_session):
+            role_checks.append(clock["now"])
+            return routeros_state["role"]
+
+        with patch("security.time.time", side_effect=lambda: clock["now"]):
+            session = sessions.create(
+                "router-user", "router-password", role="owner", now=clock["now"]
+            )
+            runtime = TelemetryRuntime(
+                sessions=sessions,
+                rest_url=config.routeros_rest_url,
+                ca_file=None,
+                insecure_tls=False,
+                api_ssl_port=config.routeros_api_ssl_port,
+                requested_transport=config.live_transport,
+                role_resolver=resolve_role,
+            )
+            routeros_state["role"] = "read_only"
+
+            # A warm cache is permitted only within the documented bound.
+            clock["now"] = 114.999
+            self.assertIs(runtime.revalidate_session(session.session_id), session)
+            self.assertEqual(role_checks, [])
+
+            # At the 15-second boundary, the RouterOS-derived downgrade takes
+            # effect before another live authorization check can pass.
+            clock["now"] = 115.0
+            self.assertIs(runtime.revalidate_session(session.session_id), session)
+            self.assertEqual(session.role, "read_only")
+            self.assertEqual(role_checks, [115.0])
+
     def test_binary_credentials_are_refused_after_source_session_revocation(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         sessions = SessionStore()

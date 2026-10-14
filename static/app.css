@@ -532,6 +532,17 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .table-empty > strong { color: #d4dce0; }
 .protection-summary { margin-top: 8px; }
 .protection-summary .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.crl-configuration-panel { margin: 8px 0; }
+.crl-configuration-panel > summary { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; color: var(--text); cursor: pointer; list-style: none; }
+.crl-configuration-panel > summary::-webkit-details-marker { display: none; }
+.crl-configuration-panel > summary::after { content: "+"; color: var(--blue); font-size: 18px; }
+.crl-configuration-panel[open] > summary::after { content: "−"; }
+.crl-configuration-panel > summary span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.crl-settings-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0 12px 8px; }
+.crl-settings-grid > div { min-width: 0; padding: 9px; border: 1px solid var(--line-soft); background: var(--panel-2); }
+.crl-settings-grid dt { color: var(--muted); font-size: 11px; }
+.crl-settings-grid dd { margin: 4px 0 0; color: var(--text-bright); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.crl-configuration-note { margin: 0; padding: 0 12px 12px; color: var(--muted); font-size: 12px; }
 .checks li.warning { grid-column: 1 / -1; border: 1px solid #765f36; background: #3c3423; }
 .checks li.warning > span { color: var(--amber); }
 .checks li.warning strong { color: #efd28d; }
@@ -752,6 +763,7 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .posture-list { grid-template-columns: 1fr; }
   .posture-list li:nth-last-child(2) { border-bottom: 1px solid #2e3a43; }
   .protection-summary .checks { grid-template-columns: 1fr; }
+  .crl-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .architecture-paths { grid-template-columns: 1fr; }
   .alert-item { grid-template-columns: 8px minmax(0, 1fr) auto; }
   .alert-item time { display: none; }

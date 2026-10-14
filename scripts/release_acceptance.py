@@ -564,8 +564,12 @@ def main() -> int:
     try:
         document = json.loads(Path(args.input).read_text(encoding="utf-8"))
         code, report = evaluate(document)
-    except (OSError, json.JSONDecodeError, ValueError) as error:
-        print(json.dumps({"passed": False, "failed_gates": ["invalid_input"], "error": str(error)[:160]}))
+    except (OSError, json.JSONDecodeError, ValueError):
+        print(json.dumps({
+            "passed": False,
+            "failed_gates": ["invalid_input"],
+            "error": "acceptance input is invalid or unreadable; details redacted",
+        }))
         return 2
     rendered = json.dumps(report, sort_keys=True, indent=2) + "\n"
     if args.output:

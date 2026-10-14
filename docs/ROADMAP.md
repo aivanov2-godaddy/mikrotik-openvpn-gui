@@ -12,13 +12,15 @@ operator-controlled records.
 ## Current project snapshot
 
 Formal release **v2.7.0** remains the latest numbered release. PR
-[#692](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/692)
-(`8f68314bb54cc008edc02bf26e00cdaaa48284f3`) is the latest published runtime
+[#702](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/702)
+(`7c91a0f3425ca729cb6ffe12004c2a6e787ac97d`) is the latest published runtime
 candidate. Its publisher run
-[#38468254627](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38468254627)
-passed; immutable image and provenance metadata are recorded in
-[`RELEASES.md`](RELEASES.md). Publication does not prove RouterOS deployment or
-acceptance. No production promotion is claimed here.
+[#38519276211](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38519276211)
+passed source verification, 651 unit/mock tests, 229 rendered browser checks,
+ARM64/AMD64 image builds, attestation verification, stable-manifest publication,
+and runtime smoke tests. Immutable image digests and provenance metadata are
+recorded in [`RELEASES.md`](RELEASES.md). Publication does not prove RouterOS
+deployment or acceptance. No production promotion is claimed here.
 
 The next formal release remains gated on candidate-specific canary acceptance
 and the security review below. Do not create or publish v2.8.0 until the gates
@@ -32,9 +34,9 @@ pass.
 | Complete | [#193](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/193), [#195](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/195), [#204](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/204) | Read-only diagnostics, correlated timeline, safe support bundles |
 | Complete | [#196](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/196), [#197](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/197), [#198](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/198) | Redis recovery, SQLite/WAL fault coverage, telemetry SLO and recovery observability |
 | Complete | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201), [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202), [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | RouterOS least-privilege diagnostics, mutation safety, SBOM/provenance and compatibility policy |
-| Open — device/certificate acceptance | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. Candidate/device-backed staged renewal and retirement, CRL/fresh-connect rejection, active-session, read-back, and canary rollback evidence are still outstanding. |
-| Open — acceptance evidence | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Run the read-only, candidate-matched canary acceptance window and rollback/restore checks. Tooling and CI coverage are present; live measurements and deployment-specific evidence remain private and incomplete. |
-| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | Complete deployed proxy/session checks and an independent requirement-by-requirement security review. Repository tests and scoped ASVS evidence do not substitute for external review. |
+| Open — device/certificate acceptance | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. PR #702 adds a collapsed, read-only CRL configuration observation to Device Profiles without restoring the removed overview alert. Candidate/device-backed staged renewal and retirement, fresh-connect rejection, active-session, read-back, and canary rollback evidence are still outstanding. |
+| Open — acceptance evidence | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | The read-only collector now selects legacy RouterOS `status` or RouterOS 7.20+ lifecycle flags using the reported version, shared with the deployment normalizer. Run the candidate-matched canary acceptance window and rollback/restore checks; live measurements and deployment-specific evidence remain private and incomplete. |
+| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | Current main includes the fail-closed RouterOS role-lookup change from #692, the redacted acceptance-tool safeguards in #698, and the read-only CRL configuration view in #702. Publisher run #38519276211 passed 651 unit/mock tests (1 skipped) and 229 rendered browser checks. Repository evidence is not live acceptance. Still required: deployed proxy/session checks, physical-router revocation-latency validation, exhaustive resource-state/field-level review, and independent requirement-by-requirement assurance. |
 | Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Close after #194, #199, and #200 meet their acceptance criteria. |
 
 ## Acceptance principles

@@ -1809,6 +1809,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"does not prove CRL enforcement", page)
         self.assertNotIn(b"Certificate revocation checks", page)
         self.assertNotIn(b"Per-device revocation needs CA migration", page)
+        overview_start = page.index(b'data-view="overview"')
+        profiles_start = page.index(b'data-view="profile-security"')
+        self.assertNotIn(b"RouterOS CRL configuration", page[overview_start:profiles_start])
+        self.assertIn(b"RouterOS CRL configuration", page[profiles_start:])
 
         self.assertIn(b"ovpn-user-one-device-a", page)
         self.assertIn(b"What happens under the hood", page)
@@ -2050,6 +2054,66 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn("must-not-leak", payload.decode("utf-8"))
         self.assertNotIn("service", user)
 
+    def test_certificate_settings_api_is_read_only_and_projects_only_safe_fields(self) -> None:
+        self.login()
+        observed = {
+            "crl_download": True,
+            "crl_use": True,
+            "crl_store": "system",
+            "downloaded_ovpn_ca_crl_current": True,
+            "router_hosted_ovpn_ca_crl": False,
+            "crl_ready": True,
+            "ca_name": "PRIVATE-CA-NAME",
+            "private_key": "PRIVATE-KEY-MUST-NOT-LEAK",
+            "crl_contents": "CRL-CONTENTS-MUST-NOT-LEAK",
+        }
+        with mock.patch.object(
+            self.server.context.router, "get_certificate_settings", return_value=observed
+        ) as read_settings:
+            status, _, payload = self.request("GET", "/api/certificate-settings")
+
+        self.assertEqual(status, 200)
+        response = json.loads(payload)
+        self.assertEqual(
+            set(response),
+            {
+                "status", "observed_at", "crl_download", "crl_use", "crl_store",
+                "downloaded_ovpn_ca_crl_current", "router_hosted_ovpn_ca_crl",
+            },
+        )
+        self.assertEqual(response["status"], "observed")
+        self.assertEqual(response["crl_store"], "system")
+        self.assertTrue(response["downloaded_ovpn_ca_crl_current"])
+        self.assertNotIn("MUST-NOT-LEAK", payload.decode("utf-8"))
+        self.assertNotIn("PRIVATE-CA-NAME", payload.decode("utf-8"))
+        read_settings.assert_called_once()
+
+    def test_certificate_settings_api_reports_unknown_when_routeros_read_fails(self) -> None:
+        self.login()
+        with mock.patch.object(
+            self.server.context.router,
+            "get_certificate_settings",
+            side_effect=RouterOSError("sensitive RouterOS response must not leak"),
+        ):
+            status, _, payload = self.request("GET", "/api/certificate-settings")
+
+        self.assertEqual(status, 502)
+        self.assertEqual(set(json.loads(payload)), {"status", "observed_at"})
+        self.assertEqual(json.loads(payload)["status"], "unavailable")
+        self.assertNotIn("sensitive", payload.decode("utf-8"))
+
+    def test_certificate_settings_api_accepts_routeros_ram_store(self) -> None:
+        self.login()
+        with mock.patch.object(
+            self.server.context.router,
+            "get_certificate_settings",
+            return_value={"crl_store": "ram"},
+        ):
+            status, _, payload = self.request("GET", "/api/certificate-settings")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["crl_store"], "ram")
+
     def test_policy_template_api_projects_storage_records_to_allowlisted_fields(self) -> None:
         self.login()
         template = {
@@ -2142,7 +2206,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         read_routes = (
             "/api/telemetry", "/api/admin/sessions", "/api/admin/api-tokens",
             "/api/reports/compliance.zip", "/api/reports/diagnostics.zip",
-            "/api/release/verify", "/api/policy-templates", "/api/users",
+            "/api/release/verify", "/api/policy-templates", "/api/users", "/api/certificate-settings",
             "/api/bulk/views", "/api/status", "/api/service-health",
             "/api/observability", "/api/setup-preflight", "/api/audit.csv",
             "/api/audit.json", "/api/operations-timeline.json", "/api/backups/metadata.zip", "/api/connections.csv",
@@ -2494,6 +2558,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("GET", literal("/api/release/verify"), "/api/release/verify", ("health.read",), {}),
             ("GET", literal("/api/policy-templates"), "/api/policy-templates", ("policies.read",), {}),
             ("GET", literal("/api/users"), "/api/users", ("users.read",), {}),
+            ("GET", literal("/api/certificate-settings"), "/api/certificate-settings", ("profiles.read",), {}),
             ("GET", literal("/api/bulk/views"), "/api/bulk/views", ("sessions.read",), {}),
             ("GET", literal("/api/status"), "/api/status", (), {}),
             ("GET", literal("/api/service-health"), "/api/service-health", ("health.read",), {}),
@@ -2645,12 +2710,18 @@ class DashboardIntegrationTests(unittest.TestCase):
         owner_cookie = self.cookie
         owner = self.server.context.sessions.get(owner_cookie.split("=", 1)[1], touch=False)
         self.assertIsNotNone(owner)
-        viewer = self.server.context.sessions.create(
-            "viewer",
-            "viewer-password",
-            role="read_only",
-            source_address="203.0.113.41",
-            user_agent="Synthetic read-only browser",
+        # Use a scoped API token for a genuine sessions.read-only principal.
+        # A synthetic RouterOS session would be force-revalidated against the
+        # mock account and could not prove this response-field contract.
+        viewer_token = "vpt_" + "v" * 48
+        viewer_token_hash = hashlib.sha256(viewer_token.encode("utf-8")).hexdigest()
+        self.server.context.store.create_api_token(
+            token_id="session-read-field-contract",
+            token_hash=viewer_token_hash,
+            label="session inventory reader",
+            actor="viewer",
+            capabilities=["sessions.read"],
+            expires_at=2_000_000_000,
         )
 
         # Query parameters cannot opt a sessions.read-only caller into raw
@@ -2659,7 +2730,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.request(
             "GET",
             "/api/admin/sessions?include_identifiers=true",
-            headers={"Cookie": f"vpn_session={viewer.session_id}"},
+            headers={"Authorization": f"Bearer {viewer_token}", "Cookie": ""},
         )
         self.assertEqual(status, 200)
         viewer_response = json.loads(payload)
@@ -2687,9 +2758,8 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertEqual(item["id"], "")
         serialized_viewer = json.dumps(viewer_response)
         self.assertNotIn(owner.session_id, serialized_viewer)
-        self.assertNotIn(viewer.session_id, serialized_viewer)
-        self.assertNotIn("viewer-password", serialized_viewer)
-        self.assertNotIn(viewer.csrf_token, serialized_viewer)
+        self.assertNotIn(viewer_token, serialized_viewer)
+        self.assertNotIn(viewer_token_hash, serialized_viewer)
 
         status, _, payload = self.request(
             "GET",
@@ -2700,7 +2770,69 @@ class DashboardIntegrationTests(unittest.TestCase):
         owner_response = json.loads(payload)
         disclosed_ids = {item["id"] for item in owner_response["sessions"]}
         self.assertIn(owner.session_id, disclosed_ids)
-        self.assertIn(viewer.session_id, disclosed_ids)
+
+    def test_warm_role_downgrade_hides_admin_session_ids_from_api(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "owner")
+        other_session = self.server.context.sessions.create("admin", "routerpass", role="owner")
+
+        status, _, owner_payload = self.request("GET", "/api/admin/sessions")
+        self.assertEqual(status, 200)
+        self.assertIn(session_id.encode("ascii"), owner_payload)
+        self.assertIn(other_session.session_id.encode("ascii"), owner_payload)
+
+        # The ordinary 15-second role cache remains warm. The read-only role
+        # retains sessions.read, but must lose raw session IDs immediately.
+        self.mock.state.admin_group = "read"
+        status, _, payload = self.request("GET", "/api/admin/sessions")
+
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertEqual(session.role, "read_only")
+        response = json.loads(payload)
+        self.assertTrue(response["sessions"])
+        self.assertTrue(all(row["id"] == "" for row in response["sessions"]))
+        self.assertTrue(any(row["username"] == "admin" for row in response["sessions"]))
+        self.assertNotIn(session_id.encode("ascii"), payload)
+        self.assertNotIn(other_session.session_id.encode("ascii"), payload)
+
+    def test_routeros_role_lookup_failure_revokes_session_before_admin_sessions_response(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "owner")
+
+        # An unavailable role source cannot prove even read-only access.
+        self.mock.state.admin_user_read_error = 503
+        self.server.context.sessions._role_checked_at[session_id] = 0
+        status, _, payload = self.request("GET", "/api/admin/sessions")
+
+        self.assertEqual(status, 401, payload.decode("utf-8"))
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertEqual(json.loads(payload), {"error": "Authentication required"})
+        self.assertNotIn(session_id.encode("ascii"), payload)
+
+    def test_socketio_stream_revokes_session_when_routeros_role_lookup_fails(self) -> None:
+        self.login()
+        sid, cookie = self.connect_socketio_polling()
+        session_id = cookie.split("=", 1)[1]
+        self.mock.state.admin_user_read_error = 503
+        self.server.context.sessions._role_checked_at[session_id] = 0
+
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        )
+
+        self.assertEqual(status, 401)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+        self.assertNotIn(b"telemetry", payload)
 
     def test_admin_api_token_response_uses_metadata_only_allowlist(self) -> None:
         self.login()
@@ -3271,6 +3403,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         routeros_session_routes = {
             "/api/events": b"Live router events require an authenticated RouterOS session",
             "/api/status": b"authenticated RouterOS dashboard session",
+            "/api/certificate-settings": b"authenticated RouterOS dashboard session",
             "/api/users": b"authenticated RouterOS dashboard session",
             "/api/telemetry": b"authenticated RouterOS dashboard session",
         }
@@ -3397,6 +3530,88 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(session.role, "read_only")
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
+
+    def test_warm_auditor_downgrade_stops_audit_disclosure_on_next_request(self) -> None:
+        self.mock.state.admin_group = "audit"
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "auditor")
+        self.server.context.store.audit(
+            actor="admin", action="security.review", target="warm-role-audit-marker",
+            status="success", details="auditor-only history",
+        )
+
+        status, _, payload = self.request("GET", "/api/audit.json", headers={"Cookie": self.cookie})
+        self.assertEqual(status, 200)
+        self.assertIn(b"warm-role-audit-marker", payload)
+
+        # The ordinary session-role cache is now warm. A downgrade must be
+        # revalidated before optional audit data or a protected export is sent.
+        self.mock.state.admin_group = "read"
+        status, _, status_payload = self.request("GET", "/api/status", headers={"Cookie": self.cookie})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(session.role, "read_only")
+        self.assertNotIn(b"warm-role-audit-marker", status_payload)
+
+        status, _, audit_payload = self.request("GET", "/api/audit.json", headers={"Cookie": self.cookie})
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"warm-role-audit-marker", audit_payload)
+
+    def test_warm_role_downgrade_hides_admin_session_ids_from_dashboard(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        other_session = self.server.context.sessions.create("admin", "routerpass", role="owner")
+
+        status, _, owner_page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(session_id.encode("ascii"), owner_page)
+        self.assertIn(other_session.session_id.encode("ascii"), owner_page)
+
+        self.mock.state.admin_group = "read"
+        original_revalidate = self.server.telemetry_runtime.revalidate_session
+        with mock.patch.object(
+            self.server.telemetry_runtime,
+            "revalidate_session",
+            wraps=original_revalidate,
+        ) as revalidate:
+            status, _, page = self.request("GET", "/dashboard")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(session.role, "read_only")
+        self.assertIn(b"Active administrator sessions", page)
+        self.assertNotIn(session_id.encode("ascii"), page)
+        self.assertNotIn(other_session.session_id.encode("ascii"), page)
+        forced_role_checks = [
+            call for call in revalidate.call_args_list
+            if call.kwargs.get("force_role_check") is True
+        ]
+        self.assertEqual(len(forced_role_checks), 1)
+
+    def test_disabled_warm_auditor_does_not_reuse_stale_request_audit_allow(self) -> None:
+        self.mock.state.admin_group = "audit"
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+        self.server.context.store.audit(
+            actor="admin", action="security.review", target="revoked-audit-marker",
+            status="success", details="must not be disclosed after account disable",
+        )
+
+        # The initial session lookup remains inside its normal role-cache
+        # interval. The dashboard's first audit check then discovers revocation;
+        # subsequent checks in this same response must reuse a DENY, not stale
+        # authorization from the detached session object.
+        self.mock.state.admin_disabled = True
+        status, _, payload = self.request("GET", "/dashboard", headers={"Cookie": self.cookie})
+
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"revoked-audit-marker", payload)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
     def test_disabled_routeros_account_revokes_existing_live_session(self) -> None:
         self.login()
@@ -7351,6 +7566,18 @@ class RedirectTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 class ProxyTrustTests(unittest.TestCase):
+    def test_handler_combines_duplicate_forwarded_headers_before_proxy_resolution(self) -> None:
+        handler = DashboardHandler.__new__(DashboardHandler)
+        handler.client_address = ("192.0.2.10", 12345)
+        handler.server = mock.Mock()
+        handler.server.context.config.trusted_proxy_header = "X-Forwarded-For"
+        handler.server.context.config.trusted_proxy_sources = ("192.0.2.10",)
+        handler.headers = http.client.HTTPMessage()
+        handler.headers.add_header("X-Forwarded-For", "198.51.100.77")
+        handler.headers.add_header("X-Forwarded-For", "203.0.113.25")
+
+        self.assertEqual(handler._client_ip(), "203.0.113.25")
+
     def test_cloudflare_header_requires_the_expected_reverse_proxy(self) -> None:
         expected = resolve_client_ip(
             "192.0.2.1",
@@ -7370,24 +7597,59 @@ class ProxyTrustTests(unittest.TestCase):
             trusted_proxy_header="CF-Connecting-IP",
             trusted_proxy_sources=("192.0.2.1",),
         )
+        chained = resolve_client_ip(
+            "192.0.2.1",
+            "2001:db8::1, 2001:db8::2",
+            trusted_proxy_header="CF-Connecting-IP",
+            trusted_proxy_sources=("192.0.2.1",),
+        )
         self.assertEqual(expected, "2001:db8::1")
         self.assertEqual(spoofed, "198.51.100.50")
         self.assertEqual(invalid, "192.0.2.1")
+        self.assertEqual(chained, "192.0.2.1")
 
-    def test_direct_proxy_honors_only_first_x_forwarded_for_from_exact_peer(self) -> None:
+    def test_direct_proxy_resolves_x_forwarded_for_from_exact_peer(self) -> None:
         expected = resolve_client_ip(
             "192.0.2.10",
-            "203.0.113.50, 192.0.2.200",
+            "198.51.100.99, 203.0.113.50",
             trusted_proxy_header="X-Forwarded-For",
             trusted_proxy_sources=("192.0.2.10",),
         )
-        spoofed = resolve_client_ip(
-            "192.0.2.99",
+        single_hop = resolve_client_ip(
+            "192.0.2.10",
             "203.0.113.50",
             trusted_proxy_header="X-Forwarded-For",
             trusted_proxy_sources=("192.0.2.10",),
         )
+        malformed = resolve_client_ip(
+            "192.0.2.10",
+            "198.51.100.99, not-an-ip",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10",),
+        )
+        trusted_chain = resolve_client_ip(
+            "192.0.2.10",
+            "198.51.100.25, 192.0.2.20",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10", "192.0.2.20"),
+        )
+        all_trusted = resolve_client_ip(
+            "192.0.2.10",
+            "192.0.2.20",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10", "192.0.2.20"),
+        )
+        spoofed = resolve_client_ip(
+            "192.0.2.99",
+            "198.51.100.99, 203.0.113.50",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10",),
+        )
         self.assertEqual(expected, "203.0.113.50")
+        self.assertEqual(single_hop, "203.0.113.50")
+        self.assertEqual(malformed, "192.0.2.10")
+        self.assertEqual(trusted_chain, "198.51.100.25")
+        self.assertEqual(all_trusted, "192.0.2.10")
         self.assertEqual(spoofed, "192.0.2.99")
 
 

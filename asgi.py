@@ -235,6 +235,22 @@ class NativeSocketIO:
         # Engine.IO/Socket.IO may retry a namespace connect while the transport
         # is recovering. Keep one gateway subscription and pump per client SID.
         if sid in self._subscriptions:
+            scope = environ.get("asgi.scope", {})
+            session_id = _session_id(scope)
+            bound_session_id = self._session_ids.get(sid, "")
+            try:
+                principal = self.runtime.principal_for_session(bound_session_id)
+            except Exception:  # noqa: BLE001 - resolver failures fail closed
+                principal = None
+            if (
+                not bound_session_id
+                or session_id != bound_session_id
+                or principal is None
+                or not principal.may_stream
+            ):
+                self._rejected_connections_total += 1
+                await self.disconnect(sid)
+                return False
             return True
         scope = environ.get("asgi.scope", {})
         principal = self.runtime.principal_for_session(_session_id(scope))

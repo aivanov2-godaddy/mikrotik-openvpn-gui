@@ -149,7 +149,7 @@ async function api(url, options = {}) {
     // looks like a JSON/network failure forever. Let the browser perform the
     // top-level request so Access can reauthenticate and return to this view.
     ...(sameOriginApiRequest ? { redirect: 'manual' } : {}),
-    ...(url === '/api/status' ? { cache: 'no-store' } : {}),
+    ...(['/api/status', '/api/certificate-settings'].includes(url) ? { cache: 'no-store' } : {}),
   };
   let response = await fetch(url, fetchOptions);
   if (sameOriginApiRequest && response.type === 'opaqueredirect') {
@@ -980,6 +980,48 @@ function seedCounters() {
 }
 
 const viewIds = new Set(['overview', 'vpn-users', 'live-sessions', 'admin-sessions', 'profile-security', 'policy-templates', 'service-health', 'connection-doctor', 'audit-log', 'setup-planner']);
+let certificateSettingsInFlight = false;
+
+function certificateSettingLabel(value, enabledLabel = 'Enabled', disabledLabel = 'Disabled') {
+  if (value === true) return enabledLabel;
+  if (value === false) return disabledLabel;
+  return 'Unknown';
+}
+
+function renderCertificateSettings(payload) {
+  const panel = $('[data-crl-settings]');
+  if (!panel) return;
+  const storeLabels = { system: 'System', ram: 'RAM (volatile)', unknown: 'Unknown' };
+  $('[data-crl-download]', panel).textContent = certificateSettingLabel(payload.crl_download);
+  $('[data-crl-use]', panel).textContent = certificateSettingLabel(payload.crl_use);
+  $('[data-crl-store]', panel).textContent = storeLabels[payload.crl_store] || 'Unknown';
+  $('[data-downloaded-ca-crl]', panel).textContent = certificateSettingLabel(payload.downloaded_ovpn_ca_crl_current, 'Present and current', 'Not observed');
+  $('[data-router-hosted-crl]', panel).textContent = certificateSettingLabel(payload.router_hosted_ovpn_ca_crl, 'Configured', 'Not configured');
+  const observedAt = Number(payload.observed_at);
+  const timestamp = Number.isFinite(observedAt) && observedAt > 0
+    ? new Date(observedAt * 1000).toLocaleTimeString()
+    : 'time unknown';
+  $('[data-crl-settings-state]', panel).textContent = `Observed ${timestamp} · automatic refresh`;
+}
+
+async function refreshCertificateSettings() {
+  const panel = $('[data-crl-settings]');
+  if (!panel || panel.closest('[hidden]') || document.hidden || certificateSettingsInFlight) return;
+  certificateSettingsInFlight = true;
+  try {
+    const response = await resultOrError(await api('/api/certificate-settings'));
+    const payload = await response.json();
+    if (payload.status !== 'observed') throw new Error('Certificate settings unavailable');
+    renderCertificateSettings(payload);
+  } catch (_) {
+    const state = $('[data-crl-settings-state]', panel);
+    if (state) state.textContent = 'Unavailable · retrying automatically';
+    ['[data-crl-download]', '[data-crl-use]', '[data-crl-store]', '[data-downloaded-ca-crl]', '[data-router-hosted-crl]']
+      .forEach((selector) => { const field = $(selector, panel); if (field) field.textContent = 'Unknown'; });
+  } finally {
+    certificateSettingsInFlight = false;
+  }
+}
 
 function healthLabel(status) {
   return ({ healthy: 'Operational', warning: 'Attention needed', unavailable: 'Unavailable' }[status] || 'Unavailable');
@@ -1420,6 +1462,7 @@ function showView(requestedView, updateHash = true) {
   }
   if (updateHash && location.hash !== `#${view}`) history.pushState(null, '', `#${view}`);
   $('.workspace-content')?.scrollTo({ top: 0, behavior: 'auto' });
+  if (view === 'profile-security') refreshCertificateSettings();
 }
 
 function viewFromHash() {
@@ -3044,3 +3087,6 @@ loadApiTokens();
 detectRealtimeTransport().finally(connectRealtime);
 setTimeout(pollStatus, 1200);
 setInterval(pollStatus, 5000);
+setInterval(() => {
+  if (!document.hidden && !$('#profile-security')?.hidden) refreshCertificateSettings();
+}, 30000);
