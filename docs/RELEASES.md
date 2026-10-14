@@ -63,7 +63,30 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #702 — 2026-10-14
+### Latest published mainline candidate — PR #705 — 2026-10-14
+
+PR [#705](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/705)
+merged as `5f19eb14710ac79b60f7447ebb6c2cb72ae20e16`. It hardens cleanup of
+temporary RouterOS profile-export artifacts and preserves artifacts when
+ownership cannot be established. Publisher run
+[#38529872403](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38529872403)
+passed source and rendered-browser verification, ARM64/AMD64 builds, provenance
+and SPDX SBOM attestation verification, stable-manifest read-back, and
+published-runtime smoke tests.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5f19eb14710ac79b60f7447ebb6c2cb72ae20e16-arm64` | `sha256:2300bd04f33cc0091749b9afc4140638aa48b2b8a93afdfa9e07d9a4423761cb` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5f19eb14710ac79b60f7447ebb6c2cb72ae20e16-amd64` | `sha256:ab783cbab9f41269c6c2453050764257156bffd8518acdfdc7777ccdfccafb7a` |
+
+The stable manifest was published and read back with these immutable tags. The
+controlled 30-minute canary acceptance window is not complete; event
+latency/freshness, recovery, event integrity, Redis delivery, resource soak,
+restore, and rollback evidence remain outstanding. No production promotion is
+claimed. No new numbered release was created; v2.7.0 remains the latest formal
+version.
+
+### Previously published mainline candidate — PR #702 — 2026-10-14
 
 PR [#702](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/702)
 merged as `7c91a0f3425ca729cb6ffe12004c2a6e787ac97d`. It adds a read-only
