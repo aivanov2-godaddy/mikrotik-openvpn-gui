@@ -2771,6 +2771,36 @@ class DashboardIntegrationTests(unittest.TestCase):
         disclosed_ids = {item["id"] for item in owner_response["sessions"]}
         self.assertIn(owner.session_id, disclosed_ids)
 
+    def test_admin_session_identifier_projection_matches_all_routeros_roles(self) -> None:
+        role_groups = ("owner", "security-operator", "operator", "audit", "read")
+        issued_session_ids: set[str] = set()
+
+        for group in role_groups:
+            with self.subTest(group=group):
+                self.mock.state.admin_group = group
+                self.cookie = ""
+                self.csrf = ""
+                self.login()
+                issued_session_ids.add(self.cookie.split("=", 1)[1])
+
+                status, _, payload = self.request("GET", "/api/admin/sessions")
+                self.assertEqual(status, 200, payload.decode("utf-8"))
+                response = json.loads(payload)
+                may_manage_sessions = has_capability(group, "session.manage")
+                projected_ids = {
+                    row["id"] for row in response["sessions"] if row["id"]
+                }
+
+                self.assertTrue(response["sessions"])
+                self.assertEqual(
+                    projected_ids,
+                    issued_session_ids if may_manage_sessions else set(),
+                )
+                if not may_manage_sessions:
+                    serialized = payload.decode("utf-8")
+                    for session_id in issued_session_ids:
+                        self.assertNotIn(session_id, serialized)
+
     def test_warm_role_downgrade_hides_admin_session_ids_from_api(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
