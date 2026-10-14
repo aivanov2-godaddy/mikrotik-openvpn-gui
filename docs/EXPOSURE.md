@@ -96,7 +96,16 @@ ACCESS_LAYER_LABEL=Direct HTTPS
 ```
 
 `X-Forwarded-For` is read only when the TCP peer exactly matches
-`TRUSTED_PROXY_SOURCES`; the dashboard uses the first address in that header.
+`TRUSTED_PROXY_SOURCES`; the dashboard walks the header from right to left,
+skips configured trusted proxy hops, and uses the first other address for
+rate-limiting. This prevents a client-supplied prefix from choosing its own
+rate-limit identity. The immediate trusted proxy must overwrite the header with
+the observed client address or append that address as the final value. For a
+multi-proxy chain, include each trusted hop in `TRUSTED_PROXY_SOURCES` and
+ensure the immediate proxy preserves the original client address in the chain.
+This setting only controls forwarded-header trust; use the origin firewall to
+restrict network access to the intended immediate proxy. If the proxy chain
+cannot be trusted and sanitized, leave both proxy settings unset.
 If client-address-aware rate limiting is not needed, leave both
 `TRUSTED_PROXY_SOURCES` and `TRUSTED_PROXY_HEADER` unset instead of trusting a
 guess.
