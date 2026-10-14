@@ -1,23 +1,22 @@
 # Live telemetry acceptance status
 
-Status: **PR #709 artifact published; candidate-specific live acceptance is
+Status: **PR #716 artifact published; candidate-specific live acceptance is
 incomplete; production promotion remains gated.**
 
 ## Public artifact evidence
 
-PR [#709](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/709)
-(`27708980031be0bf114794610187437ebe26ad02`) is the latest published runtime
+PR [#716](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/716)
+(`8661e69b545782f1b63ec3badb2600b8645d986f`) is the latest published runtime
 candidate. Publisher run
-[#38555014198](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38555014198)
-completed successfully with source/pre-commit and secret checks, compilation,
-unit/mock and rendered-browser tests, ARM64/AMD64 builds, provenance and SPDX
-SBOM attestation verification, stable-manifest read-back, and published-runtime
-smoke tests.
+[#38595948468](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38595948468)
+completed successfully with source/security checks, compilation, tests,
+ARM64/AMD64 builds, provenance and SPDX SBOM attestation verification,
+stable-manifest read-back, and published-runtime smoke tests.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-27708980031be0bf114794610187437ebe26ad02-arm64` | `sha256:0a385f99aa4bf371d76eab10a76f83ffb7f7bfc2b63934cab93fd4ee375d8cc9` |
-| CHR/x86 AMD64 (evaluation) | `sha-27708980031be0bf114794610187437ebe26ad02-amd64` | `sha256:36cda5ba3d8adf2655c876789f66cac0f5345fccbddb0e7b96f2e844f6856a1e` |
+| RouterOS ARM64 | `sha-8661e69b545782f1b63ec3badb2600b8645d986f-arm64` | `sha256:05844f828e9cde5ae3cc31f1afaa51e067a4519f41d0ed20086e57475d5d3a2f` |
+| CHR/x86 AMD64 (evaluation) | `sha-8661e69b545782f1b63ec3badb2600b8645d986f-amd64` | `sha256:2b29049b1ac6b630c3eeb2bd3542dd1612a6c24d63d88c0caf3f04c950430658` |
 
 These are public build and registry facts only. This file contains no RouterOS
 deployment assignments, hostnames, addresses, resource readings, logs, or VPN

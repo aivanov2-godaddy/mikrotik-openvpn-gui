@@ -14,11 +14,11 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#709, commit `27708980031be0bf114794610187437ebe26ad02`, with ARM64 registry
+#716, commit `8661e69b545782f1b63ec3badb2600b8645d986f`, with ARM64 registry
 digest
-`sha256:0a385f99aa4bf371d76eab10a76f83ffb7f7bfc2b63934cab93fd4ee375d8cc9`
+`sha256:05844f828e9cde5ae3cc31f1afaa51e067a4519f41d0ed20086e57475d5d3a2f`
 and AMD64 registry digest
-`sha256:36cda5ba3d8adf2655c876789f66cac0f5345fccbddb0e7b96f2e844f6856a1e`.
+`sha256:2b29049b1ac6b630c3eeb2bd3542dd1612a6c24d63d88c0caf3f04c950430658`.
 Both architectures passed published-runtime smoke tests and image/SBOM
 attestation verification. Candidate deployment state and live measurements are
 kept in operator-controlled records, not in this public guide. A point-in-time
@@ -26,13 +26,13 @@ deployment observation does not substitute for the controlled acceptance
 window below. Candidate-matched latency/freshness, recovery, event integrity,
 Redis delivery, resource soak, restore, and rollback remain unverified. No
 production promotion is claimed. Older observations are historical and do not
-establish acceptance for PR #709.
+establish acceptance for PR #716.
 
-First read back PR #709's exact configured immutable tag and health on the
+First read back PR #716's exact configured immutable tag and health on the
 canary, then run the pre-promotion collector for that candidate. Do not promote
 until the report passes and rollback has been rehearsed. No resource minimum or
 cross-model/version certification is inferred. See the
-[current release record](RELEASES.md#latest-published-mainline-candidate-pr-709-2026-10-14).
+[current release record](RELEASES.md#latest-published-mainline-candidate-pr-716-2026-10-14).
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
 remain historical and do not prove PR #504's canary readiness or rollback.
