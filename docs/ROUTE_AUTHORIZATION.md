@@ -159,3 +159,33 @@ behavior. Live role changes, session expiry/revocation timing on the deployed
 router, proxy/origin behavior, RouterOS permission review, and independent
 external assessment remain open acceptance items. No production or router
 state was accessed or changed for this review.
+
+## Bounded current-main review — 2026-10-14
+
+Two separate read-only AI-assisted reviewers inspected the authorization
+inventory and live-stream evidence on source commit
+`68bfb6ddf82c2ca89b0b449afe0416bb61f785b1`. The route/role matrix covers the
+current dispatch forms and all five dashboard roles; the literal GET API-token
+scope matrix is separately exercised. This is not an exhaustive query/resource
+state or read/write-field cross-product, and it is not a full independent
+requirement-by-requirement ASVS assessment.
+
+The review found that the ASVS evidence summary did not point to the Binary API
+session stream and interface-sampler revocation tests, despite those behaviors
+being implemented and described elsewhere. The evidence map now references the
+credential-refusal, event/snapshot publish denial, sampler post-read denial, and
+reconnect-with-snapshot regressions. The review also confirmed that active HTTP,
+SSE, and Socket.IO role checks use the 15-second session-role cache. Existing
+active-stream role-change tests forced a cache miss, so a deterministic test was
+added to assert a role downgrade is applied on the first check at that cache
+boundary.
+This establishes the repository's configured bound only; physical RouterOS
+response latency and whether a 15-second window meets operational policy remain
+unverified.
+
+The focused application/session/ASGI/polling suites passed 272 tests; the
+telemetry-runtime and supervisor suites passed 20 tests after adding the cache
+boundary regression. These are local repository tests, not deployment evidence.
+Production proxy/TLS/origin behavior, live RouterOS revocation latency, resource
+state and field-level authorization completeness, and external security review
+remain outstanding. No router or production state was accessed or changed.
