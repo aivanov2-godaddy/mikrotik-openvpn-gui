@@ -3389,51 +3389,136 @@ class DashboardIntegrationTests(unittest.TestCase):
             "source_address": "SENSITIVE-PEER-ADDRESS-SENTINEL",
             "vpn_address": "SENSITIVE-VPN-ADDRESS-SENTINEL",
         }
-        cases = (
-            ("health only", ["health.read"], (), (
-                "AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL", "SESSION-USER-SENTINEL",
-            )),
-            ("health and audit", ["health.read", "audit.read"], (
-                "AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL",
-            ), ("SESSION-USER-SENTINEL",)),
-            ("health and sessions", ["health.read", "sessions.read"], (
-                "SESSION-USER-SENTINEL",
-            ), ("AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL")),
+        integration_row = {
+            "source_id": 901,
+            "event_type": "audit",
+            "created_at": now - 2,
+            "delivered_at": now - 1,
+            "attempts": 2,
+            "payload": "SENSITIVE-INTEGRATION-PAYLOAD-SENTINEL",
+        }
+        all_scopes = ("health.read", "audit.read", "sessions.read", "policies.read")
+        query_variants = (
+            "",
+            "?include_audit=true&include_sessions=true",
+            "?scopes=audit.read,sessions.read&fields=all&session_id=SENSITIVE-QUERY-SESSION-ID",
         )
+        expected_root_fields = {
+            "current", "deployments", "health_timeline", "operations_timeline",
+            "rollback", "generated_at",
+        }
+        expected_event_fields = {
+            "id", "occurred_at", "source", "type", "actor", "target", "outcome",
+            "severity", "summary", "clock_skew_seconds", "age_seconds", "related_events",
+            "relationship_summary",
+        }
 
         with (
-            mock.patch.object(store, "recent_audit", return_value=[audit_row]),
-            mock.patch.object(store, "recent_connection_timeline", return_value=[connection_row]),
-            mock.patch.object(store, "recent_integration_delivery_events", return_value=[]),
-            mock.patch.object(store, "recent_deployment_events", return_value=[]),
-            mock.patch.object(store, "recent_health_snapshots", return_value=[]),
+            mock.patch.object(store, "recent_audit", return_value=[audit_row]) as recent_audit,
+            mock.patch.object(store, "recent_connection_timeline", return_value=[connection_row]) as recent_connections,
+            mock.patch.object(
+                store, "recent_integration_delivery_events", return_value=[integration_row],
+            ) as recent_integrations,
+            mock.patch.object(store, "recent_deployment_events", return_value=[]) as recent_deployments,
+            mock.patch.object(store, "recent_health_snapshots", return_value=[]) as recent_health,
         ):
-            for index, (label, scopes, visible, hidden) in enumerate(cases):
+            for scope_mask in range(1, 1 << len(all_scopes)):
+                scopes = [
+                    scope for bit, scope in enumerate(all_scopes)
+                    if scope_mask & (1 << bit)
+                ]
+                label = "+".join(scopes)
                 status, _, token_payload = self.json_request(
                     "POST", "/api/admin/api-tokens",
-                    {"label": f"observability projection {index}", "scopes": scopes, "expires_in": "1h"},
+                    {"label": f"observability projection {scope_mask}", "scopes": scopes, "expires_in": "1h"},
                 )
                 self.assertEqual(status, 201, token_payload.decode())
                 token = json.loads(token_payload)["token"]
-                status, _, payload = self.request(
-                    "GET", "/api/observability",
-                    headers={"Authorization": f"Bearer {token}", "Cookie": ""},
-                )
+                for query in query_variants:
+                    status, _, payload = self.request(
+                        "GET", f"/api/observability{query}",
+                        headers={"Authorization": f"Bearer {token}", "Cookie": ""},
+                    )
+                    with self.subTest(scope_case=label, query=query or "none"):
+                        if "health.read" not in scopes:
+                            self.assertEqual(status, 403, payload.decode())
+                            denied = json.loads(payload)
+                            self.assertEqual(set(denied), {"error", "role", "required_capability"})
+                            self.assertTrue(denied["error"])
+                            self.assertEqual(denied["required_capability"], "health.read")
+                            continue
 
-                with self.subTest(scope_case=label):
-                    self.assertEqual(status, 200, payload.decode())
-                    response = payload.decode("utf-8")
-                    for sentinel in visible:
-                        self.assertIn(sentinel, response)
-                    for sentinel in hidden:
-                        self.assertNotIn(sentinel, response)
-                    for sentinel in (
-                        "SENSITIVE-AUDIT-DETAIL-SENTINEL",
-                        "SENSITIVE-PEER-ADDRESS-SENTINEL",
-                        "SENSITIVE-VPN-ADDRESS-SENTINEL",
-                        "routerpass",
-                    ):
-                        self.assertNotIn(sentinel, response)
+                        self.assertEqual(status, 200, payload.decode())
+                        observability = json.loads(payload)
+                        self.assertEqual(set(observability), expected_root_fields)
+                        self.assertEqual(
+                            set(observability["current"]), {"version", "revision", "status"},
+                        )
+                        self.assertEqual(
+                            set(observability["rollback"]),
+                            {"available", "revision", "version", "message", "data_preserved"},
+                        )
+                        timeline = observability["operations_timeline"]
+                        self.assertEqual(set(timeline), {"events", "generated_at", "coverage"})
+                        self.assertEqual(set(timeline["coverage"]), {"complete", "message"})
+
+                        expected_types = set()
+                        if "audit.read" in scopes:
+                            expected_types.update({"change", "integration"})
+                        if "sessions.read" in scopes:
+                            expected_types.add("session")
+                        self.assertEqual({event["type"] for event in timeline["events"]}, expected_types)
+                        integration_events = [
+                            event for event in timeline["events"] if event["type"] == "integration"
+                        ]
+                        if "audit.read" in scopes:
+                            self.assertEqual(len(integration_events), 1)
+                            self.assertEqual(integration_events[0]["source"], "integration delivery")
+                            self.assertEqual(integration_events[0]["outcome"], "delivered")
+                            self.assertEqual(integration_events[0]["summary"], "Audit delivery delivered · 2 attempts")
+                        else:
+                            self.assertEqual(integration_events, [])
+                        for event in timeline["events"]:
+                            expected_fields = expected_event_fields | (
+                                {"timestamp_quality"} if event["type"] == "session" else set()
+                            )
+                            self.assertEqual(set(event), expected_fields, event["type"])
+                            for relation in event["related_events"]:
+                                self.assertEqual(
+                                    set(relation), {"event_id", "source", "relation", "delta_seconds"},
+                                )
+
+                        response = payload.decode("utf-8")
+                        visible = []
+                        hidden = []
+                        if "audit.read" in scopes:
+                            visible.extend(("AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL"))
+                        else:
+                            hidden.extend(("AUDIT-ACTOR-SENTINEL", "AUDIT-TARGET-SENTINEL"))
+                        if "sessions.read" in scopes:
+                            visible.append("SESSION-USER-SENTINEL")
+                        else:
+                            hidden.append("SESSION-USER-SENTINEL")
+                        for sentinel in visible:
+                            self.assertIn(sentinel, response)
+                        for sentinel in hidden + [
+                            "SENSITIVE-AUDIT-DETAIL-SENTINEL",
+                            "SENSITIVE-INTEGRATION-PAYLOAD-SENTINEL",
+                            "SENSITIVE-PEER-ADDRESS-SENTINEL",
+                            "SENSITIVE-VPN-ADDRESS-SENTINEL",
+                            "SENSITIVE-QUERY-SESSION-ID",
+                            "routerpass",
+                        ]:
+                            self.assertNotIn(sentinel, response)
+
+            # Seven of the fifteen non-empty scope combinations lack health.read
+            # and are denied before any observability-store access. Each scope
+            # combination was requested with all three query variants.
+            self.assertEqual(recent_deployments.call_count, 8 * len(query_variants))
+            self.assertEqual(recent_health.call_count, 8 * len(query_variants))
+            self.assertEqual(recent_audit.call_count, 4 * len(query_variants))
+            self.assertEqual(recent_integrations.call_count, 4 * len(query_variants))
+            self.assertEqual(recent_connections.call_count, 4 * len(query_variants))
 
     def test_setup_preflight_projects_allowlisted_schema_and_omits_inventory_secrets(self) -> None:
         self.login()
