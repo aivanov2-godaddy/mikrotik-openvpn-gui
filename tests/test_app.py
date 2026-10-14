@@ -6079,6 +6079,35 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.certificates["*CL1"]["revoked"])
         self.assertIn("POST /certificate/issued-revoke", self.mock.state.mutation_requests)
 
+    def test_device_revoke_checkpoint_failure_prevents_routeros_mutation(self) -> None:
+        path, device_id = self._managed_device_revoke_request()
+        reviewed = self._review_device_revoke(path)
+        with mock.patch.object(
+            self.server.context.router,
+            "create_configuration_export",
+            side_effect=RouterOSError("private checkpoint detail", 503),
+        ) as create_checkpoint:
+            status, _, payload = self.json_request("POST", path, reviewed)
+
+        create_checkpoint.assert_called_once()
+        response_text = payload.decode("utf-8")
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(
+            response["error"],
+            "RouterOS configuration checkpoint failed; no change was applied.",
+        )
+        self.assertNotIn("private checkpoint detail", response_text)
+        self.assertNotIn("POST /certificate/issued-revoke", self.mock.state.mutation_requests)
+        self.assertEqual(self.mock.state.certificates["*CL1"]["revoked"], "no")
+        self.assertIsNone(self.server.context.store.device_by_id(device_id)["revoked_at"])
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["action"], "checkpoint.create")
+        self.assertEqual(audit["target"], "device.revoke")
+        self.assertEqual(audit["status"], "failed")
+        self.assertEqual(json.loads(audit["details"]), {"reason": "RouterOSError"})
+        self.assertNotIn("private checkpoint detail", audit["details"])
+
     def test_tested_unmanaged_legacy_migration_can_be_reviewed_and_revoked_safely(self) -> None:
         path, legacy_name = self._legacy_migration_revoke_request()
         request = {"confirmation": legacy_name, "reason": "Replacement tested; retire old phone identity."}
