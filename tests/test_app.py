@@ -1717,6 +1717,31 @@ class DashboardIntegrationTests(unittest.TestCase):
         ):
             self.assertNotIn(sentinel, payload.decode("utf-8"))
 
+    def test_status_requires_every_data_capability_before_router_reads(self) -> None:
+        self.login()
+        original_has_capability = has_capability
+        for denied_capability in ("users.read", "sessions.read", "health.read"):
+            def capability_check(role: str, capability: str, *, denied=denied_capability) -> bool:
+                if capability == denied:
+                    return False
+                return original_has_capability(role, capability)
+
+            with (
+                self.subTest(denied_capability=denied_capability),
+                mock.patch("app.has_capability", side_effect=capability_check),
+                mock.patch.object(self.server.context.router, "verify_credentials") as verify,
+                mock.patch.object(self.server.context.router, "list_active_ovpn_sessions") as sessions,
+            ):
+                status, _, payload = self.request("GET", "/api/status")
+
+            self.assertEqual(status, 403)
+            self.assertEqual(
+                json.loads(payload)["required_capability"],
+                denied_capability,
+            )
+            verify.assert_not_called()
+            sessions.assert_not_called()
+
     def test_login_health_and_authentication_boundaries(self) -> None:
         status, headers, payload = self.request("GET", "/healthz")
         self.assertEqual(status, 200)
@@ -2560,7 +2585,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("GET", literal("/api/users"), "/api/users", ("users.read",), {}),
             ("GET", literal("/api/certificate-settings"), "/api/certificate-settings", ("profiles.read",), {}),
             ("GET", literal("/api/bulk/views"), "/api/bulk/views", ("sessions.read",), {}),
-            ("GET", literal("/api/status"), "/api/status", (), {}),
+            ("GET", literal("/api/status"), "/api/status", ("users.read", "sessions.read", "health.read"), {}),
             ("GET", literal("/api/service-health"), "/api/service-health", ("health.read",), {}),
             ("GET", literal("/api/observability"), "/api/observability", ("health.read",), {}),
             ("GET", literal("/api/setup-preflight"), "/api/setup-preflight", ("health.read",), {}),

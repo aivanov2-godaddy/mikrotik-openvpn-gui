@@ -210,6 +210,161 @@ class ASGIContractTests(unittest.TestCase):
     def test_native_websocket_expiry_closes_stream_and_blocks_reconnect(self) -> None:
         self._exercise_native_websocket_lifecycle("expiry")
 
+    def test_native_websocket_revalidates_routeros_role_change_and_account_disable(self) -> None:
+        if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
+            self.skipTest("native WebSocket runtime dependencies are not installed")
+
+        import socketio
+        import uvicorn
+        import websockets
+
+        from asgi import NativeSocketIO
+
+        async def exercise() -> None:
+            sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+            session = sessions.create("operator", "test-only-router-password", role="owner")
+            routeros_state = {"role": "owner", "enabled": True}
+
+            def resolve_role(_session) -> str | None:
+                return routeros_state["role"] if routeros_state["enabled"] else None
+
+            runtime = TelemetryRuntime(
+                sessions=sessions,
+                rest_url="https://router.example.test",
+                ca_file=None,
+                insecure_tls=False,
+                api_ssl_port=8729,
+                requested_transport="binary",
+                role_resolver=resolve_role,
+            )
+            runtime._publish(runtime.broker.reconcile(
+                [{
+                    ".id": "*synthetic-session",
+                    "name": "synthetic-user",
+                    "address": "10.8.0.2",
+                    "caller-id": "192.0.2.10",
+                    "uptime": "1m",
+                    "encoding": "AES-256-GCM",
+                    "service": "ovpn",
+                    "rx-byte": "10",
+                    "tx-byte": "20",
+                    "rx-packet": "1",
+                    "tx-packet": "2",
+                }],
+                now=100,
+            ))
+            native = NativeSocketIO(runtime)
+            application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(128)
+            listener.setblocking(False)
+            port = listener.getsockname()[1]
+            server = uvicorn.Server(uvicorn.Config(application, log_level="critical", lifespan="off"))
+            server_task = asyncio.create_task(server.serve(sockets=[listener]))
+
+            async def receive_until(ws, predicate, timeout: float = 5) -> str:
+                deadline = asyncio.get_running_loop().time() + timeout
+                while asyncio.get_running_loop().time() < deadline:
+                    packet = await asyncio.wait_for(
+                        ws.recv(), timeout=max(0.1, deadline - asyncio.get_running_loop().time())
+                    )
+                    if packet == "2":
+                        await ws.send("3")
+                        continue
+                    if predicate(str(packet)):
+                        return str(packet)
+                self.fail("timed out waiting for telemetry WebSocket packet")
+
+            try:
+                deadline = asyncio.get_running_loop().time() + 5
+                while not server.started and not server_task.done():
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("test ASGI server did not start")
+                    await asyncio.sleep(0.01)
+                self.assertTrue(server.started)
+
+                cookie = f"vpn_session={session.session_id}"
+                ws_url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
+                async with websockets.connect(
+                    ws_url,
+                    additional_headers={"Cookie": cookie},
+                    open_timeout=5,
+                    ping_interval=None,
+                ) as ws:
+                    self.assertTrue((await asyncio.wait_for(ws.recv(), timeout=5)).startswith("0{"))
+                    await ws.send("40/telemetry,")
+                    accepted = await receive_until(
+                        ws, lambda packet: packet.startswith(("40/telemetry,", "44/telemetry,"))
+                    )
+                    self.assertTrue(accepted.startswith("40/telemetry,"), accepted)
+                    snapshot = await receive_until(
+                        ws,
+                        lambda packet: packet.startswith("42/telemetry,") and "telemetry.snapshot" in packet,
+                    )
+                    self.assertIn("synthetic-user", snapshot)
+
+                    # A RouterOS-derived downgrade retains sessions.read, so
+                    # this established connection may continue receiving only
+                    # the session telemetry its new role still permits.
+                    routeros_state["role"] = "read_only"
+                    sessions._role_checked_at[session.session_id] = 0
+                    runtime._publish(runtime.broker.apply(RouterOSReply(
+                        "re",
+                        {
+                            ".id": "*synthetic-session",
+                            "name": "synthetic-user",
+                            "address": "10.8.0.2",
+                            "caller-id": "192.0.2.10",
+                            "uptime": "2m",
+                            "encoding": "AES-256-GCM",
+                            "service": "ovpn",
+                            "rx-byte": "30",
+                            "tx-byte": "40",
+                            "rx-packet": "3",
+                            "tx-packet": "4",
+                        },
+                    ), now=101))
+                    updated = await receive_until(
+                        ws,
+                        lambda packet: packet.startswith("42/telemetry,") and "vpn.session.updated" in packet,
+                    )
+                    self.assertIn("vpn.session.updated", updated)
+                    self.assertEqual(session.role, "read_only")
+
+                    # A missing/disabled account revokes the server session;
+                    # the open socket closes before another telemetry frame.
+                    routeros_state["enabled"] = False
+                    sessions._role_checked_at[session.session_id] = 0
+                    disconnected = await receive_until(
+                        ws, lambda packet: packet.startswith("41/telemetry,"), timeout=3
+                    )
+                    self.assertTrue(disconnected.startswith("41/telemetry,"))
+                    self.assertIsNone(sessions.get(session.session_id, touch=False))
+                    emitted_before_reconnect = native.metrics()["events_emitted_total"]
+
+                async with websockets.connect(
+                    ws_url,
+                    additional_headers={"Cookie": cookie},
+                    open_timeout=5,
+                    ping_interval=None,
+                ) as reconnect:
+                    self.assertTrue((await asyncio.wait_for(reconnect.recv(), timeout=5)).startswith("0{"))
+                    await reconnect.send("40/telemetry,")
+                    rejection = await receive_until(
+                        reconnect, lambda packet: packet.startswith("44/telemetry,")
+                    )
+                    self.assertTrue(rejection.startswith("44/telemetry,"), rejection)
+
+                self.assertEqual(native.metrics()["events_emitted_total"], emitted_before_reconnect)
+                self.assertEqual(native.metrics()["active_connections"], 0)
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(server_task, timeout=5)
+
+        asyncio.run(exercise())
+
     def _exercise_native_websocket_lifecycle(self, transition: str) -> None:
         if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
             self.skipTest("native WebSocket runtime dependencies are not installed")

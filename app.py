@@ -1632,7 +1632,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             session = self._require_session(api=True)
-            if not session or not self._require_routeros_session(session):
+            if (
+                not session
+                or not self._require_routeros_session(session)
+                or not self._require_capability(session, "users.read")
+                or not self._require_capability(session, "sessions.read")
+                or not self._require_capability(session, "health.read")
+            ):
                 return
             try:
                 credentials = self._credentials(session)
