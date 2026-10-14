@@ -228,6 +228,22 @@ class DeploymentTests(unittest.TestCase):
             "stopped",
         )
 
+    def test_explicit_unhealthy_probe_overrides_running_flag(self) -> None:
+        self.assertEqual(_status({"running": "true", "healthy": "false"}), "unhealthy")
+        self.assertEqual(
+            _status({"status": "running", "healthcheck-status": "failed, output: timeout"}),
+            "unhealthy",
+        )
+
+    def test_routeros_transitional_flags_are_not_treated_as_stopped(self) -> None:
+        self.assertEqual(_status({"running": "false", "starting": "true"}), "starting")
+        self.assertEqual(_status({"running": "false", "stopping": "true"}), "stopping")
+        self.assertEqual(_status({"starting": "true", "stopping": "true"}), "")
+        self.assertEqual(_status({"running": "true", "stopped": "true"}), "")
+        self.assertEqual(_status({"running": "true", "starting": "true"}), "")
+        self.assertEqual(_status({".running": "true", "stopped": "true"}), "")
+        self.assertEqual(_status({"running": "true", ".running": "false"}), "")
+
 
 if __name__ == "__main__":
     unittest.main()

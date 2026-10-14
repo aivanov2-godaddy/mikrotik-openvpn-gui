@@ -29,6 +29,10 @@ from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_ope
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routeros_binary import RouterOSBinaryConnection, RouterOSBinaryError, RouterOSReply
+if __package__ in {None, ""}:
+    from routeros_container_state import normalize_container_status
+else:
+    from .routeros_container_state import normalize_container_status
 
 
 MAX_WINDOW_SECONDS = 86_400
@@ -43,8 +47,10 @@ CONTAINER_NAMES = {"canary": "vpn-dashboard-canary", "production": "vpn-dashboar
 PROJECT_IMAGE = re.compile(
     r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:sha-(?P<revision>[0-9a-f]{40})-arm64$"
 )
-RESOURCE_PROPLIST = "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime"
-CONTAINER_PROPLIST = "name,status,remote-image"
+RESOURCE_PROPLIST = "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version"
+LEGACY_CONTAINER_PROPLIST = "name,status,remote-image"
+MODERN_CONTAINER_PROPLIST = "name,running,stopped,starting,stopping,healthy,remote-image"
+_ROUTEROS_VERSION = re.compile(r"^\s*(\d+)\.(\d+)(?:\.\d+)?(?=$|[^0-9])")
 SESSION_PROPLIST = ".id"
 MAX_REST_RESPONSE_BYTES = 1_048_576
 REST_TIMEOUT_SECONDS = 10
@@ -55,9 +61,23 @@ PARITY_TOLERANCE = {
 }
 REST_PATHS = {
     "resource": ("system/resource", RESOURCE_PROPLIST),
-    "containers": ("container", CONTAINER_PROPLIST),
+    "containers": ("container", None),
     "sessions": ("ppp/active", SESSION_PROPLIST),
 }
+
+
+def _container_proplist_for_version(version: str) -> str:
+    """Select only properties supported by the reported RouterOS family."""
+
+    match = _ROUTEROS_VERSION.match(version)
+    if not match:
+        raise ValueError("RouterOS version is missing or malformed")
+    major, minor = (int(part) for part in match.groups())
+    if major < 7:
+        raise ValueError("RouterOS container state format is unsupported")
+    if major == 7 and minor < 20:
+        return LEGACY_CONTAINER_PROPLIST
+    return MODERN_CONTAINER_PROPLIST
 
 
 def _utc_now() -> datetime:
@@ -113,7 +133,7 @@ def _snapshot_from_records(
         row = matching[0]
         image_match = PROJECT_IMAGE.fullmatch(row.get("remote-image", ""))
         result_containers[environment] = {
-            "healthy": row.get("status", "").lower() == "running",
+            "healthy": normalize_container_status(dict(row)) == "running",
             "revision": image_match.group("revision") if image_match else None,
         }
 
@@ -131,8 +151,9 @@ def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
     resource = _single_record(connection.execute(
         "/system/resource/print", query=(f".proplist={RESOURCE_PROPLIST}",)
     ))
+    container_proplist = _container_proplist_for_version(resource.get("version", ""))
     containers = _records(connection.execute(
-        "/container/print", query=(f".proplist={CONTAINER_PROPLIST}",)
+        "/container/print", query=(f".proplist={container_proplist}",)
     ))
     # Read .id values only to count active sessions. IDs, usernames, addresses,
     # and other RouterOS attributes are deliberately discarded.
@@ -186,10 +207,17 @@ class RouterOSRestAcceptanceReader:
         context = ssl.create_default_context(cafile=ca_file)
         self._opener = build_opener(HTTPSHandler(context=context), _NoRedirectHandler())
 
-    def _get_records(self, path_key: str) -> list[dict[str, str]]:
+    def _get_records(self, path_key: str, *, proplist: str | None = None) -> list[dict[str, str]]:
         if path_key not in REST_PATHS:
             raise ValueError("REST path is not allowlisted")
-        path, proplist = REST_PATHS[path_key]
+        path, fixed_proplist = REST_PATHS[path_key]
+        if fixed_proplist is None:
+            if proplist not in {LEGACY_CONTAINER_PROPLIST, MODERN_CONTAINER_PROPLIST}:
+                raise ValueError("REST container property list is not allowlisted")
+        elif proplist is not None:
+            raise ValueError("REST property override is not allowlisted")
+        else:
+            proplist = fixed_proplist
         query = urlencode({".proplist": proplist}, safe=".,")
         url = f"{self._origin}/rest/{quote(path, safe='/')}?{query}"
         request = Request(
@@ -216,7 +244,8 @@ class RouterOSRestAcceptanceReader:
         resource_records = self._get_records("resource")
         if len(resource_records) != 1:
             raise ValueError("unexpected RouterOS REST resource response shape")
-        containers = self._get_records("containers")
+        container_proplist = _container_proplist_for_version(resource_records[0].get("version", ""))
+        containers = self._get_records("containers", proplist=container_proplist)
         sessions = self._get_records("sessions")
         return _snapshot_from_records(resource_records[0], containers, len(sessions))
 

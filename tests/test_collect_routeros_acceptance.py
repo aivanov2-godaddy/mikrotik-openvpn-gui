@@ -15,8 +15,11 @@ from unittest.mock import Mock, patch
 from routeros_binary import RouterOSReply
 from scripts.collect_routeros_acceptance import (
     CONTAINER_NAMES,
+    LEGACY_CONTAINER_PROPLIST,
+    MODERN_CONTAINER_PROPLIST,
     PARITY_TOLERANCE,
     RouterOSRestAcceptanceReader,
+    _container_proplist_for_version,
     _snapshot,
     collect,
     main,
@@ -24,22 +27,30 @@ from scripts.collect_routeros_acceptance import (
 
 
 class RouterOSAcceptanceSamplerTests(unittest.TestCase):
-    def _fake_connection(self):
+    def _fake_connection(self, *, version="7.24.5 (stable)", lifecycle=None):
         connection = Mock()
         revision = "a" * 40
+        try:
+            modern = _container_proplist_for_version(version) == MODERN_CONTAINER_PROPLIST
+        except ValueError:
+            modern = True
+        state = lifecycle if lifecycle is not None else (
+            {"running": "true", "healthy": "true"} if modern else {"status": "running"}
+        )
 
         def execute(path, *, query=()):
             query = tuple(query)
             if path == "/system/resource/print":
-                self.assertEqual(query, (".proplist=cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime",))
+                self.assertEqual(query, (".proplist=cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version",))
                 return [
-                    RouterOSReply("re", {"cpu-load": "23", "total-memory": "1000", "free-memory": "600", "total-hdd-space": "10000", "free-hdd-space": "7000", "uptime": "1d"}),
+                    RouterOSReply("re", {"cpu-load": "23", "total-memory": "1000", "free-memory": "600", "total-hdd-space": "10000", "free-hdd-space": "7000", "uptime": "1d", "version": version}),
                     RouterOSReply("done", {}),
                 ]
             if path == "/container/print":
-                self.assertEqual(query, (".proplist=name,status,remote-image",))
+                expected_proplist = MODERN_CONTAINER_PROPLIST if modern else LEGACY_CONTAINER_PROPLIST
+                self.assertEqual(query, (f".proplist={expected_proplist}",))
                 return [
-                    RouterOSReply("re", {"name": name, "status": "running", "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64", "root-dir": "/must-not-leak"})
+                    RouterOSReply("re", {"name": name, **state, "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64", "root-dir": "/must-not-leak"})
                     for name in CONTAINER_NAMES.values()
                 ] + [RouterOSReply("done", {})]
             if path == "/ppp/active/print":
@@ -73,6 +84,29 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertEqual(report["active_vpn_sessions"], 1)
         self.assertNotIn("private-user", repr(report))
         self.assertNotIn("/must-not-leak", repr(report))
+
+    def test_legacy_routeros_uses_status_property(self):
+        report = _snapshot(self._fake_connection(version="7.19.10 (stable)"))
+        self.assertTrue(all(item["healthy"] for item in report["containers"].values()))
+
+    def test_unknown_routeros_version_fails_closed_before_container_query(self):
+        connection = self._fake_connection(version="unknown")
+        with self.assertRaises(ValueError):
+            _snapshot(connection)
+        self.assertEqual(
+            [call.args[0] for call in connection.execute.call_args_list],
+            ["/system/resource/print"],
+        )
+
+    def test_modern_unhealthy_or_missing_lifecycle_state_fails_closed(self):
+        for lifecycle in (
+            {"running": "true", "healthy": "false"},
+            {"running": "true", "stopped": "true"},
+            {},
+        ):
+            with self.subTest(lifecycle=lifecycle):
+                report = _snapshot(self._fake_connection(lifecycle=lifecycle))
+                self.assertTrue(all(not item["healthy"] for item in report["containers"].values()))
 
     def test_collector_closes_connection_and_redacts_raw_router_data(self):
         connection = self._fake_connection()
@@ -138,9 +172,10 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             "/rest/system/resource": [{
                 "cpu-load": "23", "total-memory": "1000", "free-memory": "600",
                 "total-hdd-space": "10000", "free-hdd-space": "7000", "uptime": "1d",
+                "version": "7.24.5 (stable)",
             }],
             "/rest/container": [
-                {"name": name, "status": "running", "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64"}
+                {"name": name, "running": "true", "healthy": "true", "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64"}
                 for name in CONTAINER_NAMES.values()
             ],
             "/rest/ppp/active": [{".id": "*1", "name": "private-user", "address": "10.0.0.2"}],
@@ -155,11 +190,19 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             self.assertEqual(parsed.scheme, "https")
             query = parse_qs(parsed.query)
             self.assertEqual(len(query), 1)
-            expected_proplist = {
-                "/rest/system/resource": "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime",
-                "/rest/container": "name,status,remote-image",
-                "/rest/ppp/active": ".id",
-            }[parsed.path]
+            if parsed.path == "/rest/container":
+                version = payloads["/rest/system/resource"][0]["version"]
+                expected_container_proplist = (
+                    MODERN_CONTAINER_PROPLIST
+                    if _container_proplist_for_version(version) == MODERN_CONTAINER_PROPLIST
+                    else LEGACY_CONTAINER_PROPLIST
+                )
+                expected_proplist = expected_container_proplist
+            else:
+                expected_proplist = {
+                    "/rest/system/resource": "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version",
+                    "/rest/ppp/active": ".id",
+                }[parsed.path]
             self.assertEqual(query, {".proplist": [expected_proplist]})
             self.assertIn(parsed.path, payloads)
             response = Mock()
@@ -173,8 +216,23 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         reader._opener = opener
         snapshot = reader.snapshot()
         self.assertEqual(snapshot["active_vpn_sessions"], 1)
+        self.assertTrue(all(item["healthy"] for item in snapshot["containers"].values()))
         self.assertNotIn("private-user", repr(snapshot))
         self.assertEqual(opener.open.call_count, 3)
+
+        payloads["/rest/system/resource"][0]["version"] = "7.19.10 (stable)"
+        payloads["/rest/container"] = [
+            {"name": name, "status": "running", "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64"}
+            for name in CONTAINER_NAMES.values()
+        ]
+        legacy_snapshot = reader.snapshot()
+        self.assertTrue(all(item["healthy"] for item in legacy_snapshot["containers"].values()))
+        self.assertEqual(opener.open.call_count, 6)
+
+        payloads["/rest/system/resource"][0]["version"] = "unknown"
+        with self.assertRaises(ValueError):
+            reader.snapshot()
+        self.assertEqual(opener.open.call_count, 7)
         reader.close()
         self.assertEqual(reader._authorization, "")
 
