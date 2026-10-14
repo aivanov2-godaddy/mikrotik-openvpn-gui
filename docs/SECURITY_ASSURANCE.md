@@ -100,10 +100,12 @@ key/header sets so an added field requires an intentional contract update.
 | `GET /api/reports/compliance.zip` | `summary.json`: `format`, `version`, `generated_at`, `range` (`from`, `to`), `counts` (`audit_entries`, `connection_entries`, `failed_audit_entries`), `redaction`; `audit.csv`: `timestamp`, `operator`, `action`, `target`, `result`, `details`; `connections.csv`: `user`, `connected`, `disconnected`, `source_ip`, `vpn_ip`, `encryption`, `received_bytes`, `sent_bytes`. | Requires both `audit.read` and `sessions.read`. The CSVs intentionally contain identifying operational data described in the redaction notice; they are not anonymous. |
 
 For `/api/status`, `observability.current` is `version`, `revision`, `status`;
-`deployments[]` is `id`, `version`, `revision`, `status`, `channel`, `details`,
-`created_at`; `health_timeline[]` is `id`, `overall`, `healthy_count`,
-`warning_count`, `unavailable_count`, `checks`, `created_at` with each check
-limited to `id`, `status`; `operations_timeline` is `events`, `generated_at`,
+`deployments[]` is `id`, `version`, `revision`, `status`, `channel`,
+`created_at`; deployment `details` are omitted. `health_timeline[]` is `id`,
+`overall`, `healthy_count`, `warning_count`, `unavailable_count`, `checks`,
+`created_at` with each check projected to `id`, `status`; unapproved root and
+nested fields are omitted.
+`operations_timeline` is `events`, `generated_at`,
 `coverage`; and `rollback` is `available`, `revision`, `version`, `message`,
 `data_preserved`. `telemetry` is `requested_transport`, `transport`,
 `socketio_enabled`, `namespace`, `fallback`, `state`, `last_event_at`,

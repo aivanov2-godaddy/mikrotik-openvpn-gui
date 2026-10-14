@@ -1593,18 +1593,49 @@ class DashboardIntegrationTests(unittest.TestCase):
             }]),
             mock.patch.object(self.server.context.store, "recent_deployment_events", return_value=[{
                 "id": 1, "version": "2.8.0", "revision": "a" * 40, "status": "running",
-                "channel": "canary", "details": {"source": "synthetic"}, "created_at": 10,
+                "channel": "canary", "created_at": 10,
+                "details": {
+                    "source": "synthetic", "private_key": "SENSITIVE-OBSERVABILITY-DETAIL",
+                    "nested": {"token": "SENSITIVE-OBSERVABILITY-NESTED-TOKEN"},
+                },
             }]),
             mock.patch.object(self.server.context.store, "recent_health_snapshots", return_value=[{
                 "id": 2, "overall": "healthy", "healthy_count": 1, "warning_count": 0,
-                "unavailable_count": 0, "checks": [{"id": "router", "status": "healthy"}], "created_at": 20,
+                "unavailable_count": 0,
+                "checks": [{
+                    "id": "router", "status": "healthy", "private_key": "SENSITIVE-HEALTH-CHECK",
+                    "nested": {"token": "SENSITIVE-HEALTH-NESTED-TOKEN"},
+                }, {
+                    "id": {"token": "SENSITIVE-HEALTH-ID-VALUE"},
+                    "status": {"token": "SENSITIVE-HEALTH-STATUS-VALUE"},
+                }],
+                "private_key": "SENSITIVE-HEALTH-ROOT",
+                "created_at": 20,
             }]),
             mock.patch.object(self.server.context.store, "recent_connections", return_value=[connection]),
             mock.patch.object(self.server.context.store, "recent_alerts", return_value=[alert]),
         ):
             status, _, payload = self.request("GET", "/api/status")
+            session_id = self.cookie.split("=", 1)[1]
+            self.mock.state.admin_group = "read"
+            self.server.context.sessions._role_checked_at[session_id] = 0
+            read_status, _, read_payload = self.request("GET", "/api/observability")
 
         self.assertEqual(status, 200)
+        self.assertEqual(read_status, 200)
+        read_observability = json.loads(read_payload)
+        read_only_session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(read_only_session)
+        self.assertEqual(read_only_session.role, "read_only")
+        self.assertEqual(
+            set(read_observability["deployments"][0]),
+            {"id", "version", "revision", "status", "channel", "created_at"},
+        )
+        self.assertEqual(
+            set(read_observability["health_timeline"][0]["checks"][0]),
+            {"id", "status"},
+        )
+        self.assertEqual(read_observability["health_timeline"][0]["checks"][1], {"id": "", "status": ""})
         snapshot = json.loads(payload)
         self.assertEqual(
             set(snapshot),
@@ -1668,7 +1699,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             set(snapshot["observability"]["deployments"][0]),
-            {"id", "version", "revision", "status", "channel", "details", "created_at"},
+            {"id", "version", "revision", "status", "channel", "created_at"},
         )
         self.assertEqual(
             set(snapshot["observability"]["health_timeline"][0]),
@@ -1714,8 +1745,12 @@ class DashboardIntegrationTests(unittest.TestCase):
             "SENSITIVE-ROUTER-PRIVATE-KEY",
             "SENSITIVE-CONNECTION-NOTE", "SENSITIVE-ALERT-ACTION", "SENSITIVE-ALERT-TARGET",
             "SENSITIVE-FUTURE-CONTROL", "SENSITIVE-USER-PASSWORD", "SENSITIVE-TEMPLATE-KEY",
+            "SENSITIVE-OBSERVABILITY-DETAIL", "SENSITIVE-OBSERVABILITY-NESTED-TOKEN",
+            "SENSITIVE-HEALTH-CHECK", "SENSITIVE-HEALTH-NESTED-TOKEN", "SENSITIVE-HEALTH-ROOT",
+            "SENSITIVE-HEALTH-ID-VALUE", "SENSITIVE-HEALTH-STATUS-VALUE",
         ):
             self.assertNotIn(sentinel, payload.decode("utf-8"))
+            self.assertNotIn(sentinel, read_payload.decode("utf-8"))
 
     def test_status_requires_every_data_capability_before_router_reads(self) -> None:
         self.login()
