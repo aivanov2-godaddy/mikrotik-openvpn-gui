@@ -1247,10 +1247,10 @@ class RouterOSClient:
                     )
                 except RouterOSError as certificate_error:
                     raise RouterOSError(
-                        "Temporary RouterOS profile files could not be safely removed and certificate cleanup could not be verified; operator inspection is required"
+                        "Temporary RouterOS profile files could not be safely removed and certificate cleanup could not be verified; inspect RouterOS Files for temporary .crt, .key, or .ovpn artifacts; operator inspection is required"
                     ) from certificate_error
                 raise RouterOSError(
-                    "Temporary RouterOS profile files could not be safely removed; the profile was not delivered and operator inspection is required"
+                    "Temporary RouterOS profile files could not be safely removed; the profile was not delivered. Inspect RouterOS Files for temporary .crt, .key, or .ovpn artifacts before retrying; operator inspection is required"
                 ) from cleanup_error
 
             if not succeeded:
