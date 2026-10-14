@@ -18,11 +18,12 @@ operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline runtime candidate is PR #716; its changes and immutable artifacts are
+mainline runtime candidate is PR #720; its changes and immutable artifacts are
 recorded below, but candidate-specific RouterOS acceptance remains open. The
 broader candidate highlights are stricter live-data field allowlists and
-session revalidation, safer staged certificate renewal, improved telemetry
-recovery, and evidence-gated RouterOS canary promotion. Do not tag or publish
+session revalidation, serialized telemetry/session invalidation, safer staged
+certificate renewal, improved telemetry recovery, and evidence-gated RouterOS
+canary promotion. Do not tag or publish
 v2.8.0 until candidate-specific canary acceptance passes. Earlier releases
 introduced the v2.1 mobile administrator workflows,
 v2.2 administrator roles and authentication audit, v2.3 enterprise operations
@@ -63,7 +64,30 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #716 — 2026-10-14
+### Latest published mainline candidate — PR #720 — 2026-10-14
+
+PR [#720](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/720)
+merged as `6dd53022523766a5371628dfe158286072494bf4`. It serializes authorized
+Socket.IO telemetry delivery with concurrent session invalidation so logout,
+revocation, expiry, purge, bulk logout, or rotation cannot race a queued live
+send. Publisher run
+[#38620869138](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38620869138)
+completed successfully: source/release checks, rendered browser and
+accessibility checks, ARM64 and AMD64 image publication, provenance and SPDX
+SBOM attestation verification, published-runtime smoke tests, and stable
+manifest publication all passed.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-6dd53022523766a5371628dfe158286072494bf4-arm64` | `sha256:8379e885c3f52585c3badbb8069c483edd60e4eb526756701d1a90ab409de31d` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-6dd53022523766a5371628dfe158286072494bf4-amd64` | `sha256:2339d4d8e3e003eab8f6c99d9aad6cf5a748ac161716e23f179ea513bb351271` |
+
+The stable manifest was published. These artifacts are published and
+CI-smoke-tested, but candidate-specific RouterOS acceptance and deployment
+remain unverified; no canary or production promotion is claimed. No new
+numbered release was created; v2.7.0 remains the latest formal version.
+
+### Previously published mainline candidate — PR #716 — 2026-10-14
 
 PR [#716](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/716)
 merged as `8661e69b545782f1b63ec3badb2600b8645d986f`. It serializes Socket.IO

@@ -280,6 +280,23 @@ Cloudflare Access, host-memory, or deployed-log checks were performed in this
 run. The external items below therefore remain **NOT VERIFIED**; this update
 does not claim production acceptance or close issue #200.
 
+### Post-merge revalidation — PR #720 — 2026-10-14
+
+PR [#720](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/720)
+merged as `6dd53022523766a5371628dfe158286072494bf4`. It serializes authorized
+Socket.IO live telemetry delivery with session invalidation, covering the
+logout, revocation, rotation, expiry, purge, and bulk-logout races addressed
+by the change. Publisher run
+[#38620869138](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38620869138)
+completed with every job successful, including rendered browser/accessibility
+checks, ARM64 and AMD64 image publication, attestation verification, runtime
+smoke tests, and stable-manifest publication. The immutable image digests are
+listed in [`RELEASES.md`](RELEASES.md).
+
+This is merged-source and CI evidence only. It does not establish deployment on
+RouterOS, live proxy/session behavior, physical-router revocation latency, or
+full ASVS conformance; issue #200 and its live acceptance gates remain open.
+
 ## Security design notes and residual risks
 
 - RouterOS remains the identity and credential authority. After successful
