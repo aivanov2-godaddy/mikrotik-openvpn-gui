@@ -210,11 +210,12 @@ resource measurements, and data-plane exercise claims are omitted from the
 pre-promotion acceptance report and must be verified against the candidate
 after promotion.
 
-The collector is read-only: it issues HTTP GET/HEAD probes to the private app
-and GHCR and never changes RouterOS/container configuration, promotes an image,
-or performs rollback. A passing collection is not a promotion action and does
-not execute or prove the required rollback rehearsal; that remains a separate
-controlled RouterOS procedure.
+The collector uses read-only HTTP GET/HEAD probes against the private app and
+GHCR and never changes RouterOS/container configuration, promotes an image, or
+performs rollback. The local SQLite rehearsal writes only a temporary restore
+copy and removes it; the source database/backup remains read-only. A passing
+collection is not a promotion action and does not execute or prove the required
+rollback rehearsal; that remains a separate controlled RouterOS procedure.
 
 The sampled release gate fails if any session-event, traffic-freshness, or
 gateway-delivery latency sample is unknown, even if other samples in the window
@@ -295,6 +296,7 @@ python scripts/collect_release_acceptance.py `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<private-canary-origin> `
   --production-url https://<private-production-origin> `
+  --canary-sqlite-backup private-canary-backup.sqlite3 `
   --canary-metrics-url https://<approved-canary-origin> `
   --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
   --duration-seconds 1800 --interval-seconds 60 `
@@ -308,24 +310,43 @@ stream or the Socket.IO observer. If any input is missing or invalid, rerun
 the full window instead of editing timestamps or pass flags.
 
 Start from the [evidence schema example](release-acceptance-evidence.example.json)
-and fill its RouterOS-only and exercise results locally. Keep that file private.
-The collector overwrites app health, readiness, timestamps, sample counts,
-sample gaps, and Redis publish evidence. Unknown input fields are dropped from
-output. Metrics output is restricted to aggregate health, Redis, and outbox
-numbers; response bodies, labels, URLs, tokens, and cookies are never written
-to the report. Create a separate one-hour API token for each environment with
-only the `health.read` capability, and enter the canary token at a secure
-PowerShell prompt for the pre-promotion run. The collector does not create or
-revoke tokens:
+and fill its RouterOS-only and remaining exercise results locally. Keep that
+file private. For SQLite restore, pass a private local backup file with
+`--canary-sqlite-backup`; post-promotion runs also require
+`--production-sqlite-backup`. Use a consistent SQLite backup made with the
+application's SQLite Backup API (or an equivalent WAL-aware backup), not a
+copy of only the main database file while WAL writes are active. The collector
+opens each source read-only, restores it with SQLite's Backup API into a
+temporary local copy, checks integrity, schema, and per-table row counts, and
+removes the temporary copy. It enforces a 30-second deadline across SQLite
+queries and backup work. On Windows it sets and verifies a protected ACL for
+the current user on both the temporary directory and database file; on POSIX
+it verifies owner-only directory/file modes. Failure to secure either path
+fails closed. In pre-promotion mode it does not open or inspect a production
+backup. Backup paths, filenames, database values, and schema text
+are never included in the report. The input's `sqlite_restore_verified` and
+timestamp fields are ignored and overwritten by this rehearsal. A missing,
+oversized, unreadable, corrupt, or non-application backup fails that
+environment's restore gate; it cannot pass using an optimistic input boolean.
+The report exposes only whether row counts matched, never the counts themselves.
+
+The collector also overwrites app health, readiness, timestamps, sample
+counts, sample gaps, and Redis publish evidence. Unknown input fields are
+dropped from output. Metrics output is restricted to aggregate health, Redis,
+and outbox numbers; response bodies, labels, URLs, tokens, and cookies are
+never written to the report. Create a separate one-hour API token for each
+environment with only the `health.read` capability, and enter the canary token
+at a secure PowerShell prompt for the pre-promotion run. The collector does
+not create or revoke tokens:
 
 The operator-measured session-event p95 must include measurement start/end
 timestamps no more than 15 minutes before the collector window begins (or
-during that window). SQLite restore, canary rollback, and production-protection
-checks must be timestamped within the preceding 24 hours (or during the
-window). Missing, future-dated, or older manual exercise claims fail
-acceptance; do not copy results from an earlier release. The evaluator still
-labels these operator-entered checks as manual evidence; a timestamp is not a
-cryptographic attestation of the action.
+during that window). The restore rehearsal is performed and timestamped by the
+collector. Canary rollback and production-protection checks remain operator
+exercises and must be timestamped within the preceding 24 hours (or during the
+window). Missing, future-dated, or older exercise claims fail acceptance; do
+not copy results from an earlier release. Local evidence files are not
+cryptographic attestations and can be edited after collection.
 
 ```powershell
 $secureCanaryToken = Read-Host 'Canary health.read API token' -AsSecureString
@@ -339,6 +360,7 @@ python scripts/collect_release_acceptance.py `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
+  --canary-sqlite-backup private-canary-backup.sqlite3 `
   --canary-metrics-url https://<approved-canary-origin> `
   --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
   --duration-seconds 1800 --interval-seconds 60 `
@@ -352,9 +374,10 @@ python scripts/release_acceptance.py --input private-collected-evidence.json `
 ```
 
 After promotion, repeat with separately provisioned canary and production
-`health.read` tokens, supplying both token-environment flags and both metrics
-origins. Clear both environment variables and dispose both secure strings in
-the `finally` block. In `canary-prepromotion`, a production token is neither
+`health.read` tokens, supplying both token-environment flags, both metrics
+origins, and both `--canary-sqlite-backup` and
+`--production-sqlite-backup` paths. Clear both environment variables and
+dispose both secure strings in the `finally` block. In `canary-prepromotion`, a production token is neither
 read nor required. If the compatibility `--cookie-env` option is used instead,
 the cookie is sent only to enabled `/metrics` probes and only over HTTPS; avoid
 reusing a broad dashboard session when scoped API tokens are available. Each
@@ -376,8 +399,9 @@ not its local OCI digest. The report therefore explicitly records
 before sharing.
 The app-level collector cannot independently prove router CPU/memory/storage,
 VPN event latency/freshness, event loss/ordering, API interruption/recovery,
-snapshot recovery, SQLite restore, rollback, unauthenticated access, or
-secret-free logs. REST/Binary snapshot parity is measured by the separate
+snapshot recovery, rollback, unauthenticated access, or secret-free logs. It
+does rehearse SQLite restoration when the required local backup path(s) are
+provided. REST/Binary snapshot parity is measured by the separate
 RouterOS sampler below. Other listed checks remain real-router/operator
 measurements and must be recorded in the input evidence; a successful HTTP
 probe is not a substitute.
@@ -468,6 +492,7 @@ python scripts/collect_release_acceptance.py `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<private-canary-origin> `
   --production-url https://<private-production-origin> `
+  --canary-sqlite-backup private-canary-backup.sqlite3 `
   --canary-metrics-url https://<private-canary-origin> `
   --phase canary-prepromotion
 ```

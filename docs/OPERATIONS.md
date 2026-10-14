@@ -293,7 +293,10 @@ For release acceptance, copy the schema shown by
 [`release-acceptance-evidence.example.json`](release-acceptance-evidence.example.json)
 to a private local file and fill only the RouterOS/operator-exercise evidence.
 Do not enter deployment health, image-digest, or telemetry claims by hand; the
-read-only collector owns those fields. Keep both files outside the repository.
+read-only collector owns those fields. SQLite restore flags are also not
+operator input: supply local consistent backup paths to the collector, which
+performs and records the restore rehearsal. Keep all private evidence and
+backup files outside the repository.
 Run the RouterOS read-only sampler and app collector concurrently so their
 30-minute windows align, then pass the joined app-collector output—not the
 example or uncollected input—to the evaluator. A passing release report now
@@ -309,6 +312,7 @@ python scripts/collect_release_acceptance.py `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<approved-canary-origin> `
   --production-url https://<approved-production-origin> `
+  --canary-sqlite-backup private-canary-backup.sqlite3 `
   --canary-metrics-url https://<approved-canary-origin> `
   --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
   --duration-seconds 1800 --interval-seconds 60 `
@@ -320,9 +324,9 @@ python scripts/release_acceptance.py `
 
 After production promotion is observed, collect again with
 `--phase postpromotion`, both metrics origins, and separately scoped canary and
-production `health.read` API-token environment variables. Use distinct
-short-lived tokens, never put their values in command-line arguments or files,
-and revoke them after collection. See
+production `health.read` API-token environment variables, and both private
+SQLite backup paths. Use distinct short-lived tokens, never put their values in
+command-line arguments or files, and revoke them after collection. See
 [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window)
 for secure token handling and the full procedure.
 

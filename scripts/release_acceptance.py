@@ -19,8 +19,10 @@ from typing import Any
 
 try:
     from stream_acceptance import validate_stream_acceptance
+    from sqlite_restore_verifier import validate_restore_verification
 except ModuleNotFoundError:
     from scripts.stream_acceptance import validate_stream_acceptance
+    from scripts.sqlite_restore_verifier import validate_restore_verification
 
 
 IMAGE = re.compile(
@@ -123,6 +125,7 @@ def evaluate(
     registry_verification: Any = None
     registry_digests_verified = False
     validated_stream_acceptance: dict[str, Any] | None = None
+    collection_passed = False
     if phase is not None and phase not in {"canary-prepromotion", "postpromotion"}:
         raise ValueError("phase must be canary-prepromotion or postpromotion")
     if collection is None:
@@ -249,7 +252,9 @@ def evaluate(
             record, "session_event_latency_ended_at", optional=prior_production_baseline
         )
         restore_verified_at = _optional_timestamp(
-            record, "sqlite_restore_verified_at", optional=prior_production_baseline
+            record,
+            "sqlite_restore_verified_at",
+            optional=prior_production_baseline or backup_restore is not True,
         )
         rollback_drill_at = _optional_timestamp(
             record, "rollback_drill_at", optional=prior_production_baseline or expected_environment != "canary"
@@ -439,6 +444,29 @@ def evaluate(
             ) > 1:
                 failures.append(f"{expected_environment}_collection_window_mismatch")
 
+    sqlite_restore_verification: dict[str, Any] | None = None
+    if isinstance(collection, dict):
+        raw_restore_verification = collection.get("sqlite_restore_verification")
+        if raw_restore_verification is None:
+            if collection_passed:
+                failures.append("sqlite_restore_verification_missing")
+        else:
+            try:
+                sqlite_restore_verification, stale_restore_environments = validate_restore_verification(
+                    raw_restore_verification,
+                    phase=collection_phase or "postpromotion",
+                    deployments=safe_records,
+                    now=current_time,
+                )
+                for check in sqlite_restore_verification["checks"]:
+                    environment = check["environment"]
+                    if not check["verified"]:
+                        failures.append(f"{environment}_sqlite_restore_unverified")
+                    if environment in stale_restore_environments:
+                        failures.append(f"{environment}_sqlite_restore_evidence_stale_or_outside_window")
+            except ValueError:
+                failures.append("sqlite_restore_verification_invalid")
+
     registry_environments = (
         ("canary",) if collection_phase == "canary-prepromotion" else ENVIRONMENTS
     )
@@ -550,6 +578,7 @@ def evaluate(
         "router_runtime_digest_verified": False,
         "routeros_resource_evidence": routeros_resource_evidence,
         "stream_acceptance": validated_stream_acceptance,
+        "sqlite_restore_verification": sqlite_restore_verification,
         "failed_gates": sorted(set(failures)),
         "deployments": safe_records,
     }

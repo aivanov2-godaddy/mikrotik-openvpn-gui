@@ -56,6 +56,23 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     }
                     for environment in ("canary", "production")
                 ],
+                "sqlite_restore_verification": {
+                    "format": "vpn-dashboard-sqlite-restore-verification-v2",
+                    "checks": [
+                        {
+                            "environment": environment,
+                            "checked_at": "2026-10-02T10:24:00Z",
+                            "verified": True,
+                            "source_opened_read_only": True,
+                            "restored_integrity": True,
+                            "required_schema_present": True,
+                            "restored_data_counts_match": True,
+                            "temporary_copy_removed": True,
+                            "failure_code": None,
+                        }
+                        for environment in ("canary", "production")
+                    ],
+                },
                 "routeros_resource_evidence": self._routeros_resource_evidence(),
             },
             "deployments": [
@@ -243,6 +260,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "started_at": "2026-10-02T10:00:00Z",
             "ended_at": "2026-10-02T10:30:00Z",
             "registry_digest_verification": deepcopy(self.evidence["collection"]["registry_digest_verification"]),
+            "sqlite_restore_verification": deepcopy(
+                self.evidence["collection"]["sqlite_restore_verification"]
+            ),
             "routeros_resource_evidence": self._routeros_resource_evidence(),
             "stream_acceptance": deepcopy(self.evidence["collection"]["stream_acceptance"]),
         }
@@ -377,6 +397,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         canary["session_event_latency_started_at"] = "2026-10-02T09:50:00Z"
         canary["session_event_latency_ended_at"] = "2026-10-02T09:55:00Z"
         canary["sqlite_restore_verified_at"] = "2026-10-02T09:30:00Z"
+        evidence["collection"]["sqlite_restore_verification"]["checks"][0][
+            "checked_at"
+        ] = "2026-10-02T09:30:00Z"
         canary["rollback_drill_at"] = "2026-10-02T09:40:00Z"
         canary["production_protection_observed_at"] = "2026-10-02T09:41:00Z"
         code, report = evaluate(evidence, now=self.NOW)
@@ -392,8 +415,30 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("canary_registry_digest_unverified", report["failed_gates"])
 
+    def test_missing_restore_rehearsal_result_fails_closed_despite_true_input_flags(self) -> None:
+        del self.evidence["collection"]["sqlite_restore_verification"]
+
+        code, report = evaluate(self.evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertIn("sqlite_restore_verification_missing", report["failed_gates"])
+
+    def test_inconsistent_restore_rehearsal_result_is_rejected(self) -> None:
+        self.evidence["collection"]["sqlite_restore_verification"]["checks"][0][
+            "restored_integrity"
+        ] = False
+
+        code, report = evaluate(self.evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertIn("sqlite_restore_verification_invalid", report["failed_gates"])
+        self.assertIsNone(report["sqlite_restore_verification"])
+
     def test_pre_promotion_collection_passes_gate_without_claiming_production_acceptance(self) -> None:
         self.evidence["collection"]["phase"] = "canary-prepromotion"
+        self.evidence["collection"]["sqlite_restore_verification"]["checks"] = self.evidence[
+            "collection"
+        ]["sqlite_restore_verification"]["checks"][:1]
         previous_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
         production = self.evidence["deployments"][1]
         production["image"] = previous_image
@@ -431,6 +476,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
 
     def test_collected_pre_promotion_evidence_is_evaluable_with_socketio_baseline(self) -> None:
         self.evidence["collection"]["phase"] = "canary-prepromotion"
+        self.evidence["collection"]["sqlite_restore_verification"]["checks"] = self.evidence[
+            "collection"
+        ]["sqlite_restore_verification"]["checks"][:1]
         previous_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
         previous_digest = "sha256:" + "c" * 64
         production = self.evidence["deployments"][1]
@@ -455,6 +503,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
 
     def test_pre_promotion_cannot_pass_when_production_already_uses_candidate(self) -> None:
         self.evidence["collection"]["phase"] = "canary-prepromotion"
+        self.evidence["collection"]["sqlite_restore_verification"]["checks"] = self.evidence[
+            "collection"
+        ]["sqlite_restore_verification"]["checks"][:1]
         self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
             "registry_digest_verification"
         ][:1]
