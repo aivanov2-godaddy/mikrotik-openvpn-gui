@@ -4870,6 +4870,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(migration["replacement_certificate_name"].encode(), page)
         self.assertIn(b"Replacement issued; import pending", page)
         self.assertIn(b"Import it on the VPN device first", page)
+        self.assertNotIn(b"Review old-certificate revocation", page)
         legacy = next(
             item for item in self.server.context.router.list_ovpn_client_certificates(
                 RouterOSCredentials("admin", "routerpass"), include_legacy=True
@@ -4890,6 +4891,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         migration = self.server.context.store.profile_migrations()["legacy-user-one-phone"]
         self.assertIsNotNone(migration["imported_at"])
         self.assertIsNone(migration["tested_at"])
+        status, _, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Confirm live replacement test", page)
+        self.assertNotIn(b"Review old-certificate revocation", page)
 
         self.mock.state.active_sessions["*A2"] = {
             ".id": "*A2", "name": "user-one", "service": "ovpn",
@@ -4910,6 +4915,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"Replacement test confirmed by operator", page)
         self.assertIn(b"RouterOS cannot identify which client certificate", page)
+        self.assertIn(b"Review old-certificate revocation", page)
+        self.assertIn(b'data-revoke-kind="legacy"', page)
 
     def test_expiring_managed_certificate_supports_staged_same_ca_renewal(self) -> None:
         source_name = "ovpn-user-one-device-a"
