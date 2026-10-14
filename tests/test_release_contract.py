@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,40 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_write_enabled_manual_workflows_are_restricted_to_default_branch(self) -> None:
+        workflows = ROOT / ".github" / "workflows"
+        container = (workflows / "container.yml").read_text(encoding="utf-8")
+        release_notes = (workflows / "release-notes.yml").read_text(encoding="utf-8")
+
+        def condition(source: str, job_name: str) -> str | None:
+            job_marker = f"  {job_name}:\n"
+            self.assertIn(job_marker, source)
+            job_start = source.index(job_marker) + len(job_marker)
+            next_job = re.search(r"(?m)^  [A-Za-z0-9_-]+:\s*$", source[job_start:])
+            job = source[job_start : job_start + next_job.start()] if next_job else source[job_start:]
+            folded_condition = re.search(
+                r"(?m)^    if: >-\n((?:^      [^\n]*\n)+)", job
+            )
+            if not folded_condition:
+                return None
+            return " ".join(line.strip() for line in folded_condition.group(1).splitlines())
+
+        self.assertIn("  workflow_dispatch:\n", container)
+        self.assertIn("  workflow_dispatch:\n", release_notes)
+        self.assertEqual(
+            condition(container, "publish"),
+            "github.event_name != 'workflow_dispatch' || "
+            "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+        )
+        self.assertEqual(
+            condition(release_notes, "release"),
+            "github.event_name == 'push' || "
+            "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+        )
+
+        release_job = release_notes.split("  release:\n", maxsplit=1)[1]
+        self.assertIn("if: github.event_name == 'push' || inputs.dry_run == false", release_job)
+
     def test_container_digest_summary_is_strict_and_does_not_interpret_markdown(self) -> None:
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
         step = publish.split("      - name: Record immutable digest\n", maxsplit=1)[1].split(
