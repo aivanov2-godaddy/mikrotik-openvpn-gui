@@ -144,6 +144,7 @@ DROP_PRIVILEGES=true
 TRUST_CLOUDFLARE=false
 TRUSTED_PROXY_SOURCES=<reverse-proxy-address-seen-by-dashboard>
 TRUSTED_PROXY_HEADER=X-Forwarded-For
+# Sanitize/append the client address at the proxy; see docs/EXPOSURE.md for chains.
 ACCESS_LAYER_LABEL=Direct HTTPS
 OVPN_PPP_PROFILE=<existing-ppp-profile>
 OVPN_SERVER_NAME=<existing-openvpn-server>

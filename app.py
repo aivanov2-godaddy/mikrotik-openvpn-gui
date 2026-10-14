@@ -595,10 +595,26 @@ def resolve_client_ip(
     trusted_proxy_sources: tuple[str, ...],
 ) -> str:
     if trusted_proxy_header and peer in trusted_proxy_sources:
+        if trusted_proxy_header == "X-Forwarded-For":
+            try:
+                # Resolve a standard proxy chain from the trusted server side:
+                # discard known hops, then use the nearest untrusted address.
+                forwarded = [
+                    ipaddress.ip_address(value.strip()).compressed
+                    for value in forwarded_header.split(",")
+                ]
+            except ValueError:
+                return peer
+            for address in reversed(forwarded):
+                if address not in trusted_proxy_sources:
+                    return address
+            return peer
         try:
-            return ipaddress.ip_address(forwarded_header.split(",", 1)[0].strip()).compressed
+            # Single-address proxy headers such as CF-Connecting-IP must not
+            # contain a forwarded chain.
+            return ipaddress.ip_address(forwarded_header.strip()).compressed
         except ValueError:
-            pass
+            return peer
     return peer
 
 
@@ -804,9 +820,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         peer = self.client_address[0]
         context = self.server.context
         header = context.config.trusted_proxy_header
+        forwarded_header = ""
+        if header:
+            forwarded_header = ", ".join(
+                value.strip() for value in (self.headers.get_all(header, []) or [])
+            )
         return resolve_client_ip(
             peer,
-            self.headers.get(header, "") if header else "",
+            forwarded_header,
             trusted_proxy_header=header,
             trusted_proxy_sources=context.config.trusted_proxy_sources,
         )

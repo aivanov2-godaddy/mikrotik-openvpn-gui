@@ -7566,6 +7566,18 @@ class RedirectTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 class ProxyTrustTests(unittest.TestCase):
+    def test_handler_combines_duplicate_forwarded_headers_before_proxy_resolution(self) -> None:
+        handler = DashboardHandler.__new__(DashboardHandler)
+        handler.client_address = ("192.0.2.10", 12345)
+        handler.server = mock.Mock()
+        handler.server.context.config.trusted_proxy_header = "X-Forwarded-For"
+        handler.server.context.config.trusted_proxy_sources = ("192.0.2.10",)
+        handler.headers = http.client.HTTPMessage()
+        handler.headers.add_header("X-Forwarded-For", "198.51.100.77")
+        handler.headers.add_header("X-Forwarded-For", "203.0.113.25")
+
+        self.assertEqual(handler._client_ip(), "203.0.113.25")
+
     def test_cloudflare_header_requires_the_expected_reverse_proxy(self) -> None:
         expected = resolve_client_ip(
             "192.0.2.1",
@@ -7585,24 +7597,59 @@ class ProxyTrustTests(unittest.TestCase):
             trusted_proxy_header="CF-Connecting-IP",
             trusted_proxy_sources=("192.0.2.1",),
         )
+        chained = resolve_client_ip(
+            "192.0.2.1",
+            "2001:db8::1, 2001:db8::2",
+            trusted_proxy_header="CF-Connecting-IP",
+            trusted_proxy_sources=("192.0.2.1",),
+        )
         self.assertEqual(expected, "2001:db8::1")
         self.assertEqual(spoofed, "198.51.100.50")
         self.assertEqual(invalid, "192.0.2.1")
+        self.assertEqual(chained, "192.0.2.1")
 
-    def test_direct_proxy_honors_only_first_x_forwarded_for_from_exact_peer(self) -> None:
+    def test_direct_proxy_resolves_x_forwarded_for_from_exact_peer(self) -> None:
         expected = resolve_client_ip(
             "192.0.2.10",
-            "203.0.113.50, 192.0.2.200",
+            "198.51.100.99, 203.0.113.50",
             trusted_proxy_header="X-Forwarded-For",
             trusted_proxy_sources=("192.0.2.10",),
         )
-        spoofed = resolve_client_ip(
-            "192.0.2.99",
+        single_hop = resolve_client_ip(
+            "192.0.2.10",
             "203.0.113.50",
             trusted_proxy_header="X-Forwarded-For",
             trusted_proxy_sources=("192.0.2.10",),
         )
+        malformed = resolve_client_ip(
+            "192.0.2.10",
+            "198.51.100.99, not-an-ip",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10",),
+        )
+        trusted_chain = resolve_client_ip(
+            "192.0.2.10",
+            "198.51.100.25, 192.0.2.20",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10", "192.0.2.20"),
+        )
+        all_trusted = resolve_client_ip(
+            "192.0.2.10",
+            "192.0.2.20",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10", "192.0.2.20"),
+        )
+        spoofed = resolve_client_ip(
+            "192.0.2.99",
+            "198.51.100.99, 203.0.113.50",
+            trusted_proxy_header="X-Forwarded-For",
+            trusted_proxy_sources=("192.0.2.10",),
+        )
         self.assertEqual(expected, "203.0.113.50")
+        self.assertEqual(single_hop, "203.0.113.50")
+        self.assertEqual(malformed, "192.0.2.10")
+        self.assertEqual(trusted_chain, "198.51.100.25")
+        self.assertEqual(all_trusted, "192.0.2.10")
         self.assertEqual(spoofed, "192.0.2.99")
 
 
