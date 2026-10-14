@@ -21,6 +21,11 @@ permissions:
 jobs:
   release:
     name: Validate and generate release notes
+    # Manual dispatch may select an arbitrary branch; keep the write-token job
+    # limited to the repository's default branch. Tag pushes remain the release path.
+    if: >-
+      github.event_name == 'push' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
