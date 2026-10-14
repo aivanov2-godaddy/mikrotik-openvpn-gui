@@ -147,6 +147,39 @@ class PromotionTests(unittest.TestCase):
                         promote({}, settings(), client=router, ready_probe=lambda *_: True, clock=lambda: NOW)
                 self.assertEqual(router.calls, [])
 
+    def test_staged_record_failures_before_deploy_cause_zero_router_writes(self) -> None:
+        for failure_call in (1, 2):
+            router = FakeRouterOS()
+            staged_record = patch(
+                "scripts.promote_routeros_release._verify_staged_record",
+                side_effect=[None, DeploymentError("staged record mismatch")]
+                if failure_call == 2
+                else DeploymentError("staged record mismatch"),
+            )
+            with (
+                patch("scripts.promote_routeros_release.evaluate", return_value=(0, deepcopy(REPORT))),
+                staged_record,
+            ):
+                with self.assertRaisesRegex(DeploymentError, "staged record mismatch"):
+                    promote({}, settings(), client=router, ready_probe=lambda *_: True, clock=lambda: NOW)
+            self.assertEqual(router.calls, [])
+
+    def test_each_predeployment_readiness_failure_causes_zero_router_writes(self) -> None:
+        for failed_url in (settings().canary_ready_url, settings().production_ready_url):
+            router = FakeRouterOS()
+
+            def probe(url: str, _revision: str, _timeout: float, _ca: str | None) -> bool:
+                return url != failed_url
+
+            with (
+                self.subTest(failed_url=failed_url),
+                patch("scripts.promote_routeros_release.evaluate", return_value=(0, deepcopy(REPORT))),
+                patch("scripts.promote_routeros_release._verify_staged_record"),
+            ):
+                with self.assertRaisesRegex(DeploymentError, "readiness"):
+                    promote({}, settings(), client=router, ready_probe=probe, clock=lambda: NOW)
+            self.assertEqual(router.calls, [])
+
     def test_check_only_verifies_without_mutating_router(self) -> None:
         router = FakeRouterOS()
         with (
