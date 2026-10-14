@@ -43,7 +43,7 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(has_capability("auditor", "users.manage"))
         self.assertFalse(has_capability("read_only", "audit.read"))
 
-    def test_every_role_matches_the_complete_declared_capability_matrix(self) -> None:
+    def test_every_role_matches_the_complete_declared_capability_set(self) -> None:
         """Require explicit review when a role gains or loses any capability."""
         capabilities = {
             "health.read", "users.read", "profiles.read", "sessions.read",
@@ -252,19 +252,21 @@ class SecurityTests(unittest.TestCase):
         )
         self.assertIsNone(changed_store.get(changed.session_id, now=116, touch=False))
 
-    def test_routeros_role_lookup_error_falls_back_to_read_only(self) -> None:
-        store = SessionStore()
-        session = store.create("admin", "router-secret", role="owner", now=100)
+    def test_routeros_role_lookup_error_revokes_session(self) -> None:
+        for role in ("owner", "read_only"):
+            with self.subTest(role=role):
+                store = SessionStore()
+                session = store.create("admin", "router-secret", role=role, now=100)
 
-        checked = store.revalidate_role(
-            session.session_id,
-            lambda _session: (_ for _ in ()).throw(RuntimeError("private RouterOS failure")),
-            now=116,
-        )
+                checked = store.revalidate_role(
+                    session.session_id,
+                    lambda _session: (_ for _ in ()).throw(RuntimeError("private RouterOS failure")),
+                    now=116,
+                )
 
-        self.assertIs(checked, session)
-        self.assertEqual(session.role, "read_only")
-        self.assertNotIn("private RouterOS failure", repr(checked))
+                self.assertIsNone(checked)
+                self.assertIsNone(store.get(session.session_id, now=116, touch=False))
+                self.assertNotIn("private RouterOS failure", repr(checked))
 
     def test_session_snapshot_is_safe_and_revoke_is_scoped(self) -> None:
         store = SessionStore(idle_seconds=60, absolute_seconds=600)

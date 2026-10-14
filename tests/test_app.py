@@ -2733,23 +2733,41 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(session_id.encode("ascii"), payload)
         self.assertNotIn(other_session.session_id.encode("ascii"), payload)
 
-    def test_routeros_role_lookup_failure_hides_admin_session_ids_from_api(self) -> None:
+    def test_routeros_role_lookup_failure_revokes_session_before_admin_sessions_response(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
         session = self.server.context.sessions.get(session_id, touch=False)
         self.assertIsNotNone(session)
         self.assertEqual(session.role, "owner")
 
-        # A failed role lookup cannot prove the former management capability.
+        # An unavailable role source cannot prove even read-only access.
         self.mock.state.admin_user_read_error = 503
+        self.server.context.sessions._role_checked_at[session_id] = 0
         status, _, payload = self.request("GET", "/api/admin/sessions")
 
-        self.assertEqual(status, 200, payload.decode("utf-8"))
-        self.assertEqual(session.role, "read_only")
-        response = json.loads(payload)
-        self.assertTrue(response["sessions"])
-        self.assertTrue(all(row["id"] == "" for row in response["sessions"]))
+        self.assertEqual(status, 401, payload.decode("utf-8"))
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertEqual(json.loads(payload), {"error": "Authentication required"})
         self.assertNotIn(session_id.encode("ascii"), payload)
+
+    def test_socketio_stream_revokes_session_when_routeros_role_lookup_fails(self) -> None:
+        self.login()
+        sid, cookie = self.connect_socketio_polling()
+        session_id = cookie.split("=", 1)[1]
+        self.mock.state.admin_user_read_error = 503
+        self.server.context.sessions._role_checked_at[session_id] = 0
+
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        )
+
+        self.assertEqual(status, 401)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+        self.assertNotIn(b"telemetry", payload)
 
     def test_admin_api_token_response_uses_metadata_only_allowlist(self) -> None:
         self.login()

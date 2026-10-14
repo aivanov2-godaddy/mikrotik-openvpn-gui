@@ -302,11 +302,11 @@ class RouterOSClient:
                     query={"name": credentials.username, ".proplist": "name,group,disabled"},
                 )
             )
-        except RouterOSError as error:
-            # A failed or unsupported privilege lookup must never grant Owner.
-            # Invalid credentials/account disablement revokes; other lookup
-            # failures retain only the least-privileged dashboard role.
-            return None if error.status == 401 else "read_only"
+        except RouterOSError:
+            # RouterOS is the identity and role source of truth. A failed role
+            # lookup cannot prove that this account is still enabled or entitled
+            # to even read-only telemetry, so revoke the established session.
+            return None
         record = next(
             (item for item in records if str(item.get("name", "")) == credentials.username),
             None,
