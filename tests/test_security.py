@@ -145,6 +145,23 @@ class SecurityTests(unittest.TestCase):
         self.assertIsNone(store.rotate(token_session.session_id, "new-secret", role="owner", now=201))
         self.assertIs(store.get(token_session.session_id, now=201, touch=False), token_session)
 
+    def test_session_rotation_fails_closed_at_idle_and_absolute_expiry_boundaries(self) -> None:
+        idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
+        idle_expiring = idle_store.create("idle-admin", "secret", now=100)
+        self.assertIsNone(
+            idle_store.rotate(idle_expiring.session_id, "new-secret", role="owner", now=110)
+        )
+        self.assertIsNone(idle_store.get(idle_expiring.session_id, now=110, touch=False))
+
+        absolute_store = SessionStore(idle_seconds=100, absolute_seconds=30)
+        absolute_expiring = absolute_store.create("absolute-admin", "secret", now=200)
+        self.assertIsNone(
+            absolute_store.rotate(
+                absolute_expiring.session_id, "new-secret", role="owner", now=230
+            )
+        )
+        self.assertIsNone(absolute_store.get(absolute_expiring.session_id, now=230, touch=False))
+
     def test_session_limit_is_per_account_and_expired_sessions_free_a_slot(self) -> None:
         store = SessionStore(
             idle_seconds=10,
@@ -194,13 +211,29 @@ class SecurityTests(unittest.TestCase):
         )
 
     def test_session_idle_and_absolute_expiry(self) -> None:
-        store = SessionStore(idle_seconds=10, absolute_seconds=30)
-        session = store.create("admin", "secret", now=100)
-        self.assertIsNotNone(store.get(session.session_id, now=109))
-        self.assertIsNone(store.get(session.session_id, now=120))
+        idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
+        idle_session = idle_store.create("idle-admin", "secret", now=100)
+        self.assertIs(idle_store.get(idle_session.session_id, now=109, touch=False), idle_session)
+        self.assertIsNone(idle_store.get(idle_session.session_id, now=110, touch=False))
 
-        session = store.create("admin", "secret", now=200)
-        self.assertIsNone(store.get(session.session_id, now=231))
+        absolute_store = SessionStore(idle_seconds=100, absolute_seconds=30)
+        absolute_session = absolute_store.create("absolute-admin", "secret", now=200)
+        self.assertIs(
+            absolute_store.get(absolute_session.session_id, now=229, touch=False),
+            absolute_session,
+        )
+        self.assertIsNone(absolute_store.get(absolute_session.session_id, now=230, touch=False))
+
+    def test_session_purge_expires_at_idle_and_absolute_boundaries(self) -> None:
+        idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
+        idle_session = idle_store.create("idle-admin", "secret", now=100)
+        self.assertEqual(idle_store.purge(now=110), 1)
+        self.assertIsNone(idle_store.get(idle_session.session_id, now=110, touch=False))
+
+        absolute_store = SessionStore(idle_seconds=100, absolute_seconds=30)
+        absolute_session = absolute_store.create("absolute-admin", "secret", now=200)
+        self.assertEqual(absolute_store.purge(now=230), 1)
+        self.assertIsNone(absolute_store.get(absolute_session.session_id, now=230, touch=False))
 
     def test_read_only_session_revalidation_does_not_extend_idle_timeout(self) -> None:
         store = SessionStore(idle_seconds=10, absolute_seconds=30)

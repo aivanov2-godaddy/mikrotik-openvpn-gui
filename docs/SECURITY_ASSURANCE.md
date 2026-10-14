@@ -26,12 +26,12 @@ external acceptance items.
 | ASVS 5.0.0 control | Status | Scoped finding and evidence |
 | --- | --- | --- |
 | V7.1.1 | PARTIAL | The 30-minute idle and 8-hour absolute defaults have a documented risk rationale and deterministic expiry tests. Independent validation remains outstanding. |
-| V7.1.2 | TESTED | At most eight active dashboard sessions are allowed per RouterOS account in this single-process deployment. A valid login above the limit is denied with HTTP 429 and recovery guidance; existing sessions are never evicted. Expired sessions are purged before admission. |
+| V7.1.2 | TESTED | At most eight active dashboard sessions are allowed per RouterOS account in this single-process deployment. A valid login above the limit is denied with HTTP 429 and recovery guidance; existing sessions are never evicted. Idle and absolute expiry are enforced at the exact deadline (`>=`) by session lookup, rotation, and purge tests; expired sessions are purged before admission. |
 | V7.1.3 | EXTERNAL | Cloudflare Access is an independent edge-authentication layer; its session lifetime/termination relationship to the app session has not been verified from deployment configuration. |
 | V7.2.1–V7.2.3 | TESTED | Backend reference-session validation and CSPRNG token generation are covered by `test_session_tokens_are_fresh_csprng_reference_values` and login-boundary tests. |
 | V7.2.4 | TESTED | A CSRF- and same-origin-protected re-authentication endpoint verifies the current account's RouterOS password, derives its current RouterOS group role, then atomically replaces the in-memory session and CSRF tokens and revokes the old reference. Failed verification leaves the session unchanged and uses the existing login rate limiter; no second password store is introduced. Session-store and integration tests cover rotation at the account session limit, old-cookie API rejection, current-capability enforcement, and stopping active SSE/Socket.IO delivery. This is deterministic repository evidence only; deployed proxy/router behavior and independent review remain unverified. |
-| V7.3.1–V7.3.2 | PARTIAL | The 30-minute idle and 8-hour absolute defaults, documented rationale, and in-process expiry/live-delivery behavior are tested. Production/proxy timing and Cloudflare Access coordination remain unverified. |
-| V7.4.1 | TESTED | Logout, expiry, and server-side revocation stop subsequent session use and live delivery in deterministic tests. A negative regression verifies missing/invalid logout CSRF tokens do not revoke the session. The active ASGI pump revalidates RouterOS-derived role changes before later frames, and SSE reconnect rejects revoked/expired sessions before RouterOS reads. The real Socket.IO polling regressions queue a synthetic event before each transition, then verify it is withheld and the subscription is cleaned up. This remains repository evidence, not a deployed-router timing result. |
+| V7.3.1–V7.3.2 | PARTIAL | The 30-minute idle and 8-hour absolute defaults, documented rationale, and in-process expiry/live-delivery behavior are tested, including equality at both expiry deadlines. Production/proxy timing and Cloudflare Access coordination remain unverified. |
+| V7.4.1 | TESTED | Logout, expiry, and server-side revocation stop subsequent session use and live delivery in deterministic tests. A negative regression verifies missing/invalid logout CSRF tokens do not revoke the session. The active ASGI pump revalidates RouterOS-derived role changes before later frames, and SSE reconnect rejects revoked/expired sessions before RouterOS reads. The real Socket.IO polling regressions queue a synthetic event before each transition, then verify it is withheld and the subscription is cleaned up. A repeated native Socket.IO namespace connect revalidates the cookie-bound server session; rejection emits `CONNECT_ERROR` and removes the namespace through python-socketio's connection handler. This remains repository evidence, not a deployed-router timing result. |
 | V7.4.2 | TESTED | Disabled/missing RouterOS account regressions revoke the corresponding existing dashboard session. |
 | V7.4.3 | N/A | The dashboard does not change authentication factors for its operator accounts; RouterOS credential/factor lifecycle is outside this app session-management scope. |
 | V7.4.4 | PARTIAL | A sign-out control is present in the shared authenticated header. There is no human usability evidence confirming visibility across every authenticated view. |
@@ -271,7 +271,11 @@ blanket pass for ASVS, OWASP, or production security.
 - Automated live-stream evidence covers the native ASGI Socket.IO WebSocket
   transport in a loopback integration test: an authenticated client receives a
   telemetry frame; revocation, expiry, or removal of `sessions.read` closes the
-  active namespace; and reconnect after revocation/expiry is rejected. Separate
+  active namespace; and reconnect after revocation/expiry is rejected. A
+  repeated namespace-connect regression verifies that a revoked bound session is
+  rejected with a Socket.IO `CONNECT_ERROR` and removed from the server manager.
+  Exact idle/absolute expiry equality is also covered across lookup, rotation,
+  and purge. Separate
   ASGI handshake tests reject foreign HTTP and WebSocket origins. CI installs
   the pinned runtime dependencies before the test suite, so these checks run
   rather than silently skipping there. This does not prove browser reconnect,
