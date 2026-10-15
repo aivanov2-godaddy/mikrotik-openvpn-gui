@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from integrations import RedisStreamPublisher
+from integrations import RedisStreamPublisher, WebhookDispatcher
 from store import MetadataStore
 
 
@@ -136,6 +136,47 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
     def _restart_redis(self) -> None:
         self._start_redis()
         self._wait_for_redis()
+
+    def _wait_until(self, predicate: Any, *, timeout: float = 15.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.05)
+        self.fail("condition was not satisfied before the deadline")
+
+    def test_background_dispatcher_recovers_and_drains_after_redis_restart(self) -> None:
+        self._stop_redis()
+        dispatcher = WebhookDispatcher(
+            None,
+            None,
+            store=self.store,
+            redis_publisher=self.publisher,
+            base_backoff=0.1,
+            max_backoff=0.1,
+            circuit_threshold=100,
+            max_outbox_attempts=100,
+        )
+        self.addCleanup(dispatcher.stop)
+
+        record = self._enqueue_event()
+        event_id = str(record["event_id"])
+        dispatcher.publish(record["payload"])
+
+        self._wait_until(lambda: dispatcher.metrics()["delivery_failures"] > 0)
+        self.assertEqual(self.store.integration_outbox_metrics()["pending"], 1)
+        self.assertEqual(self.client.xlen("vpn-dashboard.test.events"), 0)
+
+        self._restart_redis()
+        self._wait_until(lambda: self.store.integration_outbox_metrics()["pending"] == 0)
+
+        entries = self.client.xrange("vpn-dashboard.test.events")
+        self.assertEqual(len(entries), 1)
+        fields = entries[0][1]
+        self.assertEqual(fields["event_id"], event_id)
+        self.assertNotIn("must-not-escape", fields["payload"])
+        self.assertGreater(dispatcher.metrics()["delivery_successes"], 0)
+        self.assertEqual(self.publisher.metrics()["publish_successes"], 1)
 
     def test_outbox_survives_redis_restart_and_drains_without_leaking_secrets(self) -> None:
         record = self._enqueue_event()
