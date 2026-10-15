@@ -3008,6 +3008,61 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertGreater(allowed_count, 0)
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+        # A bearer token is intentionally not a browser session and has no
+        # CSRF secret. Even a token carrying every read scope must fail closed
+        # across every current write dispatch, including routes whose primary
+        # guard is RouterOS-session-specific.
+        viewer_token = "vpt_" + "w" * 48
+        store.create_api_token(
+            token_id="route-matrix-read-only",
+            token_hash=hashlib.sha256(viewer_token.encode("utf-8")).hexdigest(),
+            label="route matrix read-only principal",
+            actor="route-matrix-test",
+            capabilities=[
+                "health.read", "users.read", "profiles.read", "sessions.read",
+                "audit.read", "policies.read",
+            ],
+            expires_at=int(time.time()) + 3600,
+        )
+        bearer_headers = {
+            "Authorization": f"Bearer {viewer_token}",
+            "Content-Type": "application/json",
+            "Cookie": "",
+            "Origin": self.config.public_origin,
+            "X-CSRF-Token": "attacker-supplied-token",
+        }
+        status, _, payload = self.request(
+            "GET", "/api/service-health", headers=bearer_headers,
+        )
+        self.assertEqual(status, 200, payload.decode())
+
+        def non_audit_state_ignoring_token_touch() -> dict[str, Any]:
+            state = non_audit_state()
+            token_rows = state.get("api_tokens", [])
+            state["api_tokens"] = [
+                tuple((key, value) for key, value in dict(row).items() if key != "last_used_at")
+                for row in token_rows
+            ]
+            return state
+
+        before_bearer_denials = non_audit_state_ignoring_token_touch()
+        before_bearer_mutations = list(self.mock.state.mutation_requests)
+        for method, form, path, _, body in route_cases:
+            if method == "GET":
+                continue
+            with self.subTest(principal="read-only-api-token", method=method, form=form, path=path):
+                status, _, payload = self.request(
+                    method,
+                    path,
+                    body=json.dumps(body).encode(),
+                    headers=bearer_headers,
+                )
+                self.assertIn(status, (401, 403), payload.decode())
+                self.assertNotIn(b"routerpass", payload)
+                self.assertNotIn(viewer_token.encode(), payload)
+                self.assertEqual(non_audit_state_ignoring_token_touch(), before_bearer_denials)
+                self.assertEqual(self.mock.state.mutation_requests, before_bearer_mutations)
+
     def test_admin_session_response_fields_are_capability_gated_at_http_boundary(self) -> None:
         self.login()
         owner_cookie = self.cookie
