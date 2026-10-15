@@ -162,8 +162,9 @@ def evaluate_device_posture(
 ) -> list[dict[str, str]]:
     """Evaluate managed device certificates without changing RouterOS state.
 
-    An inventory match requires the exact certificate to be present, not
-    revoked, issued by the configured current CA, and known to be unexpired.
+    An inventory match requires the exact certificate identity (RouterOS ID
+    and fingerprint) to be present, not revoked, issued by the configured
+    current CA, and known to be unexpired.
     This is inventory evidence only; it does not establish CRL enforcement,
     active-session termination, or rejection by a live VPN reconnect.
     """
@@ -229,6 +230,12 @@ def evaluate_device_posture(
                         "Expiring soon",
                         f"{expiry_label}; issue and test a replacement before retiring this identity.",
                     )
+                elif not _certificate_identity_matches(device, certificate):
+                    state, label, reason = (
+                        "warning",
+                        "Needs review",
+                        "The stored RouterOS certificate ID or fingerprint does not match the current inventory.",
+                    )
                 else:
                     state, label, reason = (
                         "approved",
@@ -245,6 +252,27 @@ def evaluate_device_posture(
             }
         )
     return posture
+
+
+def _certificate_identity_matches(
+    device: dict[str, Any], certificate: dict[str, Any]
+) -> bool:
+    stored_id = str(device.get("certificate_id") or "").strip()
+    inventory_id = str(certificate.get("id") or "").strip()
+    stored_fingerprint = _normalize_certificate_fingerprint(device.get("fingerprint"))
+    inventory_fingerprint = _normalize_certificate_fingerprint(certificate.get("fingerprint"))
+    return bool(
+        stored_id
+        and inventory_id
+        and stored_id == inventory_id
+        and stored_fingerprint
+        and inventory_fingerprint
+        and stored_fingerprint == inventory_fingerprint
+    )
+
+
+def _normalize_certificate_fingerprint(value: Any) -> str:
+    return "".join(str(value or "").split()).replace(":", "").casefold()
 
 
 def _used_percent(free: Any, total: Any) -> int:

@@ -2,11 +2,14 @@
 
 The Device Profiles view evaluates dashboard-managed device metadata against
 the read-only RouterOS OpenVPN client-certificate inventory. An **Inventory
-match** means the exact named certificate was found, is not marked revoked,
-has a parseable expiry date in the future, and reports the configured current
-CA as issuer. Certificates expiring within 30 days are marked **Expiring
-soon**; expired, unknown-expiry, missing, revoked, legacy-issuer, or
-unverifiable-issuer records require review.
+match** means the named certificate was found and both its stored RouterOS ID
+and fingerprint match the inventory, it is not marked revoked, it has a
+parseable expiry date in the future, and it reports the configured current CA
+as issuer. A missing or changed ID/fingerprint requires review rather than
+assuming that a certificate with the same name is the same identity.
+Certificates expiring within 30 days are marked **Expiring soon**; expired,
+unknown-expiry, missing, revoked, legacy-issuer, or unverifiable-issuer
+records require review.
 
 For a dashboard-managed device with a known expiry within 30 days (or already
 expired), Device Profiles offers **Renew certificate**. This stages a new
