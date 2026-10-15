@@ -18,10 +18,12 @@ operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline candidate is PR #730; its immutable artifacts and CI provenance are
-recorded below. It includes the merged read-only device-posture guard that only
-reports an inventory match when both the stored RouterOS certificate ID and
-normalized fingerprint match. PR #728's pinned Python base-image registry
+mainline candidate is PR #741; its immutable artifacts and CI provenance are
+recorded below. It includes PR #740's automatic-poll session-expiry hardening
+and safe credential representation, plus PR #741's redaction of RouterOS
+upstream error details. Earlier merged work includes the read-only
+device-posture guard that requires both the stored RouterOS certificate ID and
+normalized fingerprint to match. PR #728's pinned Python base-image registry
 change is also part of this mainline history. The broader candidate highlights
 are stricter live-data field allowlists and session revalidation, serialized
 telemetry/session invalidation, safer staged certificate renewal, improved
@@ -56,11 +58,11 @@ verified live connect/disconnect rendering, snapshot recovery, changing
 traffic samples, and two simultaneous dashboard clients. Exact event-age,
 counter-reset, and Binary/REST parity evidence remains an operational
 follow-up. These were historical windows for earlier deployments and do not
-establish acceptance for the current PR #730 candidate. Release **v2.0.0**
+establish acceptance for the current PR #741 candidate. Release **v2.0.0**
 originally introduced read-only device posture checks while preserving the
 router-local data and immutable-image deployment model.
 
-PR #730's device-posture identity safeguard is included in the latest
+PR #730's device-posture identity safeguard remains included in the latest
 published candidate below. Publication does not establish RouterOS deployment
 or acceptance.
 
@@ -72,7 +74,53 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #730 — 2026-10-15
+### Latest published mainline candidate — PR #741 — 2026-10-15
+
+PR [#741](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/741)
+merged as `ec7b47e49ae74cfb50fc49142ed9f02be99fa0d9`. It prevents RouterOS
+HTTP error bodies and transport-specific exception strings from reaching
+authenticated API error responses while retaining safe HTTP status and typed
+timeout/TLS classification. Publisher run
+[#38706097408](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38706097408)
+passed source/security checks, compilation and tests, rendered
+browser/accessibility checks, ARM64 and AMD64 publication and runtime smoke,
+detached provenance and SPDX SBOM attestation verification, and stable-manifest
+publication/read-back. Provenance was verified for the exact published image
+digests and source commit.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-ec7b47e49ae74cfb50fc49142ed9f02be99fa0d9-arm64` | `sha256:f65908e4b993a32c22da0d6c865738df8579f46c6b4e928a8caf16628527e99f` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-ec7b47e49ae74cfb50fc49142ed9f02be99fa0d9-amd64` | `sha256:1071c74f4efb146b57096ab61b01a9875f42969ed67e119caa8d82139316943e` |
+
+The stable manifest read-back matched this source revision and its immutable
+architecture tags. These artifacts are published and CI-smoke-tested; they do
+not prove RouterOS hardware compatibility, deployment, or live acceptance. No
+new numbered release was created; v2.7.0 remains the latest formal version.
+
+### Previously published mainline candidate — PR #740 — 2026-10-15
+
+PR [#740](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/740)
+merged as `5fb793d67f519b14d41fb8a5ac0665480294967d`. Automatic requests to
+`/api/status` and `/api/certificate-settings` no longer touch the administrator
+session, preventing background polling from extending an idle session. RouterOS
+passwords are excluded from credential representations. Publisher run
+[#38704009698](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38704009698)
+passed source/security checks, compilation and tests, rendered
+browser/accessibility checks, ARM64 and AMD64 publication and runtime smoke,
+detached provenance and SPDX SBOM attestation verification, and stable-manifest
+publication/read-back.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5fb793d67f519b14d41fb8a5ac0665480294967d-arm64` | `sha256:9cc5e54a9460fe8dd64b9c8ce02dea5b95bd67984fbc3fe2d22c052064aace01` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5fb793d67f519b14d41fb8a5ac0665480294967d-amd64` | `sha256:fef4e71496804b27304a422bb64843be0a0d6a1822d4fe8051f7ecf892179c49` |
+
+These artifacts are published and CI-smoke-tested, but do not prove RouterOS
+deployment or live acceptance. No numbered release was created; v2.7.0 remains
+the latest formal version.
+
+### Previously published mainline candidate — PR #730 — 2026-10-15
 
 PR [#730](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/730)
 merged as `16c2590f815f31a1c72e78adf00d3cfce4a13162`. It hardens the
