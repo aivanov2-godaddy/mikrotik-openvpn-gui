@@ -346,8 +346,10 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
   and purge. Separate
   ASGI handshake tests reject foreign HTTP and WebSocket origins. CI installs
   the pinned runtime dependencies before the test suite, so these checks run
-  rather than silently skipping there. This does not prove browser reconnect,
-  proxy-origin behavior, or revocation timing on a physical router. The
+  rather than silently skipping there. A separate Playwright regression verifies
+  that a local browser's EventSource reconnect receives HTTP 401 after an
+  administrator revokes its session and emits no further telemetry frames; this
+  does not exercise the deployed proxy or a physical router. The
   application leaves python-engineio origin handling enabled; an empty
   allowed-origin list would disable that check and is intentionally not used.
 - Binary API supervisor and sampler tests also verify source-session revocation
@@ -369,8 +371,12 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
   It checks the same server-side session and capability before each telemetry
   write. When an `Origin` header is supplied, it now must match the
   configured dashboard origin before SSE performs RouterOS reads; clients that
-  omit the header still face the same session/capability checks. Real-browser
-  and reverse-proxy revocation timing remain untested.
+  omit the header still face the same session/capability checks. A loopback
+  integration regression also verifies an active SSE stream revalidates an
+  owner-to-read-only RouterOS role change while continuing the `sessions.read`
+  stream that the downgraded role is still authorized to receive. The local
+  Playwright reconnect check above does not establish behavior through the
+  deployed reverse proxy or revocation timing on a physical router.
 - The ASGI HTTP adapter shares the existing 64 KiB request-body bound. It rejects
   an oversized declared `Content-Length` before reading and enforces the same cap
   over actual ASGI chunks, including requests with malformed or absent length
