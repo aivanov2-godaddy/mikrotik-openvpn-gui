@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import re
 import unittest
 from pathlib import Path
 
@@ -9,6 +11,44 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSURANCE_DOCUMENT = ROOT / "docs" / "SECURITY_ASSURANCE.md"
 VALID_MATRIX_STATUSES = {"TESTED", "PARTIAL", "GAP", "N/A", "EXTERNAL"}
+SCOPED_ASVS_CONTROLS = frozenset(
+    {
+        "V7.1.1",
+        "V7.1.2",
+        "V7.1.3",
+        "V7.2.1–V7.2.3",
+        "V7.2.4",
+        "V7.3.1–V7.3.2",
+        "V7.4.1",
+        "V7.4.2",
+        "V7.4.3",
+        "V7.4.4",
+        "V7.4.5",
+        "V7.5.1",
+        "V7.5.2",
+        "V7.5.3",
+        "V7.6.1",
+        "V7.6.2",
+        "V8.1.1",
+        "V8.1.2",
+        "V8.1.3–V8.1.4",
+        "V8.2.1",
+        "V8.2.2",
+        "V8.2.3",
+        "V8.2.4",
+        "V8.3.1",
+        "V8.3.2",
+        "V8.3.3",
+        "V8.4.1",
+        "V8.4.2",
+        "V4.4.1",
+        "V4.4.2",
+        "V4.4.3–V4.4.4",
+    }
+)
+TEST_REFERENCE = re.compile(
+    r"(tests/[A-Za-z0-9_./]+\.py)::([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+)
 
 
 def _markdown_cells(row: str) -> list[str]:
@@ -32,6 +72,27 @@ def _assurance_matrix(document: str) -> list[list[str]]:
             continue
         table.append(cells)
     return table
+
+
+def _has_definition(node: ast.AST, names: list[str]) -> bool:
+    if not names:
+        return True
+    if len(names) == 1:
+        # Some evidence references use the module-qualified shorthand for a
+        # unittest method; accept it only if that named test exists exactly
+        # once somewhere in the module's class/function tree.
+        matches = [
+            child
+            for child in ast.walk(node)
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name == names[0]
+        ]
+        return len(matches) == 1
+    body = getattr(node, "body", ())
+    for child in body:
+        if isinstance(child, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if child.name == names[0] and _has_definition(child, names[1:]):
+                return True
+    return False
 
 
 class SecurityAssuranceDocumentContractTests(unittest.TestCase):
@@ -66,6 +127,35 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
                 self.assertTrue(row[0], "control identifier must be present")
                 self.assertIn(row[1], VALID_MATRIX_STATUSES)
                 self.assertTrue(row[2], "each matrix status must have scoped evidence")
+
+    def test_scoped_asvs_matrix_covers_its_declared_control_set(self) -> None:
+        matrix = _assurance_matrix(self.document)
+        actual_controls = {row[0] for row in matrix[1:]}
+        self.assertEqual(actual_controls, SCOPED_ASVS_CONTROLS)
+
+    def test_documented_test_references_resolve_to_existing_test_nodes(self) -> None:
+        code_spans = re.findall(r"`([^`]+)`", self.document, flags=re.DOTALL)
+        references = {
+            match
+            for span in code_spans
+            for match in TEST_REFERENCE.findall(re.sub(r"\s+", "", span))
+        }
+        self.assertTrue(references, "assurance document should cite automated test evidence")
+
+        for relative_path, qualified_name in sorted(references):
+            with self.subTest(reference=f"{relative_path}::{qualified_name}"):
+                test_path = (ROOT / Path(relative_path)).resolve()
+                test_root = (ROOT / "tests").resolve()
+                self.assertTrue(
+                    test_path.is_relative_to(test_root),
+                    f"referenced test path escapes tests/: {relative_path}",
+                )
+                self.assertTrue(test_path.is_file(), f"missing referenced test file: {relative_path}")
+                module = ast.parse(test_path.read_text(encoding="utf-8"), filename=relative_path)
+                self.assertTrue(
+                    _has_definition(module, qualified_name.split(".")),
+                    f"missing referenced test node: {relative_path}::{qualified_name}",
+                )
 
     def test_status_definitions_do_not_treat_partial_or_external_as_passes(self) -> None:
         for status in VALID_MATRIX_STATUSES:
