@@ -95,9 +95,10 @@ fields `id_hash`, `username`, `role`, `created_at`, `last_seen`, `idle_seconds`,
 `auth_method`, and `current`; the `id` field is empty unless the caller also
 has `session.manage`. Before disclosure to a RouterOS-authenticated session,
 the server forces a fresh RouterOS role check rather than relying on the
-ordinary role-cache interval. If RouterOS cannot confirm the role, the session
-is reduced to the safe read-only capability set; if the account is unavailable,
-the session is revoked. The dashboard reuses that fresh role snapshot for other
+ordinary role-cache interval. A failed RouterOS lookup or a missing/disabled
+account revokes the session; only an enabled account with a missing or
+unrecognized group is reduced to the safe read-only capability set. The
+dashboard reuses that fresh role snapshot for other
 sensitive projections in the same response. Query parameters do not change the
 decision. The endpoint omits passwords and CSRF tokens. Regression coverage
 verifies the exact response keys for a `sessions.read`-only API token and an
