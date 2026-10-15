@@ -1470,7 +1470,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         # read_only retains sessions.read. It must still be revalidated by the
         # real RouterOS-derived role resolver while the polling stream is open.
         self.mock.state.admin_group = "read"
-        self.server.context.sessions._role_checked_at[session_id] = 0
+        self.server.context.sessions._role_checked_monotonic[session_id] = 0
         status, _, packet = self.request(
             "GET",
             f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
@@ -1487,7 +1487,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         # A now-disabled RouterOS account must lose its established stream on
         # the next poll, and the gateway subscription must be released.
         self.mock.state.admin_disabled = True
-        self.server.context.sessions._role_checked_at[session_id] = 0
+        self.server.context.sessions._role_checked_monotonic[session_id] = 0
         status, _, payload = self.request(
             "GET",
             f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
@@ -1690,7 +1690,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             if sleep_calls == 1:
                 # Expire the cached RouterOS role while the SSE response stays open.
                 self.mock.state.admin_group = "read"
-                self.server.context.sessions._role_checked_at[session_id] = 0
+                self.server.context.sessions._role_checked_monotonic[session_id] = 0
                 return
             raise RouterOSError("end test stream after role revalidation")
 
@@ -1941,7 +1941,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             status, _, payload = self.request("GET", "/api/status")
             session_id = self.cookie.split("=", 1)[1]
             self.mock.state.admin_group = "read"
-            self.server.context.sessions._role_checked_at[session_id] = 0
+            self.server.context.sessions._role_checked_monotonic[session_id] = 0
             read_status, _, read_payload = self.request("GET", "/api/observability")
 
         self.assertEqual(status, 200)
@@ -3384,7 +3384,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         # An unavailable role source cannot prove even read-only access.
         self.mock.state.admin_user_read_error = 503
-        self.server.context.sessions._role_checked_at[session_id] = 0
+        self.server.context.sessions._role_checked_monotonic[session_id] = 0
         status, _, payload = self.request("GET", "/api/admin/sessions")
 
         self.assertEqual(status, 401, payload.decode("utf-8"))
@@ -3397,7 +3397,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         sid, cookie = self.connect_socketio_polling()
         session_id = cookie.split("=", 1)[1]
         self.mock.state.admin_user_read_error = 503
-        self.server.context.sessions._role_checked_at[session_id] = 0
+        self.server.context.sessions._role_checked_monotonic[session_id] = 0
 
         status, _, payload = self.request(
             "GET",
@@ -4160,7 +4160,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
 
         self.mock.state.admin_group = "read"
-        self.server.context.sessions._role_checked_at[session_id] = 0
+        self.server.context.sessions._role_checked_monotonic[session_id] = 0
         status, _, payload = self.request("GET", "/api/observability", headers={"Cookie": self.cookie})
 
         self.assertEqual(status, 200)
@@ -4279,7 +4279,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         session_id = self.cookie.split("=", 1)[1]
         self.mock.state.admin_disabled = True
-        self.server.context.sessions._role_checked_at[session_id] = 0
+        self.server.context.sessions._role_checked_monotonic[session_id] = 0
 
         principal = self.server.telemetry_runtime.principal_for_session(session_id)
 

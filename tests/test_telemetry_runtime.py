@@ -11,7 +11,7 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
     def test_live_stream_role_downgrade_is_applied_at_15_second_cache_deadline(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         sessions = SessionStore()
-        clock = {"now": 100.0}
+        clock = {"now": 100.0, "monotonic": 100.0}
         routeros_state = {"role": "owner"}
         role_checks = []
 
@@ -19,7 +19,10 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
             role_checks.append(clock["now"])
             return routeros_state["role"]
 
-        with patch("security.time.time", side_effect=lambda: clock["now"]):
+        with (
+            patch("security.time.time", side_effect=lambda: clock["now"]),
+            patch("security.time.monotonic", side_effect=lambda: clock["monotonic"]),
+        ):
             session = sessions.create(
                 "router-user", "router-password", role="owner", now=clock["now"]
             )
@@ -36,12 +39,14 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
 
             # A warm cache is permitted only within the documented bound.
             clock["now"] = 114.999
+            clock["monotonic"] = 114.999
             self.assertIs(runtime.revalidate_session(session.session_id), session)
             self.assertEqual(role_checks, [])
 
             # At the 15-second boundary, the RouterOS-derived downgrade takes
             # effect before another live authorization check can pass.
             clock["now"] = 115.0
+            clock["monotonic"] = 115.0
             self.assertIs(runtime.revalidate_session(session.session_id), session)
             self.assertEqual(session.role, "read_only")
             self.assertEqual(role_checks, [115.0])
