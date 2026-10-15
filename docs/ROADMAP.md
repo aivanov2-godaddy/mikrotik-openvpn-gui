@@ -4,10 +4,10 @@ The goal is a polished, reliable, and secure self-hosted OpenVPN management GUI
 for MikroTik RouterOS. The product is single-project/single-router; **multi-
 tenant architecture is explicitly out of scope**.
 
-This public roadmap tracks merged product work and remaining acceptance gates.
-It contains no router deployment assignments, live measurements, user/session
-data, private origins, or raw operational logs. Those belong in
-operator-controlled records.
+This public roadmap tracks merged product work and a redacted summary of
+remaining acceptance gates. It contains no router addresses or names,
+user/session data, private origins, credentials, or raw operational logs.
+Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
@@ -20,8 +20,15 @@ completed successfully, including source/security checks, compilation, tests,
 rendered browser/accessibility checks, ARM64/AMD64 image builds and smoke tests,
 detached provenance and SPDX SBOM attestation verification, and stable-manifest
 read-back. Immutable image digests and provenance metadata are recorded in
-[`RELEASES.md`](RELEASES.md). Publication does not prove RouterOS deployment or
-acceptance. No canary or production promotion is claimed here.
+[`RELEASES.md`](RELEASES.md). A point-in-time RouterOS read-back now confirms
+the ARM64 candidate tag on the isolated canary and reports its health check as
+healthy. This is deployment/startup evidence only, not acceptance. The
+unauthenticated canary edge probe reached the access gate with valid TLS, but
+no authenticated readiness check was completed. RouterOS showed zero active
+VPN sessions, so live event latency/freshness, reconnect, snapshot recovery,
+and traffic-dependent delivery remain unverified. Production was not changed
+and remains on its previous image. No canary acceptance or production
+promotion is claimed here.
 
 The next formal release remains gated on candidate-specific canary acceptance
 and the security review below. Do not create or publish v2.8.0 until the gates

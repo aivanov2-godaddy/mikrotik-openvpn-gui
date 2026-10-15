@@ -25,20 +25,45 @@ provenance/SBOM attestation verification, and stable-manifest publication and
 read-back. This candidate includes PR #730's read-only device-posture identity
 guard, PR #740's automatic-poll session-expiry hardening, PR #741's RouterOS
 error redaction, and PR #745's session preservation when initial interface
-counters are incomplete. These are publication/CI results, not evidence that
-the candidate is deployed on RouterOS or has passed live acceptance.
-Candidate deployment state and live measurements are kept in
-operator-controlled records, not in this public guide. A point-in-time
-deployment observation does not substitute for the controlled acceptance
-window below. Candidate-matched latency/freshness, recovery, event integrity,
-Redis delivery, resource soak, restore, and rollback remain unverified. No
-canary or production promotion is claimed. Older observations are historical
-and do not establish acceptance for PR #745.
+counters are incomplete. These are publication/CI results. The current
+deployment checkpoint below records the limited RouterOS evidence separately;
+it is not a substitute for the controlled acceptance window. Older
+observations are historical and do not establish acceptance for PR #745.
 
-First read back PR #745's exact configured immutable tag and health on the
-canary, then run the pre-promotion collector for that candidate. Do not promote
-until the report passes and rollback has been rehearsed. No resource minimum or
-cross-model/version certification is inferred. See the
+## Current deployment checkpoint — 2026-10-15
+
+The isolated canary was updated to the exact ARM64 candidate tag listed above.
+RouterOS read-back confirmed that tag and reported `healthy=true`. The
+previous canary tag was
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-6dd53022523766a5371628dfe158286072494bf4-arm64`;
+it is the rollback target for this canary only. The production container and
+its data were not changed. RouterOS reports the candidate tag, not a local OCI
+digest; the published digest above is bound to the tag by the verified
+publisher workflow.
+
+One immediate post-start resource sample showed 0% CPU and 40,116,224 bytes
+(about 38.3 MiB) of canary memory. This is a single snapshot, not a resource
+soak or capacity result. An unauthenticated request to the canary edge returned
+HTTP 302 with TLS verification successful, consistent with the configured
+access gate; this does not verify an authenticated dashboard session or
+application readiness. The active VPN session count was zero at the RouterOS
+check. Consequently, session-event latency, traffic freshness, connect and
+disconnect delivery, reconnect/snapshot recovery, and Redis delivery under
+live traffic were not measured. SQLite restore and canary rollback were not
+rehearsed in this checkpoint.
+
+**Result: deployment/startup check passed; candidate acceptance remains
+incomplete. Do not promote this candidate to production on the strength of this
+checkpoint.** The controlled, candidate-matched acceptance window below must
+still collect its required samples and recovery evidence. Keep exact router
+addresses, credentials, session details, and raw logs in private
+operator-controlled records.
+
+For each new acceptance run, read back PR #745's exact configured immutable tag
+and health on the canary, then run the pre-promotion collector for that
+candidate. Do not promote until the report passes and rollback has been
+rehearsed. No resource minimum or cross-model/version certification is
+inferred. See the
 [current release record](RELEASES.md#published-images).
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
