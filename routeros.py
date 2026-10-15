@@ -12,7 +12,7 @@ import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -36,7 +36,7 @@ class RouterOSError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class RouterOSCredentials:
     username: str
-    password: str
+    password: str = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
