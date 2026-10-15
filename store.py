@@ -1461,15 +1461,29 @@ class MetadataStore:
                 )
             }
             for session_id, item in incoming.items():
+                if item.get("counter_complete") is False:
+                    previous = open_rows.get(session_id)
+                    counters = (
+                        tuple(
+                            int(previous.get(field, 0) or 0)
+                            for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets")
+                        )
+                        if previous is not None
+                        else (0, 0, 0, 0)
+                    )
+                else:
+                    counters = (
+                        int(item.get("rx_bytes", 0) or 0),
+                        int(item.get("tx_bytes", 0) or 0),
+                        int(item.get("rx_packets", 0) or 0),
+                        int(item.get("tx_packets", 0) or 0),
+                    )
                 values = (
                     str(item.get("source_address", "")),
                     str(item.get("vpn_address", "")),
                     str(item.get("encoding", "")),
                     observed_at,
-                    int(item.get("rx_bytes", 0) or 0),
-                    int(item.get("tx_bytes", 0) or 0),
-                    int(item.get("rx_packets", 0) or 0),
-                    int(item.get("tx_packets", 0) or 0),
+                    *counters,
                 )
                 if session_id in open_rows:
                     connection.execute(

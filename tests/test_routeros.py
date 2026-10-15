@@ -897,6 +897,7 @@ class RouterOSClientTests(unittest.TestCase):
             self.assertEqual(len(sessions), 1)
             active = sessions[0]
             self.assertEqual(active["name"], "user-two")
+            self.assertEqual(active["id"], "*A1")
             self.assertEqual(active["source_address"], "198.51.100.40")
             self.assertEqual(active["vpn_address"], "198.18.0.48")
             self.assertEqual(active["interface"], "<ovpn-user-two>")
@@ -904,9 +905,52 @@ class RouterOSClientTests(unittest.TestCase):
             self.assertEqual(active["tx_bytes"], 192455)
             self.assertEqual(active["rx_packets"], 387)
             self.assertEqual(active["tx_packets"], 825)
+            self.assertTrue(active["counter_complete"])
 
             client.terminate_session(credentials, session_id=active["id"])
             self.assertEqual(client.list_active_ovpn_sessions(credentials), [])
+
+    def test_active_session_identity_survives_interface_counter_read_failure(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def fail_interface_counters(method, path, *args, **kwargs):
+                if method == "GET" and path == "/interface":
+                    raise RouterOSError("injected interface-counter read failure")
+                return request(method, path, *args, **kwargs)
+
+            with patch.object(client, "_request", side_effect=fail_interface_counters):
+                sessions = client.list_active_ovpn_sessions(credentials)
+
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["name"], "user-two")
+        self.assertEqual(sessions[0]["id"], "*A1")
+        self.assertEqual(sessions[0]["source_address"], "198.51.100.40")
+        self.assertEqual(sessions[0]["vpn_address"], "198.18.0.48")
+        self.assertFalse(sessions[0]["counter_complete"])
+        self.assertEqual(sessions[0]["rx_bytes"], 0)
+        self.assertEqual(sessions[0]["tx_bytes"], 0)
+
+    def test_malformed_interface_counter_is_marked_incomplete(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            request = client._request
+
+            def malformed_rx_counter(method, path, *args, **kwargs):
+                result = request(method, path, *args, **kwargs)
+                if method == "GET" and path == "/interface":
+                    return [{**result[0], "rx-byte": "not-a-counter"}]
+                return result
+
+            with patch.object(client, "_request", side_effect=malformed_rx_counter):
+                sessions = client.list_active_ovpn_sessions(credentials)
+
+        self.assertEqual(len(sessions), 1)
+        self.assertFalse(sessions[0]["counter_complete"])
+        self.assertEqual(sessions[0]["rx_bytes"], 0)
 
     def test_bad_credentials(self) -> None:
         with MockRouterOS() as mock:

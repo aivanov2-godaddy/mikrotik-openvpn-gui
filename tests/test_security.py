@@ -744,6 +744,71 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(set(timeline[0]), {"id", "vpn_user", "connected_at", "disconnected_at"})
             self.assertEqual(store.recent_connection_timeline(10, start_at=1021, end_at=1030), [])
 
+    def test_connection_history_preserves_counters_when_observation_is_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            session = {
+                "id": "*A1", "name": "user-two", "source_address": "198.51.100.8",
+                "vpn_address": "10.8.0.48", "encoding": "AES-256-GCM", "uptime": "1m30s",
+                "rx_bytes": 100, "tx_bytes": 200, "rx_packets": 3, "tx_packets": 4,
+                "counter_complete": True,
+            }
+            store.observe_sessions([session], now=1000)
+
+            store.observe_sessions(
+                [{**session, "rx_bytes": "unavailable", "tx_bytes": "unavailable",
+                  "rx_packets": "unavailable", "tx_packets": "unavailable",
+                  "counter_complete": False}],
+                now=1010,
+            )
+            row = store.recent_connections(1)[0]
+            self.assertEqual(
+                (row["rx_bytes"], row["tx_bytes"], row["rx_packets"], row["tx_packets"]),
+                (100, 200, 3, 4),
+            )
+            self.assertEqual(row["last_seen_at"], 1010)
+
+            store.observe_sessions(
+                [{**session, "rx_bytes": 150, "tx_bytes": 250, "rx_packets": 5, "tx_packets": 6}],
+                now=1020,
+            )
+            row = store.recent_connections(1)[0]
+            self.assertEqual(
+                (row["rx_bytes"], row["tx_bytes"], row["rx_packets"], row["tx_packets"]),
+                (150, 250, 5, 6),
+            )
+
+    def test_connection_history_starts_incomplete_observation_with_zero_counters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = MetadataStore(str(Path(temporary) / "dashboard.sqlite"))
+            session = {
+                "id": "*A2", "name": "user-three", "source_address": "198.51.100.9",
+                "vpn_address": "10.8.0.49", "encoding": "AES-256-GCM", "uptime": "5s",
+                "rx_bytes": "unavailable", "tx_bytes": "unavailable",
+                "rx_packets": "unavailable", "tx_packets": "unavailable",
+                "counter_complete": False,
+            }
+
+            store.observe_sessions([session], now=2000)
+            row = store.recent_connections(1)[0]
+            self.assertEqual(
+                (row["rx_bytes"], row["tx_bytes"], row["rx_packets"], row["tx_packets"]),
+                (0, 0, 0, 0),
+            )
+            self.assertEqual(row["last_seen_at"], 2000)
+            self.assertIsNone(row["disconnected_at"])
+
+            store.observe_sessions(
+                [{**session, "rx_bytes": 25, "tx_bytes": 35, "rx_packets": 2, "tx_packets": 3,
+                  "counter_complete": True}],
+                now=2010,
+            )
+            row = store.recent_connections(1)[0]
+            self.assertEqual(
+                (row["rx_bytes"], row["tx_bytes"], row["rx_packets"], row["tx_packets"]),
+                (25, 35, 2, 3),
+            )
+
     def test_alert_recurrence_migrates_existing_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "legacy.sqlite"
