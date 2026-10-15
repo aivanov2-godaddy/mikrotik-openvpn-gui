@@ -169,7 +169,10 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
 
             self._wait_until(lambda: dispatcher.metrics()["delivery_failures"] > 0)
             self.assertEqual(self.store.integration_outbox_metrics()["pending"], 1)
-            self.assertEqual(self.client.xlen("vpn-dashboard.test.events"), 0)
+            # Redis is deliberately stopped here, so assert the process-local
+            # publisher counter instead of issuing a command to the unavailable
+            # server. The stream length is checked after recovery below.
+            self.assertEqual(self.publisher.metrics()["publish_successes"], 0)
 
             self._restart_redis()
             self._wait_until(lambda: self.store.integration_outbox_metrics()["pending"] == 0)
