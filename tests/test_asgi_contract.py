@@ -19,6 +19,52 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    def test_socketio_asgi_rejects_duplicate_origins_for_http_and_websocket(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        async def exercise() -> None:
+            delegated: list[str] = []
+
+            async def inner(scope, _receive, _send) -> None:
+                delegated.append(scope["type"])
+
+            application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(object()))
+            origin_pairs = (
+                (b"https://vpn.example.test", b"https://attacker.example"),
+                (b"https://attacker.example", b"https://vpn.example.test"),
+                (b"https://vpn.example.test", b"https://vpn.example.test"),
+            )
+            for scope_type in ("http", "websocket"):
+                for first, second in origin_pairs:
+                    messages: list[dict[str, object]] = []
+
+                    async def receive() -> dict[str, object]:
+                        return {"type": "http.request", "body": b"", "more_body": False}
+
+                    async def send(message: dict[str, object]) -> None:
+                        messages.append(message)
+
+                    scope = {
+                        "type": scope_type,
+                        "path": "/socket.io/",
+                        "headers": [(b"origin", first), (b"origin", second)],
+                    }
+                    await application(scope, receive, send)
+                    self.assertEqual(delegated, [])
+                    if scope_type == "http":
+                        response = next(
+                            message for message in messages
+                            if message["type"] == "http.response.start"
+                        )
+                        self.assertEqual(response["status"], 403)
+                    else:
+                        self.assertEqual(
+                            [message["type"] for message in messages],
+                            ["websocket.close"],
+                        )
+
+        asyncio.run(exercise())
+
     def test_native_websocket_preserves_telemetry_redaction_allowlists(self) -> None:
         if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
             self.skipTest("native WebSocket runtime dependencies are not installed")
@@ -2426,6 +2472,29 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(response, {"protocol_version": 2, "frames": []})
         self.assertEqual(native._events_emitted_total, 1)
         self.assertEqual(native.server.disconnected, [("socket-subscribe", "/telemetry")])
+
+    def test_http_adapter_preserves_duplicate_origin_fields_for_handler(self) -> None:
+        request = DashboardHTTPASGI._request_bytes(
+            {
+                "method": "GET",
+                "raw_path": b"/api/events",
+                "headers": [
+                    (b"origin", b"https://vpn.example.test"),
+                    (b"origin", b"https://attacker.example"),
+                ],
+            },
+            b"",
+        )
+        header_block = request.split(b"\r\n", 1)[1].split(b"\r\n\r\n", 1)[0]
+        parsed_headers = Message()
+        for line in header_block.split(b"\r\n"):
+            name, value = line.split(b":", 1)
+            parsed_headers[name.decode("latin-1")] = value.strip().decode("latin-1")
+
+        self.assertEqual(
+            parsed_headers.get_all("Origin"),
+            ["https://vpn.example.test", "https://attacker.example"],
+        )
 
     def test_http_adapter_preserves_cookie_and_body_without_hop_by_hop_headers(self) -> None:
         request = DashboardHTTPASGI._request_bytes(

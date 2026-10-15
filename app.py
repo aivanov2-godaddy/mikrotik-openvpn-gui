@@ -2412,7 +2412,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._bytes(b"ok", content_type="text/plain; charset=UTF-8", extra={"Cache-Control": "no-store"})
 
     def _reject_socketio_origin(self, *, require_origin: bool) -> bool:
-        origin = self.headers.get("Origin")
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            self._json(
+                {"error": "Socket.IO polling origin is not allowed"},
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return True
+        origin = origins[0] if origins else None
         if origin is None and not require_origin:
             return False
         if origin is not None and _same_origin(origin, self.server.context.public_origin):
@@ -2430,7 +2437,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         compatible. Those callers still need the authenticated RouterOS
         session and sessions.read capability enforced by ``_events``.
         """
-        origin = self.headers.get("Origin")
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            self._json(
+                {"error": "Live events origin is not allowed"},
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return True
+        origin = origins[0] if origins else None
         if origin is None or _same_origin(origin, self.server.context.public_origin):
             return False
         self._json(

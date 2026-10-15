@@ -642,6 +642,18 @@ class SocketIOLiveSendASGI:
             await self.app(scope, receive, send)
             return
 
+        origin_count = sum(
+            1
+            for key, _value in scope.get("headers", [])
+            if bytes(key).lower() == b"origin"
+        )
+        if origin_count > 1:
+            if scope_type == "websocket":
+                await self._reject_websocket(send)
+            else:
+                await self._reject_http(send)
+            return
+
         session_id = _session_id(scope)
         has_sid, engine_sid, valid_query = self._engine_sid_from_scope(scope)
         if not valid_query or (has_sid and (
