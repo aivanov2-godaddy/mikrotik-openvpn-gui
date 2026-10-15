@@ -14,17 +14,18 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#741, commit `ec7b47e49ae74cfb50fc49142ed9f02be99fa0d9`, published by
-[workflow run #38706097408](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38706097408).
+#745, commit `ad3cd3df72ea8a6dbb08e3a7b5ac0e97d19a5ed6`, published by
+[workflow run #38720533595](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38720533595).
 Its ARM64 registry digest is
-`sha256:f65908e4b993a32c22da0d6c865738df8579f46c6b4e928a8caf16628527e99f`
+`sha256:4b3a0fbf6ad3943ce05bbd256f3d2930e2fa89808ccded46779066a484b6b66e`
 and its AMD64 registry digest is
-`sha256:1071c74f4efb146b57096ab61b01a9875f42969ed67e119caa8d82139316943e`.
+`sha256:95a447476d82c4663fb4ba7cf7aef44da2ff7f4c4999ba988f58a30c51a81f5a`.
 Both architectures passed published-runtime smoke tests, detached
 provenance/SBOM attestation verification, and stable-manifest publication and
 read-back. This candidate includes PR #730's read-only device-posture identity
-guard, PR #740's automatic-poll session-expiry hardening, and PR #741's
-RouterOS error redaction. These are publication/CI results, not evidence that
+guard, PR #740's automatic-poll session-expiry hardening, PR #741's RouterOS
+error redaction, and PR #745's session preservation when initial interface
+counters are incomplete. These are publication/CI results, not evidence that
 the candidate is deployed on RouterOS or has passed live acceptance.
 Candidate deployment state and live measurements are kept in
 operator-controlled records, not in this public guide. A point-in-time
@@ -32,9 +33,9 @@ deployment observation does not substitute for the controlled acceptance
 window below. Candidate-matched latency/freshness, recovery, event integrity,
 Redis delivery, resource soak, restore, and rollback remain unverified. No
 canary or production promotion is claimed. Older observations are historical
-and do not establish acceptance for PR #741.
+and do not establish acceptance for PR #745.
 
-First read back PR #741's exact configured immutable tag and health on the
+First read back PR #745's exact configured immutable tag and health on the
 canary, then run the pre-promotion collector for that candidate. Do not promote
 until the report passes and rollback has been rehearsed. No resource minimum or
 cross-model/version certification is inferred. See the

@@ -46,6 +46,9 @@ semantic-version style release tags.
 
 ### Fixed
 
+- Preserve active VPN sessions when the initial RouterOS interface-counter
+  observation is incomplete; initialize history totals to zero until complete
+  counters arrive.
 - Preflight RouterOS release-journal create, multiline update, and read-back
   before changing canary, with a clear failure before the readiness soak.
 - Keep the live-telemetry indicator governed by recent stream snapshots instead
