@@ -29,7 +29,7 @@ of private measurements.
 | Gate | Required result | Public status |
 | --- | --- | --- |
 | Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Partial: a readiness-only probe passed 30 one-minute samples for revision `6dd53022523766a5371628dfe158286072494bf4`; record the running digest and full acceptance evidence privately |
-| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not yet measured for the candidate |
+| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Failed in this observation: RouterOS reported zero active test sessions after disconnect, while the open canary page still showed a stale connected snapshot and delayed status; exact event latency and reconnect remain unmeasured |
 | Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not yet measured for the candidate |
 | Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not yet measured for the candidate |
 | Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not yet measured for the candidate |
@@ -52,6 +52,13 @@ at 60-second intervals, each reporting revision
 and revision reporting only; it does not establish live-event freshness,
 session reconnect or snapshot recovery, resource impact, Redis/SQLite recovery,
 rollback, or deployed security acceptance.
+
+A separate 2026-10-15 canary check found stale session presentation after an
+operator-initiated test-session disconnect: RouterOS reported zero matching
+active sessions, while the already-open canary dashboard continued to show its
+last-known connected snapshot and delayed status. This is a failed freshness
+observation, not a measured latency value; the cause, automatic client
+reconnect, and snapshot recovery remain unverified.
 
 ## Collection
 
