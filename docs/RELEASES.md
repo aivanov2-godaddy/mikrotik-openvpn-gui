@@ -18,13 +18,15 @@ operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline runtime candidate is PR #720; its changes and immutable artifacts are
-recorded below, but candidate-specific RouterOS acceptance remains open. The
-broader candidate highlights are stricter live-data field allowlists and
-session revalidation, serialized telemetry/session invalidation, safer staged
+mainline candidate is PR #728; its immutable artifacts and CI provenance are
+recorded below. PR #728 changes the pinned Python base-image registry source
+while preserving the exact upstream manifest digest, avoiding the ECR data-limit
+failure without intentionally changing application behavior. The broader
+candidate highlights are stricter live-data field allowlists and session
+revalidation, serialized telemetry/session invalidation, safer staged
 certificate renewal, improved telemetry recovery, and evidence-gated RouterOS
-canary promotion. Do not tag or publish
-v2.8.0 until candidate-specific canary acceptance passes. Earlier releases
+canary promotion. CI publication is not RouterOS acceptance; do not tag or
+publish v2.8.0 until candidate-specific canary acceptance passes. Earlier releases
 introduced the v2.1 mobile administrator workflows,
 v2.2 administrator roles and authentication audit, v2.3 enterprise operations
 foundations, v2.4 bulk operations and saved views, and v2.5 Binary API live
@@ -64,7 +66,32 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #720 — 2026-10-14
+### Latest published mainline candidate — PR #728 — 2026-10-15
+
+PR [#728](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/728)
+merged as `54701d59afcb959a1b18faa160e0a692c615b88d`. It changes the pinned
+Python base image reference from the public ECR mirror to Docker Hub's official
+`library/python` image while retaining the identical pinned manifest digest.
+This addresses ECR's registry-side data-limit response; it is a build-source
+change, not an application feature change. Publisher run
+[#38675016514](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38675016514)
+passed release-source checks, rendered browser/accessibility checks, ARM64 and
+AMD64 builds, published-runtime smoke tests, detached provenance and SPDX SBOM
+attestation verification, and stable-manifest publication/read-back. The image
+provenance was also independently verified for both digests against this exact
+repository, `main` ref, source commit, and workflow signer.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-54701d59afcb959a1b18faa160e0a692c615b88d-arm64` | `sha256:3c037909df18fc8a36ba8cc9ad8b0d1b17b650f249e6de24967fe51e1f4dd2cc` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-54701d59afcb959a1b18faa160e0a692c615b88d-amd64` | `sha256:fee62e4687458473a14fd95b666819da4653f4d0435c4c9204ecb9b083898f1c` |
+
+The stable manifest asset was read back and matched this source commit. These
+artifacts are published and CI-smoke-tested; they are not RouterOS hardware
+certification or live acceptance evidence. No new numbered release was created;
+v2.7.0 remains the latest formal version.
+
+### Previously published mainline candidate — PR #720 — 2026-10-14
 
 PR [#720](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/720)
 merged as `6dd53022523766a5371628dfe158286072494bf4`. It serializes authorized
