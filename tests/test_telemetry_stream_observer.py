@@ -103,7 +103,7 @@ class TelemetryStreamObserverTests(unittest.TestCase):
                     await asyncio.sleep(0.01)
                 report = await observe(
                     f"http://127.0.0.1:{port}",
-                    "vpn_session=test-only-cookie",
+                    "__Host-vpn_session=test-only-cookie",
                     0.25,
                 )
             finally:
