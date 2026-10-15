@@ -28,6 +28,10 @@ semantic-version style release tags.
 
 ### Changed
 
+- Configure SQLite WAL mode once at store initialization, avoiding repeated
+  database-level mode changes when concurrent requests open connections.
+- Enforce idle and absolute dashboard-session deadlines with monotonic elapsed
+  time, so backward wall-clock corrections cannot extend a live session.
 - Reject the reserved `.invalid` hostname for `PUBLIC_ORIGIN` in runtime config
   and RouterOS installation/canary plans, preventing a placeholder endpoint
   from being accepted as a deployable dashboard origin.
