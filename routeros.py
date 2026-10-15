@@ -217,21 +217,10 @@ class RouterOSClient:
             if error.code in {401, 403}:
                 error.close()
                 raise RouterOSError("RouterOS rejected the supplied credentials", error.code) from None
-            detail = ""
-            try:
-                error_payload = json.loads(error.read().decode("utf-8"))
-                if isinstance(error_payload, dict):
-                    detail = str(
-                        error_payload.get("detail")
-                        or error_payload.get("message")
-                        or ""
-                    ).strip()
-            except (UnicodeDecodeError, json.JSONDecodeError, OSError):
-                pass
+            status = error.code
             error.close()
-            suffix = f": {detail}" if detail else ""
             raise RouterOSError(
-                f"RouterOS request failed with HTTP {error.code}{suffix}", error.code
+                f"RouterOS request failed with HTTP {status}", status
             ) from None
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             reason = error.reason if isinstance(error, urllib.error.URLError) else error
@@ -241,7 +230,7 @@ class RouterOSClient:
                 failure_kind = "timeout"
             else:
                 failure_kind = None
-            raise RouterOSError(f"RouterOS is unavailable: {error}", failure_kind=failure_kind) from None
+            raise RouterOSError("RouterOS is unavailable", failure_kind=failure_kind) from None
         if not payload:
             return None
         try:

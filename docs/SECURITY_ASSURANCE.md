@@ -402,6 +402,15 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
   hardening, not an additional ASVS conformance claim; reverse-proxy and
   deployed-server request limits still require operational verification.
 
+## RouterOS error redaction — 2026-10-15
+
+- RouterOS REST error bodies and transport exception strings are not included in
+  `RouterOSError` messages returned by authenticated API routes. The HTTP status
+  and typed timeout/TLS classification remain available, while response
+  `detail`/`message` text, private endpoint names, and transport-specific
+  diagnostics are discarded. Synthetic regressions cover both upstream JSON
+  error fields and TLS, timeout, and host/IP-bearing transport failures.
+
 ## Repository hardening and export privacy — 2026-10-05
 
 - `POST /login` requires an exact same-origin `Origin`, or an exact same-origin
