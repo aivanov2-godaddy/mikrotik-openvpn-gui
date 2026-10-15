@@ -4115,6 +4115,99 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn("private RouterOS profile detail", payload.decode())
         self.assertNotIn("test-profile-passphrase", payload.decode())
 
+    def test_profile_issuance_and_recovery_logs_omit_sensitive_material(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        provision_profile = router.provision_profile
+
+        def capture_profile(*args: Any, **kwargs: Any) -> Any:
+            profile = provision_profile(*args, **kwargs)
+            issued_profiles.append(profile)
+            return profile
+
+        issued_profiles = []
+        success_device = "Log-redaction success phone"
+        success_passphrase = "LOG-ONLY-success-passphrase"
+        success_review = self.preview_profile(user["id"], success_device, delivery="zip")
+        success_logs = io.StringIO()
+        with (
+            mock.patch.object(router, "provision_profile", side_effect=capture_profile),
+            contextlib.redirect_stdout(success_logs),
+        ):
+            status, _, _ = self.json_request(
+                "POST", path,
+                {
+                    "device_name": success_device,
+                    "reason": success_review["reason"],
+                    "key_passphrase": success_passphrase,
+                    "delivery": "zip",
+                    "review_token": success_review["review_token"],
+                },
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(len(issued_profiles), 1)
+        success_log_text = success_logs.getvalue()
+        self.assertIn("http method=POST status=200", success_log_text)
+        for sensitive_value in (
+            success_passphrase,
+            success_device,
+            issued_profiles[0].certificate_name,
+            issued_profiles[0].profile.decode("utf-8"),
+        ):
+            self.assertNotIn(sensitive_value, success_log_text)
+
+        recovery_device = "Log-redaction recovery phone"
+        recovery_passphrase = "LOG-ONLY-recovery-passphrase"
+        storage_error = "LOG-ONLY-private-storage-error"
+        recovery_review = self.preview_profile(user["id"], recovery_device, delivery="zip")
+        recovery_logs = io.StringIO()
+        recovery_profiles = []
+
+        def capture_recovery_profile(*args: Any, **kwargs: Any) -> Any:
+            profile = provision_profile(*args, **kwargs)
+            recovery_profiles.append(profile)
+            return profile
+
+        with (
+            mock.patch.object(router, "provision_profile", side_effect=capture_recovery_profile),
+            mock.patch.object(
+                self.server.context.store,
+                "add_device",
+                side_effect=OSError(storage_error),
+            ),
+            contextlib.redirect_stdout(recovery_logs),
+        ):
+            status, _, payload = self.json_request(
+                "POST", path,
+                {
+                    "device_name": recovery_device,
+                    "reason": recovery_review["reason"],
+                    "key_passphrase": recovery_passphrase,
+                    "delivery": "zip",
+                    "review_token": recovery_review["review_token"],
+                },
+            )
+
+        self.assertEqual(status, 502)
+        self.assertEqual(json.loads(payload)["recovery"], "verified")
+        self.assertEqual(len(recovery_profiles), 1)
+        recovery_log_text = recovery_logs.getvalue()
+        self.assertIn("http method=POST status=502", recovery_log_text)
+        for sensitive_value in (
+            recovery_passphrase,
+            recovery_device,
+            storage_error,
+            recovery_profiles[0].certificate_name,
+            recovery_profiles[0].profile.decode("utf-8"),
+        ):
+            self.assertNotIn(sensitive_value, recovery_log_text)
+
     def test_user_provision_redacts_routeros_error_after_verified_cleanup(self) -> None:
         self.login()
         intent = {
