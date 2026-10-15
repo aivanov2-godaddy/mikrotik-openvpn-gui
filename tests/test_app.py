@@ -1240,6 +1240,32 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"telemetry", payload)
         self.assertNotIn(queued_marker.encode(), payload)
 
+    def test_socketio_poll_suppresses_packet_if_session_is_revoked_before_http_write(self) -> None:
+        self.login()
+        sid, cookie = self.connect_socketio_polling()
+        session_id = cookie.split("=", 1)[1]
+        private_marker = "poll-packet-after-revocation-sentinel"
+
+        def revoke_after_poll(_sid: str, _session_id: str) -> str:
+            self.server.context.sessions.revoke(session_id)
+            return f"42/telemetry,{json.dumps(['vpn.session.updated', {'marker': private_marker}])}"
+
+        with mock.patch.object(
+            self.server.socketio_bridge,
+            "poll",
+            side_effect=revoke_after_poll,
+        ):
+            status, _, payload = self.request(
+                "GET",
+                f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+                headers={"Cookie": cookie, "Origin": self.config.public_origin},
+            )
+
+        self.assertEqual(status, 401)
+        self.assertNotIn(private_marker.encode(), payload)
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
+
     def test_socketio_stream_revalidates_routeros_role_change_on_real_session(self) -> None:
         self.login()
         sid, cookie = self.connect_socketio_polling()
@@ -1333,6 +1359,61 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"event: status", body)
         self.assertNotIn(private_marker.encode(), body)
         observe_sessions.assert_not_called()
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
+    def test_sse_serializes_final_frame_with_session_revocation(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        revocation_started = threading.Event()
+        revocation_completed = threading.Event()
+        revoke_threads: list[threading.Thread] = []
+        write_after_revocation: list[bool] = []
+        original_observe = self.server.context.store.observe_sessions
+        original_write = DashboardHandler._write_sse_event
+
+        def revoke_session() -> None:
+            revocation_started.set()
+            self.server.context.sessions.revoke(session_id)
+            revocation_completed.set()
+
+        def observe_then_revoke(active: list[dict[str, Any]]) -> None:
+            original_observe(active)
+            thread = threading.Thread(target=revoke_session, daemon=True)
+            revoke_threads.append(thread)
+            thread.start()
+            self.assertTrue(revocation_started.wait(timeout=1))
+            role_lock = self.server.telemetry_runtime.role_check_lock_for_session(session_id)
+            self.assertIsNotNone(role_lock)
+            if role_lock is not None and role_lock.locked():
+                # Revocation must wait for the in-flight, already-authorized
+                # write to finish before it can report the session revoked.
+                self.assertFalse(revocation_completed.wait(timeout=0.05))
+            else:
+                # The old check-then-write path lets revocation finish here,
+                # leaving the following frame unauthorized.
+                self.assertTrue(revocation_completed.wait(timeout=1))
+
+        def record_write(handler: DashboardHandler, payload: bytes) -> None:
+            write_after_revocation.append(revocation_completed.is_set())
+            original_write(handler, payload)
+
+        with (
+            mock.patch.object(self.server.context.store, "observe_sessions", side_effect=observe_then_revoke),
+            mock.patch.object(DashboardHandler, "_write_sse_event", autospec=True, side_effect=record_write),
+        ):
+            connection.request("GET", "/api/events", headers={"Cookie": self.cookie})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        for thread in revoke_threads:
+            thread.join(timeout=1)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(body.count(b"event: status"), 1)
+        self.assertEqual(write_after_revocation, [False])
+        self.assertTrue(revocation_completed.is_set())
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
     def test_sse_stops_emitting_when_idle_session_expires(self) -> None:

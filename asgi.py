@@ -9,10 +9,15 @@ mutation path and the REST/SSE fallback unchanged during the transport move.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import ipaddress
+import json
 import os
 import socket
 import threading
+import time
+import urllib.parse
+from collections import OrderedDict
 from http.cookies import SimpleCookie
 from typing import Any, Awaitable, Callable, Mapping
 
@@ -32,18 +37,26 @@ Send = Callable[[ASGIMessage], Awaitable[None]]
 Receive = Callable[[], Awaitable[ASGIMessage]]
 _SOCKETIO_ROLE_CHECK_LIMIT = 4
 _SOCKETIO_ROLE_CHECK_SLOTS = threading.BoundedSemaphore(_SOCKETIO_ROLE_CHECK_LIMIT)
-
-
-def _header_map(scope: Mapping[str, Any]) -> dict[str, str]:
-    return {
-        bytes(key).decode("latin-1").lower(): bytes(value).decode("latin-1")
-        for key, value in scope.get("headers", [])
-    }
+_ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS = 10.0
+_SOCKETIO_SESSION_BINDING_TTL_SECONDS = 120.0
+_SOCKETIO_MAX_SESSION_BINDINGS = 4096
 
 
 def _session_id(scope: Mapping[str, Any]) -> str:
+    # Match BaseHTTPRequestHandler.headers.get("Cookie"), which selects the
+    # first Cookie field forwarded by _request_bytes. ASGI may preserve
+    # duplicate fields; taking the last here could gate a different session
+    # from the one that actually serves the request.
+    cookie_header = ""
+    for key, value in scope.get("headers", []):
+        if bytes(key).lower() == b"cookie":
+            cookie_header = bytes(value).decode("latin-1")
+            break
     cookies = SimpleCookie()
-    cookies.load(_header_map(scope).get("cookie", ""))
+    try:
+        cookies.load(cookie_header)
+    except Exception:  # noqa: BLE001 - malformed cookies are unauthenticated
+        return ""
     morsel = cookies.get("vpn_session")
     return morsel.value if morsel else ""
 
@@ -112,8 +125,16 @@ class DashboardHTTPASGI:
             # The ASGI server may otherwise keep reading a rejected, unread body
             # on a persistent HTTP/1 connection after we have sent the response.
             headers.append((b"connection", b"close"))
-        await send({"type": "http.response.start", "status": 413, "headers": headers})
-        await send({"type": "http.response.body", "body": b""})
+        messages = (
+            {"type": "http.response.start", "status": 413, "headers": headers},
+            {"type": "http.response.body", "body": b""},
+        )
+        if DashboardHTTPASGI._requires_live_send_timeout(scope):
+            for message in messages:
+                await DashboardHTTPASGI._send_and_drain(send, message)
+        else:
+            for message in messages:
+                await send(message)
 
     async def __call__(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
@@ -142,6 +163,13 @@ class DashboardHTTPASGI:
             if not message.get("more_body", False):
                 break
         request = self._request_bytes(scope, bytes(body))
+        protect_live_response = self._requires_live_body_gate(scope)
+        bound_live_response_sends = self._requires_live_send_timeout(scope)
+        session_id = _session_id(scope) if protect_live_response else ""
+
+        async def send_authorized_live_body(message: ASGIMessage) -> bool:
+            return await self._send_authorized_live_message(session_id, message, send)
+
         client, handler_socket = socket.socketpair()
         thread = threading.Thread(
             target=DashboardHandler,
@@ -153,7 +181,13 @@ class DashboardHTTPASGI:
         try:
             client.sendall(request)
             client.shutdown(socket.SHUT_WR)
-            response = await asyncio.to_thread(self._stream_response, client, send)
+            response = await asyncio.to_thread(
+                self._stream_response,
+                client,
+                send,
+                send_authorized_live_body if protect_live_response else None,
+                bound_live_response_sends,
+            )
             if response is not None:
                 await response
         finally:
@@ -177,7 +211,25 @@ class DashboardHTTPASGI:
         return method.encode("ascii") + b" " + target + b" HTTP/1.1\r\n" + b"".join(headers) + b"Connection: close\r\n\r\n" + body
 
     @staticmethod
-    def _stream_response(client: socket.socket, send: Send) -> Awaitable[None] | None:
+    def _requires_live_body_gate(scope: Mapping[str, Any]) -> bool:
+        """Protect HTTP bodies that can carry live telemetry to a client."""
+        return (
+            str(scope.get("method", "")).upper() == "GET"
+            and str(scope.get("path", "")) == "/api/events"
+        )
+
+    @staticmethod
+    def _requires_live_send_timeout(scope: Mapping[str, Any]) -> bool:
+        """Bound sends for every response on the long-lived live route."""
+        return str(scope.get("path", "")) == "/api/events"
+
+    @staticmethod
+    def _stream_response(
+        client: socket.socket,
+        send: Send,
+        protected_body_send: Callable[[ASGIMessage], Awaitable[bool]] | None = None,
+        bound_response_sends: bool = False,
+    ) -> Awaitable[None] | None:
         # This method only performs blocking reads; the returned coroutine
         # sends the parsed response on the event loop.
         buffer = bytearray()
@@ -231,11 +283,48 @@ class DashboardHTTPASGI:
             body = bytes(body[:content_length])
 
         async def send_response() -> None:
-            await send({"type": "http.response.start", "status": status, "headers": headers})
+            response_start = {
+                "type": "http.response.start",
+                "status": status,
+                "headers": headers,
+            }
+            if bound_response_sends or protected_body_send is not None:
+                await DashboardHTTPASGI._send_and_drain(send, response_start)
+            else:
+                await send(response_start)
+
+            async def send_body(message: ASGIMessage) -> bool:
+                payload = message.get("body", b"")
+                if status == 200 and payload and protected_body_send is not None:
+                    if not await protected_body_send(message):
+                        # Stop the handler's socket-pair writer and finish this
+                        # response without forwarding the now-unauthorized body.
+                        client.close()
+                        await send_terminal_body()
+                        return False
+                    # The authorizer owns the real awaited send while holding
+                    # the shared session lock; do not send the same body again.
+                    return True
+                if bound_response_sends or protected_body_send is not None:
+                    await DashboardHTTPASGI._send_and_drain(send, message)
+                else:
+                    await send(message)
+                return True
+
+            async def send_terminal_body() -> None:
+                message = {"type": "http.response.body", "body": b""}
+                if bound_response_sends or protected_body_send is not None:
+                    await DashboardHTTPASGI._send_and_drain(send, message)
+                else:
+                    await send(message)
+
             if body:
-                await send({"type": "http.response.body", "body": body, "more_body": True})
+                if not await send_body(
+                    {"type": "http.response.body", "body": body, "more_body": True}
+                ):
+                    return
             if content_length is not None:
-                await send({"type": "http.response.body", "body": b""})
+                await send_terminal_body()
                 return
             while True:
                 try:
@@ -246,10 +335,142 @@ class DashboardHTTPASGI:
                     return
                 if not chunk:
                     break
-                await send({"type": "http.response.body", "body": chunk, "more_body": True})
-            await send({"type": "http.response.body", "body": b""})
+                if not await send_body(
+                    {"type": "http.response.body", "body": chunk, "more_body": True}
+                ):
+                    return
+            await send_terminal_body()
 
         return send_response()
+
+    async def _send_authorized_live_message(
+        self,
+        session_id: str,
+        message: ASGIMessage,
+        send: Send,
+    ) -> bool:
+        """Serialize live HTTP delivery with session invalidation at ASGI send.
+
+        The wrapped HTTP handler writes to an internal socket pair, and the
+        Socket.IO manager can queue transport output before the external send.
+        Their authorization locks therefore end before the ASGI ``send`` call.
+        Hold the same per-session lock through that actual awaited send so
+        logout, expiry, and revocation cannot complete in the check-to-send gap.
+        """
+        runtime = getattr(self.server, "telemetry_runtime", None)
+        lock_resolver = getattr(runtime, "role_check_lock_for_session", None)
+        principal_resolver = getattr(runtime, "cached_principal_for_session", None)
+        refresh_resolver = getattr(runtime, "principal_for_session", None)
+        if (
+            not session_id
+            or not callable(lock_resolver)
+            or not callable(principal_resolver)
+            or not callable(refresh_resolver)
+        ):
+            return False
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 30.0
+        while loop.time() < deadline:
+            role_lock = lock_resolver(session_id)
+            if role_lock is None:
+                return False
+            while not role_lock.acquire(blocking=False):
+                if loop.time() >= deadline:
+                    return False
+                await asyncio.sleep(0.025)
+
+            cache_is_authoritative = False
+            try:
+                try:
+                    cache_is_authoritative, principal = principal_resolver(
+                        session_id,
+                        role_check_lock_held=True,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 - authorization fails closed
+                    return False
+                if cache_is_authoritative:
+                    if principal is None or not principal.may_stream:
+                        return False
+                    await self._send_and_drain(send, message)
+                    return True
+            finally:
+                role_lock.release()
+
+            # Role data is stale. Refresh outside the delivery lock, with the
+            # same bounded worker capacity used by the native Socket.IO path,
+            # then loop and recheck under the lock before sending.
+            while not _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False):
+                if loop.time() >= deadline:
+                    return False
+                await asyncio.sleep(0.025)
+
+            def refresh_principal() -> Any | None:
+                try:
+                    return refresh_resolver(session_id, force_role_check=True)
+                finally:
+                    _SOCKETIO_ROLE_CHECK_SLOTS.release()
+
+            try:
+                refresh = loop.run_in_executor(None, refresh_principal)
+            except Exception:  # noqa: BLE001 - release capacity if scheduling fails
+                _SOCKETIO_ROLE_CHECK_SLOTS.release()
+                return False
+            try:
+                principal = await asyncio.shield(refresh)
+            except asyncio.CancelledError:
+                while not refresh.done():
+                    try:
+                        await asyncio.shield(refresh)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:  # noqa: BLE001 - worker owns slot release
+                        break
+                try:
+                    refresh.result()
+                except (Exception, asyncio.CancelledError):
+                    pass
+                raise
+            except Exception:  # noqa: BLE001 - authorization fails closed
+                return False
+            if principal is None or not principal.may_stream:
+                return False
+
+        return False
+
+    @staticmethod
+    async def _send_and_drain(send: Send, message: ASGIMessage) -> None:
+        """Keep the role lock until an in-flight ASGI send really completes."""
+        sending = asyncio.ensure_future(send(message))
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(sending),
+                timeout=_ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            sending.cancel()
+            await DashboardHTTPASGI._drain_send(sending)
+            raise TimeoutError("ASGI live-response send timed out") from None
+        except asyncio.CancelledError:
+            await DashboardHTTPASGI._drain_send(sending)
+            raise
+
+    @staticmethod
+    async def _drain_send(sending: asyncio.Future[Any]) -> None:
+        """Wait until a cancelled child send cannot emit more bytes."""
+        while not sending.done():
+            try:
+                await asyncio.shield(sending)
+            except asyncio.CancelledError:
+                continue
+            except Exception:  # noqa: BLE001 - drain failures before unlock
+                break
+        try:
+            sending.result()
+        except (Exception, asyncio.CancelledError):
+            pass
 
     @staticmethod
     async def _close_on_disconnect(receive: Receive, client: socket.socket) -> None:
@@ -261,6 +482,243 @@ class DashboardHTTPASGI:
                     return
         except asyncio.CancelledError:
             return
+
+
+class SocketIOLiveSendASGI:
+    """Revalidate native Socket.IO payloads at the external ASGI send edge."""
+
+    def __init__(self, app: Any, http_adapter: DashboardHTTPASGI) -> None:
+        self.app = app
+        self.http_adapter = http_adapter
+        self._session_bindings: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._session_bindings_lock = threading.Lock()
+
+    @staticmethod
+    def _socketio_path(path: str) -> bool:
+        return path == "/socket.io" or path.startswith("/socket.io/")
+
+    @staticmethod
+    def _engine_sid_from_scope(
+        scope: Mapping[str, Any],
+    ) -> tuple[bool, str | None, bool]:
+        query = bytes(scope.get("query_string", b""))
+        if len(query) > 8192:
+            return False, None, False
+        try:
+            parameters = urllib.parse.parse_qs(
+                query.decode("latin-1"),
+                keep_blank_values=True,
+                max_num_fields=64,
+            )
+        except (UnicodeError, ValueError):
+            return False, None, False
+        values = parameters.get("sid", [])
+        if not values:
+            return False, None, True
+        if len(values) != 1 or not values[0] or len(values[0]) > 256:
+            return True, None, False
+        return True, values[0], True
+
+    def _prune_session_bindings(self, now: float) -> None:
+        cutoff = now - _SOCKETIO_SESSION_BINDING_TTL_SECONDS
+        while self._session_bindings:
+            _sid, (_session_id, last_seen) = next(iter(self._session_bindings.items()))
+            if last_seen > cutoff:
+                break
+            self._session_bindings.popitem(last=False)
+
+    def _session_matches_engine_sid(self, sid: str, session_id: str) -> bool:
+        if not sid or not session_id:
+            return False
+        now = time.monotonic()
+        with self._session_bindings_lock:
+            self._prune_session_bindings(now)
+            binding = self._session_bindings.get(sid)
+            if binding is None or not hmac.compare_digest(
+                binding[0].encode("utf-8"), session_id.encode("utf-8")
+            ):
+                return False
+            self._session_bindings[sid] = (binding[0], now)
+            self._session_bindings.move_to_end(sid)
+            return True
+
+    def _bind_engine_sid(self, sid: str, session_id: str) -> bool:
+        if not sid or len(sid) > 256 or not session_id:
+            return False
+        now = time.monotonic()
+        with self._session_bindings_lock:
+            self._prune_session_bindings(now)
+            existing = self._session_bindings.get(sid)
+            if existing is not None and not hmac.compare_digest(
+                existing[0].encode("utf-8"), session_id.encode("utf-8")
+            ):
+                return False
+            self._session_bindings[sid] = (session_id, now)
+            self._session_bindings.move_to_end(sid)
+            while len(self._session_bindings) > _SOCKETIO_MAX_SESSION_BINDINGS:
+                self._session_bindings.popitem(last=False)
+            return True
+
+    @staticmethod
+    def _engine_sid_from_packet(packet: Any) -> str | None:
+        if isinstance(packet, Mapping):
+            chunks = [packet.get("text")]
+            if isinstance(packet.get("body"), (bytes, bytearray)):
+                try:
+                    chunks.append(bytes(packet["body"]).decode("utf-8"))
+                except UnicodeDecodeError:
+                    pass
+        else:
+            chunks = []
+        for chunk in chunks:
+            if not isinstance(chunk, str):
+                continue
+            for frame in chunk.split("\x1e"):
+                if not frame.startswith("0{"):
+                    continue
+                try:
+                    payload = json.loads(frame[1:])
+                except (TypeError, ValueError):
+                    continue
+                sid = payload.get("sid") if isinstance(payload, dict) else None
+                if isinstance(sid, str) and sid and len(sid) <= 256:
+                    return sid
+        return None
+
+    @staticmethod
+    async def _reject_http(send: Send) -> None:
+        headers = [
+            (b"content-length", b"0"),
+            (b"cache-control", b"no-store"),
+            *(
+                (key.lower().encode("latin-1"), value.encode("latin-1"))
+                for key, value in SECURITY_HEADERS.items()
+            ),
+        ]
+        await DashboardHTTPASGI._send_and_drain(
+            send,
+            {"type": "http.response.start", "status": 403, "headers": headers},
+        )
+        await DashboardHTTPASGI._send_and_drain(
+            send,
+            {"type": "http.response.body", "body": b""},
+        )
+
+    @staticmethod
+    async def _reject_websocket(send: Send) -> None:
+        await DashboardHTTPASGI._send_and_drain(
+            send,
+            {"type": "websocket.close", "code": 1008},
+        )
+
+    @staticmethod
+    def _safe_socketio_control_packet(message: ASGIMessage) -> bool:
+        text = message.get("text")
+        return isinstance(text, str) and (
+            text.startswith(("0{", "41/telemetry,", "44/telemetry,"))
+            or text == "1"
+        )
+
+    @staticmethod
+    def _safe_polling_control_payload(payload: Any) -> bytes:
+        if not isinstance(payload, (bytes, bytearray)):
+            return b""
+        try:
+            packets = bytes(payload).decode("utf-8").split("\x1e")
+        except UnicodeDecodeError:
+            return b""
+        safe_packets = [
+            packet
+            for packet in packets
+            if packet.startswith(("0{", "41/telemetry,", "44/telemetry,"))
+            or packet == "1"
+        ]
+        return "\x1e".join(safe_packets).encode("utf-8")
+
+    async def __call__(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
+        scope_type = scope.get("type")
+        path = str(scope.get("path", ""))
+        if not self._socketio_path(path) or scope_type not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+
+        session_id = _session_id(scope)
+        has_sid, engine_sid, valid_query = self._engine_sid_from_scope(scope)
+        if not valid_query or (has_sid and (
+            engine_sid is None
+            or not self._session_matches_engine_sid(engine_sid, session_id)
+        )):
+            if scope_type == "websocket":
+                await self._reject_websocket(send)
+            else:
+                await self._reject_http(send)
+            return
+
+        if scope_type == "websocket":
+            authorization_failed = False
+
+            async def gated_send(message: ASGIMessage) -> None:
+                nonlocal authorization_failed
+                message_type = message.get("type")
+                if message_type == "websocket.send":
+                    if authorization_failed:
+                        if self._safe_socketio_control_packet(message):
+                            await DashboardHTTPASGI._send_and_drain(send, message)
+                        return
+                    allowed = await self.http_adapter._send_authorized_live_message(
+                        session_id,
+                        message,
+                        send,
+                    )
+                    if allowed:
+                        engine_sid = self._engine_sid_from_packet(message)
+                        if engine_sid is not None:
+                            self._bind_engine_sid(engine_sid, session_id)
+                        return
+                    authorization_failed = True
+                    if self._safe_socketio_control_packet(message):
+                        await DashboardHTTPASGI._send_and_drain(send, message)
+                    return
+                await DashboardHTTPASGI._send_and_drain(send, message)
+
+            await self.app(scope, receive, gated_send)
+            return
+
+        response_status = 0
+
+        async def gated_send(message: ASGIMessage) -> None:
+            nonlocal response_status
+            message_type = message.get("type")
+            if message_type == "http.response.start":
+                response_status = int(message.get("status", 0))
+            if (
+                message_type == "http.response.body"
+                and response_status == 200
+                and message.get("body", b"")
+            ):
+                allowed = await self.http_adapter._send_authorized_live_message(
+                    session_id,
+                    message,
+                    send,
+                )
+                if allowed:
+                    engine_sid = self._engine_sid_from_packet(message)
+                    if engine_sid is not None:
+                        self._bind_engine_sid(engine_sid, session_id)
+                    return
+                safe_payload = self._safe_polling_control_payload(
+                    message.get("body", b"")
+                )
+                filtered_message = dict(message)
+                filtered_message["body"] = safe_payload
+                await DashboardHTTPASGI._send_and_drain(
+                    send,
+                    filtered_message,
+                )
+                return
+            await DashboardHTTPASGI._send_and_drain(send, message)
+
+        await self.app(scope, receive, gated_send)
 
 
 class NativeSocketIO:
@@ -420,14 +878,13 @@ class NativeSocketIO:
         subscription = self._subscriptions.get(sid)
         session_id = self._session_ids.get(sid)
         if not subscription or not session_id:
-            return {"protocol_version": 1, "frames": []}
+            return {"protocol_version": 2, "frames": []}
         principal = await self._principal_for_session_async(
             session_id, wait_for_capacity=True
         )
         if principal is None or not principal.may_stream:
-            return {"protocol_version": 1, "frames": []}
+            return {"protocol_version": 2, "frames": []}
         after = data.get("after_sequence") if isinstance(data, Mapping) else None
-        frames = []
         for frame in self.runtime.gateway.poll(subscription, after_sequence=after):
             # A single poll can return a backlog. Serialize the final
             # authorization check with RouterOS role refresh through enqueue.
@@ -437,8 +894,13 @@ class NativeSocketIO:
             if not emitted:
                 await self.server.disconnect(sid, namespace=self.namespace)
                 break
-            frames.append(frame)
-        return {"protocol_version": 1, "frames": frames}
+        # Event payloads are delivered only through _emit_authorized, which
+        # holds the session gate through Socket.IO's send queue. Returning the
+        # same frames in the RPC acknowledgement would create a second,
+        # ungated delivery path after that lock has been released. Version 2
+        # defines pushed event delivery; version 1 returned replay frames in
+        # the acknowledgement and is intentionally not emitted by this server.
+        return {"protocol_version": 2, "frames": []}
 
     async def _emit_authorized(
         self,
@@ -659,6 +1121,7 @@ def create_application() -> tuple[Any, DashboardServer, Any]:
     server.native_socketio = socketio_server
     http_app = DashboardHTTPASGI(server)
     application = socketio.ASGIApp(socketio_server.server, other_asgi_app=http_app, socketio_path="socket.io")
+    application = SocketIOLiveSendASGI(application, http_app)
     application = TrustedProxySchemeASGI(
         application,
         context.config.trusted_proxy_sources,

@@ -22,7 +22,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from automation import AutomationMixin, simultaneous_session_sources  # noqa: F401
 from config import ConfigurationError, RuntimeConfig
@@ -77,6 +77,7 @@ SERVICE_HEALTH_FIELDS = frozenset({"overall", "checked_at", "checks"})
 SERVICE_HEALTH_CHECK_FIELDS = frozenset({"id", "name", "status", "impact", "remediation"})
 SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 5.0
 SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.25
+LIVE_RESPONSE_WRITE_TIMEOUT_SECONDS = 10.0
 MAX_REQUEST_BODY_BYTES = 64 * 1024
 STATUS_ROUTER_FIELDS = frozenset(
     {
@@ -2356,7 +2357,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if packet is None:
                 self._json({"error": "Socket.IO session is no longer valid"}, status=HTTPStatus.UNAUTHORIZED)
                 return
-        self._bytes(packet.encode("utf-8"), content_type="text/plain; charset=UTF-8", extra={"Cache-Control": "no-store"})
+        try:
+            sent = self._write_authorized_live_payload(
+                session_id,
+                lambda: self._bytes(
+                    packet.encode("utf-8"),
+                    content_type="text/plain; charset=UTF-8",
+                    extra={"Cache-Control": "no-store"},
+                ),
+            )
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            if sid:
+                bridge.close(sid)
+            return
+        if not sent:
+            if sid:
+                bridge.close(sid)
+            self._json(
+                {"error": "Socket.IO session is no longer valid"},
+                status=HTTPStatus.UNAUTHORIZED,
+            )
 
     def _socketio_post(self) -> None:
         if self._reject_socketio_origin(require_origin=True):
@@ -2984,6 +3004,58 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _metric_escape(value: Any) -> str:
         return str(value or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
+    def _write_sse_event(self, payload: bytes) -> None:
+        self.wfile.write(payload)
+        self.wfile.flush()
+
+    def _write_authorized_live_payload(self, session_id: str, write: Callable[[], None]) -> bool:
+        """Hold the session role lock through a live HTTP body write."""
+        runtime = self.server.telemetry_runtime
+        lock_resolver = getattr(runtime, "role_check_lock_for_session", None)
+        principal_resolver = getattr(runtime, "cached_principal_for_session", None)
+        refresh_resolver = getattr(runtime, "principal_for_session", None)
+        if not all(callable(item) for item in (lock_resolver, principal_resolver, refresh_resolver)):
+            return False
+
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline:
+            role_lock = lock_resolver(session_id)
+            if role_lock is None:
+                return False
+            while not role_lock.acquire(blocking=False):
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.025)
+            try:
+                try:
+                    cache_is_authoritative, principal = principal_resolver(
+                        session_id,
+                        role_check_lock_held=True,
+                    )
+                    allowed = principal is not None and principal.may_stream
+                except Exception:  # noqa: BLE001 - live-response authorization fails closed
+                    return False
+                if cache_is_authoritative:
+                    if not allowed:
+                        return False
+                    original_timeout = self.connection.gettimeout()
+                    try:
+                        self.connection.settimeout(LIVE_RESPONSE_WRITE_TIMEOUT_SECONDS)
+                        write()
+                        return True
+                    finally:
+                        self.connection.settimeout(original_timeout)
+            finally:
+                role_lock.release()
+
+            try:
+                principal = refresh_resolver(session_id, force_role_check=True)
+            except Exception:  # noqa: BLE001 - role refresh failure fails closed
+                return False
+            if principal is None or not principal.may_stream:
+                return False
+        return False
+
     def _events(self) -> None:
         if self._reject_live_events_origin():
             return
@@ -3022,34 +3094,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 ):
                     return
                 active = self.server.context.router.list_active_ovpn_sessions(credentials)
-                # RouterOS reads can block long enough for logout, expiry, or
-                # capability revocation to happen while the snapshot is being
-                # fetched. Revalidate at the write boundary as well, before
-                # persisting or emitting data obtained under the old session.
-                current_session = self.server.telemetry_runtime.revalidate_session(session_id)
-                if (
-                    current_session is None
-                    or current_session.auth_method != "routeros"
-                    or not self._capability_allowed(current_session, "sessions.read")
-                ):
+                def write_snapshot() -> None:
+                    self.server.context.store.observe_sessions(active)
+                    telemetry_state = self.server.context.telemetry_state
+                    if telemetry_state is None:
+                        telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
+                        self.server.context.telemetry_state = telemetry_state
+                    telemetry_state.mark_event(reconciliation=True)
+                    data = json.dumps(
+                        {
+                            "sessions": [redact_session(item) for item in active],
+                            "generated_at": int(time.time()),
+                        },
+                        separators=(",", ":"),
+                    )
+                    self._write_sse_event(f"event: status\ndata: {data}\n\n".encode("utf-8"))
+                if not self._write_authorized_live_payload(session_id, write_snapshot):
                     return
-                self.server.context.store.observe_sessions(active)
-                telemetry_state = self.server.context.telemetry_state
-                if telemetry_state is None:
-                    telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
-                    self.server.context.telemetry_state = telemetry_state
-                telemetry_state.mark_event(reconciliation=True)
-                data = json.dumps(
-                    {
-                        "sessions": [redact_session(item) for item in active],
-                        "generated_at": int(time.time()),
-                    },
-                    separators=(",", ":"),
-                )
-                self.wfile.write(f"event: status\ndata: {data}\n\n".encode("utf-8"))
-                self.wfile.flush()
                 time.sleep(2)
-        except (BrokenPipeError, ConnectionResetError, RouterOSError):
+        except (BrokenPipeError, ConnectionResetError, RouterOSError, TimeoutError):
             return
 
     def _compliance_report(self) -> None:
