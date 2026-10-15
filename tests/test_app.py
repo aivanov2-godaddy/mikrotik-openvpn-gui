@@ -416,6 +416,29 @@ class DashboardIntegrationTests(unittest.TestCase):
         connection.close()
         return result
 
+    def raw_request(
+        self,
+        method: str,
+        path: str,
+        headers: list[tuple[str, str]],
+        *,
+        body: bytes = b"",
+    ) -> tuple[int, bytes]:
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        connection.putrequest(method, path)
+        if self.cookie:
+            connection.putheader("Cookie", self.cookie)
+        for name, value in headers:
+            connection.putheader(name, value)
+        if body:
+            connection.putheader("Content-Length", str(len(body)))
+        connection.endheaders(body if body else None)
+        response = connection.getresponse()
+        payload = response.read()
+        status = response.status
+        connection.close()
+        return status, payload
+
     def login(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
         status, headers, payload = self.request(
@@ -702,6 +725,63 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(calls, [])
 
+    def test_socketio_polling_rejects_duplicate_origins_before_dispatch(self) -> None:
+        self.login()
+        calls: list[str] = []
+
+        class Bridge:
+            def handshake(self, _session_id: str) -> tuple[str, str]:
+                calls.append("handshake")
+                return "test-sid", "0{}"
+
+            def post(self, _sid: str, _session_id: str, _body: bytes) -> bool:
+                calls.append("post")
+                return True
+
+        self.server.socketio_bridge = Bridge()
+        same_origin = self.config.public_origin
+        foreign_origin = "https://attacker.example"
+        cases = (
+            ("GET", same_origin, foreign_origin, b"", []),
+            ("GET", foreign_origin, same_origin, b"", []),
+            ("GET", same_origin, same_origin, b"", []),
+            (
+                "POST",
+                same_origin,
+                foreign_origin,
+                b"40/telemetry,",
+                [("Content-Type", "text/plain; charset=UTF-8")],
+            ),
+            (
+                "POST",
+                foreign_origin,
+                same_origin,
+                b"40/telemetry,",
+                [("Content-Type", "text/plain; charset=UTF-8")],
+            ),
+            (
+                "POST",
+                same_origin,
+                same_origin,
+                b"40/telemetry,",
+                [("Content-Type", "text/plain; charset=UTF-8")],
+            ),
+        )
+        for method, first, second, body, extra_headers in cases:
+            path = "/socket.io/?EIO=4&transport=polling"
+            if method == "POST":
+                path += "&sid=test-sid"
+            with self.subTest(method=method, first=first, second=second):
+                status, payload = self.raw_request(
+                    method,
+                    path,
+                    [*extra_headers, ("Origin", first), ("Origin", second)],
+                    body=body,
+                )
+                self.assertEqual(status, 403, payload.decode())
+                self.assertIn(b"origin", payload.lower())
+                self.assertEqual(calls, [])
+
     def test_socketio_polling_requires_origin_on_post(self) -> None:
         self.login()
         self.server.socketio_bridge = object()
@@ -980,6 +1060,30 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(logout_results, [303])
         self.assertEqual(body.count(b"event: status"), 1)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+
+    def test_sse_rejects_duplicate_origins_before_router_fetch(self) -> None:
+        self.login()
+        same_origin = self.config.public_origin
+        foreign_origin = "https://attacker.example"
+        origin_pairs = (
+            (same_origin, foreign_origin),
+            (foreign_origin, same_origin),
+            (same_origin, same_origin),
+        )
+        with mock.patch.object(
+            self.server.context.router,
+            "list_active_ovpn_sessions",
+        ) as list_sessions:
+            for first, second in origin_pairs:
+                with self.subTest(first=first, second=second):
+                    status, payload = self.raw_request(
+                        "GET",
+                        "/api/events",
+                        [("Origin", first), ("Origin", second)],
+                    )
+                    self.assertEqual(status, 403, payload.decode())
+                    self.assertIn(b"origin", payload.lower())
+            list_sessions.assert_not_called()
 
     def test_sse_projects_routeros_sessions_onto_redacted_live_schema(self) -> None:
         self.login()
