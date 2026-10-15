@@ -18,16 +18,18 @@ operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline candidate is PR #751; its immutable artifacts and CI provenance are
-recorded below. It hardens session expiry and SQLite WAL startup under
-contention. It also includes PR #745's preservation of VPN sessions when
-RouterOS has not yet supplied a complete interface-counter sample, PR #740's
-automatic-poll session-expiry hardening and safe credential representation, and
-PR #741's redaction of RouterOS upstream error details. Earlier merged work includes the read-only
-device-posture guard that requires both the stored RouterOS certificate ID and
-normalized fingerprint to match. PR #728's pinned Python base-image registry
-change is also part of this mainline history. The broader candidate highlights
-are stricter live-data field allowlists and session revalidation, serialized
+mainline candidate is PR #755; its immutable artifacts and CI provenance are
+recorded below. It binds live telemetry to the active dashboard session and
+stops delivery after expiry or revocation. It also includes PR #751's
+hardening of session expiry and SQLite WAL startup under contention, PR #745's
+preservation of VPN sessions when RouterOS has not yet supplied a complete
+interface-counter sample, PR #740's automatic-poll session-expiry hardening and
+safe credential representation, and PR #741's redaction of RouterOS upstream
+error details. Earlier merged work includes the read-only device-posture guard
+that requires both the stored RouterOS certificate ID and normalized
+fingerprint to match. PR #728's pinned Python base-image registry change is
+also part of this mainline history. The broader candidate highlights are
+stricter live-data field allowlists and session revalidation, serialized
 telemetry/session invalidation, safer staged certificate renewal, improved
 telemetry recovery, and evidence-gated RouterOS canary promotion. CI
 publication is not RouterOS acceptance; do not tag or publish v2.8.0 until
@@ -75,6 +77,29 @@ until v2.8.0 is accepted, published, and verified; then remove the superseded
 GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
+
+### Latest published mainline candidate — PR #755 — 2026-10-15
+
+PR [#755](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/755)
+merged as `f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1`. It binds the live
+telemetry supervisor to an opaque active-session reference, stops and closes
+the stream after session expiry or revocation, serializes event dispatch
+against invalidation, and protects Binary API close races. Publisher run
+[#38819845718](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38819845718)
+completed successfully for this exact merge commit. Both architectures passed
+published-runtime smoke tests and exact-image provenance/SBOM attestation
+verification. The stable manifest asset was read back successfully; its digest
+is `sha256:33c84af3388d97d6f09e79a6b3247298462610ed41d19bd8caffb2e9b5d61cf1`.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1-arm64` | `sha256:1ad03a1f383c6e25ce29548413c8b98f3938a202590934210d16ff628efb893e` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1-amd64` | `sha256:4437eec31d67c781641bb9eea2cdb2c823a35eace245be8e6cf03e5368ef8c18` |
+
+These artifacts are published, not deployed to RouterOS. No live-session
+acceptance or RouterOS compatibility result is inferred from CI publication.
+Candidate-specific canary acceptance and rollback rehearsal remain pending;
+the formal version remains v2.7.0.
 
 ### Latest published mainline candidate — PR #751 — 2026-10-15
 

@@ -301,6 +301,25 @@ Cloudflare Access, host-memory, or deployed-log checks were performed in this
 run. The external items below therefore remain **NOT VERIFIED**; this update
 does not claim production acceptance or close issue #200.
 
+### Post-merge revalidation — PR #755 — 2026-10-15
+
+PR [#755](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/755)
+merged as `f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1`. Its merged tree is
+identical to the tested PR head `389da14e65423c6e9a1206375867493835e3f590`.
+The local full unittest suite passed with 760 tests and 14 optional skips.
+Hosted PR checks
+[#38818742230](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38818742230)
+completed successfully, including Python 3.13/3.14, security and Redis
+recovery checks, rendered browser/accessibility tests, and ARM64 image smoke.
+The subsequent published-runtime and artifact evidence is recorded in
+[`RELEASES.md`](RELEASES.md).
+
+This establishes repository and build evidence for the tested source tree only.
+It does not establish deployed proxy/session behavior, physical RouterOS
+permissions, host-memory or external-log exposure, or a formal credential-memory
+risk decision. Issue #200 remains open for those operational and independent
+review gates.
+
 ### Post-merge revalidation — PR #720 — 2026-10-14
 
 PR [#720](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/720)
