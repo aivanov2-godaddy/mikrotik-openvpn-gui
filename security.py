@@ -124,7 +124,7 @@ class SessionStore:
         self.max_sessions_per_account = max_sessions_per_account
         self._sessions: dict[str, Session] = {}
         self._lock = threading.RLock()
-        self._role_checked_at: dict[str, float] = {}
+        self._role_checked_monotonic: dict[str, float] = {}
         self._role_check_locks: dict[str, threading.Lock] = {}
         self._invalidating: set[str] = set()
         # Serializes mutations that can introduce a new session ID against
@@ -208,7 +208,7 @@ class SessionStore:
 
     def _drop_session_locked(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
-        self._role_checked_at.pop(session_id, None)
+        self._role_checked_monotonic.pop(session_id, None)
         self._role_check_locks.pop(session_id, None)
         self._invalidating.discard(session_id)
 
@@ -268,7 +268,7 @@ class SessionStore:
             if account_sessions >= self.max_sessions_per_account:
                 raise ConcurrentSessionLimitReached
             self._sessions[session.session_id] = session
-            self._role_checked_at[session.session_id] = current
+            self._role_checked_monotonic[session.session_id] = monotonic_current
         return session
 
     def get(
@@ -367,8 +367,10 @@ class SessionStore:
                 return True, None
             if session.auth_method != "routeros":
                 return True, session
-            checked_at = self._role_checked_at.get(session_id, session.created_at)
-            elapsed = current - checked_at
+            checked_monotonic = self._role_checked_monotonic.get(
+                session_id, session.created_monotonic
+            )
+            elapsed = monotonic_current - checked_monotonic
             fresh = 0 <= elapsed < max(0, interval_seconds)
             return (True, session) if fresh else (False, None)
 
@@ -448,7 +450,7 @@ class SessionStore:
                 )
                 self._drop_session_locked(session_id)
                 self._sessions[replacement.session_id] = replacement
-                self._role_checked_at[replacement.session_id] = current
+                self._role_checked_monotonic[replacement.session_id] = monotonic_current
                 return replacement
         finally:
             check_lock.release()
@@ -479,15 +481,17 @@ class SessionStore:
         session = self.get(session_id, now=now, touch=False)
         if session is None or session.auth_method != "routeros":
             return session
-        current = time.time() if now is None else now
+        monotonic_current = time.monotonic()
         with self._lock:
             if (
                 self._sessions.get(session_id) is not session
                 or session_id in self._invalidating
             ):
                 return None
-            checked_at = self._role_checked_at.get(session_id, session.created_at)
-            elapsed = current - checked_at
+            checked_monotonic = self._role_checked_monotonic.get(
+                session_id, session.created_monotonic
+            )
+            elapsed = monotonic_current - checked_monotonic
             check_lock = self._role_check_locks.setdefault(session_id, threading.Lock())
             if (
                 0 <= elapsed < max(0, interval_seconds)
@@ -507,10 +511,12 @@ class SessionStore:
             )
             if session is None or session.auth_method != "routeros":
                 return session
-            current = time.time() if now is None else now
+            monotonic_current = time.monotonic()
             with self._lock:
-                checked_at = self._role_checked_at.get(session_id, session.created_at)
-                elapsed = current - checked_at
+                checked_monotonic = self._role_checked_monotonic.get(
+                    session_id, session.created_monotonic
+                )
+                elapsed = monotonic_current - checked_monotonic
                 if 0 <= elapsed < max(0, interval_seconds):
                     return session
 
@@ -530,7 +536,7 @@ class SessionStore:
             )
             if session is None:
                 return None
-            checked_at = time.time() if now is None else now
+            checked_monotonic = time.monotonic()
             if resolved_role is None:
                 self.destroy(session_id, role_check_lock_held=True)
                 return None
@@ -550,7 +556,7 @@ class SessionStore:
                     or session_id in self._invalidating
                 ):
                     return None
-                self._role_checked_at[session_id] = checked_at
+                self._role_checked_monotonic[session_id] = checked_monotonic
             return session
         finally:
             check_lock.release()

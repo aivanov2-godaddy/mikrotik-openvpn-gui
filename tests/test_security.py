@@ -308,21 +308,58 @@ class SecurityTests(unittest.TestCase):
 
     def test_cached_role_session_only_authorizes_a_fresh_routeros_role(self) -> None:
         store = SessionStore()
-        session = store.create("admin", "router-secret", role="owner", now=100)
+        monotonic_now = [10.0]
+        with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+            session = store.create("admin", "router-secret", role="owner", now=100)
 
-        fresh, cached = store.cached_role_session(session.session_id, now=114)
-        self.assertTrue(fresh)
-        self.assertIs(cached, session)
-        self.assertEqual(session.last_seen, 100)
+            monotonic_now[0] = 24.0
+            fresh, cached = store.cached_role_session(session.session_id, now=114)
+            self.assertTrue(fresh)
+            self.assertIs(cached, session)
+            self.assertEqual(session.last_seen, 100)
 
-        stale, cached = store.cached_role_session(session.session_id, now=115)
-        self.assertFalse(stale)
-        self.assertIsNone(cached)
+            monotonic_now[0] = 25.0
+            stale, cached = store.cached_role_session(session.session_id, now=115)
+            self.assertFalse(stale)
+            self.assertIsNone(cached)
 
-        store._role_checked_at[session.session_id] = 200
-        rolled_back, cached = store.cached_role_session(session.session_id, now=101)
-        self.assertFalse(rolled_back)
-        self.assertIsNone(cached)
+            store._role_checked_monotonic[session.session_id] = 26.0
+            future, cached = store.cached_role_session(session.session_id, now=101)
+            self.assertFalse(future)
+            self.assertIsNone(cached)
+
+    def test_role_cache_expires_when_wall_clock_stalls(self) -> None:
+        store = SessionStore()
+        monotonic_now = [10.0]
+        calls = 0
+
+        def resolve_role(_session) -> str:
+            nonlocal calls
+            calls += 1
+            return "owner"
+
+        with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+            session = store.create("admin", "router-secret", role="owner", now=100)
+            fresh, cached = store.cached_role_session(session.session_id, now=100)
+            self.assertTrue(fresh)
+            self.assertIs(cached, session)
+
+            # Wall time stays fixed at 100 while 16 seconds of monotonic time
+            # pass, beyond the 15-second RouterOS-role revalidation interval.
+            monotonic_now[0] = 26.0
+            fresh, cached = store.cached_role_session(session.session_id, now=100)
+            self.assertFalse(fresh)
+            self.assertIsNone(cached)
+            self.assertIs(
+                store.revalidate_role(
+                    session.session_id,
+                    resolve_role,
+                    now=100,
+                    interval_seconds=15,
+                ),
+                session,
+            )
+            self.assertEqual(calls, 1)
 
     def test_role_revalidation_does_not_return_a_session_expired_during_lookup(self) -> None:
         store = SessionStore(idle_seconds=10, absolute_seconds=100)
@@ -386,88 +423,106 @@ class SecurityTests(unittest.TestCase):
 
     def test_routeros_role_revalidation_downgrades_without_extending_idle_lifetime(self) -> None:
         store = SessionStore()
-        session = store.create("admin", "router-secret", role="owner", now=100)
-        checked = store.revalidate_role(
-            session.session_id, lambda _session: "read_only", now=116,
-        )
+        monotonic_now = [100.0]
+        with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+            session = store.create("admin", "router-secret", role="owner", now=100)
+            monotonic_now[0] = 116.0
+            checked = store.revalidate_role(
+                session.session_id, lambda _session: "read_only", now=116,
+            )
 
-        self.assertIs(checked, session)
-        self.assertEqual(session.role, "read_only")
-        self.assertEqual(session.last_seen, 100)
-        self.assertIs(
-            store.revalidate_role(
-                session.session_id,
-                lambda _session: self.fail("cached role validation should not call RouterOS again"),
-                now=117,
-            ),
-            session,
-        )
+            self.assertIs(checked, session)
+            self.assertEqual(session.role, "read_only")
+            self.assertEqual(session.last_seen, 100)
+            monotonic_now[0] = 117.0
+            self.assertIs(
+                store.revalidate_role(
+                    session.session_id,
+                    lambda _session: self.fail("cached role validation should not call RouterOS again"),
+                    now=117,
+                ),
+                session,
+            )
 
     def test_routeros_role_revalidation_never_elevates_an_existing_session(self) -> None:
         store = SessionStore()
-        session = store.create("admin", "router-secret", role="read_only", now=100)
-
-        self.assertIs(
-            store.revalidate_role(session.session_id, lambda _session: "owner", now=116),
-            session,
-        )
-        self.assertEqual(session.role, "read_only")
+        monotonic_now = [100.0]
+        with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+            session = store.create("admin", "router-secret", role="read_only", now=100)
+            monotonic_now[0] = 116.0
+            self.assertIs(
+                store.revalidate_role(session.session_id, lambda _session: "owner", now=116),
+                session,
+            )
+            self.assertEqual(session.role, "read_only")
 
     def test_routeros_role_revalidation_treats_clock_rollback_as_stale(self) -> None:
         for interval_seconds in (0, 15):
             with self.subTest(interval_seconds=interval_seconds):
                 store = SessionStore()
-                session = store.create("admin", "router-secret", role="owner", now=100)
-                # The check timestamp is ahead of the current wall clock, as
-                # after a system-clock rollback. It must not authorize from a
-                # cache whose age cannot be established.
-                store._role_checked_at[session.session_id] = 200
-                calls = 0
+                monotonic_now = [10.0]
+                with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+                    session = store.create("admin", "router-secret", role="owner", now=100)
+                    calls = 0
 
-                def account_is_disabled(_session) -> None:
-                    nonlocal calls
-                    calls += 1
-                    return None
+                    def account_is_disabled(_session) -> None:
+                        nonlocal calls
+                        calls += 1
+                        return None
 
-                self.assertIsNone(
-                    store.revalidate_role(
-                        session.session_id,
-                        account_is_disabled,
-                        now=101,
-                        interval_seconds=interval_seconds,
+                    # Wall time rolls back while monotonic time advances past
+                    # the cache interval; the RouterOS role must be refreshed.
+                    monotonic_now[0] = 26.0
+                    self.assertIsNone(
+                        store.revalidate_role(
+                            session.session_id,
+                            account_is_disabled,
+                            now=90,
+                            interval_seconds=interval_seconds,
+                        )
                     )
-                )
-                self.assertEqual(calls, 1)
-                self.assertIsNone(store.get(session.session_id, now=101, touch=False))
+                    self.assertEqual(calls, 1)
+                    self.assertIsNone(store.get(session.session_id, now=90, touch=False))
 
     def test_routeros_role_revalidation_revokes_missing_or_incomparable_identity(self) -> None:
-        missing_store = SessionStore()
-        missing = missing_store.create("admin", "router-secret", role="owner", now=100)
-        self.assertIsNone(missing_store.revalidate_role(missing.session_id, lambda _session: None, now=116))
-        self.assertIsNone(missing_store.get(missing.session_id, now=116, touch=False))
+        monotonic_now = [100.0]
+        with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+            missing_store = SessionStore()
+            missing = missing_store.create("admin", "router-secret", role="owner", now=100)
+            monotonic_now[0] = 116.0
+            self.assertIsNone(
+                missing_store.revalidate_role(missing.session_id, lambda _session: None, now=116)
+            )
+            self.assertIsNone(missing_store.get(missing.session_id, now=116, touch=False))
 
-        changed_store = SessionStore()
-        changed = changed_store.create("admin", "router-secret", role="administrator", now=100)
-        self.assertIsNone(
-            changed_store.revalidate_role(changed.session_id, lambda _session: "security_operator", now=116)
-        )
-        self.assertIsNone(changed_store.get(changed.session_id, now=116, touch=False))
+            monotonic_now[0] = 100.0
+            changed_store = SessionStore()
+            changed = changed_store.create("admin", "router-secret", role="administrator", now=100)
+            monotonic_now[0] = 116.0
+            self.assertIsNone(
+                changed_store.revalidate_role(
+                    changed.session_id, lambda _session: "security_operator", now=116
+                )
+            )
+            self.assertIsNone(changed_store.get(changed.session_id, now=116, touch=False))
 
     def test_routeros_role_lookup_error_revokes_session(self) -> None:
         for role in ("owner", "read_only"):
             with self.subTest(role=role):
                 store = SessionStore()
-                session = store.create("admin", "router-secret", role=role, now=100)
+                monotonic_now = [100.0]
+                with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+                    session = store.create("admin", "router-secret", role=role, now=100)
+                    monotonic_now[0] = 116.0
+                    checked = store.revalidate_role(
+                        session.session_id,
+                        lambda _session: (_ for _ in ()).throw(RuntimeError("private RouterOS failure")),
+                        now=116,
+                    )
 
-                checked = store.revalidate_role(
-                    session.session_id,
-                    lambda _session: (_ for _ in ()).throw(RuntimeError("private RouterOS failure")),
-                    now=116,
-                )
-
-                self.assertIsNone(checked)
-                self.assertIsNone(store.get(session.session_id, now=116, touch=False))
-                self.assertNotIn("private RouterOS failure", repr(checked))
+                    self.assertIsNone(checked)
+                    self.assertIsNone(store.get(session.session_id, now=116, touch=False))
+                    self.assertNotIn("private RouterOS failure", repr(checked))
 
     def test_session_snapshot_is_safe_and_revoke_is_scoped(self) -> None:
         store = SessionStore(idle_seconds=60, absolute_seconds=600)

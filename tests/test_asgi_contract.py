@@ -335,7 +335,7 @@ class ASGIContractTests(unittest.TestCase):
                     # this established connection may continue receiving only
                     # the session telemetry its new role still permits.
                     routeros_state["role"] = "read_only"
-                    sessions._role_checked_at[session.session_id] = 0
+                    sessions._role_checked_monotonic[session.session_id] = 0
                     runtime._publish(runtime.broker.apply(RouterOSReply(
                         "re",
                         {
@@ -362,7 +362,7 @@ class ASGIContractTests(unittest.TestCase):
                     # A missing/disabled account revokes the server session;
                     # the open socket closes before another telemetry frame.
                     routeros_state["enabled"] = False
-                    sessions._role_checked_at[session.session_id] = 0
+                    sessions._role_checked_monotonic[session.session_id] = 0
                     disconnected = await receive_until(
                         ws, lambda packet: packet.startswith("41/telemetry,"), timeout=3
                     )
@@ -813,7 +813,7 @@ class ASGIContractTests(unittest.TestCase):
                 self.assertEqual(role_lookups, 1)
                 # Keep the role cache warm: connect must not depend on callers
                 # clearing this state when RouterOS disables the account.
-                self.assertGreater(sessions._role_checked_at[session.session_id], 0)
+                self.assertGreater(sessions._role_checked_monotonic[session.session_id], 0)
                 routeros_state["enabled"] = False
 
                 sid = "socket-reconnect" if existing_sid else "socket-new"
@@ -2245,7 +2245,7 @@ class ASGIContractTests(unittest.TestCase):
             requested_transport="binary",
             role_resolver=resolve_role,
         )
-        sessions._role_checked_at[session.session_id] = 0
+        sessions._role_checked_monotonic[session.session_id] = 0
         principal = runtime.principal_for_session(session.session_id)
         self.assertIsNotNone(principal)
         self.assertTrue(principal.may_stream)
@@ -2273,12 +2273,12 @@ class ASGIContractTests(unittest.TestCase):
                     # The RouterOS-derived downgrade removes write/admin
                     # permissions but intentionally retains sessions.read.
                     routeros_state["role"] = "read_only"
-                    sessions._role_checked_at[session.session_id] = 0
+                    sessions._role_checked_monotonic[session.session_id] = 0
                 else:
                     # Once RouterOS no longer resolves the account, the same
                     # established stream must be closed before another frame.
                     routeros_state["enabled"] = False
-                    sessions._role_checked_at[session.session_id] = 0
+                    sessions._role_checked_monotonic[session.session_id] = 0
 
             async def disconnect(self, sid: str, *, namespace: str) -> None:
                 self.disconnected.append((sid, namespace))
