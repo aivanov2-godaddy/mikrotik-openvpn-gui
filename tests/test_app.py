@@ -250,17 +250,42 @@ class OperationsTimelineTests(unittest.TestCase):
 class DevicePostureTests(unittest.TestCase):
     def test_posture_requires_present_non_revoked_certificate_from_current_ca(self) -> None:
         devices = [
-            {"id": "approved", "certificate_name": "client-current"},
+            {
+                "id": "approved", "certificate_name": "client-current",
+                "certificate_id": "*CURRENT", "fingerprint": "AA:BB",
+            },
             {"id": "missing", "certificate_name": "client-missing"},
-            {"id": "revoked", "certificate_name": "client-revoked"},
-            {"id": "legacy", "certificate_name": "client-legacy"},
-            {"id": "unknown-issuer", "certificate_name": "client-unknown"},
+            {
+                "id": "revoked", "certificate_name": "client-revoked",
+                "certificate_id": "*REVOKED", "fingerprint": "CC:DD",
+            },
+            {
+                "id": "legacy", "certificate_name": "client-legacy",
+                "certificate_id": "*LEGACY", "fingerprint": "EE:FF",
+            },
+            {
+                "id": "unknown-issuer", "certificate_name": "client-unknown",
+                "certificate_id": "*UNKNOWN", "fingerprint": "11:22",
+            },
         ]
         certificates = [
-            {"name": "client-current", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "260w"},
-            {"name": "client-revoked", "certificate_authority": "vpn-ca", "revoked": True},
-            {"name": "client-legacy", "certificate_authority": "old-ca", "revoked": False},
-            {"name": "client-unknown", "revoked": False},
+            {
+                "id": "*CURRENT", "name": "client-current", "fingerprint": "aa:bb",
+                "certificate_authority": "vpn-ca", "revoked": False,
+                "expires_after": "260w",
+            },
+            {
+                "id": "*REVOKED", "name": "client-revoked", "fingerprint": "cc:dd",
+                "certificate_authority": "vpn-ca", "revoked": True,
+            },
+            {
+                "id": "*LEGACY", "name": "client-legacy", "fingerprint": "ee:ff",
+                "certificate_authority": "old-ca", "revoked": False,
+            },
+            {
+                "id": "*UNKNOWN", "name": "client-unknown", "fingerprint": "11:22",
+                "revoked": False,
+            },
         ]
 
         result = evaluate_device_posture(devices, certificates, "vpn-ca")
@@ -272,19 +297,58 @@ class DevicePostureTests(unittest.TestCase):
         self.assertIn("old-ca", result[3]["reason"])
         self.assertIn("unknown CA", result[4]["reason"])
 
+    def test_posture_requires_matching_routeros_id_and_fingerprint(self) -> None:
+        devices = [
+            {
+                "id": "replaced", "certificate_name": "same-name-replaced",
+                "certificate_id": "*OLD", "fingerprint": "AA:BB",
+            },
+            {
+                "id": "changed-fingerprint", "certificate_name": "same-id-changed-fingerprint",
+                "certificate_id": "*STABLE", "fingerprint": "AA:BB",
+            },
+            {"id": "missing-identity", "certificate_name": "identity-not-recorded"},
+        ]
+        certificates = [
+            {
+                "id": "*NEW", "name": "same-name-replaced", "fingerprint": "AA:BB",
+                "certificate_authority": "vpn-ca", "revoked": False,
+                "expires_after": "260w",
+            },
+            {
+                "id": "*STABLE", "name": "same-id-changed-fingerprint", "fingerprint": "CC:DD",
+                "certificate_authority": "vpn-ca", "revoked": False,
+                "expires_after": "260w",
+            },
+            {
+                "id": "*IDENTITY", "name": "identity-not-recorded", "fingerprint": "EE:FF",
+                "certificate_authority": "vpn-ca", "revoked": False,
+                "expires_after": "260w",
+            },
+        ]
+
+        result = evaluate_device_posture(devices, certificates, "vpn-ca")
+
+        self.assertEqual([item["state"] for item in result], ["warning", "warning", "warning"])
+        self.assertTrue(all(item["label"] == "Needs review" for item in result))
+        self.assertTrue(all("ID or fingerprint" in item["reason"] for item in result))
+
     def test_posture_marks_expired_expiring_and_unknown_certificates_for_review(self) -> None:
         now = int(time.mktime(time.strptime("2030-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")))
         devices = [
             {"id": "expired", "certificate_name": "expired-cert"},
             {"id": "soon", "certificate_name": "soon-cert"},
             {"id": "unknown", "certificate_name": "unknown-cert"},
-            {"id": "valid", "certificate_name": "valid-cert"},
+            {
+                "id": "valid", "certificate_name": "valid-cert",
+                "certificate_id": "*VALID", "fingerprint": "AA:BB",
+            },
         ]
         certificates = [
             {"name": "expired-cert", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "0s"},
             {"name": "soon-cert", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "2w"},
             {"name": "unknown-cert", "certificate_authority": "vpn-ca", "revoked": False},
-            {"name": "valid-cert", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "40w"},
+            {"id": "*VALID", "name": "valid-cert", "fingerprint": "aa:bb", "certificate_authority": "vpn-ca", "revoked": False, "expires_after": "40w"},
         ]
 
         result = evaluate_device_posture(devices, certificates, "vpn-ca", now=now)
