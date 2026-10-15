@@ -1,3 +1,4 @@
+import threading
 import unittest
 
 from routeros_binary import (
@@ -71,6 +72,42 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         self.assertEqual(connection._read_sentence(), [b"!re", b"=.id=*1"])  # noqa: SLF001
         self.assertEqual(connection._read_sentence(), [b"!done"])  # noqa: SLF001
         self.assertEqual(fake.recv_calls, 1)
+
+    def test_concurrent_close_does_not_race_reader_state(self) -> None:
+        class BlockingSocket:
+            def __init__(self) -> None:
+                self.recv_started = threading.Event()
+                self.closed = threading.Event()
+
+            def recv(self, _size: int) -> bytes:
+                self.recv_started.set()
+                self.closed.wait(1)
+                return encode_sentence(["!re", "=.id=*1"])
+
+            def close(self) -> None:
+                self.closed.set()
+
+        connection = RouterOSBinaryConnection("router.example", insecure_tls=True)
+        fake = BlockingSocket()
+        connection._socket = fake  # noqa: SLF001 - exercise close/read concurrency
+        failures = []
+
+        def read() -> None:
+            try:
+                connection._read_sentence()  # noqa: SLF001 - exercise close/read concurrency
+            except Exception as error:  # noqa: BLE001 - inspect concurrent close failure
+                failures.append(error)
+
+        worker = threading.Thread(target=read)
+        worker.start()
+        self.assertTrue(fake.recv_started.wait(1))
+        connection.close()
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(failures), 1)
+        self.assertIsInstance(failures[0], RouterOSBinaryError)
+        self.assertEqual(connection._socket, None)  # noqa: SLF001
 
     def test_execute_is_read_only_and_returns_records(self) -> None:
         class FakeSocket:

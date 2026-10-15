@@ -2614,11 +2614,13 @@ class ASGIContractTests(unittest.TestCase):
         application = DashboardHTTPASGI(object())
         fake_client, fake_handler_socket = socket.socketpair()
         receive_calls = 0
+        body_messages = 0
 
         async def receive() -> dict[str, object]:
-            nonlocal receive_calls
+            nonlocal receive_calls, body_messages
             receive_calls += 1
             if receive_calls == 1:
+                body_messages += 1
                 return {
                     "type": "http.request",
                     "body": b"x" * MAX_REQUEST_BODY_BYTES,
@@ -2651,7 +2653,11 @@ class ASGIContractTests(unittest.TestCase):
 
         try:
             asyncio.run(run_application())
-            self.assertEqual(receive_calls, 1)
+            # One receive delivers the request body. Depending on scheduler
+            # timing, the disconnect watcher may or may not begin its next
+            # receive before the response has completed.
+            self.assertEqual(body_messages, 1)
+            self.assertIn(receive_calls, (1, 2))
             fake_handler_socket.settimeout(1)
             self.assertEqual(fake_handler_socket.recv(7), b"request")
             self.assertEqual(fake_client.fileno(), -1)

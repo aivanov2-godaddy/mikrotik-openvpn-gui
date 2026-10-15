@@ -5,6 +5,7 @@ from routeros_binary import RouterOSReply
 from telemetry_broker import TelemetryBroker
 from telemetry_supervisor import (
     INTERFACE_COUNTER_PROPLIST,
+    TelemetryCredentialLease,
     TelemetryInterfaceSampler,
     TelemetrySupervisor,
     TelemetrySupervisorConfig,
@@ -185,6 +186,127 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertEqual(received, [])
         self.assertEqual(supervisor.health().events, 0)
         self.assertTrue(connection.closed)
+
+    def test_credential_lease_is_cleared_and_stream_checks_only_reference(self):
+        connection = FakeConnection([
+            RouterOSReply("re", {".id": "*1", "name": "alice", "address": "10.8.0.2"}),
+        ])
+        lease = TelemetryCredentialLease("router-user", "router-password", "session-ref")
+        self.assertNotIn("router-password", repr(lease))
+        self.assertNotIn("session-ref", repr(lease))
+        checked_refs = []
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: lease,
+            config=TelemetrySupervisorConfig(enabled=True),
+            authorization_ref_check=lambda ref: checked_refs.append(ref) or True,
+        )
+
+        with self.assertRaisesRegex(Exception, "listen_ended"):
+            supervisor.run_attempt()
+
+        self.assertEqual(lease.password, "")
+        self.assertTrue(checked_refs)
+        self.assertEqual(set(checked_refs), {"session-ref"})
+
+    def test_credential_lease_revocation_blocks_publish(self):
+        connection = FakeConnection([
+            RouterOSReply("re", {".id": "*1", "name": "alice", "address": "10.8.0.2"}),
+        ])
+        lease = TelemetryCredentialLease("router-user", "router-password", "session-ref")
+        received = []
+        checks = iter((True, True, False))
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: lease,
+            config=TelemetrySupervisorConfig(enabled=True),
+            on_events=received.extend,
+            authorization_ref_check=lambda _ref: next(checks),
+        )
+
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            supervisor.run_attempt()
+
+        self.assertEqual(lease.password, "")
+        self.assertEqual(received, [])
+        self.assertEqual(supervisor.health().events, 0)
+        self.assertTrue(connection.closed)
+
+    def test_credential_lease_fails_closed_when_atomic_dispatch_denies(self):
+        connection = FakeConnection([
+            RouterOSReply("re", {".id": "*1", "name": "alice", "address": "10.8.0.2"}),
+        ])
+        lease = TelemetryCredentialLease("router-user", "router-password", "session-ref")
+        received = []
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: lease,
+            config=TelemetrySupervisorConfig(enabled=True),
+            on_events=received.extend,
+            authorization_ref_check=lambda _ref: True,
+            authorization_ref_dispatch=lambda _ref, _dispatch: False,
+        )
+
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            supervisor.run_attempt()
+
+        self.assertEqual(received, [])
+        self.assertEqual(supervisor.health().events, 0)
+        self.assertTrue(connection.closed)
+
+    def test_idle_stream_connection_closes_when_source_session_is_revoked(self):
+        class BlockingConnection(FakeConnection):
+            def __init__(self):
+                super().__init__()
+                self.listen_started = threading.Event()
+                self.close_requested = threading.Event()
+
+            def listen(self, path, *, query=()):
+                self.paths.append((path, tuple(query)))
+                self.listen_started.set()
+                if self.close_requested.wait(2):
+                    return
+                yield RouterOSReply("re", {".id": "*1", "name": "must-not-publish"})
+
+            def close(self):
+                self.closed = True
+                self.close_requested.set()
+
+        connection = BlockingConnection()
+        valid = {"value": True}
+        lease = TelemetryCredentialLease("router-user", "router-password", "session-ref")
+        received = []
+        failures = []
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: lease,
+            config=TelemetrySupervisorConfig(
+                enabled=True, authorization_poll_interval=0.01
+            ),
+            on_events=received.extend,
+            authorization_ref_check=lambda _ref: valid["value"],
+        )
+
+        def run_attempt():
+            try:
+                supervisor.run_attempt()
+            except Exception as error:  # noqa: BLE001 - capture worker exit for assertion
+                failures.append(error)
+
+        worker = threading.Thread(target=run_attempt)
+        worker.start()
+        self.assertTrue(connection.listen_started.wait(1))
+        valid["value"] = False
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(connection.closed)
+        self.assertEqual(received, [])
+        self.assertEqual(len(failures), 1)
+
+    def test_authorization_poll_interval_must_be_positive(self):
+        with self.assertRaisesRegex(ValueError, "authorization_poll_interval"):
+            TelemetrySupervisorConfig(authorization_poll_interval=0)
 
     def test_revoked_source_session_blocks_snapshot_reconciliation_publish(self):
         connection = FakeConnection()

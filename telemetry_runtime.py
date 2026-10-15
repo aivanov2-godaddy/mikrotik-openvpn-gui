@@ -20,6 +20,7 @@ from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
 from telemetry_state import TelemetryRuntimeState
 from telemetry_supervisor import (
     TelemetryInterfaceSampler,
+    TelemetryCredentialLease,
     TelemetrySupervisor,
     TelemetrySupervisorConfig,
 )
@@ -65,13 +66,15 @@ class TelemetryRuntime:
         if self.enabled:
             self.supervisor = TelemetrySupervisor(
                 self._connection,
-                self._credentials,
+                self._credential_lease,
                 broker=self.broker,
                 snapshot_reader=self._session_snapshot,
                 config=TelemetrySupervisorConfig(enabled=True),
                 stop_event=self._stop,
                 on_events=self._publish,
-                authorization_check=self._credentials_valid,
+                on_events_after_dispatch=self._persist_session_snapshot,
+                authorization_ref_check=self._authorization_ref_valid,
+                authorization_ref_dispatch=self._dispatch_authorized_events,
             )
             self.sampler = TelemetryInterfaceSampler(
                 self._connection,
@@ -189,6 +192,49 @@ class TelemetryRuntime:
                 continue
         raise RuntimeError("credentials_unavailable")
 
+    def _credential_lease(self) -> TelemetryCredentialLease:
+        for session in self.sessions.active():
+            if session.auth_method != "routeros":
+                continue
+            try:
+                current = self._validated_session(session)
+            except RuntimeError:
+                continue
+            return TelemetryCredentialLease(
+                current.username, current.password, current.authorization_ref
+            )
+        raise RuntimeError("credentials_unavailable")
+
+    def _authorization_ref_valid(self, authorization_ref: str) -> bool:
+        """Authorize a stream by its sensitive, internal source-session reference."""
+
+        if not authorization_ref:
+            return False
+        for session in self.sessions.active():
+            if session.auth_method != "routeros" or not hmac.compare_digest(
+                session.authorization_ref.encode("utf-8"),
+                authorization_ref.encode("utf-8"),
+            ):
+                continue
+            try:
+                current = self._validated_session(session)
+            except RuntimeError:
+                return False
+            return hmac.compare_digest(
+                current.authorization_ref.encode("utf-8"),
+                authorization_ref.encode("utf-8"),
+            )
+        return False
+
+    def _dispatch_authorized_events(
+        self, authorization_ref: str, dispatch: Callable[[], None]
+    ) -> bool:
+        """Publish only while the source session is atomically still active."""
+
+        return self.sessions.dispatch_if_active_authorization_ref(
+            authorization_ref, dispatch
+        )
+
     def _credentials_valid(self, username: str, password: str) -> bool:
         """Confirm the exact RouterOS credential pair still has a live session."""
 
@@ -208,6 +254,12 @@ class TelemetryRuntime:
     def _credentials_for_session(self, session: Any) -> tuple[str, str]:
         """Revalidate one session without extending its idle lifetime."""
 
+        current = self._validated_session(session)
+        return current.username, current.password
+
+    def _validated_session(self, session: Any) -> Any:
+        """Return the exact active RouterOS session after role revalidation."""
+
         if self.role_resolver is None:
             current = self.sessions.get(session.session_id, touch=False)
         else:
@@ -223,7 +275,7 @@ class TelemetryRuntime:
             or not current.password
         ):
             raise RuntimeError("credentials_unavailable")
-        return current.username, current.password
+        return current
 
     @staticmethod
     def _session_snapshot(connection: RouterOSBinaryConnection) -> Iterable[Mapping[str, Any]]:
@@ -237,6 +289,18 @@ class TelemetryRuntime:
         if not events:
             return
         self.gateway.publish(events)
+
+        session_events = sum(
+            event.name.startswith("vpn.session.") or event.name == "telemetry.snapshot"
+            for event in events
+        )
+        if session_events:
+            self.state.mark_session_events(
+                session_events,
+                reconciliation=any(event.name == "telemetry.snapshot" for event in events),
+            )
+
+    def _persist_session_snapshot(self, events: list[TelemetryEvent]) -> None:
         history_error = False
         if self.on_session_snapshot is not None:
             for event in events:
@@ -250,15 +314,6 @@ class TelemetryRuntime:
                     self.on_session_snapshot(sessions)
                 except Exception:  # noqa: BLE001 - persistence must not stop live delivery
                     history_error = True
-        session_events = sum(
-            event.name.startswith("vpn.session.") or event.name == "telemetry.snapshot"
-            for event in events
-        )
-        if session_events:
-            self.state.mark_session_events(
-                session_events,
-                reconciliation=any(event.name == "telemetry.snapshot" for event in events),
-            )
         if history_error:
             self.state.mark_error("session_history_unavailable")
 
