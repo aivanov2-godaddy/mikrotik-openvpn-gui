@@ -1012,8 +1012,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _require_csrf(self, session: Session, body_token: str = "") -> bool:
         origins = self.headers.get_all("Origin", [])
+        opaque_origin_with_verified_referer = (
+            len(origins) == 1
+            and origins[0].strip().casefold() == "null"
+            and self._login_origin_allowed()
+        )
         if len(origins) > 1 or (
             origins and not _same_origin(origins[0], self.server.context.public_origin)
+            and not opaque_origin_with_verified_referer
         ):
             self._json({"error": "Request origin is not allowed"}, status=HTTPStatus.FORBIDDEN)
             return False
@@ -2435,14 +2441,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _login_origin_allowed(self) -> bool:
         """Require same-origin browser evidence before accepting credentials."""
-        origin = self.headers.get("Origin")
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            return False
+        origin = origins[0] if origins else None
         if origin is not None and origin.strip().casefold() != "null":
             return _same_origin(origin, self.server.context.public_origin)
-        referer = self.headers.get("Referer")
-        if not referer:
+        referers = self.headers.get_all("Referer", [])
+        if len(referers) != 1 or not referers[0]:
             return False
         try:
-            parsed = urllib.parse.urlsplit(referer)
+            parsed = urllib.parse.urlsplit(referers[0])
         except ValueError:
             return False
         if not parsed.scheme or not parsed.netloc:
