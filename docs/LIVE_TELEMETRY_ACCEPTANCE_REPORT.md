@@ -1,22 +1,23 @@
 # Live telemetry acceptance status
 
-Status: **PR #751 artifact published; candidate-specific live acceptance is
+Status: **PR #755 artifact published; candidate-specific live acceptance is
 incomplete; production promotion remains gated.**
 
 ## Public artifact evidence
 
-PR [#751](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/751)
-(`e2e64c68167ccb2f7ff06e5e815e47b1981483e9`) is the latest published runtime
-candidate. Publisher run
-[#38750050793](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38750050793)
-completed successfully with source/security checks, compilation, tests,
-ARM64/AMD64 builds, runtime smoke, detached provenance and SPDX SBOM
-attestation verification, and stable-manifest read-back.
+PR [#755](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/755)
+(`f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1`) is the latest published runtime
+candidate. It stops live telemetry after its source dashboard session expires
+or is revoked. Publisher run
+[#38819845718](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38819845718)
+completed successfully with source/security checks, rendered browser and
+accessibility checks, ARM64/AMD64 builds, runtime smoke, detached provenance
+and SPDX SBOM attestation verification, and stable-manifest read-back.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-e2e64c68167ccb2f7ff06e5e815e47b1981483e9-arm64` | `sha256:177c80d75d5d95681342c0015502b3ac3dd6a7deb1e15b579c1b6704fe2b0001` |
-| CHR/x86 AMD64 (evaluation) | `sha-e2e64c68167ccb2f7ff06e5e815e47b1981483e9-amd64` | `sha256:4b3ac3e76009c18c29053454b104109dcca32c90ef237f525b049293a866a5f2` |
+| RouterOS ARM64 | `sha-f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1-arm64` | `sha256:1ad03a1f383c6e25ce29548413c8b98f3938a202590934210d16ff628efb893e` |
+| CHR/x86 AMD64 (evaluation) | `sha-f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1-amd64` | `sha256:4437eec31d67c781641bb9eea2cdb2c823a35eace245be8e6cf03e5368ef8c18` |
 
 These artifacts have **not** been verified as deployed to the RouterOS canary
 or production container. The readiness-only probe recorded below belongs to
@@ -33,8 +34,8 @@ of private measurements.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |
-| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Not verified for `e2e64c68`; no candidate-matched canary deployment or readiness window is recorded |
-| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `e2e64c68`; no authenticated, candidate-matched live-session observation is recorded, so event latency and reconnect remain unmeasured |
+| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Not verified for `f16fe17c`; no candidate-matched canary deployment or readiness window is recorded |
+| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `f16fe17c`; no authenticated, candidate-matched live-session observation is recorded, so event latency and reconnect remain unmeasured |
 | Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not yet measured for the candidate |
 | Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not yet measured for the candidate |
 | Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not yet measured for the candidate |
@@ -51,8 +52,8 @@ or readiness-only soak does not pass these gates. Production must not be
 promoted until the pre-promotion acceptance report passes and rollback has been
 rehearsed; post-promotion acceptance is a separate required phase.
 
-The 2026-10-15 readiness-only probe completed 30 consecutive passing samples
-at 60-second intervals, each reporting revision
+The historical 2026-10-15 readiness-only probe completed 30 consecutive
+passing samples at 60-second intervals, each reporting revision
 `6dd53022523766a5371628dfe158286072494bf4`. This confirms repeated readiness
 and revision reporting only; it does not establish live-event freshness,
 session reconnect or snapshot recovery, resource impact, Redis/SQLite recovery,

@@ -62,7 +62,7 @@ verified live connect/disconnect rendering, snapshot recovery, changing
 traffic samples, and two simultaneous dashboard clients. Exact event-age,
 counter-reset, and Binary/REST parity evidence remains an operational
 follow-up. These were historical windows for earlier deployments and do not
-establish acceptance for the current PR #751 candidate. Release **v2.0.0**
+establish acceptance for the current PR #755 candidate. Release **v2.0.0**
 originally introduced read-only device posture checks while preserving the
 router-local data and immutable-image deployment model.
 
