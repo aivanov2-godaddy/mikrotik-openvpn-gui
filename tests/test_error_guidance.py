@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import unittest
+import io
 import ssl
+import unittest
 import urllib.error
 from unittest.mock import patch
 
@@ -83,6 +84,7 @@ class RouterOSErrorGuidanceTests(unittest.TestCase):
         cases = (
             (urllib.error.URLError(ssl.SSLCertVerificationError("private cert detail")), "tls"),
             (TimeoutError("private host timed out"), "timeout"),
+            (urllib.error.URLError("10.10.10.1:8443 unreachable"), None),
         )
         for raised, expected_kind in cases:
             with self.subTest(expected_kind=expected_kind):
@@ -90,8 +92,13 @@ class RouterOSErrorGuidanceTests(unittest.TestCase):
                     with self.assertRaises(RouterOSError) as caught:
                         client._request("GET", "/system/resource", credentials)
                 self.assertEqual(caught.exception.failure_kind, expected_kind)
+                self.assertEqual(str(caught.exception), "RouterOS is unavailable")
+                self.assertNotIn("private", str(caught.exception))
+                self.assertNotIn("10.10.10.1", str(caught.exception))
+                self.assertNotIn("router.example.invalid", str(caught.exception))
                 payload = routeros_error_payload(caught.exception)
-                self.assertNotIn("private", str(payload))
+                for sensitive in ("private cert detail", "private host timed out", "10.10.10.1"):
+                    self.assertNotIn(sensitive, str(payload))
 
         class InvalidJsonResponse:
             def __enter__(self):
@@ -110,6 +117,30 @@ class RouterOSErrorGuidanceTests(unittest.TestCase):
         payload = routeros_error_payload(caught.exception)
         self.assertEqual(payload["code"], "routeros.invalid_response")
         self.assertNotIn("raw-router-data-marker", str(payload))
+
+    def test_router_api_does_not_echo_http_error_bodies(self) -> None:
+        client = RouterOSClient("https://router.example.invalid")
+        credentials = RouterOSCredentials("private-user", "private-password")
+        sensitive_details = ("private-router-response-marker", "private-password-marker")
+        for key, marker in zip(("detail", "message"), sensitive_details, strict=True):
+            with self.subTest(field=key):
+                body = f'{{"{key}":"{marker}"}}'.encode("utf-8")
+                error = urllib.error.HTTPError(
+                    "https://router.example.invalid/rest/system/resource",
+                    500,
+                    "Internal Server Error",
+                    {},
+                    io.BytesIO(body),
+                )
+                with patch("routeros.urllib.request.urlopen", side_effect=error):
+                    with self.assertRaises(RouterOSError) as caught:
+                        client._request("GET", "/system/resource", credentials)
+
+                self.assertEqual(str(caught.exception), "RouterOS request failed with HTTP 500")
+                self.assertEqual(caught.exception.status, 500)
+                self.assertIsNone(caught.exception.failure_kind)
+                for sensitive in (*sensitive_details, "router.example.invalid", "private-user"):
+                    self.assertNotIn(sensitive, str(caught.exception))
 
 
 if __name__ == "__main__":
