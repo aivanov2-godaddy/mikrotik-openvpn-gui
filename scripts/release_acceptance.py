@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from stream_acceptance import validate_stream_acceptance
     from sqlite_restore_verifier import validate_restore_verification
 except ModuleNotFoundError:
+    from scripts.certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from scripts.stream_acceptance import validate_stream_acceptance
     from scripts.sqlite_restore_verifier import validate_restore_verification
 
@@ -504,6 +506,23 @@ def evaluate(
             )
         ):
             failures.append("prepromotion_production_not_on_prior_image")
+    certificate_lifecycle_acceptance: dict[str, Any] | None = None
+    if collection_passed and isinstance(collection, dict):
+        raw_certificate_lifecycle = collection.get("certificate_lifecycle_acceptance")
+        if raw_certificate_lifecycle is None:
+            failures.append("certificate_lifecycle_acceptance_missing")
+        else:
+            try:
+                certificate_lifecycle_acceptance = validate_certificate_lifecycle_acceptance(
+                    raw_certificate_lifecycle,
+                    candidate_image=safe_records[0]["image"],
+                    candidate_digest=safe_records[0]["digest"],
+                    collection_started_at=collection["started_at"],
+                    collection_ended_at=collection["ended_at"],
+                    allow_normalized_output=True,
+                )
+            except (KeyError, ValueError):
+                failures.append("certificate_lifecycle_acceptance_invalid")
     routeros_resource_evidence: dict[str, Any] | None = None
     raw_routeros_evidence = collection.get("routeros_resource_evidence") if isinstance(collection, dict) else None
     if raw_routeros_evidence is None:
@@ -577,6 +596,7 @@ def evaluate(
         ),
         "router_runtime_digest_verified": False,
         "routeros_resource_evidence": routeros_resource_evidence,
+        "certificate_lifecycle_acceptance": certificate_lifecycle_acceptance,
         "stream_acceptance": validated_stream_acceptance,
         "sqlite_restore_verification": sqlite_restore_verification,
         "failed_gates": sorted(set(failures)),

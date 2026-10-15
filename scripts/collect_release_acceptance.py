@@ -27,10 +27,12 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
+    from certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
     from stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
     from sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
 except ModuleNotFoundError:
+    from scripts.certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from scripts.release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
     from scripts.stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
     from scripts.sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
@@ -42,6 +44,7 @@ MAX_DURATION_SECONDS = 86_400
 MAX_SAMPLES = 10_000
 MAX_STREAM_OBSERVER_REPORT_BYTES = 65_536
 MAX_TELEMETRY_ACCEPTANCE_BYTES = 5_000_000
+MAX_CERTIFICATE_LIFECYCLE_REPORT_BYTES = 16_384
 MIN_SOAK_SECONDS = 1800
 MIN_HEALTH_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
@@ -202,6 +205,15 @@ def _write_json_atomically(path: Path, document: dict[str, Any]) -> None:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+
+
+def _read_certificate_lifecycle_report(path: str | Path) -> Any:
+    """Load a tightly bounded operator report without retaining oversized input."""
+    with Path(path).open("rb") as source:
+        content = source.read(MAX_CERTIFICATE_LIFECYCLE_REPORT_BYTES + 1)
+    if len(content) > MAX_CERTIFICATE_LIFECYCLE_REPORT_BYTES:
+        raise ValueError("certificate lifecycle report exceeds its size limit")
+    return json.loads(content)
 
 
 def _evidence_timestamp(value: Any, name: str) -> datetime:
@@ -965,6 +977,21 @@ def collect(
 
     ended = clock()
     ended_monotonic = monotonic()
+    certificate_lifecycle_acceptance = None
+    raw_certificate_lifecycle = evidence.get("certificate_lifecycle_acceptance")
+    if raw_certificate_lifecycle is None:
+        failed_gates.append("certificate_lifecycle_acceptance_missing")
+    else:
+        try:
+            certificate_lifecycle_acceptance = validate_certificate_lifecycle_acceptance(
+                raw_certificate_lifecycle,
+                candidate_image=safe_records["canary"]["image"],
+                candidate_digest=safe_records["canary"]["digest"],
+                collection_started_at=begun.isoformat(),
+                collection_ended_at=ended.isoformat(),
+            )
+        except (KeyError, ValueError):
+            failed_gates.append("certificate_lifecycle_acceptance_invalid")
     wall_duration = (ended - begun).total_seconds()
     monotonic_duration = max(0.0, ended_monotonic - began_monotonic)
     if wall_duration < 0 or abs(wall_duration - monotonic_duration) > MAX_CLOCK_DRIFT_SECONDS:
@@ -1181,6 +1208,7 @@ def collect(
             ),
             "router_runtime_digest_verified": False,
             "stream_acceptance": None,
+            "certificate_lifecycle_acceptance": certificate_lifecycle_acceptance,
             "registry_digest_verification": registry_verification,
             "sqlite_restore_verification": sqlite_restore_verification,
         },
@@ -1214,6 +1242,10 @@ def main() -> int:
         "--telemetry-acceptance-input", required=True,
         help="redacted telemetry_acceptance NDJSON captured concurrently over this same soak",
     )
+    parser.add_argument(
+        "--certificate-lifecycle-report",
+        help="redacted, candidate-bound certificate lifecycle acceptance JSON",
+    )
     parser.add_argument("--canary-url", required=True, help="private app origin, without path")
     parser.add_argument("--production-url", required=True, help="private app origin, without path")
     parser.add_argument(
@@ -1241,6 +1273,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         evidence = json.loads(Path(args.input).read_text(encoding="utf-8"))
+        if not isinstance(evidence, dict):
+            raise ValueError("release evidence must be a JSON object")
+        if args.certificate_lifecycle_report:
+            evidence["certificate_lifecycle_acceptance"] = _read_certificate_lifecycle_report(
+                args.certificate_lifecycle_report
+            )
         cookie = os.environ.get(args.cookie_env) if args.cookie_env else None
         if args.cookie_env and not cookie:
             raise ValueError("the requested cookie environment variable is unset or empty")

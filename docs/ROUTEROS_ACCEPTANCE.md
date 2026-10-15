@@ -222,6 +222,39 @@ copy and removes it; the source database/backup remains read-only. A passing
 collection is not a promotion action and does not execute or prove the required
 rollback rehearsal; that remains a separate controlled RouterOS procedure.
 
+### Certificate lifecycle acceptance evidence
+
+Any collection marked `passed: true` must include a
+`certificate_lifecycle_acceptance` object. Use
+[`certificate-lifecycle-acceptance.example.json`](certificate-lifecycle-acceptance.example.json)
+as the separate redacted report supplied with
+`--certificate-lifecycle-report`. The collector attaches only its validated,
+allow-listed projection to the release evidence. Missing or invalid evidence
+fails closed and prevents `promotion_eligible` and `production_accepted`.
+
+This canary-only record must match the exact immutable image tag and OCI digest
+in the canary deployment record. Its timezone-aware timestamps must be ordered
+from replacement testing, failed-renewal rollback read-back, RouterOS
+revocation read-back, fresh/loaded CRL read-back, existing-session read-back,
+fresh-connection rejection, and dashboard-state distinction verification.
+Evidence may be at most 24 hours before the collection start and no later than
+five seconds after its end. The existing session outcome must explicitly be
+`terminated` or `remained_active`; the gate does not assume revocation
+terminates an already-established tunnel. A fresh connection must be verified
+rejected after the revocation/CRL checks.
+
+The record is an operator attestation validated for schema, ordering, freshness,
+and candidate identity—not a cryptographic signature or independent proof that
+the RouterOS actions occurred. The output marks it with
+`evidence_provenance: operator_attested` and `independently_observed: false`.
+Perform the controlled test on canary, including
+replacement before retirement and a failed-renewal rollback path. Do not put
+certificate subjects or serials, usernames, addresses, profile bytes, private
+keys, credentials, screenshots with identifying content, or raw logs in the
+report. The two privacy fields must remain `false`; unknown fields are rejected
+so private data cannot be silently copied into the acceptance output. CA-wide
+rotation remains out of scope.
+
 The sampled release gate fails if any session-event, traffic-freshness, or
 gateway-delivery latency sample is unknown, even if other samples in the window
 are valid. At the end of each environment's observation window, the Redis

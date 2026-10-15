@@ -1,0 +1,23 @@
+{
+  "format": "vpn-dashboard-certificate-lifecycle-acceptance-v1",
+  "environment": "canary",
+  "candidate_image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-arm64",
+  "candidate_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "replacement_tested_before_retirement": true,
+  "replacement_tested_at": "2026-10-02T09:40:00Z",
+  "failed_renewal_rollback_read_back_verified": true,
+  "failed_renewal_rollback_read_back_at": "2026-10-02T09:41:00Z",
+  "routeros_revocation_read_back_verified": true,
+  "routeros_revocation_read_back_at": "2026-10-02T09:42:00Z",
+  "crl_fresh_and_loaded_verified": true,
+  "crl_fresh_loaded_at": "2026-10-02T09:43:00Z",
+  "existing_session_read_back_verified": true,
+  "existing_session_outcome": "remained_active",
+  "existing_session_read_back_at": "2026-10-02T09:44:00Z",
+  "fresh_connection_rejection_verified": true,
+  "fresh_connection_rejection_at": "2026-10-02T09:45:00Z",
+  "dashboard_status_distinctions_verified": true,
+  "dashboard_status_distinctions_verified_at": "2026-10-02T09:46:00Z",
+  "private_material_or_profile_contents_in_evidence": false,
+  "raw_logs_in_evidence": false
+}

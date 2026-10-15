@@ -43,6 +43,7 @@ PYTHON_FILES = [
     "scripts/telemetry_acceptance.py",
     "scripts/telemetry_stream_observer.py",
     "scripts/collect_release_acceptance.py",
+    "scripts/certificate_lifecycle_acceptance.py",
     "scripts/stream_acceptance.py",
     "scripts/collect_routeros_acceptance.py",
     "scripts/release_acceptance.py",
