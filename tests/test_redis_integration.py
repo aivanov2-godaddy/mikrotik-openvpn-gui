@@ -146,37 +146,45 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         self.fail("condition was not satisfied before the deadline")
 
     def test_background_dispatcher_recovers_and_drains_after_redis_restart(self) -> None:
-        self._stop_redis()
-        dispatcher = WebhookDispatcher(
-            None,
-            None,
-            store=self.store,
-            redis_publisher=self.publisher,
-            base_backoff=0.1,
-            max_backoff=0.1,
-            circuit_threshold=100,
-            max_outbox_attempts=100,
-        )
-        self.addCleanup(dispatcher.stop)
+        try:
+            self._stop_redis()
+            record = self._enqueue_event()
+            event_id = str(record["event_id"])
+            # _enqueue_event reads through the claiming API, which schedules
+            # the next attempt 60 seconds later. Make it due now for this test.
+            self.store.mark_integration_failed(event_id, "test_retry_due", retry_at=int(time.time()))
 
-        record = self._enqueue_event()
-        event_id = str(record["event_id"])
-        dispatcher.publish(record["payload"])
+            dispatcher = WebhookDispatcher(
+                None,
+                None,
+                store=self.store,
+                redis_publisher=self.publisher,
+                base_backoff=0.1,
+                max_backoff=0.1,
+                circuit_threshold=100,
+                max_outbox_attempts=100,
+            )
+            self.addCleanup(dispatcher.stop)
+            dispatcher.publish(record["payload"])
 
-        self._wait_until(lambda: dispatcher.metrics()["delivery_failures"] > 0)
-        self.assertEqual(self.store.integration_outbox_metrics()["pending"], 1)
-        self.assertEqual(self.client.xlen("vpn-dashboard.test.events"), 0)
+            self._wait_until(lambda: dispatcher.metrics()["delivery_failures"] > 0)
+            self.assertEqual(self.store.integration_outbox_metrics()["pending"], 1)
+            self.assertEqual(self.client.xlen("vpn-dashboard.test.events"), 0)
 
-        self._restart_redis()
-        self._wait_until(lambda: self.store.integration_outbox_metrics()["pending"] == 0)
+            self._restart_redis()
+            self._wait_until(lambda: self.store.integration_outbox_metrics()["pending"] == 0)
 
-        entries = self.client.xrange("vpn-dashboard.test.events")
-        self.assertEqual(len(entries), 1)
-        fields = entries[0][1]
-        self.assertEqual(fields["event_id"], event_id)
-        self.assertNotIn("must-not-escape", fields["payload"])
-        self.assertGreater(dispatcher.metrics()["delivery_successes"], 0)
-        self.assertEqual(self.publisher.metrics()["publish_successes"], 1)
+            entries = self.client.xrange("vpn-dashboard.test.events")
+            self.assertEqual(len(entries), 1)
+            fields = entries[0][1]
+            self.assertEqual(fields["event_id"], event_id)
+            self.assertNotIn("must-not-escape", fields["payload"])
+            self.assertGreater(dispatcher.metrics()["delivery_successes"], 0)
+            self.assertEqual(self.publisher.metrics()["publish_successes"], 1)
+        finally:
+            # A failed assertion must never leave the shared test Redis process
+            # stopped and cascade into unrelated integration-test failures.
+            self._restart_redis()
 
     def test_outbox_survives_redis_restart_and_drains_without_leaking_secrets(self) -> None:
         record = self._enqueue_event()
