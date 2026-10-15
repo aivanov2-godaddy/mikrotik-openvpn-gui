@@ -75,6 +75,10 @@ def _integer(value: Any) -> int:
         return 0
 
 
+def _counter_is_observed(value: Any) -> bool:
+    return value is not None and str(value).isdecimal()
+
+
 def _crl_is_current(value: Any) -> bool:
     """Treat missing or malformed CRL expiry data as unsafe."""
     try:
@@ -626,19 +630,25 @@ class RouterOSClient:
                 },
             )
         )
-        interfaces = _records(
-            self._request(
-                "GET",
-                "/interface",
-                credentials,
-                query={
-                    ".proplist": (
-                        ".id,name,type,running,actual-mtu,rx-byte,tx-byte,"
-                        "rx-packet,tx-packet,rx-drop,tx-drop,rx-error,tx-error"
-                    )
-                },
+        try:
+            interfaces = _records(
+                self._request(
+                    "GET",
+                    "/interface",
+                    credentials,
+                    query={
+                        ".proplist": (
+                            ".id,name,type,running,actual-mtu,rx-byte,tx-byte,"
+                            "rx-packet,tx-packet,rx-drop,tx-drop,rx-error,tx-error"
+                        )
+                    },
+                )
             )
-        )
+        except RouterOSError:
+            # PPP is authoritative for whether a client is connected. Interface
+            # counters are optional enrichment; losing that read must not turn
+            # an active session into an empty or failed dashboard snapshot.
+            interfaces = []
         ovpn_interfaces = {
             str(item.get("name", "")): item
             for item in interfaces
@@ -651,6 +661,10 @@ class RouterOSClient:
             username = str(item.get("name", ""))
             interface_name = f"<ovpn-{username}>"
             interface = ovpn_interfaces.get(interface_name, {})
+            counter_complete = all(
+                key in interface and _counter_is_observed(interface[key])
+                for key in ("rx-byte", "tx-byte", "rx-packet", "tx-packet")
+            )
             sessions.append(
                 {
                     "id": str(item.get(".id", "")),
@@ -667,6 +681,7 @@ class RouterOSClient:
                     "tx_bytes": _integer(interface.get("tx-byte")),
                     "rx_packets": _integer(interface.get("rx-packet")),
                     "tx_packets": _integer(interface.get("tx-packet")),
+                    "counter_complete": counter_complete,
                     "rx_drops": _integer(interface.get("rx-drop")),
                     "tx_drops": _integer(interface.get("tx-drop")),
                     "rx_errors": _integer(interface.get("rx-error")),

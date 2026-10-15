@@ -1944,6 +1944,29 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertNotIn(sentinel, payload.decode("utf-8"))
             self.assertNotIn(sentinel, read_payload.decode("utf-8"))
 
+    def test_status_keeps_active_session_when_interface_counter_read_fails(self) -> None:
+        self.login()
+        router = self.server.context.router
+        request = router._request
+
+        def fail_interface_counters(method, path, *args, **kwargs):
+            if method == "GET" and path == "/interface":
+                raise RouterOSError("injected interface-counter read failure")
+            return request(method, path, *args, **kwargs)
+
+        with mock.patch.object(router, "_request", side_effect=fail_interface_counters):
+            status, _, payload = self.request("GET", "/api/status")
+
+        self.assertEqual(status, 200)
+        snapshot = json.loads(payload)
+        self.assertEqual(len(snapshot["sessions"]), 1)
+        self.assertEqual(snapshot["sessions"][0]["name"], "user-two")
+        self.assertEqual(snapshot["sessions"][0]["id"], "*A1")
+        self.assertEqual(snapshot["sessions"][0]["vpn_address"], "198.18.0.48")
+        self.assertFalse(snapshot["sessions"][0]["counter_complete"])
+        self.assertEqual(snapshot["sessions"][0]["rx_bytes"], 0)
+        self.assertEqual(snapshot["sessions"][0]["tx_bytes"], 0)
+
     def test_status_requires_every_data_capability_before_router_reads(self) -> None:
         self.login()
         original_has_capability = has_capability
