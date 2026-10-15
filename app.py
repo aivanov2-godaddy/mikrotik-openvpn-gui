@@ -1011,6 +1011,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return False
 
     def _require_csrf(self, session: Session, body_token: str = "") -> bool:
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1 or (
+            origins and not _same_origin(origins[0], self.server.context.public_origin)
+        ):
+            self._json({"error": "Request origin is not allowed"}, status=HTTPStatus.FORBIDDEN)
+            return False
         supplied = self.headers.get("X-CSRF-Token", "") or body_token
         if csrf_matches(session.csrf_token, supplied):
             return True

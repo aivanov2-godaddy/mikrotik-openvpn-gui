@@ -858,6 +858,27 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("SameSite=Strict", headers["set-cookie"])
         self.assertIn("Max-Age=0", headers["set-cookie"])
 
+    def test_logout_rejects_foreign_origin_even_with_valid_csrf_token(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        before_routeros_mutations = list(self.mock.state.mutation_requests)
+        body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+
+        status, _, payload = self.request(
+            "POST",
+            "/logout",
+            body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://attacker.example",
+            },
+        )
+
+        self.assertEqual(status, 403, payload.decode())
+        self.assertIn(b"origin", payload.lower())
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
+
     def test_successful_authenticated_request_refreshes_idle_timestamp(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
