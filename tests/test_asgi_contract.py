@@ -2153,6 +2153,43 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(native._events_emitted_total, 0)
         self.assertNotIn("router-password-marker", repr(runtime.principal_for_session(expired.session_id)))
 
+    def test_expired_live_session_uses_monotonic_deadline_after_wall_clock_rollback(self) -> None:
+        from asgi import NativeSocketIO
+
+        clock = SimpleNamespace(wall=1000.0, monotonic_now=100.0)
+        clock.time = lambda: clock.wall
+        clock.monotonic = lambda: clock.monotonic_now
+        sessions = SessionStore(idle_seconds=1, absolute_seconds=60)
+
+        class FakeServer:
+            def __init__(self) -> None:
+                self.disconnected: list[tuple[str, str]] = []
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnected.append((sid, namespace))
+
+        with mock.patch("security.time", clock):
+            expired = sessions.create("operator", "router-password-marker")
+            runtime = object.__new__(TelemetryRuntime)
+            runtime.sessions = sessions
+            native = object.__new__(NativeSocketIO)
+            native.runtime = runtime
+            native.server = FakeServer()
+            native._subscriptions = {"socket-clock-rollback": "subscription-clock-rollback"}
+            native._session_ids = {"socket-clock-rollback": expired.session_id}
+            native._events_emitted_total = 0
+
+            # Wall time is now earlier than session creation; only monotonic
+            # elapsed time can prove that the idle deadline has passed.
+            clock.wall = 900.0
+            clock.monotonic_now = 102.0
+            asyncio.run(native._pump("socket-clock-rollback", "subscription-clock-rollback"))
+
+        self.assertIsNone(sessions.get(expired.session_id))
+        self.assertEqual(native.server.disconnected, [("socket-clock-rollback", "/telemetry")])
+        self.assertEqual(native._events_emitted_total, 0)
+        self.assertNotIn("router-password-marker", repr(runtime.principal_for_session(expired.session_id)))
+
     def test_live_pump_rechecks_capabilities_on_the_current_session(self) -> None:
         from asgi import NativeSocketIO
         from telemetry_gateway import TelemetryPrincipal

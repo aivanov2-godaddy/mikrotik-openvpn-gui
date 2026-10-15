@@ -14,6 +14,89 @@ from store import MetadataStore
 
 
 class SQLiteRecoveryTests(unittest.TestCase):
+    def test_wal_initialization_retries_transient_lock_contention(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            attempts = 0
+            set_wal_mode_once = MetadataStore._set_wal_mode_once
+
+            def lock_once(store: MetadataStore) -> None:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise sqlite3.OperationalError("database is locked")
+                set_wal_mode_once(store)
+
+            with mock.patch.object(MetadataStore, "_set_wal_mode_once", new=lock_once):
+                store = MetadataStore(str(database))
+
+            self.assertEqual(attempts, 2)
+            store.audit(actor="test", action="wal.retry", target="local", status="success")
+            connection = sqlite3.connect(database)
+            try:
+                self.assertEqual(
+                    connection.execute("PRAGMA journal_mode").fetchone()[0].lower(),
+                    "wal",
+                )
+            finally:
+                connection.close()
+
+    def test_wal_initialization_does_not_retry_unrelated_operational_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            with mock.patch.object(
+                MetadataStore,
+                "_set_wal_mode_once",
+                side_effect=sqlite3.OperationalError("disk I/O error"),
+            ) as set_wal_mode_once:
+                with self.assertRaisesRegex(sqlite3.OperationalError, "disk I/O error"):
+                    MetadataStore(str(database))
+
+            set_wal_mode_once.assert_called_once()
+
+    def test_concurrent_connections_do_not_reconfigure_database_wal_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "dashboard.sqlite"
+            statements: list[str] = []
+            real_connect = sqlite3.connect
+
+            def traced_connect(*args, **kwargs):
+                connection = real_connect(*args, **kwargs)
+                connection.set_trace_callback(statements.append)
+                return connection
+
+            with mock.patch("store.sqlite3.connect", side_effect=traced_connect):
+                store = MetadataStore(str(database))
+                worker_count = 12
+                start = threading.Barrier(worker_count + 1)
+                errors: list[BaseException] = []
+
+                def open_connection() -> None:
+                    try:
+                        start.wait(timeout=5)
+                        with store._connection() as connection:
+                            self.assertEqual(
+                                connection.execute("SELECT 1").fetchone()[0], 1
+                            )
+                    except BaseException as error:
+                        errors.append(error)
+
+                workers = [threading.Thread(target=open_connection) for _ in range(worker_count)]
+                for worker in workers:
+                    worker.start()
+                start.wait(timeout=5)
+                for worker in workers:
+                    worker.join(timeout=10)
+                    self.assertFalse(worker.is_alive(), "SQLite connection worker did not finish")
+
+            self.assertFalse(errors, str(errors))
+            wal_mode_changes = [
+                statement
+                for statement in statements
+                if statement.strip().lower() == "pragma journal_mode=wal"
+            ]
+            self.assertEqual(wal_mode_changes, ["PRAGMA journal_mode=WAL"])
+
     def test_profile_migration_lifecycle_fields_add_safely_to_existing_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite"

@@ -22,6 +22,9 @@ _monotonic = time.monotonic
 ALERT_DEDUP_WINDOW_SECONDS = 3600
 ALERT_RATE_LIMIT_WINDOW_SECONDS = 60
 ALERT_RATE_LIMIT_MAX = 10
+_SQLITE_WAL_INITIALIZATION_LOCK = threading.Lock()
+SQLITE_WAL_INITIALIZATION_RETRIES = 3
+SQLITE_WAL_INITIALIZATION_RETRY_DELAY_SECONDS = 0.05
 
 
 class MetadataStore:
@@ -33,6 +36,7 @@ class MetadataStore:
         self._lock = threading.RLock()
         self._readiness_valid_until = 0.0
         self._audit_hook: Callable[[dict[str, Any]], None] | None = None
+        self._initialize_wal_mode()
         self._initialize()
         try:
             os.chmod(self.path, 0o600)
@@ -42,12 +46,42 @@ class MetadataStore:
     def set_audit_hook(self, hook: Callable[[dict[str, Any]], None] | None) -> None:
         self._audit_hook = hook
 
+    def _initialize_wal_mode(self) -> None:
+        # journal_mode is a database-level setting. Configure it once during
+        # store startup instead of making every request connection compete to
+        # change/read the mode while other connections are active.
+        with _SQLITE_WAL_INITIALIZATION_LOCK:
+            for attempt in range(SQLITE_WAL_INITIALIZATION_RETRIES):
+                try:
+                    self._set_wal_mode_once()
+                    return
+                except sqlite3.OperationalError as error:
+                    reason = str(error).casefold()
+                    is_contention = "locked" in reason or "busy" in reason
+                    if (
+                        not is_contention
+                        or attempt + 1 >= SQLITE_WAL_INITIALIZATION_RETRIES
+                    ):
+                        raise
+                    time.sleep(SQLITE_WAL_INITIALIZATION_RETRY_DELAY_SECONDS * (attempt + 1))
+
+    def _set_wal_mode_once(self) -> None:
+        connection = sqlite3.connect(self.path, timeout=0.5)
+        try:
+            connection.execute("PRAGMA busy_timeout=500")
+            mode = connection.execute("PRAGMA journal_mode").fetchone()
+            if mode is None or str(mode[0]).lower() != "wal":
+                mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()
+            if mode is None or str(mode[0]).lower() != "wal":
+                raise sqlite3.OperationalError("SQLite WAL mode is required")
+        finally:
+            connection.close()
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=5)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA foreign_keys=ON")
         # Keep WAL growth bounded without forcing a blocking checkpoint on
         # every write.  The explicit maintenance method below is used for
         # backups and operator-triggered checkpoints.
