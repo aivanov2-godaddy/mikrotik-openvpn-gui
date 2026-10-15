@@ -11,6 +11,41 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSURANCE_DOCUMENT = ROOT / "docs" / "SECURITY_ASSURANCE.md"
 VALID_MATRIX_STATUSES = {"TESTED", "PARTIAL", "GAP", "N/A", "EXTERNAL"}
+SCOPED_ASVS_CONTROLS = frozenset(
+    {
+        "V7.1.1",
+        "V7.1.2",
+        "V7.1.3",
+        "V7.2.1–V7.2.3",
+        "V7.2.4",
+        "V7.3.1–V7.3.2",
+        "V7.4.1",
+        "V7.4.2",
+        "V7.4.3",
+        "V7.4.4",
+        "V7.4.5",
+        "V7.5.1",
+        "V7.5.2",
+        "V7.5.3",
+        "V7.6.1",
+        "V7.6.2",
+        "V8.1.1",
+        "V8.1.2",
+        "V8.1.3–V8.1.4",
+        "V8.2.1",
+        "V8.2.2",
+        "V8.2.3",
+        "V8.2.4",
+        "V8.3.1",
+        "V8.3.2",
+        "V8.3.3",
+        "V8.4.1",
+        "V8.4.2",
+        "V4.4.1",
+        "V4.4.2",
+        "V4.4.3–V4.4.4",
+    }
+)
 TEST_REFERENCE = re.compile(
     r"(tests/[A-Za-z0-9_./]+\.py)::([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
 )
@@ -92,6 +127,11 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
                 self.assertTrue(row[0], "control identifier must be present")
                 self.assertIn(row[1], VALID_MATRIX_STATUSES)
                 self.assertTrue(row[2], "each matrix status must have scoped evidence")
+
+    def test_scoped_asvs_matrix_covers_its_declared_control_set(self) -> None:
+        matrix = _assurance_matrix(self.document)
+        actual_controls = {row[0] for row in matrix[1:]}
+        self.assertEqual(actual_controls, SCOPED_ASVS_CONTROLS)
 
     def test_documented_test_references_resolve_to_existing_test_nodes(self) -> None:
         code_spans = re.findall(r"`([^`]+)`", self.document, flags=re.DOTALL)
