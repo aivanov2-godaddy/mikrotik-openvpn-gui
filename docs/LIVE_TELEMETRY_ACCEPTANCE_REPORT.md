@@ -1,22 +1,28 @@
 # Live telemetry acceptance status
 
-Status: **PR #720 artifact published; candidate-specific live acceptance is
+Status: **PR #733 artifact published; candidate-specific live acceptance is
 incomplete; production promotion remains gated.**
 
 ## Public artifact evidence
 
-PR [#720](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/720)
-(`6dd53022523766a5371628dfe158286072494bf4`) is the latest published runtime
+PR [#733](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/733)
+(`c2758655bec686ad377853b2e600ccb86be3100b`) is the latest published runtime
 candidate. Publisher run
-[#38620869138](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38620869138)
+[#38686520022](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38686520022)
 completed successfully with source/security checks, compilation, tests,
-ARM64/AMD64 builds, provenance and SPDX SBOM attestation verification,
-stable-manifest read-back, and published-runtime smoke tests.
+ARM64/AMD64 builds, detached provenance and SPDX SBOM attestation verification,
+stable-manifest read-back, and published-runtime smoke tests. PR #734 was
+test-only and did not change the published runtime source.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `sha-6dd53022523766a5371628dfe158286072494bf4-arm64` | `sha256:8379e885c3f52585c3badbb8069c483edd60e4eb526756701d1a90ab409de31d` |
-| CHR/x86 AMD64 (evaluation) | `sha-6dd53022523766a5371628dfe158286072494bf4-amd64` | `sha256:2339d4d8e3e003eab8f6c99d9aad6cf5a748ac161716e23f179ea513bb351271` |
+| RouterOS ARM64 | `sha-c2758655bec686ad377853b2e600ccb86be3100b-arm64` | `sha256:c1db79a633b0679558cef6fec7c8239bde92103a061b29b09f8ac7931f681fc6` |
+| CHR/x86 AMD64 (evaluation) | `sha-c2758655bec686ad377853b2e600ccb86be3100b-amd64` | `sha256:04ae2ff3c9606d13d0247834e4e90b4198ceedf60ed5a0ddacc86a4d7c3a7fa1` |
+
+These artifacts have **not** been verified as deployed to the RouterOS canary
+or production container. The readiness-only probe recorded below belongs to
+the earlier `6dd53022523766a5371628dfe158286072494bf4` candidate and does not
+transfer to this image.
 
 These are public build and registry facts only. This file contains no RouterOS
 deployment assignments, hostnames, addresses, resource readings, logs, or VPN
@@ -28,8 +34,8 @@ of private measurements.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |
-| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Partial: a readiness-only probe passed 30 one-minute samples for revision `6dd53022523766a5371628dfe158286072494bf4`; record the running digest and full acceptance evidence privately |
-| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Failed in this observation: RouterOS reported zero active test sessions after disconnect, while the open canary page still showed a stale connected snapshot and delayed status; exact event latency and reconnect remain unmeasured |
+| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Not verified for `c2758655`; no candidate-matched canary deployment or readiness window is recorded |
+| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `c2758655`; no active test session was available during the latest read-only acceptance check, so event latency and reconnect remain unmeasured |
 | Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not yet measured for the candidate |
 | Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not yet measured for the candidate |
 | Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not yet measured for the candidate |
