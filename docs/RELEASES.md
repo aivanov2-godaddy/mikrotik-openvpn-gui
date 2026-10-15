@@ -18,11 +18,12 @@ operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline candidate is PR #745; its immutable artifacts and CI provenance are
-recorded below. It preserves VPN sessions when RouterOS has not yet supplied a
-complete interface-counter sample. It also includes PR #740's automatic-poll
-session-expiry hardening and safe credential representation, plus PR #741's
-redaction of RouterOS upstream error details. Earlier merged work includes the read-only
+mainline candidate is PR #751; its immutable artifacts and CI provenance are
+recorded below. It hardens session expiry and SQLite WAL startup under
+contention. It also includes PR #745's preservation of VPN sessions when
+RouterOS has not yet supplied a complete interface-counter sample, PR #740's
+automatic-poll session-expiry hardening and safe credential representation, and
+PR #741's redaction of RouterOS upstream error details. Earlier merged work includes the read-only
 device-posture guard that requires both the stored RouterOS certificate ID and
 normalized fingerprint to match. PR #728's pinned Python base-image registry
 change is also part of this mainline history. The broader candidate highlights
@@ -59,7 +60,7 @@ verified live connect/disconnect rendering, snapshot recovery, changing
 traffic samples, and two simultaneous dashboard clients. Exact event-age,
 counter-reset, and Binary/REST parity evidence remains an operational
 follow-up. These were historical windows for earlier deployments and do not
-establish acceptance for the current PR #745 candidate. Release **v2.0.0**
+establish acceptance for the current PR #751 candidate. Release **v2.0.0**
 originally introduced read-only device posture checks while preserving the
 router-local data and immutable-image deployment model.
 
@@ -75,7 +76,28 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #745 — 2026-10-15
+### Latest published mainline candidate — PR #751 — 2026-10-15
+
+PR [#751](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/751)
+was merged as `e2e64c68167ccb2f7ff06e5e815e47b1981483e9`. Publisher run
+[#38750050793](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38750050793)
+passed source/security checks, compilation and tests, rendered
+browser/accessibility checks, ARM64 and AMD64 publication and runtime smoke,
+detached provenance and SPDX SBOM attestation verification, and stable-manifest
+publication/read-back. The image digests were independently resolved from the
+public registry after the run.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e2e64c68167ccb2f7ff06e5e815e47b1981483e9-arm64` | `sha256:177c80d75d5d95681342c0015502b3ac3dd6a7deb1e15b579c1b6704fe2b0001` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e2e64c68167ccb2f7ff06e5e815e47b1981483e9-amd64` | `sha256:4b3ac3e76009c18c29053454b104109dcca32c90ef237f525b049293a866a5f2` |
+
+The stable `routeros-release.json` manifest was read back and points to this
+source commit and these immutable architecture tags. Publication does not
+establish RouterOS deployment or candidate-specific acceptance. Do not tag or
+publish v2.8.0 until those acceptance gates pass.
+
+### Previously published mainline candidate — PR #745 — 2026-10-15
 
 PR [#745](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/745)
 merged as `ad3cd3df72ea8a6dbb08e3a7b5ac0e97d19a5ed6`. It preserves an active

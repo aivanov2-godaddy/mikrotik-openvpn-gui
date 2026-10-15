@@ -14,32 +14,34 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#745, commit `ad3cd3df72ea8a6dbb08e3a7b5ac0e97d19a5ed6`, published by
-[workflow run #38720533595](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38720533595).
+#751, commit `e2e64c68167ccb2f7ff06e5e815e47b1981483e9`, published by
+[workflow run #38750050793](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38750050793).
 Its ARM64 registry digest is
-`sha256:4b3a0fbf6ad3943ce05bbd256f3d2930e2fa89808ccded46779066a484b6b66e`
+`sha256:177c80d75d5d95681342c0015502b3ac3dd6a7deb1e15b579c1b6704fe2b0001`
 and its AMD64 registry digest is
-`sha256:95a447476d82c4663fb4ba7cf7aef44da2ff7f4c4999ba988f58a30c51a81f5a`.
+`sha256:4b3ac3e76009c18c29053454b104109dcca32c90ef237f525b049293a866a5f2`.
 Both architectures passed published-runtime smoke tests, detached
 provenance/SBOM attestation verification, and stable-manifest publication and
-read-back. This candidate includes PR #730's read-only device-posture identity
-guard, PR #740's automatic-poll session-expiry hardening, PR #741's RouterOS
-error redaction, and PR #745's session preservation when initial interface
-counters are incomplete. These are publication/CI results. The current
-deployment checkpoint below records the limited RouterOS evidence separately;
-it is not a substitute for the controlled acceptance window. Older
-observations are historical and do not establish acceptance for PR #745.
+read-back. PR #751 hardens session expiry and SQLite WAL startup; it also
+contains PR #745's session preservation, PR #741's upstream-error redaction,
+PR #740's idle-session expiry hardening, and PR #730's device-posture identity
+guard. These are publication/CI results. The deployment checkpoint below is
+historical evidence for the previous PR #745 candidate, not PR #751. The new
+candidate must be deployed and tested in its own controlled acceptance window.
 
-## Current deployment checkpoint — 2026-10-15
+## Previous deployment checkpoint — PR #745 — 2026-10-15
 
-The isolated canary was updated to the exact ARM64 candidate tag listed above.
-RouterOS read-back confirmed that tag and reported `healthy=true`. The
-previous canary tag was
+The isolated canary was updated to PR #745's exact ARM64 tag,
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-ad3cd3df72ea8a6dbb08e3a7b5ac0e97d19a5ed6-arm64`.
+RouterOS read-back confirmed that tag and reported `healthy=true`. Its
+published registry digest was
+`sha256:4b3a0fbf6ad3943ce05bbd256f3d2930e2fa89808ccded46779066a484b6b66e`;
+RouterOS reports the configured tag, not a local OCI digest. The previous
+canary tag was
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-6dd53022523766a5371628dfe158286072494bf4-arm64`;
 it is the rollback target for this canary only. The production container and
-its data were not changed. RouterOS reports the candidate tag, not a local OCI
-digest; the published digest above is bound to the tag by the verified
-publisher workflow.
+its data were not changed. The published digest is bound to the tag by the
+verified publisher workflow.
 
 One immediate post-start resource sample showed 0% CPU and 40,116,224 bytes
 (about 38.3 MiB) of canary memory. This is a single snapshot, not a resource
@@ -59,7 +61,16 @@ still collect its required samples and recovery evidence. Keep exact router
 addresses, credentials, session details, and raw logs in private
 operator-controlled records.
 
-For each new acceptance run, read back PR #745's exact configured immutable tag
+## Current candidate status — PR #751
+
+The PR #751 image is published, but its RouterOS canary deployment and
+candidate-specific acceptance have not been verified. The connected test
+client must be observed against this exact image during the controlled window;
+prior PR #745 deployment and health observations cannot be carried forward.
+Keep production on its current image and do not promote until the complete
+pre-promotion report passes and the rollback exercise has been verified.
+
+For each new acceptance run, read back PR #751's exact configured immutable tag
 and health on the canary, then run the pre-promotion collector for that
 candidate. Do not promote until the report passes and rollback has been
 rehearsed. No resource minimum or cross-model/version certification is
