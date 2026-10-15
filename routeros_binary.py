@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import socket
 import ssl
+import threading
 from dataclasses import dataclass
 from typing import Iterable, Iterator
 
@@ -197,6 +198,7 @@ class RouterOSBinaryConnection:
         self.insecure_tls = insecure_tls
         self.ca_file = ca_file
         self._socket: socket.socket | ssl.SSLSocket | None = None
+        self._state_lock = threading.RLock()
         self._tag = 0
         self._reader = SentenceReader()
 
@@ -230,8 +232,9 @@ class RouterOSBinaryConnection:
             )
 
     def close(self) -> None:
-        current, self._socket = self._socket, None
-        self._reader = SentenceReader()
+        with self._state_lock:
+            current, self._socket = self._socket, None
+            self._reader = SentenceReader()
         if current is not None:
             try:
                 current.close()
@@ -243,24 +246,33 @@ class RouterOSBinaryConnection:
         return str(self._tag)
 
     def _send(self, words: Iterable[str | bytes]) -> None:
-        if self._socket is None:
+        with self._state_lock:
+            current = self._socket
+        if current is None:
             raise RouterOSBinaryError("RouterOS Binary API connection is not open")
-        self._socket.sendall(encode_sentence(words))
+        current.sendall(encode_sentence(words))
 
     def _read_sentence(self) -> list[bytes]:
-        if self._socket is None:
-            raise RouterOSBinaryError("RouterOS Binary API connection is not open")
         while True:
             # A single recv() may contain more than one sentence.  Drain the
             # persistent reader before waiting for another network read so the
             # second sentence is never discarded between API replies.
-            for sentence in self._reader.feed(b""):
-                return sentence
-            chunk = self._socket.recv(4096)
+            with self._state_lock:
+                current = self._socket
+                if current is None:
+                    raise RouterOSBinaryError("RouterOS Binary API connection is not open")
+                buffered = next(self._reader.feed(b""), None)
+                if buffered is not None:
+                    return buffered
+            chunk = current.recv(4096)
             if not chunk:
                 raise RouterOSBinaryError("RouterOS closed the Binary API connection")
-            for sentence in self._reader.feed(chunk):
-                return sentence
+            with self._state_lock:
+                if self._socket is not current:
+                    raise RouterOSBinaryError("RouterOS Binary API connection was closed")
+                parsed = next(self._reader.feed(chunk), None)
+                if parsed is not None:
+                    return parsed
 
     def _request(self, words: Iterable[str | bytes]) -> list[RouterOSReply]:
         tag = self._next_tag()

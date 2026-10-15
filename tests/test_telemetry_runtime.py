@@ -71,6 +71,43 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "credentials_unavailable"):
             runtime._credentials()
 
+    def test_binary_credential_lease_uses_session_ref_and_fails_after_revocation(self) -> None:
+        config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
+        sessions = SessionStore()
+        session = sessions.create("router-user", "router-password")
+        runtime = TelemetryRuntime(
+            sessions=sessions,
+            rest_url=config.routeros_rest_url,
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=config.routeros_api_ssl_port,
+            requested_transport=config.live_transport,
+        )
+
+        lease = runtime._credential_lease()
+        self.assertEqual(lease.username, "router-user")
+        self.assertEqual(lease.password, "router-password")
+        self.assertEqual(lease.authorization_ref, session.authorization_ref)
+        self.assertTrue(runtime._authorization_ref_valid(lease.authorization_ref))
+        dispatched = []
+        self.assertTrue(
+            runtime._dispatch_authorized_events(
+                lease.authorization_ref, lambda: dispatched.append("delivered")
+            )
+        )
+        self.assertEqual(dispatched, ["delivered"])
+
+        sessions.revoke(session.session_id)
+
+        self.assertFalse(runtime._authorization_ref_valid(lease.authorization_ref))
+        self.assertFalse(
+            runtime._dispatch_authorized_events(
+                lease.authorization_ref, lambda: dispatched.append("after-revoke")
+            )
+        )
+        self.assertEqual(dispatched, ["delivered"])
+        self.assertEqual(session.authorization_ref, "")
+
     def test_authoritative_session_snapshot_updates_history_observer(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         observed = []
@@ -85,10 +122,12 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
         )
         active = [{"id": "*1", "name": "test-user", "rx_bytes": 12}]
 
-        runtime._publish([
+        events = [
             TelemetryEvent("vpn.session.disconnected", 1, 100, {"name": "test-user"}),
             TelemetryEvent("telemetry.snapshot", 2, 101, {"sessions": active}),
-        ])
+        ]
+        runtime._publish(events)
+        runtime._persist_session_snapshot(events)
 
         self.assertEqual(observed, [active])
 

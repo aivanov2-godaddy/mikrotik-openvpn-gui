@@ -91,27 +91,38 @@ class SecurityTests(unittest.TestCase):
     def test_session_repr_never_contains_routeros_password_or_csrf_token(self) -> None:
         session = SessionStore().create(
             "admin", "router-password-marker", now=100,
+            source_address="192.0.2.77", user_agent="sensitive-browser-marker",
         )
         session.csrf_token = "csrf-token-marker"
 
         rendered = repr(session)
 
-        self.assertNotIn("router-password-marker", rendered)
-        self.assertNotIn("csrf-token-marker", rendered)
+        for marker in (
+            "router-password-marker", "csrf-token-marker", session.session_id,
+            "192.0.2.77", "sensitive-browser-marker",
+        ):
+            self.assertNotIn(marker, rendered)
         self.assertIn(session.username, rendered)
         self.assertEqual(session.password, "router-password-marker")
         self.assertEqual(session.csrf_token, "csrf-token-marker")
 
     def test_session_tokens_are_fresh_csprng_reference_values(self) -> None:
         store = SessionStore()
-        with mock.patch("security.secrets.token_urlsafe", side_effect=("session-one", "csrf-one", "session-two", "csrf-two")) as token:
+        with mock.patch(
+            "security.secrets.token_urlsafe",
+            side_effect=("session-one", "csrf-one", "auth-ref-one", "session-two", "csrf-two", "auth-ref-two"),
+        ) as token:
             first = store.create("admin", "secret")
             second = store.create("admin", "secret")
 
         self.assertEqual(first.session_id, "session-one")
         self.assertEqual(second.session_id, "session-two")
         self.assertNotEqual(first.session_id, second.session_id)
-        self.assertEqual(token.call_args_list, [mock.call(32), mock.call(32), mock.call(32), mock.call(32)])
+        self.assertNotEqual(first.authorization_ref, second.authorization_ref)
+        self.assertEqual(
+            token.call_args_list,
+            [mock.call(32), mock.call(32), mock.call(24), mock.call(32), mock.call(32), mock.call(24)],
+        )
 
     def test_session_reauthentication_rotates_tokens_atomically_at_account_limit(self) -> None:
         store = SessionStore(max_sessions_per_account=1)
@@ -130,6 +141,8 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(rotated.role, "read_only")
         self.assertEqual((rotated.created_at, rotated.last_seen), (110, 110))
         self.assertEqual((rotated.source_address, rotated.user_agent), ("192.0.2.5", "dashboard-test"))
+        self.assertEqual((original.password, original.csrf_token), ("", ""))
+        self.assertEqual(original.authorization_ref, "")
         self.assertIsNone(store.get(original.session_id, now=110, touch=False))
         self.assertIs(store.get(rotated.session_id, now=110, touch=False), rotated)
         self.assertEqual(len(store.active(now=110)), 1)
@@ -215,6 +228,8 @@ class SecurityTests(unittest.TestCase):
         idle_session = idle_store.create("idle-admin", "secret", now=100)
         self.assertIs(idle_store.get(idle_session.session_id, now=109, touch=False), idle_session)
         self.assertIsNone(idle_store.get(idle_session.session_id, now=110, touch=False))
+        self.assertEqual((idle_session.password, idle_session.csrf_token), ("", ""))
+        self.assertEqual(idle_session.authorization_ref, "")
 
         absolute_store = SessionStore(idle_seconds=100, absolute_seconds=30)
         absolute_session = absolute_store.create("absolute-admin", "secret", now=200)
@@ -223,6 +238,8 @@ class SecurityTests(unittest.TestCase):
             absolute_session,
         )
         self.assertIsNone(absolute_store.get(absolute_session.session_id, now=230, touch=False))
+        self.assertEqual((absolute_session.password, absolute_session.csrf_token), ("", ""))
+        self.assertEqual(absolute_session.authorization_ref, "")
 
     def test_session_timeouts_use_monotonic_time_when_wall_clock_moves_backward(self) -> None:
         idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
@@ -291,11 +308,15 @@ class SecurityTests(unittest.TestCase):
         idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
         idle_session = idle_store.create("idle-admin", "secret", now=100)
         self.assertEqual(idle_store.purge(now=110), 1)
+        self.assertEqual((idle_session.password, idle_session.csrf_token), ("", ""))
+        self.assertEqual(idle_session.authorization_ref, "")
         self.assertIsNone(idle_store.get(idle_session.session_id, now=110, touch=False))
 
         absolute_store = SessionStore(idle_seconds=100, absolute_seconds=30)
         absolute_session = absolute_store.create("absolute-admin", "secret", now=200)
         self.assertEqual(absolute_store.purge(now=230), 1)
+        self.assertEqual((absolute_session.password, absolute_session.csrf_token), ("", ""))
+        self.assertEqual(absolute_session.authorization_ref, "")
         self.assertIsNone(absolute_store.get(absolute_session.session_id, now=230, touch=False))
 
     def test_read_only_session_revalidation_does_not_extend_idle_timeout(self) -> None:
@@ -538,7 +559,96 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(next(item for item in identified if item["id"] == first.session_id)["id"], first.session_id)
         self.assertNotIn("password", str(snapshot).lower())
         self.assertTrue(store.revoke(second.session_id))
+        self.assertEqual((second.password, second.csrf_token), ("", ""))
+        self.assertEqual(second.authorization_ref, "")
         self.assertFalse(store.revoke(second.session_id))
+
+    def test_telemetry_dispatch_is_atomic_with_session_revocation(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "secret")
+        authorization_ref = session.authorization_ref
+        dispatch_entered = threading.Event()
+        release_dispatch = threading.Event()
+        revoked = threading.Event()
+        order = []
+        accepted = []
+
+        def dispatch() -> None:
+            order.append("dispatch-start")
+            dispatch_entered.set()
+            release_dispatch.wait(1)
+            order.append("dispatch-end")
+
+        publisher = threading.Thread(
+            target=lambda: accepted.append(
+                store.dispatch_if_active_authorization_ref(authorization_ref, dispatch)
+            )
+        )
+        publisher.start()
+        self.assertTrue(dispatch_entered.wait(1))
+
+        def revoke() -> None:
+            store.revoke(session.session_id)
+            order.append("revoke")
+            revoked.set()
+
+        revoker = threading.Thread(target=revoke)
+        revoker.start()
+        self.assertFalse(revoked.wait(0.02))
+        release_dispatch.set()
+        publisher.join(1)
+        revoker.join(1)
+
+        self.assertFalse(publisher.is_alive())
+        self.assertFalse(revoker.is_alive())
+        self.assertEqual(accepted, [True])
+        self.assertEqual(order, ["dispatch-start", "dispatch-end", "revoke"])
+        self.assertFalse(
+            store.dispatch_if_active_authorization_ref(authorization_ref, lambda: None)
+        )
+
+    def test_telemetry_dispatch_rechecks_expiry_after_waiting_for_store_lock(self) -> None:
+        clock = {"wall": 100.0, "monotonic": 100.0}
+        store = SessionStore(idle_seconds=5, absolute_seconds=100)
+        with mock.patch("security.time.monotonic", side_effect=lambda: clock["monotonic"]):
+            session = store.create("admin", "secret", now=clock["wall"])
+
+        underlying_lock = threading.RLock()
+        lock_requested = threading.Event()
+
+        class LockGate:
+            def __enter__(self):
+                lock_requested.set()
+                underlying_lock.acquire()
+                return self
+
+            def __exit__(self, _exc_type, _exc, _traceback):
+                underlying_lock.release()
+
+        store._lock = LockGate()  # noqa: SLF001 - hold the store lock across clock advance
+        result = []
+        underlying_lock.acquire()
+        with (
+            mock.patch("security.time.time", side_effect=lambda: clock["wall"]),
+            mock.patch("security.time.monotonic", side_effect=lambda: clock["monotonic"]),
+        ):
+            worker = threading.Thread(
+                target=lambda: result.append(
+                    store.dispatch_if_active_authorization_ref(
+                        session.authorization_ref, lambda: result.append("dispatched")
+                    )
+                )
+            )
+            worker.start()
+            self.assertTrue(lock_requested.wait(1))
+            clock["wall"] = 106.0
+            clock["monotonic"] = 106.0
+            underlying_lock.release()
+            worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result, [False])
+        self.assertEqual(session.authorization_ref, "")
 
     def test_csrf_comparison(self) -> None:
         self.assertTrue(csrf_matches("token", "token"))

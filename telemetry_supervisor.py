@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Protocol
 
 from routeros_binary import RouterOSReply
@@ -61,6 +61,29 @@ def _require_authorized(
         raise TelemetrySupervisorError("credentials_unavailable")
 
 
+def _require_authorization_ref(
+    authorization_ref_check: Callable[[str], bool] | None,
+    authorization_ref: str,
+) -> None:
+    """Fail closed if a lease's source dashboard session is no longer active."""
+
+    if authorization_ref_check is None or not authorization_ref_check(authorization_ref):
+        raise TelemetrySupervisorError("credentials_unavailable")
+
+
+@dataclass(slots=True)
+class TelemetryCredentialLease:
+    """Short-lived credentials plus an opaque internal authorization reference.
+
+    The reference is security-sensitive process state: keep it out of logs,
+    metrics, and client-visible telemetry.
+    """
+
+    username: str = field(repr=False)
+    password: str = field(repr=False)
+    authorization_ref: str = field(repr=False)
+
+
 @dataclass(frozen=True, slots=True)
 class TelemetrySupervisorConfig:
     """Safe, bounded supervisor settings.
@@ -72,12 +95,15 @@ class TelemetrySupervisorConfig:
 
     enabled: bool = False
     snapshot_timeout: float = 5.0
+    authorization_poll_interval: float = 1.0
     initial_backoff: float = 1.0
     max_backoff: float = 30.0
 
     def __post_init__(self) -> None:
         if self.snapshot_timeout <= 0:
             raise ValueError("snapshot_timeout must be positive")
+        if self.authorization_poll_interval <= 0:
+            raise ValueError("authorization_poll_interval must be positive")
         if self.initial_backoff <= 0:
             raise ValueError("initial_backoff must be positive")
         if self.max_backoff < self.initial_backoff:
@@ -126,7 +152,7 @@ class TelemetrySupervisor:
     def __init__(
         self,
         connection_factory: Callable[[], TelemetryConnection],
-        credentials_provider: Callable[[], tuple[str, str]],
+        credentials_provider: Callable[[], tuple[str, str] | TelemetryCredentialLease],
         *,
         broker: TelemetryBroker | None = None,
         snapshot_reader: Callable[[TelemetryConnection], Iterable[Mapping[str, Any]]] | None = None,
@@ -135,7 +161,10 @@ class TelemetrySupervisor:
         sleep: Callable[[float], None] = time.sleep,
         stop_event: threading.Event | None = None,
         on_events: Callable[[list[TelemetryEvent]], None] | None = None,
+        on_events_after_dispatch: Callable[[list[TelemetryEvent]], None] | None = None,
         authorization_check: Callable[[str, str], bool] | None = None,
+        authorization_ref_check: Callable[[str], bool] | None = None,
+        authorization_ref_dispatch: Callable[[str, Callable[[], None]], bool] | None = None,
     ) -> None:
         self._connection_factory = connection_factory
         self._credentials_provider = credentials_provider
@@ -146,7 +175,10 @@ class TelemetrySupervisor:
         self._sleep = sleep
         self._stop_event = stop_event or threading.Event()
         self._on_events = on_events
+        self._on_events_after_dispatch = on_events_after_dispatch
         self._authorization_check = authorization_check
+        self._authorization_ref_check = authorization_ref_check
+        self._authorization_ref_dispatch = authorization_ref_dispatch
         self._lock = threading.RLock()
         self._status = "disabled" if not self._config.enabled else "stopped"
         self._attempts = 0
@@ -193,6 +225,60 @@ class TelemetrySupervisor:
                 broker_sequence=self._broker.sequence,
             )
 
+    def _connect(
+        self, connection: TelemetryConnection
+    ) -> tuple[str, str | None, tuple[str, str] | None]:
+        """Authenticate and release provider-held password references promptly."""
+
+        provided = self._credentials_provider()
+        if isinstance(provided, TelemetryCredentialLease):
+            username = provided.username
+            authorization_ref = provided.authorization_ref
+            try:
+                connection.connect(username, provided.password)
+            finally:
+                provided.password = ""
+            return username, authorization_ref, None
+
+        username, password = provided
+        credentials = (username, password)
+        connection.connect(username, password)
+        return username, None, credentials
+
+    def _require_attempt_authorized(
+        self,
+        authorization_ref: str | None,
+        credentials: tuple[str, str] | None,
+    ) -> None:
+        if authorization_ref is not None:
+            _require_authorization_ref(
+                self._authorization_ref_check, authorization_ref
+            )
+        elif credentials is not None:
+            _require_authorized(self._authorization_check, credentials)
+
+    def _watch_authorization(
+        self,
+        connection: TelemetryConnection,
+        authorization_ref: str,
+        finished: threading.Event,
+    ) -> None:
+        """Close an idle API stream promptly when its dashboard session ends."""
+
+        while not finished.wait(self._config.authorization_poll_interval):
+            try:
+                _require_authorization_ref(
+                    self._authorization_ref_check, authorization_ref
+                )
+            except Exception:  # noqa: BLE001 - authorization failure must close the stream
+                close = getattr(connection, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:  # noqa: BLE001 - best-effort cross-thread shutdown
+                        pass
+                return
+
     def run_attempt(self) -> None:
         """Run one connection/listen attempt.
 
@@ -213,11 +299,19 @@ class TelemetrySupervisor:
             self._status = "connecting"
             self._last_error_code = None
         connection = self._connection_factory()
+        monitor_finished = threading.Event()
+        monitor: threading.Thread | None = None
         try:
-            username, password = self._credentials_provider()
-            credentials = (username, password)
-            connection.connect(username, password)
-            _require_authorized(self._authorization_check, credentials)
+            _username, authorization_ref, credentials = self._connect(connection)
+            if authorization_ref is not None:
+                monitor = threading.Thread(
+                    target=self._watch_authorization,
+                    args=(connection, authorization_ref, monitor_finished),
+                    name="vpn-dashboard-telemetry-auth-watch",
+                    daemon=True,
+                )
+                monitor.start()
+            self._require_attempt_authorized(authorization_ref, credentials)
             with self._lock:
                 self._status = "connecting" if self._snapshot_reader is not None else "healthy"
                 if self._last_connected_at is not None:
@@ -225,15 +319,20 @@ class TelemetrySupervisor:
                 self._last_connected_at = int(self._clock())
 
             if self._snapshot_reader is not None:
-                _require_authorized(self._authorization_check, credentials)
+                self._require_attempt_authorized(authorization_ref, credentials)
                 started = self._clock()
                 records = list(self._snapshot_reader(connection))
-                _require_authorized(self._authorization_check, credentials)
+                self._require_attempt_authorized(authorization_ref, credentials)
                 elapsed = self._clock() - started
                 if elapsed > self._config.snapshot_timeout:
                     raise TelemetrySupervisorError("snapshot_timeout")
                 events = self._broker.reconcile(records, now=int(self._clock()))
-                self._publish(events, snapshot=True, credentials=credentials)
+                self._publish(
+                    events,
+                    snapshot=True,
+                    credentials=credentials,
+                    authorization_ref=authorization_ref,
+                )
                 with self._lock:
                     self._status = "healthy"
 
@@ -243,15 +342,21 @@ class TelemetrySupervisor:
             for reply in connection.listen(self.LISTEN_PATH):
                 if self._stop_event.is_set():
                     return
-                _require_authorized(self._authorization_check, credentials)
+                self._require_attempt_authorized(authorization_ref, credentials)
                 if not isinstance(reply, RouterOSReply):
                     raise TelemetrySupervisorError("invalid_reply")
                 self._publish(
                     self._broker.apply(reply, now=int(self._clock())),
                     credentials=credentials,
+                    authorization_ref=authorization_ref,
                 )
             raise TelemetrySupervisorError("listen_ended")
         finally:
+            monitor_finished.set()
+            if monitor is not None:
+                monitor.join(
+                    timeout=max(1.0, self._config.authorization_poll_interval * 2)
+                )
             close = getattr(connection, "close", None)
             if callable(close):
                 close()
@@ -290,19 +395,30 @@ class TelemetrySupervisor:
         *,
         snapshot: bool = False,
         credentials: tuple[str, str] | None = None,
+        authorization_ref: str | None = None,
     ) -> None:
-        if credentials is not None:
-            _require_authorized(self._authorization_check, credentials)
+        self._require_attempt_authorized(authorization_ref, credentials)
         if not events:
             return
+        def dispatch() -> None:
+            if self._on_events is not None:
+                self._on_events(list(events))
+
+        if authorization_ref is not None and self._on_events is not None:
+            if self._authorization_ref_dispatch is None or not self._authorization_ref_dispatch(
+                authorization_ref, dispatch
+            ):
+                raise TelemetrySupervisorError("credentials_unavailable")
+        else:
+            dispatch()
         now = int(self._clock())
         with self._lock:
             self._events += len(events)
             self._last_event_at = now
             if snapshot:
                 self._last_snapshot_at = now
-        if self._on_events is not None:
-            self._on_events(list(events))
+        if self._on_events_after_dispatch is not None:
+            self._on_events_after_dispatch(list(events))
 
     @staticmethod
     def _error_code(error: Exception) -> str:

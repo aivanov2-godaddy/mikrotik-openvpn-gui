@@ -6,6 +6,7 @@ import hmac
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 
@@ -91,17 +92,20 @@ def has_capability(role: str, capability: str) -> bool:
 
 @dataclass(slots=True)
 class Session:
-    session_id: str
+    session_id: str = field(repr=False)
     username: str
     password: str = field(repr=False)
     csrf_token: str = field(repr=False)
     created_at: float
     last_seen: float
+    authorization_ref: str = field(
+        default_factory=lambda: secrets.token_urlsafe(24), repr=False
+    )
     created_monotonic: float = field(default_factory=time.monotonic, repr=False)
     last_seen_monotonic: float = field(default_factory=time.monotonic, repr=False)
     role: str = "owner"
-    source_address: str = ""
-    user_agent: str = ""
+    source_address: str = field(default="", repr=False)
+    user_agent: str = field(default="", repr=False)
     auth_method: str = "routeros"
     token_id: str = ""
     capabilities: frozenset[str] | None = None
@@ -207,7 +211,14 @@ class SessionStore:
         )
 
     def _drop_session_locked(self, session_id: str) -> None:
-        self._sessions.pop(session_id, None)
+        session = self._sessions.pop(session_id, None)
+        if session is not None:
+            # Drop the store-owned references when a session expires, is
+            # revoked, or is replaced. Python strings cannot be securely
+            # erased, and in-flight/local copies may remain alive.
+            session.password = ""
+            session.csrf_token = ""
+            session.authorization_ref = ""
         self._role_checked_monotonic.pop(session_id, None)
         self._role_check_locks.pop(session_id, None)
         self._invalidating.discard(session_id)
@@ -622,6 +633,38 @@ class SessionStore:
         self.purge(current)
         with self._lock:
             return list(self._sessions.values())
+
+    def dispatch_if_active_authorization_ref(
+        self, authorization_ref: str, dispatch: Callable[[], None]
+    ) -> bool:
+        """Serialize telemetry publication against session expiry and revocation.
+
+        The dispatch callback runs under the session-store lock. A concurrent
+        revoke either invalidates the ref first and suppresses dispatch, or
+        waits until an already-authorized event has been dispatched.
+        """
+
+        if not authorization_ref:
+            return False
+        reference = authorization_ref.encode("utf-8")
+        with self._lock:
+            current = time.time()
+            monotonic_current = time.monotonic()
+            for session_id, session in tuple(self._sessions.items()):
+                if (
+                    session.auth_method == "routeros"
+                    and hmac.compare_digest(
+                        session.authorization_ref.encode("utf-8"), reference
+                    )
+                ):
+                    if session_id in self._invalidating:
+                        return False
+                    if self._is_expired(session, current, monotonic_current):
+                        self._drop_session_locked(session_id)
+                        return False
+                    dispatch()
+                    return True
+        return False
 
     def snapshot(
         self,
