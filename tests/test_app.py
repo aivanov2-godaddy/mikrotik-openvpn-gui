@@ -4912,6 +4912,62 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(audit["status"], "failed")
         self.assertEqual(json.loads(audit["details"])["rationale"], "Different profile issuance reason")
 
+    def test_profile_checkpoint_failure_prevents_certificate_mutation_and_delivery(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass"),
+            ) if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/profiles"
+        preview = self.preview_profile(user["id"], "Checkpoint phone", delivery="ovpn")
+        mutations_before = list(self.mock.state.mutation_requests)
+        certificates_before = {
+            certificate_id: dict(certificate)
+            for certificate_id, certificate in self.mock.state.certificates.items()
+        }
+
+        with (
+            mock.patch.object(
+                self.server.context.router,
+                "create_configuration_export",
+                side_effect=RouterOSError("private checkpoint detail", 503),
+            ) as create_checkpoint,
+            mock.patch.object(self.server.context.router, "provision_profile") as provision_profile,
+            mock.patch.object(DashboardHandler, "_deliver_profile") as deliver_profile,
+        ):
+            status, _, payload = self.json_request(
+                "POST",
+                path,
+                {
+                    "device_name": "Checkpoint phone",
+                    "reason": preview["reason"],
+                    "key_passphrase": "private-checkpoint-passphrase",
+                    "delivery": "ovpn",
+                    "review_token": preview["review_token"],
+                },
+            )
+
+        response = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(
+            response["error"],
+            "RouterOS configuration checkpoint failed; no change was applied.",
+        )
+        self.assertNotIn(b"private checkpoint detail", payload)
+        self.assertNotIn(b"private-checkpoint-passphrase", payload)
+        create_checkpoint.assert_called_once()
+        provision_profile.assert_not_called()
+        deliver_profile.assert_not_called()
+        self.assertEqual(self.mock.state.mutation_requests, mutations_before)
+        self.assertEqual(self.mock.state.certificates, certificates_before)
+        self.assertEqual(self.server.context.store.devices_for_user("user-two"), [])
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["action"], "checkpoint.create")
+        self.assertEqual(audit["target"], "profile.create")
+        self.assertEqual(audit["status"], "failed")
+        self.assertEqual(json.loads(audit["details"]), {"reason": "RouterOSError"})
+
     def test_profile_review_receipt_is_atomically_single_use_for_concurrent_apply(self) -> None:
         self.login()
         user = next(
