@@ -22,6 +22,10 @@ and AMD64 registry digest
 Both architectures passed published-runtime smoke tests and image/SBOM
 attestation verification. The stable manifest and provenance were read back and
 independently verified for the exact source commit and workflow signer.
+PR #730 merged to `main` after PR #728 was published; the PR #728 image does not
+contain that later device-posture identity guard. To test or deploy the merged
+guard, first publish and pin a new immutable candidate from a source revision
+that includes PR #730.
 Candidate deployment state and live measurements are kept in
 operator-controlled records, not in this public guide. A point-in-time
 deployment observation does not substitute for the controlled acceptance

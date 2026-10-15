@@ -58,6 +58,11 @@ follow-up. Release **v2.0.0** originally introduced read-only device posture
 checks while preserving the router-local data and immutable-image deployment
 model.
 
+PR #730 merged after the PR #728 image was published. It tightens the
+read-only device-posture identity check, but that code is not present in the
+PR #728 digests above. A subsequent published image is required before claiming
+the PR #730 safeguard is deployed or accepted.
+
 At the maintainer's request, the superseded GitHub Release entries v2.6.3 and
 v2.6.4 were removed on 2026-10-05; their Git tags remain available for
 historical/rollback reference. Keep v2.7.0 as the only numbered GitHub Release

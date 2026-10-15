@@ -23,6 +23,12 @@ read-back. Immutable image digests and provenance metadata are recorded in
 [`RELEASES.md`](RELEASES.md). Publication does not prove RouterOS deployment or
 acceptance. No production promotion is claimed here.
 
+PR #730 merged after PR #728 was published and is not included in the PR #728
+image digests. It makes a device-posture inventory match require both the
+stored RouterOS certificate ID and normalized fingerprint to match. Include
+that code in a newly published immutable candidate before claiming the
+safeguard is deployed or accepted on RouterOS.
+
 The next formal release remains gated on candidate-specific canary acceptance
 and the security review below. Do not create or publish v2.8.0 until the gates
 pass.
@@ -39,6 +45,9 @@ pass.
 | Complete — acceptance tooling; live gates remain | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Closed by PR #709. The bounded read-only collector and SQLite restore verifier are implemented. Candidate-matched live soak, deployment, and rollback evidence remain release gates tracked with #194 and #200; closing this implementation issue does not claim device acceptance. |
 | Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | Current main includes trusted-proxy chain hardening in #704, redacted acceptance-tool safeguards in #698, refreshed assurance mapping in #712, nested observability projection in #713, bounded ASGI request bodies in #714, serialized Socket.IO telemetry with fresh RouterOS-role revalidation in #716, and serialized live telemetry/session invalidation in #720. PR #721 records #720's published artifact evidence; #723 adds synthetic coverage for all non-empty observability-token scope combinations, query variants, and sensitive-payload redaction. PR #722 adds CRL snapshot negative tests for #194. PR #728 fixes the pinned base-image registry source without changing its manifest digest. Publisher run [#38675016514](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38675016514) passed source/security checks, compilation, tests, rendered browser/accessibility checks, ARM64/AMD64 builds and runtime smoke, detached attestation verification, and stable-manifest read-back; immutable digests and independent provenance verification are recorded in RELEASES.md. Repository evidence is not live acceptance. SECURITY_ASSURANCE.md documents the RouterOS credential-in-process-memory trade-off and explicitly leaves the risk decision unresolved. Still required: deployed Cloudflare/proxy TLS and session checks, live stream logout/revocation/expiry and reconnect verification, physical-router permission and credential-memory review, and an independent external ASVS/security review. |
 | Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Close after #194 and #200 meet their live acceptance criteria; include the #199 collector/restore evidence in the candidate report. |
+
+PR #730 improves #194's read-only certificate identity posture, but it does not
+close that issue's device-backed acceptance criteria.
 
 ## Acceptance principles
 
