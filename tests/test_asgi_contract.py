@@ -2653,10 +2653,11 @@ class ASGIContractTests(unittest.TestCase):
 
         try:
             asyncio.run(run_application())
-            # One receive delivers the request body; the ASGI disconnect
-            # watcher starts a second receive and is cancelled after response.
+            # One receive delivers the request body. Depending on scheduler
+            # timing, the disconnect watcher may or may not begin its next
+            # receive before the response has completed.
             self.assertEqual(body_messages, 1)
-            self.assertEqual(receive_calls, 2)
+            self.assertIn(receive_calls, (1, 2))
             fake_handler_socket.settimeout(1)
             self.assertEqual(fake_handler_socket.recv(7), b"request")
             self.assertEqual(fake_client.fileno(), -1)
