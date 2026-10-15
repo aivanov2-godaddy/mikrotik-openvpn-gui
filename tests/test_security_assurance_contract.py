@@ -13,6 +13,12 @@ ASSURANCE_DOCUMENT = ROOT / "docs" / "SECURITY_ASSURANCE.md"
 VALID_MATRIX_STATUSES = {"TESTED", "PARTIAL", "GAP", "N/A", "EXTERNAL"}
 SCOPED_ASVS_CONTROLS = frozenset(
     {
+        "V3.3.1",
+        "V3.3.2",
+        "V3.3.3",
+        "V3.3.4",
+        "V3.3.5",
+        "V3.5.1",
         "V7.1.1",
         "V7.1.2",
         "V7.1.3",
@@ -102,6 +108,8 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
 
     def test_scope_and_non_certification_boundary_are_explicit(self) -> None:
         for control in (
+            "V3.3.1–V3.3.5 (Cookie Setup)",
+            "V3.5.1 (Browser\nOrigin Separation)",
             "ASVS 5.0.0 V7 (Session Management)",
             "V8 (Authorization)",
             "V4.4 (WebSocket)",
@@ -110,7 +118,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
                 self.assertIn(control, self.document)
 
         self.assertIn("This is not\na security certification, penetration test", self.document)
-        self.assertIn("It does not\ncover the rest of ASVS or establish conformance", self.document)
+        self.assertIn("It does not cover the rest of ASVS or establish conformance", self.document)
         self.assertIn("does not assert full ASVS Level 1 or Level 2 conformance", self.document)
 
     def test_every_control_has_a_valid_status_and_scoped_evidence(self) -> None:

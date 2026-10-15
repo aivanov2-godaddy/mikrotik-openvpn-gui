@@ -418,7 +418,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def login(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
-        status, headers, _ = self.request(
+        status, headers, payload = self.request(
             "POST",
             "/login",
             body=body,
@@ -430,9 +430,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 303)
         self.assertEqual(headers["location"], "/dashboard")
         set_cookie = headers["set-cookie"]
+        self.assertTrue(set_cookie.startswith("__Host-vpn_session="))
+        self.assertIn("Path=/", set_cookie)
+        self.assertNotIn("Domain=", set_cookie)
         self.assertIn("Secure", set_cookie)
         self.assertIn("HttpOnly", set_cookie)
         self.assertIn("SameSite=Strict", set_cookie)
+        self.assertLess(len(set_cookie.split(";", 1)[0].encode("ascii")), 4096)
+        cookie_value = set_cookie.split("=", 1)[1].split(";", 1)[0]
+        self.assertNotIn(cookie_value.encode("ascii"), payload)
         self.cookie = set_cookie.split(";", 1)[0]
 
         status, headers, page = self.request("GET", "/dashboard")
@@ -472,7 +478,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 303)
-        self.assertIn("vpn_session=", headers["set-cookie"])
+        self.assertIn("__Host-vpn_session=", headers["set-cookie"])
 
     def test_login_accepts_null_origin_only_with_same_origin_referer(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
@@ -485,7 +491,19 @@ class DashboardIntegrationTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 303)
-        self.assertIn("vpn_session=", headers["set-cookie"])
+        self.assertIn("__Host-vpn_session=", headers["set-cookie"])
+
+    def test_legacy_unprefixed_session_cookie_is_not_accepted(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+
+        status, _, payload = self.request(
+            "GET",
+            "/api/telemetry",
+            headers={"Cookie": f"vpn_session={session_id}"},
+        )
+
+        self.assertEqual(status, 401, payload.decode())
 
     def test_login_page_uses_same_origin_referrer_policy_for_form_submission(self) -> None:
         status, headers, _ = self.request("GET", "/login")
@@ -824,7 +842,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertEqual(session.last_seen, original_last_seen)
 
         body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
-        status, _, _ = self.request(
+        status, headers, _ = self.request(
             "POST",
             "/logout",
             body=body,
@@ -832,6 +850,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 303)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertTrue(headers["set-cookie"].startswith("__Host-vpn_session="))
+        self.assertIn("Path=/", headers["set-cookie"])
+        self.assertNotIn("Domain=", headers["set-cookie"])
+        self.assertIn("Secure", headers["set-cookie"])
+        self.assertIn("HttpOnly", headers["set-cookie"])
+        self.assertIn("SameSite=Strict", headers["set-cookie"])
+        self.assertIn("Max-Age=0", headers["set-cookie"])
 
     def test_successful_authenticated_request_refreshes_idle_timestamp(self) -> None:
         self.login()
@@ -1017,9 +1042,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("Secure", headers["set-cookie"])
         self.assertIn("HttpOnly", headers["set-cookie"])
         self.assertIn("SameSite=Strict", headers["set-cookie"])
+        self.assertTrue(headers["set-cookie"].startswith("__Host-vpn_session="))
+        self.assertIn("Path=/", headers["set-cookie"])
+        self.assertNotIn("Domain=", headers["set-cookie"])
         self.cookie = headers["set-cookie"].split(";", 1)[0]
         self.csrf = result["csrf_token"]
         new_session_id = self.cookie.split("=", 1)[1]
+        self.assertNotIn(new_session_id, payload.decode())
         self.assertNotEqual(new_session_id, old_session_id)
         self.assertIsNone(self.server.context.sessions.get(old_session_id, touch=False))
         self.assertEqual(self.server.context.sessions.get(new_session_id, touch=False).role, "read_only")
@@ -1176,7 +1205,7 @@ class DashboardIntegrationTests(unittest.TestCase):
     def test_socketio_stream_stops_after_administrator_revokes_real_session(self) -> None:
         self.login()
         target = self.server.context.sessions.create("admin", "routerpass", role="owner")
-        target_cookie = f"vpn_session={target.session_id}"
+        target_cookie = f"__Host-vpn_session={target.session_id}"
         sid, target_cookie = self.connect_socketio_polling(target_cookie)
         self.assertEqual(self.server.socketio_bridge.gateway.client_count, 1)
         queued_marker = self.queue_socketio_test_event(sid)

@@ -120,7 +120,7 @@ class ASGIContractTests(unittest.TestCase):
                 self.assertTrue(server.started)
 
                 ws_url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
-                cookie = f"vpn_session={session.session_id}"
+                cookie = f"__Host-vpn_session={session.session_id}"
                 async with websockets.connect(
                     ws_url,
                     additional_headers={"Cookie": cookie},
@@ -311,7 +311,7 @@ class ASGIContractTests(unittest.TestCase):
                     await asyncio.sleep(0.01)
                 self.assertTrue(server.started)
 
-                cookie = f"vpn_session={session.session_id}"
+                cookie = f"__Host-vpn_session={session.session_id}"
                 ws_url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
                 async with websockets.connect(
                     ws_url,
@@ -474,7 +474,7 @@ class ASGIContractTests(unittest.TestCase):
                     await asyncio.sleep(0.01)
                 self.assertTrue(server.started)
 
-                cookie = f"vpn_session={session.session_id}"
+                cookie = f"__Host-vpn_session={session.session_id}"
                 ws_url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
 
                 async def receive_until(ws, predicate, timeout: float = 5) -> str:
@@ -698,7 +698,7 @@ class ASGIContractTests(unittest.TestCase):
                 {
                     "asgi.scope": {
                         "headers": [
-                            (b"cookie", f"vpn_session={expired.session_id}".encode("ascii")),
+                            (b"cookie", f"__Host-vpn_session={expired.session_id}".encode("ascii")),
                         ],
                     },
                 },
@@ -751,7 +751,7 @@ class ASGIContractTests(unittest.TestCase):
 
         environ = {
             "asgi.scope": {
-                "headers": [(b"cookie", f"vpn_session={session.session_id}".encode("ascii"))],
+                "headers": [(b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii"))],
             },
         }
 
@@ -832,7 +832,7 @@ class ASGIContractTests(unittest.TestCase):
                 environ = {
                     "asgi.scope": {
                         "headers": [
-                            (b"cookie", f"vpn_session={session.session_id}".encode("ascii"))
+                            (b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii"))
                         ],
                     },
                 }
@@ -891,7 +891,7 @@ class ASGIContractTests(unittest.TestCase):
         native._rejected_connections_total = 0
         environ = {
             "asgi.scope": {
-                "headers": [(b"cookie", b"vpn_session=valid-session")],
+                "headers": [(b"cookie", b"__Host-vpn_session=valid-session")],
             },
         }
         event_loop_thread_id = 0
@@ -1708,7 +1708,7 @@ class ASGIContractTests(unittest.TestCase):
         native._rejected_connections_total = 0
         environ = {
             "asgi.scope": {
-                "headers": [(b"cookie", b"vpn_session=valid-session")],
+                "headers": [(b"cookie", b"__Host-vpn_session=valid-session")],
             },
         }
 
@@ -1835,7 +1835,7 @@ class ASGIContractTests(unittest.TestCase):
 
         environ = {
             "asgi.scope": {
-                "headers": [(b"cookie", b"vpn_session=valid-session")],
+                "headers": [(b"cookie", b"__Host-vpn_session=valid-session")],
             },
         }
 
@@ -2398,7 +2398,7 @@ class ASGIContractTests(unittest.TestCase):
                 "query_string": b"a=1",
                 "headers": [
                     (b"host", b"dashboard.example"),
-                    (b"cookie", b"vpn_session=opaque"),
+                    (b"cookie", b"__Host-vpn_session=opaque"),
                     (b"connection", b"keep-alive"),
                     (b"transfer-encoding", b"chunked"),
                 ],
@@ -2406,7 +2406,7 @@ class ASGIContractTests(unittest.TestCase):
             b"{}",
         )
         self.assertIn(b"POST /api/example?a=1 HTTP/1.1", request)
-        self.assertIn(b"cookie: vpn_session=opaque", request)
+        self.assertIn(b"cookie: __Host-vpn_session=opaque", request)
         self.assertIn(b"Content-Length: 2", request)
         self.assertNotIn(b"keep-alive", request)
         self.assertNotIn(b"chunked", request)
@@ -2438,8 +2438,8 @@ class ASGIContractTests(unittest.TestCase):
         from asgi import _session_id
 
         cases = (
-            ("vpn_session=first-session", "vpn_session=second-session", "first-session"),
-            ("vpn_session=second-session", "vpn_session=first-session", "second-session"),
+            ("__Host-vpn_session=first-session", "__Host-vpn_session=second-session", "first-session"),
+            ("__Host-vpn_session=second-session", "__Host-vpn_session=first-session", "second-session"),
         )
         for first, second, expected in cases:
             with self.subTest(first=first, second=second):
@@ -2457,6 +2457,18 @@ class ASGIContractTests(unittest.TestCase):
                 })
                 self.assertEqual(handler_principal, expected)
                 self.assertEqual(asgi_principal, handler_principal)
+
+        legacy_cookie = "vpn_session=legacy-session"
+        legacy_headers = Message()
+        legacy_headers.add_header("Cookie", legacy_cookie)
+        self.assertEqual(
+            DashboardHandler._session_id(SimpleNamespace(headers=legacy_headers)),
+            "",
+        )
+        self.assertEqual(
+            _session_id({"headers": [(b"cookie", legacy_cookie.encode("ascii"))]}),
+            "",
+        )
 
     def test_http_adapter_rejects_oversized_declared_body_before_reading(self) -> None:
         application = DashboardHTTPASGI(object())
@@ -3080,7 +3092,7 @@ class ASGIContractTests(unittest.TestCase):
             "query_string": b"",
             "headers": [
                 (b"host", b"dashboard.example"),
-                (b"cookie", f"vpn_session={session.session_id}".encode("ascii")),
+                (b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii")),
             ],
             "client": ("127.0.0.1", 12345),
         }
@@ -3497,7 +3509,7 @@ class ASGIContractTests(unittest.TestCase):
         scope = {
             "type": "websocket",
             "path": "/socket.io/extra",
-            "headers": [(b"cookie", f"vpn_session={session.session_id}".encode("ascii"))],
+            "headers": [(b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii"))],
         }
 
         async def exercise() -> None:
@@ -3581,7 +3593,7 @@ class ASGIContractTests(unittest.TestCase):
             "type": "http",
             "method": "GET",
             "path": "/socket.io/extra",
-            "headers": [(b"cookie", f"vpn_session={session.session_id}".encode("ascii"))],
+            "headers": [(b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii"))],
         }
         asyncio.run(gate(scope, asyncio.Future, send))
 
@@ -3638,7 +3650,7 @@ class ASGIContractTests(unittest.TestCase):
                 "path": "/socket.io/",
                 "query_string": b"EIO=4&transport=polling",
                 "headers": [
-                    (b"cookie", f"vpn_session={cookie_session_id}".encode("ascii"))
+                    (b"cookie", f"__Host-vpn_session={cookie_session_id}".encode("ascii"))
                 ],
             }
 
@@ -3747,7 +3759,7 @@ class ASGIContractTests(unittest.TestCase):
                     connection.request(
                         "GET",
                         path,
-                        headers={"Cookie": f"vpn_session={cookie_session_id}"},
+                        headers={"Cookie": f"__Host-vpn_session={cookie_session_id}"},
                     )
                     response = connection.getresponse()
                     return response.status, response.read()
@@ -3823,7 +3835,7 @@ class ASGIContractTests(unittest.TestCase):
                         "method": "GET",
                         "path": "/socket.io/",
                         "query_string": query,
-                        "headers": [(b"cookie", b"vpn_session=session-a")],
+                        "headers": [(b"cookie", b"__Host-vpn_session=session-a")],
                     },
                     asyncio.Future,
                     send,
@@ -3835,7 +3847,7 @@ class ASGIContractTests(unittest.TestCase):
                         "method": "GET",
                         "path": "/socket.io/",
                         "query_string": b"EIO=4&transport=polling&sid=expired-engine-sid",
-                        "headers": [(b"cookie", b"vpn_session=session-a")],
+                        "headers": [(b"cookie", b"__Host-vpn_session=session-a")],
                     },
                     asyncio.Future,
                     send,

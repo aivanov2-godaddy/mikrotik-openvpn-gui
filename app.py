@@ -959,7 +959,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             cookie.load(self.headers.get("Cookie", ""))
         except Exception:
             return ""
-        morsel = cookie.get("vpn_session")
+        morsel = cookie.get("__Host-vpn_session")
         return morsel.value if morsel else ""
 
     def _session(self, *, touch: bool = True) -> Session | None:
@@ -3681,7 +3681,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         self.server.context.limiter.finish(reservation, failed=False)
         cookie = (
-            f"vpn_session={session.session_id}; Path=/; Max-Age=28800; "
+            f"__Host-vpn_session={session.session_id}; Path=/; Max-Age=28800; "
             "Secure; HttpOnly; SameSite=Strict"
         )
         self.server.context.store.audit(
@@ -3713,7 +3713,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             details={"reason": "logout", "role": normalize_role(session.role)},
         )
         self.server.context.sessions.destroy(session.session_id)
-        cookie = "vpn_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict"
+        cookie = "__Host-vpn_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict"
         self._redirect("/login", cookie=cookie)
 
     def _reauthenticate(self) -> None:
@@ -3817,7 +3817,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             details={"role": normalize_role(replacement.role), "source": identity},
         )
         cookie = (
-            f"vpn_session={replacement.session_id}; Path=/; Max-Age=28800; "
+            f"__Host-vpn_session={replacement.session_id}; Path=/; Max-Age=28800; "
             "Secure; HttpOnly; SameSite=Strict"
         )
         self._json(

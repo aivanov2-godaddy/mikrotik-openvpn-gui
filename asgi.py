@@ -57,7 +57,7 @@ def _session_id(scope: Mapping[str, Any]) -> str:
         cookies.load(cookie_header)
     except Exception:  # noqa: BLE001 - malformed cookies are unauthenticated
         return ""
-    morsel = cookies.get("vpn_session")
+    morsel = cookies.get("__Host-vpn_session")
     return morsel.value if morsel else ""
 
 

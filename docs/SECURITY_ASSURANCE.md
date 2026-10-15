@@ -9,8 +9,9 @@ only the named implementation paths and tests are in scope.
 ## Scoped ASVS control matrix
 
 This matrix covers every requirement in ASVS 5.0.0 V7 (Session Management),
-V8 (Authorization), and V4.4 (WebSocket) for this review's scope. It does not
-cover the rest of ASVS or establish conformance. `TESTED` means repository
+V8 (Authorization), and V4.4 (WebSocket) for this review's scope, plus the
+selected applicable controls V3.3.1–V3.3.5 (Cookie Setup) and V3.5.1 (Browser
+Origin Separation). It does not cover the rest of ASVS or establish conformance. `TESTED` means repository
 tests directly exercise the stated behavior; `PARTIAL` means an implementation
 or test exists but the full requirement is not established; `GAP` means the
 current product does not satisfy the requirement; `N/A` is a documented
@@ -25,6 +26,12 @@ external acceptance items.
 
 | ASVS 5.0.0 control | Status | Scoped finding and evidence |
 | --- | --- | --- |
+| V3.3.1 | TESTED | The dashboard session cookie uses the `__Host-` prefix and `Secure`. Login and reauthentication regressions verify the prefix, secure attributes, and host-bound path. This is repository evidence, not deployed-proxy evidence. |
+| V3.3.2 | TESTED | `SameSite=Strict` is set on session cookie creation, rotation, and deletion; the authenticated login and reauthentication integration tests assert it. |
+| V3.3.3 | TESTED | Session cookies use `__Host-`, `Path=/`, and no `Domain` attribute; login and reauthentication tests assert these required host-only properties. A regression rejects the previous unprefixed cookie name. |
+| V3.3.4 | TESTED | Session cookies are `HttpOnly`, and the session identifier is absent from login and reauthentication response bodies; it is returned in `Set-Cookie`. Application tests assert the header attributes and body boundary. |
+| V3.3.5 | TESTED | The issued session-cookie name/value pair is bounded below 4096 bytes in the authenticated login regression. |
+| V3.5.1 | PARTIAL | Login, logout, reauthentication, and mutation routes use anti-forgery and same-origin protections with representative negative tests. An exhaustive request-forgery inventory for every sensitive route and deployed proxy behavior remains outstanding. |
 | V7.1.1 | PARTIAL | The 30-minute idle and 8-hour absolute defaults have a documented risk rationale and deterministic expiry tests. Independent validation remains outstanding. |
 | V7.1.2 | TESTED | At most eight active dashboard sessions are allowed per RouterOS account in this single-process deployment. A valid login above the limit is denied with HTTP 429 and recovery guidance; existing sessions are never evicted. Idle and absolute expiry are enforced at the exact deadline (`>=`) by session lookup, rotation, and purge tests; expired sessions are purged before admission. Client-aware rate limiting trusts forwarded addresses only from an exact configured proxy peer; `X-Forwarded-For` is resolved right-to-left across valid addresses while skipping configured proxy hops, and malformed chains or multi-valued single-address headers fall back to the transport peer. `ProxyTrustTests` cover spoofed prefixes, duplicate header fields, malformed/all-trusted chains, and untrusted peers. ASGI tests verify original-peer propagation, that Uvicorn address rewriting is disabled, that the configured Cloudflare client header wins over a conflicting XFF value, and that only an exact trusted peer can set the HTTP/WebSocket scheme. Deployed proxy sanitization remains an external check. |
 | V7.1.3 | EXTERNAL | Cloudflare Access is an independent edge-authentication layer; its session lifetime/termination relationship to the app session has not been verified from deployment configuration. |
