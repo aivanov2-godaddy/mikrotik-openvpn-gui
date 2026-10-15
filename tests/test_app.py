@@ -1399,6 +1399,53 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertEqual(body.count(b"event: status"), 1)
 
+    def test_sse_revalidates_routeros_role_downgrade_during_active_stream(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.role, "owner")
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        sleep_calls = 0
+
+        def downgrade_then_stop(_seconds: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+            if sleep_calls == 1:
+                # Expire the cached RouterOS role while the SSE response stays open.
+                self.mock.state.admin_group = "read"
+                self.server.context.sessions._role_checked_at[session_id] = 0
+                return
+            raise RouterOSError("end test stream after role revalidation")
+
+        original_get_admin_role = self.server.context.router.get_admin_role
+        with (
+            mock.patch("app.time.sleep", side_effect=downgrade_then_stop),
+            mock.patch.object(
+                self.server.context.router,
+                "list_active_ovpn_sessions",
+                return_value=[],
+            ),
+            mock.patch.object(
+                self.server.context.router,
+                "get_admin_role",
+                wraps=original_get_admin_role,
+            ) as get_admin_role,
+        ):
+            connection.request(
+                "GET",
+                "/api/events",
+                headers={"Cookie": self.cookie, "Origin": self.config.public_origin},
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = response.read()
+        connection.close()
+
+        self.assertEqual(body.count(b"event: status"), 2)
+        self.assertEqual(session.role, "read_only")
+        get_admin_role.assert_called_once()
+
     def _managed_device_revoke_request(self) -> tuple[str, str]:
         self.login()
         device_id = "managed-device-revoke-test"
