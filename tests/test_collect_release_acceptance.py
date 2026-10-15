@@ -10,7 +10,11 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts.collect_release_acceptance import apply_stream_acceptance, collect
+from scripts.collect_release_acceptance import (
+    _read_certificate_lifecycle_report,
+    apply_stream_acceptance,
+    collect,
+)
 from scripts.sqlite_restore_verifier import verify_sqlite_restore
 from store import MetadataStore
 
@@ -19,9 +23,36 @@ REVISION = "a" * 40
 IMAGE = f"ghcr.io/example/vpn:sha-{REVISION}-arm64"
 
 
+def certificate_lifecycle_evidence() -> dict[str, object]:
+    return {
+        "format": "vpn-dashboard-certificate-lifecycle-acceptance-v1",
+        "environment": "canary",
+        "candidate_image": IMAGE,
+        "candidate_digest": "sha256:" + "b" * 64,
+        "replacement_tested_before_retirement": True,
+        "replacement_tested_at": "2026-10-01T23:40:00Z",
+        "failed_renewal_rollback_read_back_verified": True,
+        "failed_renewal_rollback_read_back_at": "2026-10-01T23:41:00Z",
+        "routeros_revocation_read_back_verified": True,
+        "routeros_revocation_read_back_at": "2026-10-01T23:42:00Z",
+        "crl_fresh_and_loaded_verified": True,
+        "crl_fresh_loaded_at": "2026-10-01T23:43:00Z",
+        "existing_session_read_back_verified": True,
+        "existing_session_outcome": "terminated",
+        "existing_session_read_back_at": "2026-10-01T23:44:00Z",
+        "fresh_connection_rejection_verified": True,
+        "fresh_connection_rejection_at": "2026-10-01T23:45:00Z",
+        "dashboard_status_distinctions_verified": True,
+        "dashboard_status_distinctions_verified_at": "2026-10-01T23:46:00Z",
+        "private_material_or_profile_contents_in_evidence": False,
+        "raw_logs_in_evidence": False,
+    }
+
+
 def evidence() -> dict[str, object]:
     return {
         "format": "vpn-dashboard-release-evidence-v2",
+        "certificate_lifecycle_acceptance": certificate_lifecycle_evidence(),
         "deployments": [
             {
                 "environment": environment,
@@ -517,6 +548,8 @@ class ReleaseCollectionTests(unittest.TestCase):
         registry_digests: dict[str, str | None] | None = None,
         clear_prior_production_runtime_evidence: bool = False,
         omit_prior_production_digest: bool = False,
+        include_certificate_lifecycle_report: bool = True,
+        certificate_lifecycle_report: dict[str, object] | None = None,
         missing_sqlite_backups: tuple[str, ...] = (),
         corrupt_sqlite_backups: tuple[str, ...] = (),
         extra_sqlite_backup_paths: dict[str, str | Path] | None = None,
@@ -530,6 +563,10 @@ class ReleaseCollectionTests(unittest.TestCase):
         metrics_observations_by_environment = {"canary": 0, "production": 0}
         recovery_timestamp_bases: dict[str, float] = {}
         source = evidence()
+        if not include_certificate_lifecycle_report:
+            source.pop("certificate_lifecycle_acceptance", None)
+        if certificate_lifecycle_report is not None:
+            source["certificate_lifecycle_acceptance"] = certificate_lifecycle_report
         if production_revision is not None:
             production = source["deployments"][1]
             production["image"] = f"ghcr.io/example/vpn:sha-{production_revision}-arm64"
@@ -736,6 +773,10 @@ class ReleaseCollectionTests(unittest.TestCase):
     def test_collects_health_window_and_authenticated_aggregate_metrics(self) -> None:
         code, report, seen = self.run_collection()
         self.assertEqual(code, 0)
+        self.assertEqual(
+            report["evidence"]["collection"]["certificate_lifecycle_acceptance"]["format"],
+            "vpn-dashboard-certificate-lifecycle-acceptance-v1",
+        )
         collected = report["evidence"]
         self.assertEqual(collected["collection"]["format"], "vpn-dashboard-release-collection-v1")
         self.assertEqual(collected["collection"]["phase"], "postpromotion")
@@ -857,6 +898,57 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertIn("canary-backup", str(restore_spy.call_args.args[0]))
         self.assertIsNone(report["evidence"]["deployments"][1]["sqlite_restore_verified"])
         self.assertNotIn("unused-private-production-backup", json.dumps(report))
+
+    def test_certificate_lifecycle_report_is_required_and_unknown_fields_are_not_copied(self) -> None:
+        code, report, _ = self.run_collection(include_certificate_lifecycle_report=False)
+        self.assertNotEqual(code, 0)
+        self.assertIn(
+            "certificate_lifecycle_acceptance_missing",
+            report["evidence"]["collection"]["failed_gates"],
+        )
+        self.assertIsNone(report["evidence"]["collection"]["certificate_lifecycle_acceptance"])
+
+        unsafe_report = certificate_lifecycle_evidence()
+        unsafe_report["certificate_serial"] = "must-not-appear"
+        code, report, _ = self.run_collection(certificate_lifecycle_report=unsafe_report)
+        self.assertNotEqual(code, 0)
+        self.assertIn(
+            "certificate_lifecycle_acceptance_invalid",
+            report["evidence"]["collection"]["failed_gates"],
+        )
+        self.assertNotIn("must-not-appear", json.dumps(report["evidence"]))
+
+        spoofed_provenance = certificate_lifecycle_evidence()
+        spoofed_provenance.update({
+            "evidence_provenance": "operator_attested",
+            "independently_observed": False,
+        })
+        code, report, _ = self.run_collection(certificate_lifecycle_report=spoofed_provenance)
+        self.assertNotEqual(code, 0)
+        self.assertIn(
+            "certificate_lifecycle_acceptance_invalid",
+            report["evidence"]["collection"]["failed_gates"],
+        )
+
+        malformed_outcome = certificate_lifecycle_evidence()
+        malformed_outcome["existing_session_outcome"] = ["terminated"]
+        code, report, _ = self.run_collection(certificate_lifecycle_report=malformed_outcome)
+        self.assertNotEqual(code, 0)
+        self.assertIn(
+            "certificate_lifecycle_acceptance_invalid",
+            report["evidence"]["collection"]["failed_gates"],
+        )
+
+    def test_certificate_lifecycle_cli_report_loader_is_bounded_and_json_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            report_path = Path(temporary_directory) / "certificate-report.json"
+            expected = certificate_lifecycle_evidence()
+            report_path.write_text(json.dumps(expected), encoding="utf-8")
+            self.assertEqual(_read_certificate_lifecycle_report(report_path), expected)
+
+            report_path.write_text(" " * (16_384 + 1), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "size limit"):
+                _read_certificate_lifecycle_report(report_path)
 
     def test_measured_telemetry_slo_violations_fail_closed(self) -> None:
         code, report, _ = self.run_collection(

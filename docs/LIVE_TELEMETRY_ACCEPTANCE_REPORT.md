@@ -73,3 +73,9 @@ Use the read-only collectors and private RouterOS prerequisites documented in
 cookies, private origins, router exports, client profiles, IP addresses, raw
 logs, or deployment measurements in GitHub issues, pull requests, public
 artifacts, or this file.
+
+The release evaluator also requires an operator-attested, redacted certificate
+lifecycle record bound to the canary image tag and digest. Its schema and
+collection CLI input are documented in `ROUTEROS_ACCEPTANCE.md`; this repository
+gate does not independently prove live RouterOS actions or change the
+candidate-specific acceptance status above.

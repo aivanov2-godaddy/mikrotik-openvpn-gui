@@ -35,6 +35,33 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "container_revisions_matched": True,
         }
 
+    @staticmethod
+    def _certificate_lifecycle_acceptance() -> dict[str, object]:
+        revision = "a" * 40
+        return {
+            "format": "vpn-dashboard-certificate-lifecycle-acceptance-v1",
+            "environment": "canary",
+            "candidate_image": f"ghcr.io/example/vpn:sha-{revision}-arm64",
+            "candidate_digest": "sha256:" + "b" * 64,
+            "replacement_tested_before_retirement": True,
+            "replacement_tested_at": "2026-10-02T09:40:00Z",
+            "failed_renewal_rollback_read_back_verified": True,
+            "failed_renewal_rollback_read_back_at": "2026-10-02T09:41:00Z",
+            "routeros_revocation_read_back_verified": True,
+            "routeros_revocation_read_back_at": "2026-10-02T09:42:00Z",
+            "crl_fresh_and_loaded_verified": True,
+            "crl_fresh_loaded_at": "2026-10-02T09:43:00Z",
+            "existing_session_read_back_verified": True,
+            "existing_session_outcome": "remained_active",
+            "existing_session_read_back_at": "2026-10-02T09:44:00Z",
+            "fresh_connection_rejection_verified": True,
+            "fresh_connection_rejection_at": "2026-10-02T09:45:00Z",
+            "dashboard_status_distinctions_verified": True,
+            "dashboard_status_distinctions_verified_at": "2026-10-02T09:46:00Z",
+            "private_material_or_profile_contents_in_evidence": False,
+            "raw_logs_in_evidence": False,
+        }
+
     def setUp(self) -> None:
         revision = "a" * 40
         self.evidence = {
@@ -46,6 +73,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 "failed_gates": [],
                 "started_at": "2026-10-02T10:00:00Z",
                 "ended_at": "2026-10-02T10:30:00Z",
+                "certificate_lifecycle_acceptance": self._certificate_lifecycle_acceptance(),
                 "registry_digest_verification": [
                     {
                         "environment": environment,
@@ -170,6 +198,15 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertTrue(report["registry_tag_digests_verified"])
         self.assertFalse(report["router_runtime_digest_verified"])
         self.assertEqual(report["stream_acceptance"]["format"], "vpn-dashboard-stream-acceptance-v1")
+        self.assertEqual(
+            report["certificate_lifecycle_acceptance"]["candidate_digest"],
+            self.evidence["deployments"][0]["digest"],
+        )
+        self.assertEqual(
+            report["certificate_lifecycle_acceptance"]["evidence_provenance"],
+            "operator_attested",
+        )
+        self.assertFalse(report["certificate_lifecycle_acceptance"]["independently_observed"])
 
     def test_passing_collection_requires_joined_routeros_soak_evidence(self) -> None:
         evidence = deepcopy(self.evidence)
@@ -264,6 +301,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 self.evidence["collection"]["sqlite_restore_verification"]
             ),
             "routeros_resource_evidence": self._routeros_resource_evidence(),
+            "certificate_lifecycle_acceptance": self._certificate_lifecycle_acceptance(),
             "stream_acceptance": deepcopy(self.evidence["collection"]["stream_acceptance"]),
         }
         code, report = evaluate(evidence, now=self.NOW)
@@ -273,6 +311,53 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         evidence["collection"]["passed"] = "true"
         with self.assertRaisesRegex(ValueError, "passed must be boolean"):
             evaluate(evidence, now=self.NOW)
+
+    def test_certificate_lifecycle_evidence_is_required_and_candidate_bound(self) -> None:
+        evidence = deepcopy(self.evidence)
+        del evidence["collection"]["certificate_lifecycle_acceptance"]
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertFalse(report["promotion_eligible"])
+        self.assertIn("certificate_lifecycle_acceptance_missing", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["certificate_lifecycle_acceptance"]["candidate_digest"] = (
+            "sha256:" + "c" * 64
+        )
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("certificate_lifecycle_acceptance_invalid", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["certificate_lifecycle_acceptance"]["candidate_image"] = (
+            "ghcr.io/example/vpn:sha-" + "c" * 40 + "-arm64"
+        )
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("certificate_lifecycle_acceptance_invalid", report["failed_gates"])
+
+    def test_certificate_lifecycle_evidence_rejects_bad_sequence_staleness_and_extra_data(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["certificate_lifecycle_acceptance"][
+            "fresh_connection_rejection_at"
+        ] = "2026-10-02T09:42:30Z"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("certificate_lifecycle_acceptance_invalid", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["certificate_lifecycle_acceptance"]["replacement_tested_at"] = (
+            "2026-10-01T09:59:00Z"
+        )
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("certificate_lifecycle_acceptance_invalid", report["failed_gates"])
+
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["certificate_lifecycle_acceptance"]["certificate_serial"] = "redacted"
+        code, report = evaluate(evidence, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("certificate_lifecycle_acceptance_invalid", report["failed_gates"])
 
     def test_passing_collection_requires_valid_same_window_stream_and_browser_evidence(self) -> None:
         evidence = deepcopy(self.evidence)
@@ -466,6 +551,10 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertFalse(report["production_accepted"])
         self.assertEqual(report["phase"], "canary-prepromotion")
         self.assertEqual(report["registry_digest_verification_scope"], "candidate-canary-only")
+        self.assertEqual(
+            report["certificate_lifecycle_acceptance"]["candidate_image"],
+            report["deployments"][0]["image"],
+        )
         accepted_production = report["deployments"][1]
         self.assertIsNone(accepted_production["digest"])
         self.assertIsNone(accepted_production["transport"])
