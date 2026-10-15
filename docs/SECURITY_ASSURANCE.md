@@ -9,8 +9,9 @@ only the named implementation paths and tests are in scope.
 ## Scoped ASVS control matrix
 
 This matrix covers every requirement in ASVS 5.0.0 V7 (Session Management),
-V8 (Authorization), and V4.4 (WebSocket) for this review's scope. It does not
-cover the rest of ASVS or establish conformance. `TESTED` means repository
+V8 (Authorization), and V4.4 (WebSocket) for this review's scope, plus the
+selected applicable controls V3.3.1–V3.3.5 (Cookie Setup) and V3.5.1 (Browser
+Origin Separation). It does not cover the rest of ASVS or establish conformance. `TESTED` means repository
 tests directly exercise the stated behavior; `PARTIAL` means an implementation
 or test exists but the full requirement is not established; `GAP` means the
 current product does not satisfy the requirement; `N/A` is a documented
@@ -25,6 +26,12 @@ external acceptance items.
 
 | ASVS 5.0.0 control | Status | Scoped finding and evidence |
 | --- | --- | --- |
+| V3.3.1 | TESTED | The dashboard session cookie uses the `__Host-` prefix and `Secure`. Login and reauthentication regressions verify the prefix, secure attributes, and host-bound path. This is repository evidence, not deployed-proxy evidence. |
+| V3.3.2 | TESTED | `SameSite=Strict` is set on session cookie creation, rotation, and deletion; the authenticated login and reauthentication integration tests assert it. |
+| V3.3.3 | TESTED | Session cookies use `__Host-`, `Path=/`, and no `Domain` attribute; login and reauthentication tests assert these required host-only properties. A regression rejects the previous unprefixed cookie name. |
+| V3.3.4 | TESTED | Session cookies are `HttpOnly`, and the session identifier is absent from login and reauthentication response bodies; it is returned in `Set-Cookie`. Application tests assert the header attributes and body boundary. |
+| V3.3.5 | TESTED | The issued session-cookie name/value pair is bounded below 4096 bytes in the authenticated login regression. |
+| V3.5.1 | PARTIAL | Every current non-GET API dispatch is tested with a valid browser CSRF token and a foreign `Origin`, and with a forged token plus the configured same-origin value; both must be denied without RouterOS mutations or non-audit persistent-state changes. Logout has valid-token foreign/duplicate-Origin regressions. Explicit foreign or duplicate `Origin` values are rejected centrally by `_require_csrf`; opaque `Origin: null` is accepted only with a same-origin `Referer`, and a missing `Origin` is accepted only with a valid CSRF token (reauthentication also requires same-origin Referer evidence when Origin is absent). Login rejects duplicate Origin fields and duplicate fallback Referer fields. Deployed proxy behavior and independent review remain outstanding. |
 | V7.1.1 | PARTIAL | The 30-minute idle and 8-hour absolute defaults have a documented risk rationale and deterministic expiry tests. Independent validation remains outstanding. |
 | V7.1.2 | TESTED | At most eight active dashboard sessions are allowed per RouterOS account in this single-process deployment. A valid login above the limit is denied with HTTP 429 and recovery guidance; existing sessions are never evicted. Idle and absolute expiry are enforced at the exact deadline (`>=`) by session lookup, rotation, and purge tests; expired sessions are purged before admission. Client-aware rate limiting trusts forwarded addresses only from an exact configured proxy peer; `X-Forwarded-For` is resolved right-to-left across valid addresses while skipping configured proxy hops, and malformed chains or multi-valued single-address headers fall back to the transport peer. `ProxyTrustTests` cover spoofed prefixes, duplicate header fields, malformed/all-trusted chains, and untrusted peers. ASGI tests verify original-peer propagation, that Uvicorn address rewriting is disabled, that the configured Cloudflare client header wins over a conflicting XFF value, and that only an exact trusted peer can set the HTTP/WebSocket scheme. Deployed proxy sanitization remains an external check. |
 | V7.1.3 | EXTERNAL | Cloudflare Access is an independent edge-authentication layer; its session lifetime/termination relationship to the app session has not been verified from deployment configuration. |
@@ -44,7 +51,7 @@ external acceptance items.
 | V8.1.1 | TESTED | Function/data authorization rules are documented in [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md) and exercised by route/capability matrices. |
 | V8.1.2 | PARTIAL | Capability-filtered fields and export scopes have targeted tests. `test_native_websocket_preserves_telemetry_redaction_allowlists` exercises connected, updated, and snapshot frames over a real loopback WebSocket and asserts the exact session-field allowlist with secret sentinels absent. An exhaustive field-by-field authorization inventory has not been independently reviewed. |
 | V8.1.3–V8.1.4 | N/A | The app does not make adaptive risk decisions from location, time, device posture, or similar environmental context. Edge-provider policy is outside this repository's evidence. |
-| V8.2.1 | PARTIAL | Every current literal/regex API dispatch form is bound to a role/capability inventory, and declared gates are exercised across all five dashboard roles. The route/role dispatch matrix and grantable-scope combinations for current literal GET API routes are exhaustively tested against their declared inventories; query/resource-state combinations and independent review are not exhaustive. |
+| V8.2.1 | PARTIAL | Every current literal/regex API dispatch form is bound to a role/capability inventory, and declared gates are exercised across all five dashboard roles. Current non-GET API routes are also exercised with forged CSRF and valid-CSRF/foreign-Origin requests; query/resource-state combinations and independent review are not exhaustive. |
 | V8.2.2 | PARTIAL | Resource ownership/state checks exist on sensitive mutations, but data-specific authorization has not received an exhaustive independent review. |
 | V8.2.3 | PARTIAL | Selected API/export fields are capability-filtered and tested; the native WebSocket integration test also checks exact session-field allowlists across connected, updated, and snapshot frames. An exhaustive read/write field-level map is not available. |
 | V8.2.4 | N/A | Adaptive environmental/contextual authorization is not a product feature; no Level 3 adaptive-control claim is made. |

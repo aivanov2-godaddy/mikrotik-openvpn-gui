@@ -6,6 +6,18 @@ compares the literal/regex API dispatch forms in `DashboardHandler` with its
 exercised route tuples and sends anonymous requests to every listed GET, POST,
 PATCH, and DELETE route. Every listed write is also sent with a valid cookie but
 without CSRF and must be denied before RouterOS or persistent state changes.
+`DashboardHandler._require_csrf` also rejects a missing token, a duplicate
+`Origin`, or an explicitly foreign `Origin` before dispatch. The opaque
+`Origin: null` case is accepted only when a same-origin `Referer` is present;
+reauthentication retains the same fallback when `Origin` is absent. For other
+routes, an absent `Origin` remains compatible only when the request carries the
+valid session CSRF token. The exhaustive role/capability test sends every
+current non-GET API dispatch both a forged token with the configured same-origin
+value and a valid token with a foreign Origin; both cases must return `403`
+without RouterOS mutations or non-audit persistent-state changes. The logout
+route has its own valid-token/foreign- and duplicate-Origin regressions. This
+does not prove that the deployed proxy preserves or sanitizes origin headers
+correctly.
 `DashboardIntegrationTests.test_api_dispatch_has_exhaustive_role_capability_inventory`
 maintains a separate capability declaration and valid-CSRF request example for
 every literal/regex API dispatch form. It checks all five dashboard roles:
@@ -22,10 +34,11 @@ handler security review or proof of deployed proxy behavior.
 and `test_sse_stops_emitting_when_session_is_rotated_by_reauthentication` in
 `tests/test_app.py` exercise re-authentication rotation, failed-password and
 rate-limit behavior, current RouterOS-derived role capabilities, old-cookie
-rejection, and SSE revocation; `browser-tests/session-reauth.spec.js` covers the
-Administrator sessions UI, password clearing, in-memory CSRF adoption, and no
-document reload. `FrontendLiveUpdateContractTests` checks that the UI caller,
-mutable CSRF state, and this route's authorization documentation remain mapped.
+rejection, foreign-Origin and duplicate-Origin logout denial, and SSE
+revocation; `browser-tests/session-reauth.spec.js` covers the Administrator
+sessions UI, password clearing, in-memory CSRF adoption, and no document reload.
+`FrontendLiveUpdateContractTests` checks that the UI caller, mutable CSRF state,
+and this route's authorization documentation remain mapped.
 `DashboardIntegrationTests.test_scoped_api_tokens_follow_the_route_scope_matrix`
 also checks every current literal GET `/api` dispatch form is assigned to a
 scoped-token route, a RouterOS-session-only route, or an explicitly
@@ -41,8 +54,8 @@ read-only roles; an HTTP POST alone does not make a route a RouterOS mutation.
 | Route | Access boundary | Data and limits |
 | --- | --- | --- |
 | `GET /healthz`, `/readyz` | Public, no dashboard session | Minimal health state; `/readyz` also reports the application version/revision. These endpoints do not return RouterOS or VPN records. |
-| `POST /login` | No pre-existing session; requires a same-origin `Origin`, or a same-origin `Referer` when Origin is absent/opaque (`null`), before RouterOS credential verification | The login page permits same-origin referrers only; requests with foreign or absent origin evidence are rejected before contacting RouterOS. |
-| `POST /api/auth/reauthenticate` | Existing non-expired RouterOS-authenticated browser session; valid `X-CSRF-Token`; same-origin `Origin`, or same-origin `Referer` only when Origin is absent or `null` | Uses the session username and submitted password (1–256 characters) for a fresh RouterOS credential check, then reads the account's current enabled state and role/group. It uses the same per-client-IP login rate limiter; rejected credentials consume a failed attempt, success clears the failure state, and RouterOS availability failures do not count as bad credentials. It does not require a role capability because it refreshes the caller's own authentication. Success atomically rotates the in-memory session ID and CSRF token, updates its RouterOS-derived role, and sets a replacement `vpn_session` cookie (`Secure; HttpOnly; SameSite=Strict`). The prior session is removed immediately; failed checks leave it unchanged. Existing SSE streams stop at their next server-side session revalidation, and Socket.IO polling is rejected against the old session binding. The browser adopts the returned CSRF token in memory and lets the existing transport reconnect with the replacement cookie; this action does not force a document reload, pause telemetry, or close streams manually. The password is retained only in the replacement session's existing in-memory RouterOS credential model; no separate password store or disk/audit persistence is added. |
+| `POST /login` | No pre-existing session; requires one same-origin `Origin`, or one same-origin `Referer` when Origin is absent/opaque (`null`), before RouterOS credential verification | Duplicate `Origin` fields and duplicate fallback `Referer` fields are rejected before RouterOS authentication; requests with foreign or absent origin evidence are also rejected. |
+| `POST /api/auth/reauthenticate` | Existing non-expired RouterOS-authenticated browser session; valid `X-CSRF-Token`; same-origin `Origin`, or same-origin `Referer` only when Origin is absent or `null` | Uses the session username and submitted password (1–256 characters) for a fresh RouterOS credential check, then reads the account's current enabled state and role/group. It uses the same per-client-IP login rate limiter; rejected credentials consume a failed attempt, success clears the failure state, and RouterOS availability failures do not count as bad credentials. It does not require a role capability because it refreshes the caller's own authentication. Success atomically rotates the in-memory session ID and CSRF token, updates its RouterOS-derived role, and sets a replacement `__Host-vpn_session` cookie (`Secure; HttpOnly; SameSite=Strict`). The prior session is removed immediately; failed checks leave it unchanged. Existing SSE streams stop at their next server-side session revalidation, and Socket.IO polling is rejected against the old session binding. The browser adopts the returned CSRF token in memory and lets the existing transport reconnect with the replacement cookie; this action does not force a document reload, pause telemetry, or close streams manually. The password is retained only in the replacement session's existing in-memory RouterOS credential model; no separate password store or disk/audit persistence is added. |
 | `GET /share/{token}` | Bearer-link capability; token is the authorization | Profile ZIP download link expires after 10 minutes and allows at most three downloads. Anyone possessing the link can use it during that window; access logs intentionally omit request paths/tokens and peer addresses. |
 
 Treat profile-share links as secrets despite their short lifetime. Do not paste

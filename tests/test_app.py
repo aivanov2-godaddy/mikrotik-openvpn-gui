@@ -418,7 +418,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def login(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
-        status, headers, _ = self.request(
+        status, headers, payload = self.request(
             "POST",
             "/login",
             body=body,
@@ -430,9 +430,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 303)
         self.assertEqual(headers["location"], "/dashboard")
         set_cookie = headers["set-cookie"]
+        self.assertTrue(set_cookie.startswith("__Host-vpn_session="))
+        self.assertIn("Path=/", set_cookie)
+        self.assertNotIn("Domain=", set_cookie)
         self.assertIn("Secure", set_cookie)
         self.assertIn("HttpOnly", set_cookie)
         self.assertIn("SameSite=Strict", set_cookie)
+        self.assertLess(len(set_cookie.split(";", 1)[0].encode("ascii")), 4096)
+        cookie_value = set_cookie.split("=", 1)[1].split(";", 1)[0]
+        self.assertNotIn(cookie_value.encode("ascii"), payload)
         self.cookie = set_cookie.split(";", 1)[0]
 
         status, headers, page = self.request("GET", "/dashboard")
@@ -462,6 +468,43 @@ class DashboardIntegrationTests(unittest.TestCase):
                 self.assertIn(b"origin could not be verified", page)
                 verify_credentials.assert_not_called()
 
+    def test_login_rejects_duplicate_origin_and_fallback_referer_headers(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
+        duplicate_header_cases = (
+            (
+                ("Origin", self.config.public_origin),
+                ("Origin", "https://attacker.example"),
+            ),
+            (
+                ("Origin", "null"),
+                ("Referer", f"{self.config.public_origin}/login"),
+                ("Referer", "https://attacker.example/login"),
+            ),
+        )
+        for headers in duplicate_header_cases:
+            with self.subTest(headers=headers), mock.patch.object(
+                self.server.context.router, "verify_credentials",
+            ) as verify_credentials:
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1", self.server.server_port, timeout=5,
+                )
+                connection.putrequest("POST", "/login")
+                connection.putheader("Content-Type", "application/x-www-form-urlencoded")
+                connection.putheader("Content-Length", str(len(body)))
+                for name, value in headers:
+                    connection.putheader(name, value)
+                connection.endheaders(body)
+                response = connection.getresponse()
+                payload = response.read()
+                status = response.status
+                response_headers = {name.casefold() for name, _ in response.getheaders()}
+                connection.close()
+
+                self.assertEqual(status, 403, payload.decode())
+                self.assertNotIn("set-cookie", response_headers)
+                self.assertIn(b"origin could not be verified", payload)
+                verify_credentials.assert_not_called()
+
     def test_login_accepts_same_origin_referer_when_origin_is_absent(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
         status, headers, _ = self.request(
@@ -472,7 +515,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 303)
-        self.assertIn("vpn_session=", headers["set-cookie"])
+        self.assertIn("__Host-vpn_session=", headers["set-cookie"])
 
     def test_login_accepts_null_origin_only_with_same_origin_referer(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
@@ -485,7 +528,19 @@ class DashboardIntegrationTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 303)
-        self.assertIn("vpn_session=", headers["set-cookie"])
+        self.assertIn("__Host-vpn_session=", headers["set-cookie"])
+
+    def test_legacy_unprefixed_session_cookie_is_not_accepted(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+
+        status, _, payload = self.request(
+            "GET",
+            "/api/telemetry",
+            headers={"Cookie": f"vpn_session={session_id}"},
+        )
+
+        self.assertEqual(status, 401, payload.decode())
 
     def test_login_page_uses_same_origin_referrer_policy_for_form_submission(self) -> None:
         status, headers, _ = self.request("GET", "/login")
@@ -824,7 +879,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertEqual(session.last_seen, original_last_seen)
 
         body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
-        status, _, _ = self.request(
+        status, headers, _ = self.request(
             "POST",
             "/logout",
             body=body,
@@ -832,6 +887,57 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 303)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertTrue(headers["set-cookie"].startswith("__Host-vpn_session="))
+        self.assertIn("Path=/", headers["set-cookie"])
+        self.assertNotIn("Domain=", headers["set-cookie"])
+        self.assertIn("Secure", headers["set-cookie"])
+        self.assertIn("HttpOnly", headers["set-cookie"])
+        self.assertIn("SameSite=Strict", headers["set-cookie"])
+        self.assertIn("Max-Age=0", headers["set-cookie"])
+
+    def test_logout_rejects_foreign_origin_even_with_valid_csrf_token(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        before_routeros_mutations = list(self.mock.state.mutation_requests)
+        body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+
+        status, _, payload = self.request(
+            "POST",
+            "/logout",
+            body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://attacker.example",
+            },
+        )
+
+        self.assertEqual(status, 403, payload.decode())
+        self.assertIn(b"origin", payload.lower())
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
+
+    def test_logout_rejects_duplicate_origin_headers_even_with_valid_csrf_token(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        before_routeros_mutations = list(self.mock.state.mutation_requests)
+        body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        connection.putrequest("POST", "/logout")
+        connection.putheader("Content-Type", "application/x-www-form-urlencoded")
+        connection.putheader("Content-Length", str(len(body)))
+        connection.putheader("Cookie", self.cookie)
+        connection.putheader("Origin", self.config.public_origin)
+        connection.putheader("Origin", "https://attacker.example")
+        connection.endheaders(body)
+        response = connection.getresponse()
+        payload = response.read()
+        status = response.status
+        connection.close()
+
+        self.assertEqual(status, 403, payload.decode())
+        self.assertIn(b"origin", payload.lower())
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
 
     def test_successful_authenticated_request_refreshes_idle_timestamp(self) -> None:
         self.login()
@@ -1017,9 +1123,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("Secure", headers["set-cookie"])
         self.assertIn("HttpOnly", headers["set-cookie"])
         self.assertIn("SameSite=Strict", headers["set-cookie"])
+        self.assertTrue(headers["set-cookie"].startswith("__Host-vpn_session="))
+        self.assertIn("Path=/", headers["set-cookie"])
+        self.assertNotIn("Domain=", headers["set-cookie"])
         self.cookie = headers["set-cookie"].split(";", 1)[0]
         self.csrf = result["csrf_token"]
         new_session_id = self.cookie.split("=", 1)[1]
+        self.assertNotIn(new_session_id, payload.decode())
         self.assertNotEqual(new_session_id, old_session_id)
         self.assertIsNone(self.server.context.sessions.get(old_session_id, touch=False))
         self.assertEqual(self.server.context.sessions.get(new_session_id, touch=False).role, "read_only")
@@ -1083,6 +1193,27 @@ class DashboardIntegrationTests(unittest.TestCase):
             verify.assert_not_called()
 
         self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+
+    def test_reauthentication_accepts_null_origin_with_same_origin_referer(self) -> None:
+        self.login()
+        old_cookie = self.cookie
+        old_session_id = old_cookie.split("=", 1)[1]
+        status, headers, payload = self.request(
+            "POST",
+            "/api/auth/reauthenticate",
+            body=json.dumps({"password": "routerpass"}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Cookie": old_cookie,
+                "X-CSRF-Token": self.csrf,
+                "Origin": "null",
+                "Referer": f"{self.config.public_origin}/dashboard",
+            },
+        )
+
+        self.assertEqual(status, 200, payload.decode())
+        self.assertTrue(headers["set-cookie"].startswith("__Host-vpn_session="))
+        self.assertIsNone(self.server.context.sessions.get(old_session_id, touch=False))
 
     def test_reauthentication_failure_keeps_session_and_rate_limits_bad_passwords(self) -> None:
         self.login()
@@ -1176,7 +1307,7 @@ class DashboardIntegrationTests(unittest.TestCase):
     def test_socketio_stream_stops_after_administrator_revokes_real_session(self) -> None:
         self.login()
         target = self.server.context.sessions.create("admin", "routerpass", role="owner")
-        target_cookie = f"vpn_session={target.session_id}"
+        target_cookie = f"__Host-vpn_session={target.session_id}"
         sid, target_cookie = self.connect_socketio_polling(target_cookie)
         self.assertEqual(self.server.socketio_bridge.gateway.client_count, 1)
         queued_marker = self.queue_socketio_test_event(sid)
@@ -3094,6 +3225,32 @@ class DashboardIntegrationTests(unittest.TestCase):
                 self.assertNotIn(b"routerpass", payload)
                 self.assertEqual(non_audit_state_ignoring_token_touch(), before_csrf_denials)
                 self.assertEqual(self.mock.state.mutation_requests, before_csrf_mutations)
+
+        # A valid CSRF token does not authorize a browser write from a foreign
+        # origin. Exercise the same complete route surface to keep Origin
+        # enforcement from drifting between mutation handlers.
+        foreign_origin_headers = {
+            **csrf_headers,
+            "Origin": "https://attacker.example",
+            "X-CSRF-Token": self.csrf,
+        }
+        before_origin_denials = non_audit_state_ignoring_token_touch()
+        before_origin_mutations = list(self.mock.state.mutation_requests)
+        for method, form, path, _, body in route_cases:
+            if method == "GET":
+                continue
+            with self.subTest(principal="browser-session-with-foreign-origin", method=method, form=form, path=path):
+                status, _, payload = self.request(
+                    method,
+                    path,
+                    body=json.dumps(body).encode(),
+                    headers=foreign_origin_headers,
+                )
+                self.assertEqual(status, 403, payload.decode())
+                self.assertIn(b"origin", payload.lower())
+                self.assertNotIn(b"routerpass", payload)
+                self.assertEqual(non_audit_state_ignoring_token_touch(), before_origin_denials)
+                self.assertEqual(self.mock.state.mutation_requests, before_origin_mutations)
 
     def test_admin_session_response_fields_are_capability_gated_at_http_boundary(self) -> None:
         self.login()
