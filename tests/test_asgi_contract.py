@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from asgi import DashboardHTTPASGI
-from app import MAX_REQUEST_BODY_BYTES
+from app import DashboardHandler, MAX_REQUEST_BODY_BYTES
 from routeros_binary import RouterOSReply
 from security import SessionStore
 from telemetry_runtime import TelemetryRuntime
@@ -27,7 +27,7 @@ class ASGIContractTests(unittest.TestCase):
         import uvicorn
         import websockets
 
-        from asgi import NativeSocketIO
+        from asgi import NativeSocketIO, SocketIOLiveSendASGI
         from telemetry_broker import TelemetryBroker, TelemetryEvent
         from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
 
@@ -84,7 +84,11 @@ class ASGIContractTests(unittest.TestCase):
             runtime = Runtime()
             runtime.gateway = gateway
             native = NativeSocketIO(runtime)
-            application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+            http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
+            application = SocketIOLiveSendASGI(
+                socketio.ASGIApp(native.server, socketio_path="socket.io"),
+                http_adapter,
+            )
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind(("127.0.0.1", 0))
@@ -236,7 +240,7 @@ class ASGIContractTests(unittest.TestCase):
         import uvicorn
         import websockets
 
-        from asgi import NativeSocketIO
+        from asgi import NativeSocketIO, SocketIOLiveSendASGI
 
         async def exercise() -> None:
             sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
@@ -272,7 +276,11 @@ class ASGIContractTests(unittest.TestCase):
                 now=100,
             ))
             native = NativeSocketIO(runtime)
-            application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+            http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
+            application = SocketIOLiveSendASGI(
+                socketio.ASGIApp(native.server, socketio_path="socket.io"),
+                http_adapter,
+            )
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind(("127.0.0.1", 0))
@@ -390,7 +398,7 @@ class ASGIContractTests(unittest.TestCase):
         import uvicorn
         import websockets
 
-        from asgi import NativeSocketIO
+        from asgi import NativeSocketIO, SocketIOLiveSendASGI
         from telemetry_gateway import TelemetryPrincipal
 
         class Gateway:
@@ -444,7 +452,11 @@ class ASGIContractTests(unittest.TestCase):
             native = NativeSocketIO(runtime)
             import socketio
 
-            application = socketio.ASGIApp(native.server, socketio_path="socket.io")
+            http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
+            application = SocketIOLiveSendASGI(
+                socketio.ASGIApp(native.server, socketio_path="socket.io"),
+                http_adapter,
+            )
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind(("127.0.0.1", 0))
@@ -1774,7 +1786,7 @@ class ASGIContractTests(unittest.TestCase):
             return subscription_result
 
         self.assertEqual(
-            asyncio.run(exercise()), {"protocol_version": 1, "frames": []}
+            asyncio.run(exercise()), {"protocol_version": 2, "frames": []}
         )
         self.assertEqual(len(runtime.lookup_thread_ids), 2)
         self.assertTrue(all(thread_id != loop_thread_id for thread_id in runtime.lookup_thread_ids))
@@ -2374,7 +2386,7 @@ class ASGIContractTests(unittest.TestCase):
         response = asyncio.run(native.subscribe("socket-subscribe"))
 
         self.assertEqual(native.server.emitted, [1])
-        self.assertEqual([item["sequence"] for item in response["frames"]], [1])
+        self.assertEqual(response, {"protocol_version": 2, "frames": []})
         self.assertEqual(native._events_emitted_total, 1)
         self.assertEqual(native.server.disconnected, [("socket-subscribe", "/telemetry")])
 
@@ -2398,6 +2410,53 @@ class ASGIContractTests(unittest.TestCase):
         self.assertIn(b"Content-Length: 2", request)
         self.assertNotIn(b"keep-alive", request)
         self.assertNotIn(b"chunked", request)
+
+    def test_http_adapter_gates_only_live_telemetry_get_responses(self) -> None:
+        self.assertTrue(DashboardHTTPASGI._requires_live_body_gate(
+            {"method": "GET", "path": "/api/events"}
+        ))
+        self.assertFalse(DashboardHTTPASGI._requires_live_body_gate(
+            {"method": "POST", "path": "/socket.io/"}
+        ))
+        self.assertFalse(DashboardHTTPASGI._requires_live_body_gate(
+            {"method": "GET", "path": "/socket.io/"}
+        ))
+        self.assertFalse(DashboardHTTPASGI._requires_live_body_gate(
+            {"method": "GET", "path": "/dashboard"}
+        ))
+        self.assertFalse(DashboardHTTPASGI._requires_live_body_gate(
+            {"method": "POST", "path": "/api/events"}
+        ))
+        self.assertTrue(DashboardHTTPASGI._requires_live_send_timeout(
+            {"method": "POST", "path": "/api/events"}
+        ))
+        self.assertFalse(DashboardHTTPASGI._requires_live_send_timeout(
+            {"method": "GET", "path": "/dashboard"}
+        ))
+
+    def test_asgi_cookie_selection_matches_http_handler_for_duplicate_headers(self) -> None:
+        from asgi import _session_id
+
+        cases = (
+            ("vpn_session=first-session", "vpn_session=second-session", "first-session"),
+            ("vpn_session=second-session", "vpn_session=first-session", "second-session"),
+        )
+        for first, second, expected in cases:
+            with self.subTest(first=first, second=second):
+                headers = Message()
+                headers.add_header("Cookie", first)
+                headers.add_header("Cookie", second)
+                handler_principal = DashboardHandler._session_id(
+                    SimpleNamespace(headers=headers)
+                )
+                asgi_principal = _session_id({
+                    "headers": [
+                        (b"cookie", first.encode("ascii")),
+                        (b"cookie", second.encode("ascii")),
+                    ]
+                })
+                self.assertEqual(handler_principal, expected)
+                self.assertEqual(asgi_principal, handler_principal)
 
     def test_http_adapter_rejects_oversized_declared_body_before_reading(self) -> None:
         application = DashboardHTTPASGI(object())
@@ -2850,6 +2909,1084 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(messages[0]["type"], "http.response.start")
         self.assertEqual(messages[1], {"type": "http.response.body", "body": b"hello", "more_body": True})
         self.assertEqual(messages[2], {"type": "http.response.body", "body": b""})
+
+    def test_asgi_live_body_serializes_revocation_with_actual_send(self) -> None:
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return True, TelemetryPrincipal.from_session(current)
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                current = sessions.get(session_id, touch=False)
+                return TelemetryPrincipal.from_session(current)
+
+        application = DashboardHTTPASGI(
+            SimpleNamespace(telemetry_runtime=Runtime())
+        )
+        client, handler_socket = socket.socketpair()
+        handler_socket.sendall(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Length: 5\r\n"
+            b"Connection: close\r\n\r\n"
+            b"frame"
+        )
+        handler_socket.shutdown(socket.SHUT_WR)
+        send_started = asyncio.Event()
+        release_send = asyncio.Event()
+        sent: list[dict[str, object]] = []
+        revocation: asyncio.Task[bool] | None = None
+
+        async def send(message: dict[str, object]) -> None:
+            if message.get("body") == b"frame":
+                send_started.set()
+                await release_send.wait()
+            sent.append(message)
+
+        async def authorize(message: dict[str, object]) -> bool:
+            return await application._send_authorized_live_message(
+                session.session_id, message, send
+            )
+
+        async def exercise() -> None:
+            nonlocal revocation
+            try:
+                response = await asyncio.to_thread(
+                    DashboardHTTPASGI._stream_response,
+                    client,
+                    send,
+                    authorize,
+                )
+                self.assertIsNotNone(response)
+                stream = asyncio.create_task(response)
+                await asyncio.wait_for(send_started.wait(), timeout=1)
+                revocation = asyncio.create_task(
+                    asyncio.to_thread(sessions.revoke, session.session_id)
+                )
+                await asyncio.sleep(0.05)
+                self.assertFalse(revocation.done())
+                release_send.set()
+                await asyncio.wait_for(stream, timeout=1)
+                self.assertTrue(await asyncio.wait_for(revocation, timeout=1))
+            finally:
+                release_send.set()
+                client.close()
+                handler_socket.close()
+
+        asyncio.run(exercise())
+        self.assertEqual(
+            sum(message.get("body") == b"frame" for message in sent),
+            1,
+        )
+
+        denied_client, denied_handler = socket.socketpair()
+        denied_handler.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nframe"
+        )
+        denied_handler.shutdown(socket.SHUT_WR)
+        denied_messages: list[dict[str, object]] = []
+
+        async def denied_send(message: dict[str, object]) -> None:
+            denied_messages.append(message)
+
+        async def denied_authorize(message: dict[str, object]) -> bool:
+            return await application._send_authorized_live_message(
+                session.session_id, message, denied_send
+            )
+
+        async def deny_revoked_session() -> None:
+            try:
+                response = await asyncio.to_thread(
+                    DashboardHTTPASGI._stream_response,
+                    denied_client,
+                    denied_send,
+                    denied_authorize,
+                )
+                self.assertIsNotNone(response)
+                await asyncio.wait_for(response, timeout=1)
+            finally:
+                denied_client.close()
+                denied_handler.close()
+
+        asyncio.run(deny_revoked_session())
+        self.assertNotIn(b"frame", [message.get("body") for message in denied_messages])
+        self.assertEqual(denied_messages[-1], {"type": "http.response.body", "body": b""})
+
+    def test_http_adapter_wires_live_route_to_asgi_send_gate(self) -> None:
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return True, TelemetryPrincipal.from_session(current)
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                return TelemetryPrincipal.from_session(
+                    sessions.get(session_id, touch=False)
+                )
+
+        class Handler:
+            def __init__(self, request: socket.socket, _peer, _server) -> None:
+                request.recv(4096)
+                request.sendall(b"HTTP/1.1 200 OK\r\n\r\nframe")
+                request.close()
+
+        application = DashboardHTTPASGI(
+            SimpleNamespace(telemetry_runtime=Runtime())
+        )
+        scope = {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "GET",
+            "path": "/api/events",
+            "raw_path": b"/api/events",
+            "query_string": b"",
+            "headers": [
+                (b"host", b"dashboard.example"),
+                (b"cookie", f"vpn_session={session.session_id}".encode("ascii")),
+            ],
+            "client": ("127.0.0.1", 12345),
+        }
+        request_sent = False
+        send_started = asyncio.Event()
+        release_send = asyncio.Event()
+        messages: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            nonlocal request_sent
+            if not request_sent:
+                request_sent = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await asyncio.Future()
+
+        async def send(message: dict[str, object]) -> None:
+            if message.get("body") == b"frame":
+                send_started.set()
+                await release_send.wait()
+            messages.append(message)
+
+        async def exercise() -> None:
+            with mock.patch("asgi.DashboardHandler", Handler):
+                request = asyncio.create_task(application(scope, receive, send))
+                revocation: asyncio.Task[bool] | None = None
+                try:
+                    await asyncio.wait_for(send_started.wait(), timeout=1)
+                    revocation = asyncio.create_task(
+                        asyncio.to_thread(sessions.revoke, session.session_id)
+                    )
+                    await asyncio.sleep(0.05)
+                    self.assertFalse(revocation.done())
+                    release_send.set()
+                    await asyncio.wait_for(request, timeout=1)
+                    self.assertTrue(await asyncio.wait_for(revocation, timeout=1))
+                finally:
+                    release_send.set()
+                    if not request.done():
+                        request.cancel()
+                    await asyncio.gather(request, return_exceptions=True)
+
+        asyncio.run(exercise())
+        self.assertEqual(
+            sum(message.get("body") == b"frame" for message in messages),
+            1,
+        )
+
+    def test_asgi_live_body_drains_cancelled_send_before_releasing_session_lock(self) -> None:
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return True, TelemetryPrincipal.from_session(current)
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                return TelemetryPrincipal.from_session(
+                    sessions.get(session_id, touch=False)
+                )
+
+        application = DashboardHTTPASGI(
+            SimpleNamespace(telemetry_runtime=Runtime())
+        )
+        send_started = asyncio.Event()
+        release_send = asyncio.Event()
+        sent: list[dict[str, object]] = []
+
+        async def send(message: dict[str, object]) -> None:
+            send_started.set()
+            await release_send.wait()
+            sent.append(message)
+
+        async def exercise() -> None:
+            delivery = asyncio.create_task(
+                application._send_authorized_live_message(
+                    session.session_id,
+                    {"type": "http.response.body", "body": b"frame"},
+                    send,
+                )
+            )
+            revocation: asyncio.Task[bool] | None = None
+            try:
+                await asyncio.wait_for(send_started.wait(), timeout=1)
+                delivery.cancel()
+                await asyncio.sleep(0.05)
+                revocation = asyncio.create_task(
+                    asyncio.to_thread(sessions.revoke, session.session_id)
+                )
+                await asyncio.sleep(0.05)
+                self.assertFalse(revocation.done())
+                release_send.set()
+                result = await asyncio.gather(delivery, return_exceptions=True)
+                self.assertIsInstance(result[0], asyncio.CancelledError)
+                self.assertTrue(await asyncio.wait_for(revocation, timeout=1))
+            finally:
+                release_send.set()
+                if not delivery.done():
+                    delivery.cancel()
+                await asyncio.gather(delivery, return_exceptions=True)
+
+        asyncio.run(exercise())
+        self.assertEqual(
+            sent,
+            [{"type": "http.response.body", "body": b"frame"}],
+        )
+
+    def test_asgi_live_send_timeout_cancels_child_before_releasing_session_lock(self) -> None:
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return True, TelemetryPrincipal.from_session(current)
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                return TelemetryPrincipal.from_session(
+                    sessions.get(session_id, touch=False)
+                )
+
+        application = DashboardHTTPASGI(
+            SimpleNamespace(telemetry_runtime=Runtime())
+        )
+        send_started = asyncio.Event()
+        send_cancelled = asyncio.Event()
+
+        async def blocked_send(_message: dict[str, object]) -> None:
+            send_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                send_cancelled.set()
+                raise
+
+        async def exercise() -> None:
+            with mock.patch("asgi._ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS", 0.05):
+                delivery = asyncio.create_task(
+                    application._send_authorized_live_message(
+                        session.session_id,
+                        {"type": "http.response.body", "body": b"frame"},
+                        blocked_send,
+                    )
+                )
+                revocation: asyncio.Task[bool] | None = None
+                try:
+                    await asyncio.wait_for(send_started.wait(), timeout=1)
+                    revocation = asyncio.create_task(
+                        asyncio.to_thread(sessions.revoke, session.session_id)
+                    )
+                    await asyncio.sleep(0.02)
+                    self.assertFalse(revocation.done())
+                    with self.assertRaises(TimeoutError):
+                        await delivery
+                    self.assertTrue(send_cancelled.is_set())
+                    self.assertTrue(await asyncio.wait_for(revocation, timeout=1))
+                finally:
+                    if not delivery.done():
+                        delivery.cancel()
+                    await asyncio.gather(delivery, return_exceptions=True)
+
+    def test_asgi_live_send_failure_aborts_without_terminal_body_send(self) -> None:
+        client, producer = socket.socketpair()
+        producer.sendall(b"HTTP/1.1 200 OK\r\n\r\nframe")
+        producer.shutdown(socket.SHUT_WR)
+        sent: list[dict[str, object]] = []
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        async def fail_body_send(_message: dict[str, object]) -> bool:
+            raise TimeoutError("simulated ASGI send timeout")
+
+        async def exercise() -> None:
+            response = DashboardHTTPASGI._stream_response(
+                client,
+                send,
+                protected_body_send=fail_body_send,
+            )
+            self.assertIsNotNone(response)
+            if response is not None:
+                with self.assertRaisesRegex(TimeoutError, "simulated ASGI send timeout"):
+                    await response
+
+        try:
+            asyncio.run(exercise())
+        finally:
+            client.close()
+            producer.close()
+
+        self.assertEqual(
+            sent,
+            [{"type": "http.response.start", "status": 200, "headers": []}],
+        )
+
+    def test_asgi_live_terminal_send_timeout_cancels_denied_and_eof_sends(self) -> None:
+        for scenario in ("denied", "eof"):
+            with self.subTest(scenario=scenario):
+                client, producer = socket.socketpair()
+                response = (
+                    b"HTTP/1.1 200 OK\r\n\r\nframe"
+                    if scenario == "denied"
+                    else b"HTTP/1.1 200 OK\r\n\r\n"
+                )
+                producer.sendall(response)
+                producer.shutdown(socket.SHUT_WR)
+                sent: list[dict[str, object]] = []
+                terminal_started = asyncio.Event()
+                terminal_cancelled = asyncio.Event()
+                protected_body_calls = 0
+
+                async def send(message: dict[str, object]) -> None:
+                    sent.append(message)
+                    if message.get("type") != "http.response.body" or message.get("body"):
+                        return
+                    terminal_started.set()
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        terminal_cancelled.set()
+                        raise
+
+                async def allow_body_send(_message: dict[str, object]) -> bool:
+                    nonlocal protected_body_calls
+                    protected_body_calls += 1
+                    return scenario != "denied"
+
+                async def exercise() -> None:
+                    with mock.patch("asgi._ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS", 0.05):
+                        stream = DashboardHTTPASGI._stream_response(
+                            client,
+                            send,
+                            protected_body_send=allow_body_send,
+                        )
+                        self.assertIsNotNone(stream)
+                        if stream is not None:
+                            with self.assertRaises(TimeoutError):
+                                await stream
+                    self.assertTrue(terminal_started.is_set())
+                    self.assertTrue(terminal_cancelled.is_set())
+
+                try:
+                    asyncio.run(exercise())
+                finally:
+                    client.close()
+                    producer.close()
+
+                self.assertEqual(
+                    protected_body_calls,
+                    1 if scenario == "denied" else 0,
+                )
+                self.assertEqual(
+                    sent,
+                    [
+                        {"type": "http.response.start", "status": 200, "headers": []},
+                        {"type": "http.response.body", "body": b""},
+                    ],
+                )
+
+    def test_asgi_live_error_responses_bound_start_and_body_sends(self) -> None:
+        for stalled_stage in ("start", "body"):
+            with self.subTest(stalled_stage=stalled_stage):
+                client, producer = socket.socketpair()
+                producer.sendall(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 5\r\n\r\nerror"
+                )
+                producer.shutdown(socket.SHUT_WR)
+                sent: list[dict[str, object]] = []
+                send_started = asyncio.Event()
+                send_cancelled = asyncio.Event()
+                auth_calls = 0
+
+                async def send(message: dict[str, object]) -> None:
+                    sent.append(message)
+                    current_stage = (
+                        "start"
+                        if message.get("type") == "http.response.start"
+                        else "body"
+                    )
+                    if current_stage != stalled_stage:
+                        return
+                    send_started.set()
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        send_cancelled.set()
+                        raise
+
+                async def authorize(_message: dict[str, object]) -> bool:
+                    nonlocal auth_calls
+                    auth_calls += 1
+                    return True
+
+                async def exercise() -> None:
+                    with mock.patch("asgi._ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS", 0.05):
+                        stream = DashboardHTTPASGI._stream_response(
+                            client,
+                            send,
+                            protected_body_send=authorize,
+                        )
+                        self.assertIsNotNone(stream)
+                        if stream is not None:
+                            with self.assertRaises(TimeoutError):
+                                await stream
+                    self.assertTrue(send_started.is_set())
+                    self.assertTrue(send_cancelled.is_set())
+
+                try:
+                    asyncio.run(exercise())
+                finally:
+                    client.close()
+                    producer.close()
+
+                self.assertEqual(auth_calls, 0)
+                self.assertFalse(
+                    any(
+                        message.get("type") == "http.response.body"
+                        and not message.get("body")
+                        for message in sent
+                    )
+                )
+
+    def test_socketio_websocket_send_gate_withholds_queued_frame_after_revocation(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return (
+                    True,
+                    TelemetryPrincipal.from_session(current) if current else None,
+                )
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                current = sessions.get(session_id, touch=False)
+                return TelemetryPrincipal.from_session(current) if current else None
+
+        runtime = Runtime()
+        http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
+        send_started = asyncio.Event()
+        release_send = asyncio.Event()
+        revoke_finished = asyncio.Event()
+        sent: list[dict[str, object]] = []
+
+        async def inner(_scope, _receive, send) -> None:
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": "before-revocation"})
+            await revoke_finished.wait()
+            await send({"type": "websocket.send", "text": "queued-after-revocation"})
+            await send({"type": "websocket.send", "text": "41/telemetry,"})
+
+        gate = SocketIOLiveSendASGI(inner, http_adapter)
+
+        async def send(message: dict[str, object]) -> None:
+            if message.get("type") == "websocket.send":
+                send_started.set()
+                if message.get("text") == "before-revocation":
+                    await release_send.wait()
+            sent.append(message)
+
+        scope = {
+            "type": "websocket",
+            "path": "/socket.io/extra",
+            "headers": [(b"cookie", f"vpn_session={session.session_id}".encode("ascii"))],
+        }
+
+        async def exercise() -> None:
+            transport = asyncio.create_task(gate(scope, asyncio.Future, send))
+            await asyncio.wait_for(send_started.wait(), timeout=1)
+            revocation = asyncio.create_task(asyncio.to_thread(sessions.revoke, session.session_id))
+            await asyncio.sleep(0.02)
+            self.assertFalse(revocation.done())
+            release_send.set()
+            self.assertTrue(await asyncio.wait_for(revocation, timeout=1))
+            revoke_finished.set()
+            await asyncio.wait_for(transport, timeout=1)
+
+        asyncio.run(exercise())
+        self.assertIn(
+            {"type": "websocket.send", "text": "before-revocation"},
+            sent,
+        )
+        self.assertNotIn(
+            {"type": "websocket.send", "text": "queued-after-revocation"},
+            sent,
+        )
+        self.assertIn(
+            {"type": "websocket.send", "text": "41/telemetry,"},
+            sent,
+        )
+
+    def test_socketio_polling_send_gate_withholds_queued_frame_after_revocation(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return (
+                    True,
+                    TelemetryPrincipal.from_session(current) if current else None,
+                )
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                current = sessions.get(session_id, touch=False)
+                return TelemetryPrincipal.from_session(current) if current else None
+
+        http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=Runtime()))
+        sent: list[dict[str, object]] = []
+        private_marker = "polling-frame-after-revocation"
+        sessions.revoke(session.session_id)
+
+        async def inner(_scope, _receive, send) -> None:
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({
+                "type": "http.response.body",
+                "body": private_marker.encode("ascii"),
+                "more_body": True,
+            })
+            await send({"type": "http.response.body", "body": b""})
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        gate = SocketIOLiveSendASGI(inner, http_adapter)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/socket.io/extra",
+            "headers": [(b"cookie", f"vpn_session={session.session_id}".encode("ascii"))],
+        }
+        asyncio.run(gate(scope, asyncio.Future, send))
+
+        self.assertFalse(
+            any(private_marker.encode("ascii") in message.get("body", b"") for message in sent)
+        )
+        self.assertEqual(
+            sent,
+            [
+                {"type": "http.response.start", "status": 200, "headers": []},
+                {"type": "http.response.body", "body": b"", "more_body": True},
+                {"type": "http.response.body", "body": b""},
+            ],
+        )
+
+    def test_socketio_engine_sid_is_bound_to_originating_session(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        session_id = "session-before-rotation"
+        replacement_session_id = "session-after-rotation"
+        engine_sid = "engine-session-id"
+        inner_scopes: list[dict[str, object]] = []
+
+        async def inner(scope, _receive, send) -> None:
+            inner_scopes.append(dict(scope))
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            body = (
+                f'0{{"sid":"{engine_sid}","upgrades":[]}}'.encode("ascii")
+                if b"sid=" not in bytes(scope.get("query_string", b""))
+                else b'42/telemetry,["private-frame"]'
+            )
+            await send({"type": "http.response.body", "body": body, "more_body": True})
+            await send({"type": "http.response.body", "body": b""})
+
+        async def authorized_send(
+            current_session_id: str, message: dict[str, object], send
+        ) -> bool:
+            if current_session_id != session_id:
+                return False
+            await DashboardHTTPASGI._send_and_drain(send, message)
+            return True
+
+        adapter = SimpleNamespace(_send_authorized_live_message=authorized_send)
+        gate = SocketIOLiveSendASGI(inner, adapter)
+        sent: list[dict[str, object]] = []
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        def scope(scope_type: str, cookie_session_id: str) -> dict[str, object]:
+            return {
+                "type": scope_type,
+                "method": "GET",
+                "path": "/socket.io/",
+                "query_string": b"EIO=4&transport=polling",
+                "headers": [
+                    (b"cookie", f"vpn_session={cookie_session_id}".encode("ascii"))
+                ],
+            }
+
+        async def exercise() -> None:
+            # Initial Engine.IO handshake is allowed only through the live send gate.
+            await gate(scope("http", session_id), asyncio.Future, send)
+            self.assertTrue(gate._session_matches_engine_sid(engine_sid, session_id))
+
+            mismatch = scope("http", replacement_session_id)
+            mismatch["path"] = "/socket.io/extra"
+            mismatch["query_string"] = f"EIO=4&transport=polling&sid={engine_sid}".encode()
+            await gate(mismatch, asyncio.Future, send)
+            self.assertEqual(sent[-2]["status"], 403)
+            self.assertEqual(len(inner_scopes), 1)
+
+            websocket_upgrade = scope("websocket", replacement_session_id)
+            websocket_upgrade["path"] = "/socket.io/extra"
+            websocket_upgrade["query_string"] = f"EIO=4&transport=websocket&sid={engine_sid}".encode()
+            await gate(websocket_upgrade, asyncio.Future, send)
+            self.assertEqual(sent[-1], {"type": "websocket.close", "code": 1008})
+            self.assertEqual(len(inner_scopes), 1)
+
+            same_session = scope("http", session_id)
+            same_session["query_string"] = f"EIO=4&transport=polling&sid={engine_sid}".encode()
+            await gate(same_session, asyncio.Future, send)
+            self.assertEqual(len(inner_scopes), 2)
+            self.assertTrue(any(
+                b"private-frame" in message.get("body", b"")
+                for message in sent
+            ))
+
+        asyncio.run(exercise())
+
+    def test_socketio_polling_sid_binding_uses_real_engineio_handshake(self) -> None:
+        if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
+            self.skipTest("native Socket.IO runtime dependencies are not installed")
+
+        import http.client
+        import socketio
+        import uvicorn
+
+        from asgi import NativeSocketIO, SocketIOLiveSendASGI
+        from telemetry_gateway import TelemetryPrincipal
+
+        async def exercise() -> None:
+            sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+            original = sessions.create("original", "test-only-password", role="owner")
+            replacement = sessions.create("replacement", "test-only-password", role="owner")
+            engineio_requests = 0
+
+            class Runtime:
+                @staticmethod
+                def role_check_lock_for_session(session_id: str):
+                    return sessions.role_check_lock(session_id)
+
+                @staticmethod
+                def cached_principal_for_session(
+                    session_id: str, *, role_check_lock_held: bool = False
+                ):
+                    current = sessions.get(
+                        session_id,
+                        touch=False,
+                        role_check_lock_held=role_check_lock_held,
+                        wait_for_role_check_lock=False,
+                    )
+                    principal = TelemetryPrincipal.from_session(current) if current else None
+                    return True, principal
+
+                @staticmethod
+                def principal_for_session(
+                    session_id: str, *, force_role_check: bool = False
+                ):
+                    current = sessions.get(session_id, touch=False)
+                    return TelemetryPrincipal.from_session(current) if current else None
+
+            runtime = Runtime()
+            native = NativeSocketIO(runtime)
+            adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
+            engineio_application = socketio.ASGIApp(
+                native.server, socketio_path="socket.io"
+            )
+
+            async def counted_engineio_app(scope, receive, send) -> None:
+                nonlocal engineio_requests
+                engineio_requests += 1
+                await engineio_application(scope, receive, send)
+
+            application = SocketIOLiveSendASGI(
+                counted_engineio_app,
+                adapter,
+            )
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(128)
+            listener.setblocking(False)
+            port = listener.getsockname()[1]
+            server = uvicorn.Server(
+                uvicorn.Config(application, log_level="critical", lifespan="off")
+            )
+            server_task = asyncio.create_task(server.serve(sockets=[listener]))
+
+            def request(path: str, cookie_session_id: str) -> tuple[int, bytes]:
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                try:
+                    connection.request(
+                        "GET",
+                        path,
+                        headers={"Cookie": f"vpn_session={cookie_session_id}"},
+                    )
+                    response = connection.getresponse()
+                    return response.status, response.read()
+                finally:
+                    connection.close()
+
+            try:
+                deadline = asyncio.get_running_loop().time() + 5
+                while not server.started and not server_task.done():
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("test ASGI server did not start")
+                    await asyncio.sleep(0.01)
+                self.assertTrue(server.started)
+
+                status, handshake = await asyncio.to_thread(
+                    request,
+                    "/socket.io/?EIO=4&transport=polling&t=initial",
+                    original.session_id,
+                )
+                self.assertEqual(status, 200)
+                self.assertTrue(handshake.startswith(b"0{"), handshake)
+                self.assertEqual(engineio_requests, 1)
+                engine_sid = json.loads(handshake[1:].decode("utf-8"))["sid"]
+                self.assertTrue(application._session_matches_engine_sid(
+                    engine_sid, original.session_id
+                ))
+
+                # Engine.IO accepts slash-delimited path suffixes. The wrapper
+                # must reject a different valid dashboard session before the
+                # polling request reaches Engine.IO.
+                status, response_body = await asyncio.to_thread(
+                    request,
+                    f"/socket.io/extra?EIO=4&transport=polling&sid={engine_sid}&t=reuse",
+                    replacement.session_id,
+                )
+                self.assertEqual(status, 403)
+                self.assertEqual(response_body, b"")
+                self.assertEqual(engineio_requests, 1)
+                self.assertTrue(application._session_matches_engine_sid(
+                    engine_sid, original.session_id
+                ))
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(server_task, timeout=5)
+
+        asyncio.run(exercise())
+
+    def test_socketio_engine_sid_rejects_unknown_malformed_and_expired_ids(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        calls = 0
+
+        async def inner(_scope, _receive, _send) -> None:
+            nonlocal calls
+            calls += 1
+
+        gate = SocketIOLiveSendASGI(inner, object())
+        self.assertTrue(gate._bind_engine_sid("expired-engine-sid", "session-a"))
+        messages: list[dict[str, object]] = []
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        async def exercise() -> None:
+            for query in (
+                b"EIO=4&transport=polling&sid=unknown-engine-sid",
+                b"EIO=4&transport=polling&sid=duplicate&sid=duplicate",
+                b"EIO=4&transport=polling&sid=",
+            ):
+                await gate(
+                    {
+                        "type": "http",
+                        "method": "GET",
+                        "path": "/socket.io/",
+                        "query_string": query,
+                        "headers": [(b"cookie", b"vpn_session=session-a")],
+                    },
+                    asyncio.Future,
+                    send,
+                )
+            with mock.patch("asgi.time.monotonic", return_value=time.monotonic() + 121):
+                await gate(
+                    {
+                        "type": "http",
+                        "method": "GET",
+                        "path": "/socket.io/",
+                        "query_string": b"EIO=4&transport=polling&sid=expired-engine-sid",
+                        "headers": [(b"cookie", b"vpn_session=session-a")],
+                    },
+                    asyncio.Future,
+                    send,
+                )
+
+        asyncio.run(exercise())
+        self.assertEqual(calls, 0)
+        self.assertEqual([message.get("status") for message in messages if message.get("type") == "http.response.start"], [403] * 4)
+        self.assertNotIn("expired-engine-sid", gate._session_bindings)
+
+    def test_http_adapter_bounds_non_get_live_route_responses(self) -> None:
+        client, handler = socket.socketpair()
+        handler.sendall(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
+        handler.shutdown(socket.SHUT_WR)
+        cancelled: list[bool] = []
+
+        async def blocked_send(_message: dict[str, object]) -> None:
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.append(True)
+
+        async def exercise() -> None:
+            try:
+                response = await asyncio.to_thread(
+                    DashboardHTTPASGI._stream_response,
+                    client,
+                    blocked_send,
+                    None,
+                    True,
+                )
+                self.assertIsNotNone(response)
+                with self.assertRaises(TimeoutError):
+                    await response
+                with self.assertRaises(TimeoutError):
+                    await DashboardHTTPASGI._reject_oversized_body(
+                        {
+                            "type": "http",
+                            "http_version": "1.1",
+                            "method": "POST",
+                            "path": "/api/events",
+                        },
+                        blocked_send,
+                    )
+            finally:
+                client.close()
+                handler.close()
+
+        with mock.patch("asgi._ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS", 0.01):
+            asyncio.run(exercise())
+        self.assertEqual(cancelled, [True, True])
+
+    def test_threaded_live_write_timeout_unblocks_session_revocation(self) -> None:
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return True, TelemetryPrincipal.from_session(current)
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                return TelemetryPrincipal.from_session(
+                    sessions.get(session_id, touch=False)
+                )
+
+        class FakeConnection:
+            timeout: float | None = None
+
+            def gettimeout(self) -> float | None:
+                return self.timeout
+
+            def settimeout(self, value: float | None) -> None:
+                self.timeout = value
+
+        connection = FakeConnection()
+        write_started = threading.Event()
+
+        class BlockingWriter:
+            def write(self, _payload: bytes) -> int:
+                write_started.set()
+                if not threading.Event().wait(connection.gettimeout()):
+                    raise TimeoutError("simulated stalled socket write")
+                return 0
+
+            @staticmethod
+            def flush() -> None:
+                return
+
+        handler = object.__new__(DashboardHandler)
+        handler.server = SimpleNamespace(telemetry_runtime=Runtime())
+        handler.connection = connection
+        handler.wfile = BlockingWriter()
+        revocation_completed = threading.Event()
+        outcomes: list[str] = []
+
+        def blocked_write() -> None:
+            handler.wfile.write(b"x" * 1024)
+            handler.wfile.flush()
+
+        def write_response() -> None:
+            try:
+                handler._write_authorized_live_payload(session.session_id, blocked_write)
+                outcomes.append("sent")
+            except TimeoutError:
+                outcomes.append("timed_out")
+
+        def revoke_session() -> None:
+            sessions.revoke(session.session_id)
+            revocation_completed.set()
+
+        writer = threading.Thread(target=write_response, daemon=True)
+        revoker: threading.Thread | None = None
+        try:
+            with mock.patch("app.LIVE_RESPONSE_WRITE_TIMEOUT_SECONDS", 0.05):
+                writer.start()
+                self.assertTrue(write_started.wait(timeout=1))
+                revoker = threading.Thread(target=revoke_session, daemon=True)
+                revoker.start()
+                self.assertFalse(revocation_completed.wait(timeout=0.02))
+                writer.join(timeout=2)
+                self.assertFalse(writer.is_alive())
+                self.assertTrue(revocation_completed.wait(timeout=1))
+                revoker.join(timeout=1)
+        finally:
+            writer.join(timeout=1)
+            if revoker is not None:
+                revoker.join(timeout=1)
+
+        self.assertEqual(outcomes, ["timed_out"])
+        self.assertIsNone(connection.gettimeout())
+        self.assertIsNotNone(revoker)
+        if revoker is not None:
+            self.assertFalse(revoker.is_alive())
 
 
 if __name__ == "__main__":
