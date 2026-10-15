@@ -97,6 +97,8 @@ class Session:
     csrf_token: str = field(repr=False)
     created_at: float
     last_seen: float
+    created_monotonic: float = field(default_factory=time.monotonic, repr=False)
+    last_seen_monotonic: float = field(default_factory=time.monotonic, repr=False)
     role: str = "owner"
     source_address: str = ""
     user_agent: str = ""
@@ -194,10 +196,14 @@ class SessionStore:
             self._invalidating.add(session_id)
             return check_lock, acquired
 
-    def _is_expired(self, session: Session, current: float) -> bool:
+    def _is_expired(
+        self, session: Session, current: float, monotonic_current: float
+    ) -> bool:
         return (
             current - session.last_seen >= self.idle_seconds
             or current - session.created_at >= self.absolute_seconds
+            or monotonic_current - session.last_seen_monotonic >= self.idle_seconds
+            or monotonic_current - session.created_monotonic >= self.absolute_seconds
         )
 
     def _drop_session_locked(self, session_id: str) -> None:
@@ -238,6 +244,7 @@ class SessionStore:
         user_agent: str = "",
     ) -> Session:
         current = time.time() if now is None else now
+        monotonic_current = time.monotonic()
         session = Session(
             session_id=secrets.token_urlsafe(32),
             username=username,
@@ -245,6 +252,8 @@ class SessionStore:
             csrf_token=secrets.token_urlsafe(32),
             created_at=current,
             last_seen=current,
+            created_monotonic=monotonic_current,
+            last_seen_monotonic=monotonic_current,
             role=normalize_role(role),
             source_address=str(source_address or ""),
             user_agent=str(user_agent or "")[:256],
@@ -273,14 +282,16 @@ class SessionStore:
     ) -> Session | None:
         if not session_id:
             return None
-        current = time.time() if now is None else now
         with self._lock:
             session = self._sessions.get(session_id)
             if session is None or session_id in self._invalidating:
                 return None
-            if not self._is_expired(session, current):
+            current = time.time() if now is None else now
+            monotonic_current = time.monotonic()
+            if not self._is_expired(session, current, monotonic_current):
                 if touch:
                     session.last_seen = current
+                    session.last_seen_monotonic = monotonic_current
                 return session
             check_lock = self._role_check_locks.setdefault(
                 session_id, threading.Lock()
@@ -292,11 +303,13 @@ class SessionStore:
                 if session is None or session_id in self._invalidating:
                     return None
                 current = time.time() if now is None else now
-                if self._is_expired(session, current):
+                monotonic_current = time.monotonic()
+                if self._is_expired(session, current, monotonic_current):
                     self._drop_session_locked(session_id)
                     return None
                 if touch:
                     session.last_seen = current
+                    session.last_seen_monotonic = monotonic_current
                 return session
 
         if not self._acquire_sync_lock(
@@ -309,11 +322,13 @@ class SessionStore:
                 if session is None or session_id in self._invalidating:
                     return None
                 current = time.time() if now is None else now
-                if self._is_expired(session, current):
+                monotonic_current = time.monotonic()
+                if self._is_expired(session, current, monotonic_current):
                     self._drop_session_locked(session_id)
                     return None
                 if touch:
                     session.last_seen = current
+                    session.last_seen_monotonic = monotonic_current
                 return session
         finally:
             check_lock.release()
@@ -332,13 +347,14 @@ class SessionStore:
         from a missing or expired session (which is already a definitive denial).
         This read never contacts RouterOS and never extends the idle lifetime.
         """
-        current = time.time() if now is None else now
         with self._lock:
             session = self._sessions.get(session_id)
             if session is None:
                 return True, None
             if session_id in self._invalidating:
                 return True, None
+            current = time.time() if now is None else now
+            monotonic_current = time.monotonic()
             check_lock = self._role_check_locks.get(session_id)
             if (
                 check_lock is not None
@@ -346,7 +362,7 @@ class SessionStore:
                 and not role_check_lock_held
             ):
                 return False, None
-            if self._is_expired(session, current):
+            if self._is_expired(session, current, monotonic_current):
                 self._drop_session_locked(session_id)
                 return True, None
             if session.auth_method != "routeros":
@@ -397,7 +413,6 @@ class SessionStore:
         """
         if not session_id:
             return None
-        current = time.time() if now is None else now
         lock_and_state = self._role_lock_for_mutation(
             session_id, routeros_only=True
         )
@@ -412,7 +427,8 @@ class SessionStore:
                 if existing is None:
                     return None
                 current = time.time() if now is None else now
-                if self._is_expired(existing, current):
+                monotonic_current = time.monotonic()
+                if self._is_expired(existing, current, monotonic_current):
                     self._drop_session_locked(session_id)
                     return None
 
@@ -423,6 +439,8 @@ class SessionStore:
                     csrf_token=secrets.token_urlsafe(32),
                     created_at=current,
                     last_seen=current,
+                    created_monotonic=monotonic_current,
+                    last_seen_monotonic=monotonic_current,
                     role=normalize_role(role),
                     source_address=existing.source_address,
                     user_agent=existing.user_agent,
@@ -504,6 +522,14 @@ class SessionStore:
                 # would keep telemetry streams authorized from stale identity.
                 self.destroy(session_id, role_check_lock_held=True)
                 return None
+            session = self.get(
+                session_id,
+                now=now,
+                touch=False,
+                role_check_lock_held=True,
+            )
+            if session is None:
+                return None
             checked_at = time.time() if now is None else now
             if resolved_role is None:
                 self.destroy(session_id, role_check_lock_held=True)
@@ -546,12 +572,13 @@ class SessionStore:
                 check_lock.release()
 
     def purge(self, now: float | None = None) -> int:
-        current = time.time() if now is None else now
         with self._lock:
+            current = time.time() if now is None else now
+            monotonic_current = time.monotonic()
             expired = sorted(
                 key
                 for key, value in self._sessions.items()
-                if self._is_expired(value, current)
+                if self._is_expired(value, current, monotonic_current)
             )
             locks: list[threading.Lock] = []
             for key in expired:
@@ -605,8 +632,15 @@ class SessionStore:
         """
         current = time.time() if now is None else now
         sessions = self.active(current)
+        monotonic_current = time.monotonic()
         result: list[dict[str, object]] = []
         for session in sessions:
+            if now is None:
+                idle_elapsed = monotonic_current - session.last_seen_monotonic
+                absolute_elapsed = monotonic_current - session.created_monotonic
+            else:
+                idle_elapsed = current - session.last_seen
+                absolute_elapsed = current - session.created_at
             result.append({
                 "id": session.session_id if include_identifiers else "",
                 "id_hash": hashlib.sha256(session.session_id.encode("utf-8")).hexdigest()[:16],
@@ -614,9 +648,9 @@ class SessionStore:
                 "role": normalize_role(session.role),
                 "created_at": int(session.created_at),
                 "last_seen": int(session.last_seen),
-                "idle_seconds": max(0, int(current - session.last_seen)),
-                "idle_remaining": max(0, int(self.idle_seconds - (current - session.last_seen))),
-                "absolute_remaining": max(0, int(self.absolute_seconds - (current - session.created_at))),
+                "idle_seconds": max(0, int(idle_elapsed)),
+                "idle_remaining": max(0, int(self.idle_seconds - idle_elapsed)),
+                "absolute_remaining": max(0, int(self.absolute_seconds - absolute_elapsed)),
                 "source_address": session.source_address or "unknown",
                 "user_agent": session.user_agent or "unknown",
                 "auth_method": session.auth_method,

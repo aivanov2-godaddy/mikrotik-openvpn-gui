@@ -224,6 +224,69 @@ class SecurityTests(unittest.TestCase):
         )
         self.assertIsNone(absolute_store.get(absolute_session.session_id, now=230, touch=False))
 
+    def test_session_timeouts_use_monotonic_time_when_wall_clock_moves_backward(self) -> None:
+        idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
+        with mock.patch("security.time.monotonic", return_value=100.0):
+            idle_session = idle_store.create("idle-admin", "secret", now=100)
+        with mock.patch("security.time.monotonic", return_value=110.0):
+            self.assertIsNone(
+                idle_store.get(idle_session.session_id, now=99, touch=False)
+            )
+
+        absolute_store = SessionStore(idle_seconds=100, absolute_seconds=30)
+        with mock.patch("security.time.monotonic", return_value=200.0):
+            absolute_session = absolute_store.create(
+                "absolute-admin", "secret", now=200
+            )
+        with mock.patch("security.time.monotonic", return_value=230.0):
+            self.assertIsNone(
+                absolute_store.get(absolute_session.session_id, now=199, touch=False)
+            )
+
+    def test_session_activity_resets_monotonic_idle_deadline(self) -> None:
+        store = SessionStore(idle_seconds=10, absolute_seconds=100)
+        with mock.patch("security.time.monotonic", return_value=10.0):
+            session = store.create("admin", "secret", now=100)
+        with mock.patch("security.time.monotonic", return_value=15.0):
+            self.assertIs(store.get(session.session_id, now=105), session)
+        self.assertEqual(session.last_seen_monotonic, 15.0)
+
+        with mock.patch("security.time.monotonic", return_value=24.9):
+            self.assertIs(store.get(session.session_id, now=99, touch=False), session)
+        with mock.patch("security.time.monotonic", return_value=25.0):
+            self.assertIsNone(store.get(session.session_id, now=99, touch=False))
+
+    def test_session_snapshot_countdowns_use_monotonic_time(self) -> None:
+        store = SessionStore(idle_seconds=10, absolute_seconds=100)
+        with mock.patch("security.time.monotonic", return_value=10.0):
+            session = store.create("admin", "secret", now=100)
+        with (
+            mock.patch("security.time.monotonic", return_value=15.0),
+            mock.patch("security.time.time", return_value=105.0),
+        ):
+            store.get(session.session_id)
+        with (
+            mock.patch("security.time.monotonic", return_value=24.0),
+            mock.patch("security.time.time", return_value=99.0),
+        ):
+            snapshot = store.snapshot()
+
+        self.assertEqual(snapshot[0]["idle_seconds"], 9)
+        self.assertEqual(snapshot[0]["idle_remaining"], 1)
+        self.assertEqual(snapshot[0]["absolute_remaining"], 86)
+
+    def test_session_snapshot_preserves_explicit_wall_clock_injection(self) -> None:
+        store = SessionStore(idle_seconds=60, absolute_seconds=300)
+        with mock.patch("security.time.monotonic", return_value=10.0):
+            store.create("admin", "secret", now=100)
+
+        with mock.patch("security.time.monotonic", return_value=10.0):
+            snapshot = store.snapshot(now=120)
+
+        self.assertEqual(snapshot[0]["idle_seconds"], 20)
+        self.assertEqual(snapshot[0]["idle_remaining"], 40)
+        self.assertEqual(snapshot[0]["absolute_remaining"], 280)
+
     def test_session_purge_expires_at_idle_and_absolute_boundaries(self) -> None:
         idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
         idle_session = idle_store.create("idle-admin", "secret", now=100)
@@ -260,6 +323,26 @@ class SecurityTests(unittest.TestCase):
         rolled_back, cached = store.cached_role_session(session.session_id, now=101)
         self.assertFalse(rolled_back)
         self.assertIsNone(cached)
+
+    def test_role_revalidation_does_not_return_a_session_expired_during_lookup(self) -> None:
+        store = SessionStore(idle_seconds=10, absolute_seconds=100)
+        monotonic_now = [10.0]
+        with mock.patch("security.time.monotonic", side_effect=lambda: monotonic_now[0]):
+            session = store.create("admin", "secret", now=100)
+
+            def slow_role_lookup(_session):
+                monotonic_now[0] = 20.0
+                return "owner"
+
+            self.assertIsNone(
+                store.revalidate_role(
+                    session.session_id,
+                    slow_role_lookup,
+                    now=101,
+                    interval_seconds=0,
+                )
+            )
+            self.assertIsNone(store.get(session.session_id, now=101, touch=False))
 
     def test_cached_role_session_is_unavailable_during_forced_revalidation(self) -> None:
         store = SessionStore()
