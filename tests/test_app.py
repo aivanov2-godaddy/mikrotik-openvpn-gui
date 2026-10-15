@@ -3063,6 +3063,38 @@ class DashboardIntegrationTests(unittest.TestCase):
                 self.assertEqual(non_audit_state_ignoring_token_touch(), before_bearer_denials)
                 self.assertEqual(self.mock.state.mutation_requests, before_bearer_mutations)
 
+        # A valid browser session still needs its unpredictable CSRF secret on
+        # every current write dispatch. Exercise the complete same-origin
+        # surface with a forged token so route additions cannot silently omit
+        # anti-forgery validation.
+        self.mock.state.admin_group = "owner"
+        self.cookie = ""
+        self.csrf = ""
+        self.login()
+        csrf_headers = {
+            "Content-Type": "application/json",
+            "Cookie": self.cookie,
+            "Origin": self.config.public_origin,
+            "X-CSRF-Token": "attacker-supplied-token",
+        }
+        before_csrf_denials = non_audit_state_ignoring_token_touch()
+        before_csrf_mutations = list(self.mock.state.mutation_requests)
+        for method, form, path, _, body in route_cases:
+            if method == "GET":
+                continue
+            with self.subTest(principal="browser-session-with-forged-csrf", method=method, form=form, path=path):
+                status, _, payload = self.request(
+                    method,
+                    path,
+                    body=json.dumps(body).encode(),
+                    headers=csrf_headers,
+                )
+                self.assertEqual(status, 403, payload.decode())
+                self.assertIn(b"CSRF", payload)
+                self.assertNotIn(b"routerpass", payload)
+                self.assertEqual(non_audit_state_ignoring_token_touch(), before_csrf_denials)
+                self.assertEqual(self.mock.state.mutation_requests, before_csrf_mutations)
+
     def test_admin_session_response_fields_are_capability_gated_at_http_boundary(self) -> None:
         self.login()
         owner_cookie = self.cookie
