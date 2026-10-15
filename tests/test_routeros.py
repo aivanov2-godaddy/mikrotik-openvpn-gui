@@ -24,6 +24,15 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_routeros_credentials_repr_omits_password(self) -> None:
+        credentials = RouterOSCredentials("operator", "router-password-sentinel")
+
+        rendered = repr(credentials)
+
+        self.assertIn("operator", rendered)
+        self.assertNotIn("router-password-sentinel", rendered)
+        self.assertNotIn("password=", rendered)
+
     def test_certificate_settings_rejects_stale_malformed_missing_or_wrong_ca_crls(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)

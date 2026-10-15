@@ -1634,7 +1634,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
             return
         if path == "/api/certificate-settings":
-            session = self._require_session(api=True)
+            # This route is refreshed automatically while its panel is open;
+            # passive polling must not keep an unattended session alive.
+            session = self._require_session(api=True, touch=False)
             if (
                 not session
                 or not self._require_routeros_session(session)
@@ -1672,7 +1674,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"views": self.server.context.store.saved_views()})
             return
         if path == "/api/status":
-            session = self._require_session(api=True)
+            # The dashboard polls status in the background every few seconds.
+            # Treat it as passive observation, not operator activity.
+            session = self._require_session(api=True, touch=False)
             if (
                 not session
                 or not self._require_routeros_session(session)
