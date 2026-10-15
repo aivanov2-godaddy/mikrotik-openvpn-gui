@@ -1969,6 +1969,34 @@ class DashboardIntegrationTests(unittest.TestCase):
             verify.assert_not_called()
             sessions.assert_not_called()
 
+    def test_automatic_dashboard_polls_do_not_extend_or_revive_idle_session(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        last_seen = session.last_seen
+
+        for path in ("/api/status", "/api/certificate-settings"):
+            with self.subTest(path=path):
+                status, _, _ = self.request("GET", path)
+                self.assertEqual(status, 200)
+                unchanged = self.server.context.sessions.get(session_id, touch=False)
+                self.assertIsNotNone(unchanged)
+                self.assertEqual(unchanged.last_seen, last_seen)
+
+        session.last_seen = time.time() - self.server.context.sessions.idle_seconds - 1
+        with (
+            mock.patch.object(self.server.context.router, "verify_credentials") as verify,
+            mock.patch.object(self.server.context.router, "get_certificate_settings") as certificates,
+        ):
+            for path in ("/api/status", "/api/certificate-settings"):
+                with self.subTest(expired_path=path):
+                    status, _, _ = self.request("GET", path)
+                    self.assertEqual(status, 401)
+
+        verify.assert_not_called()
+        certificates.assert_not_called()
+
     def test_login_health_and_authentication_boundaries(self) -> None:
         status, headers, payload = self.request("GET", "/healthz")
         self.assertEqual(status, 200)

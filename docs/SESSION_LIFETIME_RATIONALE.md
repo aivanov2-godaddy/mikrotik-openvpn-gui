@@ -10,9 +10,10 @@ working through review-and-confirm workflows while limiting how long an
 abandoned browser session remains usable. The 8-hour absolute cap bounds the
 maximum lifetime of a continuously active session to a normal work shift and
 requires a fresh RouterOS login even if background activity continues. Live
-telemetry and authorization revalidation do not refresh the idle deadline, so
-an unattended open dashboard cannot stay authenticated solely because its
-stream is active.
+telemetry, authorization revalidation, and the dashboard's automatic status
+and certificate-settings polling do not refresh the idle deadline, so an
+unattended open dashboard cannot stay authenticated solely because its stream
+or background refreshes remain active.
 
 These values are a usability/security compromise, not a claim that a session
 cookie remains safe on an unlocked or compromised device. Operators should
