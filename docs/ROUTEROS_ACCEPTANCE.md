@@ -14,20 +14,21 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#751, commit `e2e64c68167ccb2f7ff06e5e815e47b1981483e9`, published by
-[workflow run #38750050793](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38750050793).
+#755, commit `f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1`, published by
+[workflow run #38819845718](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38819845718).
 Its ARM64 registry digest is
-`sha256:177c80d75d5d95681342c0015502b3ac3dd6a7deb1e15b579c1b6704fe2b0001`
+`sha256:1ad03a1f383c6e25ce29548413c8b98f3938a202590934210d16ff628efb893e`
 and its AMD64 registry digest is
-`sha256:4b3ac3e76009c18c29053454b104109dcca32c90ef237f525b049293a866a5f2`.
+`sha256:4437eec31d67c781641bb9eea2cdb2c823a35eace245be8e6cf03e5368ef8c18`.
 Both architectures passed published-runtime smoke tests, detached
 provenance/SBOM attestation verification, and stable-manifest publication and
-read-back. PR #751 hardens session expiry and SQLite WAL startup; it also
-contains PR #745's session preservation, PR #741's upstream-error redaction,
-PR #740's idle-session expiry hardening, and PR #730's device-posture identity
-guard. These are publication/CI results. The deployment checkpoint below is
-historical evidence for the previous PR #745 candidate, not PR #751. The new
-candidate must be deployed and tested in its own controlled acceptance window.
+read-back. PR #755 stops live telemetry delivery after its source dashboard
+session expires or is revoked; the candidate also includes the session-expiry,
+origin-validation, session-preservation, upstream-error-redaction, and
+device-posture hardening described in the release history. These are
+publication/CI results only. The deployment checkpoint below is historical
+evidence for the previous PR #745 candidate, not PR #755. The new candidate
+must be deployed and tested in its own controlled acceptance window.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -54,23 +55,24 @@ disconnect delivery, reconnect/snapshot recovery, and Redis delivery under
 live traffic were not measured. SQLite restore and canary rollback were not
 rehearsed in this checkpoint.
 
-**Result: deployment/startup check passed; candidate acceptance remains
-incomplete. Do not promote this candidate to production on the strength of this
-checkpoint.** The controlled, candidate-matched acceptance window below must
-still collect its required samples and recovery evidence. Keep exact router
+**Result: deployment/startup check passed for the historical PR #745 candidate;
+acceptance remains incomplete. Do not carry that result forward to PR #755 or
+promote a candidate to production on the strength of this checkpoint.** The
+controlled, candidate-matched acceptance window below must still collect its
+required samples and recovery evidence. Keep exact router
 addresses, credentials, session details, and raw logs in private
 operator-controlled records.
 
-## Current candidate status — PR #751
+## Current candidate status — PR #755
 
-The PR #751 image is published, but its RouterOS canary deployment and
+The PR #755 image is published, but its RouterOS canary deployment and
 candidate-specific acceptance have not been verified. The connected test
 client must be observed against this exact image during the controlled window;
 prior PR #745 deployment and health observations cannot be carried forward.
 Keep production on its current image and do not promote until the complete
 pre-promotion report passes and the rollback exercise has been verified.
 
-For each new acceptance run, read back PR #751's exact configured immutable tag
+For each new acceptance run, read back PR #755's exact configured immutable tag
 and health on the canary, then run the pre-promotion collector for that
 candidate. Do not promote until the report passes and rollback has been
 rehearsed. No resource minimum or cross-model/version certification is
