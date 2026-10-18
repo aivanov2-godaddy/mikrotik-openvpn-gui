@@ -160,8 +160,10 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
 
     def test_successful_no_change_counter_poll_advances_aggregate_freshness(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
+        sessions = SessionStore()
+        sessions.create("router-user", "router-password")
         runtime = TelemetryRuntime(
-            sessions=SessionStore(),
+            sessions=sessions,
             rest_url=config.routeros_rest_url,
             ca_file=None,
             insecure_tls=False,
@@ -180,8 +182,6 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
                 return None
 
         runtime.sampler._connection_factory = EmptyCounterConnection
-        runtime.sampler._credentials_provider = lambda: ("router-user", "router-password")
-        runtime.sampler._authorization_check = lambda _username, _password: True
         self.assertEqual(runtime.sampler.sample_once(), [])
 
         metrics = runtime.state.as_dict()

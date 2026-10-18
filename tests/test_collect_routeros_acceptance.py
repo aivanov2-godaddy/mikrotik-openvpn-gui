@@ -27,7 +27,14 @@ from scripts.collect_routeros_acceptance import (
 
 
 class RouterOSAcceptanceSamplerTests(unittest.TestCase):
-    def _fake_connection(self, *, version="7.24.5 (stable)", lifecycle=None):
+    def _fake_connection(
+        self,
+        *,
+        version="7.24.5 (stable)",
+        lifecycle=None,
+        active_sessions=1,
+        session_sequence=None,
+    ):
         connection = Mock()
         revision = "a" * 40
         try:
@@ -37,8 +44,11 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         state = lifecycle if lifecycle is not None else (
             {"running": "true", "healthy": "true"} if modern else {"status": "running"}
         )
+        session_samples = session_sequence or [active_sessions]
+        session_index = 0
 
         def execute(path, *, query=()):
+            nonlocal session_index
             query = tuple(query)
             if path == "/system/resource/print":
                 self.assertEqual(query, (".proplist=cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version",))
@@ -55,25 +65,45 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 ] + [RouterOSReply("done", {})]
             if path == "/ppp/active/print":
                 self.assertEqual(query, (".proplist=.id",))
-                return [RouterOSReply("re", {".id": "*1", "name": "private-user", "address": "10.0.0.2"}), RouterOSReply("done", {})]
+                session_count = session_samples[min(session_index, len(session_samples) - 1)]
+                session_index += 1
+                return [
+                    *[
+                        RouterOSReply("re", {".id": f"*{index + 1}", "name": "private-user", "address": "10.0.0.2"})
+                        for index in range(session_count)
+                    ],
+                    RouterOSReply("done", {}),
+                ]
             self.fail(f"unexpected RouterOS path: {path}")
 
         connection.execute.side_effect = execute
         return connection
 
-    def _fake_rest_reader(self, *, mismatch=False):
+    def _fake_rest_reader(self, *, mismatch=False, active_sessions=1, session_sequence=None):
         reader = Mock()
         revision = "a" * 40
-        reader.snapshot.return_value = {
+        snapshot = {
             "router_cpu_percent": 23 if not mismatch else 99,
             "router_memory_used_percent": 40.0,
             "router_storage_used_percent": 30.0,
-            "active_vpn_sessions": 1,
+            "active_vpn_sessions": active_sessions,
             "containers": {
                 name: {"healthy": True, "revision": revision}
                 for name in CONTAINER_NAMES
             },
         }
+        if session_sequence:
+            session_index = 0
+
+            def next_snapshot():
+                nonlocal session_index
+                session_count = session_sequence[min(session_index, len(session_sequence) - 1)]
+                session_index += 1
+                return {**snapshot, "active_vpn_sessions": session_count}
+
+            reader.snapshot.side_effect = next_snapshot
+        else:
+            reader.snapshot.return_value = snapshot
         return reader
 
     def test_snapshot_only_returns_allowlisted_aggregate_values(self):
@@ -159,6 +189,52 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertEqual(report["rest_parity_failed_sample_count"], report["sample_count"])
         self.assertNotIn("99", repr(report))
         self.assertNotIn("private-user", repr(report))
+
+    def test_soak_requires_a_vpn_session_to_be_observed_at_least_once(self):
+        connection = self._fake_connection(active_sessions=0)
+        now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+        elapsed = [0.0]
+
+        report = collect(
+            connection,
+            rest_reader=self._fake_rest_reader(active_sessions=0),
+            username="reader",
+            password="do-not-log",
+            expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            duration_seconds=1800,
+            interval_seconds=60,
+            clock=lambda: now + timedelta(seconds=elapsed[0]),
+            monotonic=lambda: elapsed[0],
+            sleep=lambda delay: elapsed.__setitem__(0, elapsed[0] + delay),
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("vpn_test_session_not_observed", report["failed_gates"])
+        self.assertEqual(report["active_vpn_sessions_max"], 0)
+
+    def test_soak_allows_controlled_disconnect_after_observing_a_vpn_session(self):
+        session_counts = [1] * 31
+        session_counts[15] = 0
+        connection = self._fake_connection(session_sequence=session_counts)
+        now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+        elapsed = [0.0]
+
+        report = collect(
+            connection,
+            rest_reader=self._fake_rest_reader(session_sequence=session_counts),
+            username="reader",
+            password="do-not-log",
+            expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            duration_seconds=1800,
+            interval_seconds=60,
+            clock=lambda: now + timedelta(seconds=elapsed[0]),
+            monotonic=lambda: elapsed[0],
+            sleep=lambda delay: elapsed.__setitem__(0, elapsed[0] + delay),
+        )
+
+        self.assertTrue(report["passed"], report["failed_gates"])
+        self.assertEqual(report["active_vpn_sessions_min"], 0)
+        self.assertEqual(report["active_vpn_sessions_max"], 1)
 
     def test_rest_reader_rejects_non_https_and_embedded_credentials(self):
         for url in ("http://router.example", "https://reader:secret@router.example", "https://router.example/rest?x=1"):

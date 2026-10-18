@@ -350,6 +350,33 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertEqual(received, [])
         self.assertTrue(connection.closed)
 
+    def test_sampler_atomic_dispatch_denial_does_not_reconcile_or_mark_fresh(self):
+        connection = FakeConnection([
+            RouterOSReply("re", {".id": "*1", "name": "ether1", "rx-byte": "10"})
+        ])
+        lease = TelemetryCredentialLease("router-user", "router-password", "session-ref")
+        received = []
+        samples = []
+        broker = TelemetryBroker()
+        sampler = TelemetryInterfaceSampler(
+            lambda: connection,
+            lambda: lease,
+            broker,
+            on_sample=lambda: samples.append(True),
+            on_events=received.extend,
+            authorization_ref_check=lambda _ref: True,
+            authorization_ref_dispatch=lambda _ref, _dispatch: False,
+        )
+
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            sampler.sample_once()
+
+        self.assertEqual(lease.password, "")
+        self.assertEqual(broker.sequence, 0)
+        self.assertEqual(samples, [])
+        self.assertEqual(received, [])
+        self.assertTrue(connection.closed)
+
     def test_snapshot_is_reconciled_before_stream(self):
         connection = FakeConnection([])
         received = []

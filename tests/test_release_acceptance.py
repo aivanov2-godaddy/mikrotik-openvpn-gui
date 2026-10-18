@@ -20,12 +20,14 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     @staticmethod
     def _routeros_resource_evidence() -> dict[str, object]:
         return {
-            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "format": "vpn-dashboard-routeros-acceptance-v3",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
             "rest_parity_successful_sample_count": 31,
             "rest_parity_failed_sample_count": 0,
+            "active_vpn_sessions_min": 0,
+            "active_vpn_sessions_max": 1,
             "max_sample_gap_seconds": 60,
             "resource_peaks": {
                 "router_cpu_peak_percent": 25,
@@ -222,12 +224,14 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_routeros_resource_evidence_is_preserved_only_when_it_matches_the_soak(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["collection"]["routeros_resource_evidence"] = {
-            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "format": "vpn-dashboard-routeros-acceptance-v3",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
             "rest_parity_successful_sample_count": 31,
             "rest_parity_failed_sample_count": 0,
+            "active_vpn_sessions_min": 0,
+            "active_vpn_sessions_max": 1,
             "max_sample_gap_seconds": 60,
             "resource_peaks": {
                 "router_cpu_peak_percent": 25,
@@ -251,12 +255,14 @@ class ReleaseAcceptanceTests(unittest.TestCase):
 
         evidence = deepcopy(self.evidence)
         evidence["collection"]["routeros_resource_evidence"] = {
-            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "format": "vpn-dashboard-routeros-acceptance-v3",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
             "rest_parity_successful_sample_count": 30,
             "rest_parity_failed_sample_count": 1,
+            "active_vpn_sessions_min": 0,
+            "active_vpn_sessions_max": 1,
             "max_sample_gap_seconds": 60,
             "resource_peaks": {
                 "router_cpu_peak_percent": 25,
@@ -268,6 +274,16 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("routeros_resource_evidence_invalid", report["failed_gates"])
+
+    def test_routeros_soak_without_any_active_vpn_session_fails(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["collection"]["routeros_resource_evidence"] = self._routeros_resource_evidence()
+        evidence["collection"]["routeros_resource_evidence"]["active_vpn_sessions_max"] = 0
+
+        code, report = evaluate(evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertIn("vpn_test_session_not_observed", report["failed_gates"])
 
     def test_failed_live_collection_cannot_be_overridden_by_deployment_claims(self) -> None:
         evidence = deepcopy(self.evidence)

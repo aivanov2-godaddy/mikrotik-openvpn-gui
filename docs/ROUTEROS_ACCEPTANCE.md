@@ -235,6 +235,11 @@ itself establish RouterOS full-snapshot recovery. Caller-provided booleans do
 not override missing, zero, reset, out-of-window, or incorrectly ordered
 measurements.
 
+The RouterOS acceptance window must observe at least one active VPN session
+(`active_vpn_sessions_max >= 1`). A zero-only session window fails; the client
+may be disconnected during controlled reconnect testing, so the minimum count
+is informational and need not remain positive for the entire soak.
+
 Use `--phase canary-prepromotion` for a candidate soak before promotion. The
 evidence records the candidate image/revision for canary and production's
 separately recorded prior image/revision. The collector checks each deployment
@@ -350,7 +355,10 @@ missing, failed, stale, shorter than 30 minutes, or outside the app-collector
 window by more than five seconds fails closed. Report end times must also be
 no more than 15 minutes old when evaluated. The final release evaluator
 revalidates the reports and matching window rather than trusting the
-collector's `passed` flag alone.
+collector's `passed` flag alone. The release-collection CLI invokes that
+central evaluator after joining RouterOS, stream-observer, and browser evidence;
+its exit status therefore includes rollback and production-protection gates,
+not only collection and telemetry sub-gates.
 
 Run these captures concurrently from separate trusted local terminals. Keep
 the NDJSON input and observer output private; never place raw event frames,
