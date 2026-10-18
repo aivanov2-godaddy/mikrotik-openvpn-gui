@@ -241,6 +241,44 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual((absolute_session.password, absolute_session.csrf_token), ("", ""))
         self.assertEqual(absolute_session.authorization_ref, "")
 
+    def test_nonblocking_active_session_check_does_not_touch_idle_deadline(self) -> None:
+        store = SessionStore(idle_seconds=10, absolute_seconds=30)
+        session = store.create("operator", "secret")
+        last_seen = session.last_seen
+        last_seen_monotonic = session.last_seen_monotonic
+
+        self.assertTrue(store.is_active_nonblocking(session.session_id))
+        self.assertFalse(store.is_active_nonblocking("unknown-session"))
+        self.assertEqual(session.last_seen, last_seen)
+        self.assertEqual(session.last_seen_monotonic, last_seen_monotonic)
+
+        session.last_seen = time.time() - 11
+        session.last_seen_monotonic = time.monotonic() - 11
+        self.assertFalse(store.is_active_nonblocking(session.session_id))
+
+    def test_nonblocking_active_session_check_fails_closed_on_store_lock_contention(self) -> None:
+        store = SessionStore()
+        session = store.create("operator", "secret")
+        lock_held = threading.Event()
+        release_lock = threading.Event()
+
+        def hold_store_lock() -> None:
+            with store._lock:
+                lock_held.set()
+                release_lock.wait(timeout=2)
+
+        worker = threading.Thread(target=hold_store_lock, daemon=True)
+        worker.start()
+        self.assertTrue(lock_held.wait(timeout=1))
+        started = time.monotonic()
+        try:
+            self.assertFalse(store.is_active_nonblocking(session.session_id))
+            self.assertLess(time.monotonic() - started, 0.1)
+        finally:
+            release_lock.set()
+            worker.join(timeout=1)
+        self.assertFalse(worker.is_alive())
+
     def test_session_timeouts_use_monotonic_time_when_wall_clock_moves_backward(self) -> None:
         idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
         with mock.patch("security.time.monotonic", return_value=100.0):

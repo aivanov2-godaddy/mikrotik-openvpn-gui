@@ -19,6 +19,124 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class ASGIContractTests(unittest.TestCase):
+    def test_socketio_requires_active_session_before_engineio_handshake(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        sessions = SessionStore()
+        active_session = sessions.create("operator", "test-only-router-password", role="owner")
+        expired_session = sessions.create("expired", "test-only-password", role="owner")
+        expired_session.last_seen = time.time() - 3601
+        expired_session.last_seen_monotonic = time.monotonic() - 3601
+        revoked_session = sessions.create("revoked", "test-only-password", role="owner")
+        sessions.revoke(revoked_session.session_id)
+        adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=SimpleNamespace(sessions=sessions)))
+        delegated: list[str] = []
+
+        async def inner(scope, _receive, _send) -> None:
+            delegated.append(scope["type"])
+
+        application = SocketIOLiveSendASGI(inner, adapter)
+
+        async def exercise() -> list[list[dict[str, object]]]:
+            results: list[list[dict[str, object]]] = []
+            denied_cookies = (
+                None,
+                b"__Host-vpn_session=unknown-session",
+                f"__Host-vpn_session={expired_session.session_id}".encode("ascii"),
+                f"__Host-vpn_session={revoked_session.session_id}".encode("ascii"),
+            )
+            for scope_type, cookie in (
+                (scope_type, cookie)
+                for scope_type in ("http", "websocket")
+                for cookie in denied_cookies
+            ):
+                messages: list[dict[str, object]] = []
+                headers = [(b"host", b"vpn.example.test")]
+                if cookie is not None:
+                    headers.append((b"cookie", cookie))
+                scope = {
+                    "type": scope_type,
+                    "method": "GET",
+                    "path": "/socket.io/",
+                    "query_string": b"EIO=4&transport=polling",
+                    "headers": headers,
+                }
+
+                async def receive() -> dict[str, object]:
+                    return (
+                        {"type": "websocket.connect"}
+                        if scope_type == "websocket"
+                        else {"type": "http.request", "body": b"", "more_body": False}
+                    )
+
+                async def send(message: dict[str, object]) -> None:
+                    messages.append(message)
+
+                await application(scope, receive, send)
+                results.append(messages)
+
+            valid_messages: list[dict[str, object]] = []
+            valid_scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/socket.io/",
+                "query_string": b"EIO=4&transport=polling",
+                "headers": [
+                    (b"host", b"vpn.example.test"),
+                    (
+                        b"cookie",
+                        f"__Host-vpn_session={active_session.session_id}".encode("ascii"),
+                    ),
+                ],
+            }
+
+            async def receive_valid() -> dict[str, object]:
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send_valid(message: dict[str, object]) -> None:
+                valid_messages.append(message)
+
+            await application(valid_scope, receive_valid, send_valid)
+            results.append(valid_messages)
+
+            fallback_messages: list[dict[str, object]] = []
+            fallback_runtime = SimpleNamespace(
+                cached_principal_for_session=lambda _session_id: (True, SimpleNamespace(authenticated=False))
+            )
+            fallback_application = SocketIOLiveSendASGI(
+                inner,
+                DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=fallback_runtime)),
+            )
+            fallback_scope = {
+                **valid_scope,
+                "headers": [
+                    (b"host", b"vpn.example.test"),
+                    (b"cookie", b"__Host-vpn_session=cached-session"),
+                ],
+            }
+
+            async def send_fallback(message: dict[str, object]) -> None:
+                fallback_messages.append(message)
+
+            await fallback_application(fallback_scope, receive_valid, send_fallback)
+            results.append(fallback_messages)
+            return results
+
+        results = asyncio.run(exercise())
+
+        self.assertEqual(delegated, ["http"])
+        for messages in results[:4]:
+            self.assertEqual(
+                [message.get("status") for message in messages if message.get("type") == "http.response.start"],
+                [403],
+            )
+        for messages in results[4:8]:
+            self.assertEqual([message.get("type") for message in messages], ["websocket.close"])
+        self.assertEqual(
+            [message.get("status") for message in results[9] if message.get("type") == "http.response.start"],
+            [403],
+        )
+
     def test_socketio_asgi_rejects_duplicate_origins_for_http_and_websocket(self) -> None:
         from asgi import SocketIOLiveSendASGI
 
@@ -416,18 +534,15 @@ class ASGIContractTests(unittest.TestCase):
                     self.assertIsNone(sessions.get(session.session_id, touch=False))
                     emitted_before_reconnect = native.metrics()["events_emitted_total"]
 
-                async with websockets.connect(
-                    ws_url,
-                    additional_headers={"Cookie": cookie},
-                    open_timeout=5,
-                    ping_interval=None,
-                ) as reconnect:
-                    self.assertTrue((await asyncio.wait_for(reconnect.recv(), timeout=5)).startswith("0{"))
-                    await reconnect.send("40/telemetry,")
-                    rejection = await receive_until(
-                        reconnect, lambda packet: packet.startswith("44/telemetry,")
-                    )
-                    self.assertTrue(rejection.startswith("44/telemetry,"), rejection)
+                with self.assertRaises(websockets.exceptions.InvalidStatus) as denied:
+                    async with websockets.connect(
+                        ws_url,
+                        additional_headers={"Cookie": cookie},
+                        open_timeout=5,
+                        ping_interval=None,
+                    ):
+                        self.fail("revoked session must not allocate a new Engine.IO transport")
+                self.assertEqual(denied.exception.response.status_code, 403)
 
                 self.assertEqual(native.metrics()["events_emitted_total"], emitted_before_reconnect)
                 self.assertEqual(native.metrics()["active_connections"], 0)
@@ -563,6 +678,12 @@ class ASGIContractTests(unittest.TestCase):
                             "last_seen",
                             time.time() - sessions.idle_seconds - 1,
                         )
+                        await asyncio.to_thread(
+                            setattr,
+                            current,
+                            "last_seen_monotonic",
+                            time.monotonic() - sessions.idle_seconds - 1,
+                        )
                     else:
                         # Keep the opaque session valid but remove its live-stream grant.
                         current = await asyncio.to_thread(
@@ -579,18 +700,18 @@ class ASGIContractTests(unittest.TestCase):
                     self.assertEqual(native.metrics()["active_connections"], 0)
 
                 if transition in {"revoke", "expiry"}:
-                    async with websockets.connect(
-                        ws_url,
-                        additional_headers={"Cookie": cookie},
-                        open_timeout=5,
-                        ping_interval=None,
-                    ) as reconnect:
-                        self.assertTrue((await asyncio.wait_for(reconnect.recv(), timeout=5)).startswith("0{"))
-                        await reconnect.send("40/telemetry,")
-                        rejection = await receive_until(reconnect, lambda packet: packet.startswith("44/telemetry,"))
-                        self.assertTrue(rejection.startswith("44/telemetry,"), rejection)
+                    with self.assertRaises(websockets.exceptions.InvalidStatus) as denied:
+                        async with websockets.connect(
+                            ws_url,
+                            additional_headers={"Cookie": cookie},
+                            open_timeout=5,
+                            ping_interval=None,
+                        ):
+                            self.fail("revoked or expired session must not allocate an Engine.IO transport")
+                    self.assertEqual(denied.exception.response.status_code, 403)
                     self.assertEqual(gateway.opened, ["subscription-1"])
-                    self.assertEqual(native.metrics()["rejected_connections_total"], 1)
+                    self.assertEqual(native.metrics()["rejected_connections_total"], 0)
+                    self.assertEqual(native.metrics()["active_connections"], 0)
                     if transition == "expiry":
                         self.assertIsNone(sessions.get(session.session_id, touch=False))
                 else:
@@ -3689,7 +3810,9 @@ class ASGIContractTests(unittest.TestCase):
                 current = sessions.get(session_id, touch=False)
                 return TelemetryPrincipal.from_session(current) if current else None
 
-        http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=Runtime()))
+        runtime = Runtime()
+        runtime.sessions = sessions
+        http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
         sent: list[dict[str, object]] = []
         private_marker = "polling-frame-after-revocation"
         sessions.revoke(session.session_id)
@@ -3718,14 +3841,9 @@ class ASGIContractTests(unittest.TestCase):
         self.assertFalse(
             any(private_marker.encode("ascii") in message.get("body", b"") for message in sent)
         )
-        self.assertEqual(
-            sent,
-            [
-                {"type": "http.response.start", "status": 200, "headers": []},
-                {"type": "http.response.body", "body": b"", "more_body": True},
-                {"type": "http.response.body", "body": b""},
-            ],
-        )
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(sent[0]["status"], 403)
+        self.assertEqual(sent[-1], {"type": "http.response.body", "body": b""})
 
     def test_socketio_engine_sid_is_bound_to_originating_session(self) -> None:
         from asgi import SocketIOLiveSendASGI
@@ -3754,7 +3872,15 @@ class ASGIContractTests(unittest.TestCase):
             await DashboardHTTPASGI._send_and_drain(send, message)
             return True
 
-        adapter = SimpleNamespace(_send_authorized_live_message=authorized_send)
+        class ActiveSessions:
+            @staticmethod
+            def get(candidate_session_id: str, *, touch: bool, wait_for_role_check_lock: bool):
+                return object() if candidate_session_id == session_id else None
+
+        adapter = SimpleNamespace(
+            _send_authorized_live_message=authorized_send,
+            server=SimpleNamespace(telemetry_runtime=SimpleNamespace(sessions=ActiveSessions())),
+        )
         gate = SocketIOLiveSendASGI(inner, adapter)
         sent: list[dict[str, object]] = []
 
