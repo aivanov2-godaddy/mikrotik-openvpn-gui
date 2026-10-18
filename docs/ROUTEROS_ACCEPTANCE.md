@@ -80,7 +80,7 @@ inferred. See the
 [current release record](RELEASES.md#published-images).
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
-remain historical and do not prove PR #504's canary readiness or rollback.
+remain historical and do not prove PR #755's canary readiness or rollback.
 See the [installation compatibility
 matrix](INSTALLATION.md#compatibility-and-support-matrix) and [historical release record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05).
 
