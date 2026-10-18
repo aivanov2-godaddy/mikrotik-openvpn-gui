@@ -1023,7 +1023,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         ):
             self._json({"error": "Request origin is not allowed"}, status=HTTPStatus.FORBIDDEN)
             return False
-        supplied = self.headers.get("X-CSRF-Token", "") or body_token
+        csrf_headers = self.headers.get_all("X-CSRF-Token", [])
+        if len(csrf_headers) > 1:
+            self._json({"error": "CSRF validation failed"}, status=HTTPStatus.FORBIDDEN)
+            return False
+        supplied = (csrf_headers[0] if csrf_headers else "") or body_token
         if csrf_matches(session.csrf_token, supplied):
             return True
         self._json({"error": "CSRF validation failed"}, status=HTTPStatus.FORBIDDEN)

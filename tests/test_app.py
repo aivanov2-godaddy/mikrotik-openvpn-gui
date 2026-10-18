@@ -1019,6 +1019,30 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
         self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
 
+    def test_logout_rejects_duplicate_csrf_headers_even_with_valid_body_token(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        before_routeros_mutations = list(self.mock.state.mutation_requests)
+        body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        connection.putrequest("POST", "/logout")
+        connection.putheader("Content-Type", "application/x-www-form-urlencoded")
+        connection.putheader("Content-Length", str(len(body)))
+        connection.putheader("Cookie", self.cookie)
+        connection.putheader("Origin", self.config.public_origin)
+        connection.putheader("X-CSRF-Token", self.csrf)
+        connection.putheader("x-csrf-token", "attacker-supplied-token")
+        connection.endheaders(body)
+        response = connection.getresponse()
+        payload = response.read()
+        status = response.status
+        connection.close()
+
+        self.assertEqual(status, 403, payload.decode())
+        self.assertIn(b"csrf", payload.lower())
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
+
     def test_successful_authenticated_request_refreshes_idle_timestamp(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]

@@ -2473,7 +2473,7 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(native._events_emitted_total, 1)
         self.assertEqual(native.server.disconnected, [("socket-subscribe", "/telemetry")])
 
-    def test_http_adapter_preserves_duplicate_origin_fields_for_handler(self) -> None:
+    def test_http_adapter_preserves_duplicate_origin_and_csrf_fields_for_handler(self) -> None:
         request = DashboardHTTPASGI._request_bytes(
             {
                 "method": "GET",
@@ -2481,6 +2481,8 @@ class ASGIContractTests(unittest.TestCase):
                 "headers": [
                     (b"origin", b"https://vpn.example.test"),
                     (b"origin", b"https://attacker.example"),
+                    (b"x-csrf-token", b"valid-csrf-token"),
+                    (b"x-csrf-token", b"attacker-supplied-token"),
                 ],
             },
             b"",
@@ -2494,6 +2496,10 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(
             parsed_headers.get_all("Origin"),
             ["https://vpn.example.test", "https://attacker.example"],
+        )
+        self.assertEqual(
+            parsed_headers.get_all("X-CSRF-Token"),
+            ["valid-csrf-token", "attacker-supplied-token"],
         )
 
     def test_http_adapter_preserves_cookie_and_body_without_hop_by_hop_headers(self) -> None:
