@@ -18,23 +18,25 @@ operator/session details are kept in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline candidate is PR #759; its immutable artifacts and CI provenance are
-recorded below. It preserves RouterOS interface counters and measured rates in
-live telemetry frames. It also includes PR #758's duplicate CSRF-header
-rejection, PR #755's session-bound telemetry authorization and revocation
-cleanup, PR #751's hardening of session expiry and SQLite WAL startup under
-contention, PR #745's preservation of VPN sessions when RouterOS has not yet
-supplied a complete interface-counter sample, PR #740's automatic-poll
-session-expiry hardening and safe credential representation, and PR #741's
-redaction of RouterOS upstream error details. Earlier merged work includes the
-read-only device-posture guard that requires both the stored RouterOS
-certificate ID and normalized fingerprint to match. PR #728's pinned Python
-base-image registry change is also part of this mainline history. The broader
-candidate highlights are stricter live-data field allowlists and session
-revalidation, serialized telemetry/session invalidation, safer staged
-certificate renewal, improved telemetry recovery, and evidence-gated RouterOS
-canary promotion. CI publication is not RouterOS acceptance; do not tag or
-publish v2.8.0 until candidate-specific canary acceptance passes. Earlier releases
+mainline candidate is PR #761; its immutable artifacts and CI provenance are
+recorded below. It rejects Engine.IO transport setup unless a live dashboard
+session exists, before transport state is allocated, without refreshing the
+session idle deadline. It retains PR #759's live interface-counter projection,
+PR #758's duplicate CSRF-header rejection, PR #755's session-bound telemetry
+authorization and revocation cleanup, PR #751's hardening of session expiry
+and SQLite WAL startup under contention, PR #745's preservation of VPN
+sessions when RouterOS has not yet supplied a complete interface-counter
+sample, PR #740's automatic-poll session-expiry hardening and safe credential
+representation, and PR #741's redaction of RouterOS upstream error details.
+Earlier merged work includes the read-only device-posture guard that requires
+both the stored RouterOS certificate ID and normalized fingerprint to match.
+PR #728's pinned Python base-image registry change is also part of this
+mainline history. The broader candidate highlights are stricter live-data field
+allowlists and session revalidation, serialized telemetry/session invalidation,
+safer staged certificate renewal, improved telemetry recovery, and
+evidence-gated RouterOS canary promotion. CI publication is not RouterOS
+acceptance; do not tag or publish v2.8.0 until candidate-specific canary
+acceptance passes. Earlier releases
 introduced the v2.1 mobile administrator workflows,
 v2.2 administrator roles and authentication audit, v2.3 enterprise operations
 foundations, v2.4 bulk operations and saved views, and v2.5 Binary API live
@@ -79,7 +81,31 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #759 — 2026-10-18
+### Latest published mainline candidate — PR #761 — 2026-10-18
+
+PR [#761](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/761)
+merged as `e8af615c42145b9b6a1ea44bee9b217ffc5dc4be`. It rejects anonymous,
+unknown, expired, and revoked dashboard sessions before Engine.IO allocates an
+HTTP or WebSocket transport; the early check is fail-closed and nonblocking,
+does not refresh the idle deadline, and leaves role/capability checks intact.
+Publisher run
+[#39168925504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39168925504)
+passed source/security checks, compilation and the full test suite, rendered
+browser/accessibility checks, ARM64 and AMD64 publication/runtime smoke,
+detached provenance and SPDX SBOM attestation verification, and stable-manifest
+publication/read-back. The stable manifest asset's digest is
+`sha256:5dec3e1c0433cef382ff9b687dd10581e48f9192e61133fb30721d5fc08dbce2`.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-arm64` | `sha256:0d58f3b2c24281d82064b9d95da9d31bb56073c0daa0f116bd7c3e2d8b90d32b` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-amd64` | `sha256:e949bfa43ed1f0ac989cc3a32da95da26a19e5b028fe14761fbca061c4cc305c` |
+
+These artifacts are published, not deployed to RouterOS. Live-session
+acceptance remains unverified; the formal version remains v2.7.0, and v2.8.0
+must not be tagged or published until candidate-specific canary gates pass.
+
+### Previously published mainline candidate — PR #759 — 2026-10-18
 
 PR [#759](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/759)
 merged as `f426e2f6cc8d048ce954790ca6f110a3c5226796`. It fixes the live
@@ -100,9 +126,10 @@ tags; its SHA-256 is
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-f426e2f6cc8d048ce954790ca6f110a3c5226796-arm64` | `sha256:c4ef9388763215123bf77abe6253dc84f12d66bbc28f8eb21b88574f38d6ad33` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-f426e2f6cc8d048ce954790ca6f110a3c5226796-amd64` | `sha256:bfcd2cd35fe3530f68ae427b0f8ac3fe0fc90ec8fec4b9e2b0161f9aa089a6b9` |
 
-These artifacts are published, not deployed to RouterOS. Live-session
-acceptance remains unverified; the formal version remains v2.7.0, and v2.8.0
-must not be tagged or published until the candidate-specific canary gates pass.
+These artifacts are published, not deployed to RouterOS. PR #761 supersedes
+them on mainline. Live-session acceptance remains unverified; the formal
+version remains v2.7.0, and v2.8.0 must not be tagged or published until the
+candidate-specific canary gates pass.
 
 ### Previously published mainline candidate — PR #758
 

@@ -47,6 +47,9 @@ semantic-version style release tags.
   ownership/authorization around sensitive live telemetry and certificate flows.
 - Restrict user, status, connection-history, alert, and SSE payloads to explicit
   safe-field allowlists; redact RouterOS errors before returning them to clients.
+- Require an active dashboard session before Engine.IO creates an HTTP or
+  WebSocket transport, using a fail-closed nonblocking check that does not
+  extend the idle-session deadline.
 
 ### Fixed
 
