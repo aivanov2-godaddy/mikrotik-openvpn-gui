@@ -50,6 +50,9 @@ semantic-version style release tags.
 
 ### Fixed
 
+- Preserve nested RouterOS interface counters and measured rates when
+  projecting broker events into live telemetry frames; reject incomplete or
+  invalid cumulative counters in the acceptance observer.
 - Preserve active VPN sessions when the initial RouterOS interface-counter
   observation is incomplete; initialize history totals to zero until complete
   counters arrive.
