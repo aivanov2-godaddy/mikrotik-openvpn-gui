@@ -8,6 +8,7 @@ import unittest
 from scripts.telemetry_stream_observer import (
     TelemetryStreamRecorder,
     observe,
+    validate_frame,
     validate_canary_origin,
 )
 
@@ -39,6 +40,42 @@ def _session_frame(sequence: int, *, password: str | None = None) -> dict[str, o
 
 
 class TelemetryStreamObserverTests(unittest.TestCase):
+    def test_interface_counter_frames_require_identity_and_base_counters(self) -> None:
+        frame: dict[str, object] = {
+            "protocol_version": 1,
+            "event": "vpn.interface.counters",
+            "sequence": 1,
+            "router_timestamp": 1000,
+            "payload": {
+                "id": "*interface-id",
+                "name": "ovpn-in1",
+                "rx_bytes": 10,
+                "tx_bytes": 20,
+                "rx_packets": 3,
+                "tx_packets": 4,
+                "rx_bytes_per_second": 1.5,
+            },
+        }
+        self.assertEqual(
+            validate_frame("vpn.interface.counters", frame),
+            (1, "vpn.interface.counters"),
+        )
+
+        valid_payload = dict(frame["payload"])
+        invalid_payloads = [
+            {},
+            {key: value for key, value in valid_payload.items() if key != "name"},
+            {key: value for key, value in valid_payload.items() if key != "rx_bytes"},
+            {**valid_payload, "tx_packets": -1},
+            {**valid_payload, "rx_bytes": "10"},
+        ]
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                validate_frame(
+                    "vpn.interface.counters",
+                    {**frame, "payload": payload},
+                )
+
     def test_authenticated_socketio_client_writes_only_aggregate_evidence(self) -> None:
         if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
             self.skipTest("Socket.IO observer runtime dependencies are not installed")
@@ -91,9 +128,7 @@ class TelemetryStreamObserverTests(unittest.TestCase):
             listener.listen(16)
             listener.setblocking(False)
             port = listener.getsockname()[1]
-            server = uvicorn.Server(
-                uvicorn.Config(application, log_level="critical", lifespan="off")
-            )
+            server = uvicorn.Server(uvicorn.Config(application, log_level="critical", lifespan="off"))
             server_task = asyncio.create_task(server.serve(sockets=[listener]))
             try:
                 deadline = asyncio.get_running_loop().time() + 5
@@ -167,7 +202,9 @@ class TelemetryStreamObserverTests(unittest.TestCase):
             _session_frame(1, password="WS-SECRET-SENTINEL"),
         )
         report = recorder.report(
-            started_at="start", ended_at="end", duration=1,
+            started_at="start",
+            ended_at="end",
+            duration=1,
         )
         self.assertEqual(report["rejected_frames"], 1)
         self.assertNotIn("WS-SECRET-SENTINEL", str(report))
@@ -190,22 +227,28 @@ class TelemetryStreamObserverTests(unittest.TestCase):
     def test_reconnect_starts_a_new_sequence_epoch(self) -> None:
         recorder = TelemetryStreamRecorder()
         recorder.on_connect()
-        recorder.record("telemetry.snapshot", {
-            "protocol_version": 1,
-            "event": "telemetry.snapshot",
-            "sequence": 20,
-            "router_timestamp": 1000,
-            "payload": {"sessions": []},
-        })
+        recorder.record(
+            "telemetry.snapshot",
+            {
+                "protocol_version": 1,
+                "event": "telemetry.snapshot",
+                "sequence": 20,
+                "router_timestamp": 1000,
+                "payload": {"sessions": []},
+            },
+        )
         recorder.on_disconnect()
         recorder.on_connect()
-        recorder.record("telemetry.snapshot", {
-            "protocol_version": 1,
-            "event": "telemetry.snapshot",
-            "sequence": 1,
-            "router_timestamp": 1001,
-            "payload": {"sessions": []},
-        })
+        recorder.record(
+            "telemetry.snapshot",
+            {
+                "protocol_version": 1,
+                "event": "telemetry.snapshot",
+                "sequence": 1,
+                "router_timestamp": 1001,
+                "payload": {"sessions": []},
+            },
+        )
         report = recorder.report(started_at="start", ended_at="end", duration=1)
         self.assertEqual(report["connections"], 2)
         self.assertEqual(report["reconnects"], 1)

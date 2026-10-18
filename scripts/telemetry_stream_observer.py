@@ -30,23 +30,46 @@ MAX_COOKIE_LENGTH = 8192
 MAX_SEQUENCES_PER_EPOCH = 100_000
 SESSION_FIELDS = frozenset(
     {
-        "id", "name", "vpn_address", "source_address", "uptime", "encoding",
-        "service", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
+        "id",
+        "name",
+        "vpn_address",
+        "source_address",
+        "uptime",
+        "encoding",
+        "service",
+        "rx_bytes",
+        "tx_bytes",
+        "rx_packets",
+        "tx_packets",
         "counter_complete",
     }
 )
 COUNTER_FIELDS = frozenset(
     {
-        "id", "name", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
-        "rx_bytes_per_second", "tx_bytes_per_second", "rx_packets_per_second",
+        "id",
+        "name",
+        "rx_bytes",
+        "tx_bytes",
+        "rx_packets",
+        "tx_packets",
+        "rx_bytes_per_second",
+        "tx_bytes_per_second",
+        "rx_packets_per_second",
         "tx_packets_per_second",
     }
 )
+REQUIRED_COUNTER_FIELDS = frozenset({"id", "name", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets"})
 SUPPORTED_EVENTS = frozenset(
     {
-        "telemetry.snapshot", "vpn.session.connected", "vpn.session.updated",
-        "vpn.session.disconnected", "vpn.interface.counters", "telemetry.counter_reset",
-        "router.capacity.updated", "router.health.updated", "telemetry.reconciled",
+        "telemetry.snapshot",
+        "vpn.session.connected",
+        "vpn.session.updated",
+        "vpn.session.disconnected",
+        "vpn.interface.counters",
+        "telemetry.counter_reset",
+        "router.capacity.updated",
+        "router.health.updated",
+        "telemetry.reconciled",
     }
 )
 HEALTH_STATES = frozenset({"healthy", "connecting", "degraded"})
@@ -101,7 +124,11 @@ def validate_frame(event_name: str, frame: Any) -> tuple[int | None, str]:
     if event_name not in SUPPORTED_EVENTS or not SAFE_EVENT_NAME.fullmatch(event_name):
         raise ValueError("unsupported telemetry event")
     if not isinstance(frame, dict) or set(frame) != {
-        "protocol_version", "event", "sequence", "router_timestamp", "payload"
+        "protocol_version",
+        "event",
+        "sequence",
+        "router_timestamp",
+        "payload",
     }:
         raise ValueError("telemetry frame schema is invalid")
     if frame.get("protocol_version") != 1 or frame.get("event") != event_name:
@@ -120,8 +147,17 @@ def validate_frame(event_name: str, frame: Any) -> tuple[int | None, str]:
     elif event_name in {"vpn.session.connected", "vpn.session.updated", "vpn.session.disconnected"}:
         _validate_session(payload)
     elif event_name == "vpn.interface.counters":
-        if set(payload) - COUNTER_FIELDS:
+        if set(payload) - COUNTER_FIELDS or not REQUIRED_COUNTER_FIELDS.issubset(payload):
             raise ValueError("interface frame is outside the redacted field allowlist")
+        if (
+            not isinstance(payload["id"], str)
+            or not payload["id"]
+            or not isinstance(payload["name"], str)
+            or not payload["name"]
+        ):
+            raise ValueError("interface identity is invalid")
+        for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets"):
+            _non_negative_int(payload[field], field)
     elif event_name == "telemetry.counter_reset":
         if set(payload) - {"scope", "id", "name", "fields"}:
             raise ValueError("counter-reset frame is outside the redacted field allowlist")
@@ -205,7 +241,11 @@ class TelemetryStreamRecorder:
             self._last_sequence = sequence
 
     def report(
-        self, *, started_at: str, ended_at: str, duration: float,
+        self,
+        *,
+        started_at: str,
+        ended_at: str,
+        duration: float,
         connected_at_end: bool | None = None,
     ) -> dict[str, Any]:
         failed_gates = []
@@ -255,8 +295,12 @@ def _write_atomically(path: Path, report: dict[str, Any]) -> None:
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent,
-            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
         ) as stream:
             temporary = Path(stream.name)
             stream.write(json.dumps(report, sort_keys=True, indent=2) + "\n")
@@ -320,7 +364,7 @@ async def observe(origin: str, cookie: str, duration_seconds: float) -> dict[str
                     await websocket.send("3" + packet[1:])
                 elif packet.startswith("42/telemetry,"):
                     try:
-                        event = json.loads(packet[len("42/telemetry,"):])
+                        event = json.loads(packet[len("42/telemetry,") :])
                     except json.JSONDecodeError:
                         recorder.rejected_frames += 1
                         continue
@@ -364,7 +408,9 @@ async def observe(origin: str, cookie: str, duration_seconds: float) -> dict[str
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--canary-origin", required=True, help="HTTPS canary origin; production hosts are rejected")
-    parser.add_argument("--cookie-env", required=True, help="environment variable holding the short-lived Cookie header")
+    parser.add_argument(
+        "--cookie-env", required=True, help="environment variable holding the short-lived Cookie header"
+    )
     parser.add_argument("--duration-seconds", type=float, default=1800)
     parser.add_argument("--output", required=True, help="private local JSON report path")
     args = parser.parse_args(argv)
