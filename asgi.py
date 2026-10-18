@@ -542,6 +542,48 @@ class SocketIOLiveSendASGI:
             self._session_bindings.move_to_end(sid)
             return True
 
+    def _has_active_dashboard_session(self, session_id: str) -> bool:
+        """Require a live server-side session before allocating Engine.IO state.
+
+        Socket.IO namespace authorization still performs the full current-role
+        check. This early check only prevents anonymous or expired cookies from
+        consuming transport resources before that later authorization step.
+        """
+        if not session_id:
+            return False
+        server = getattr(self.http_adapter, "server", None)
+        runtime = getattr(server, "telemetry_runtime", None)
+        sessions = getattr(runtime, "sessions", None)
+        active_check = getattr(sessions, "is_active_nonblocking", None)
+        if callable(active_check):
+            try:
+                return active_check(session_id) is True
+            except Exception:  # noqa: BLE001 - unavailable session store fails closed
+                return False
+
+        lookup = getattr(sessions, "get", None)
+        if callable(lookup):
+            try:
+                return (
+                    lookup(
+                        session_id,
+                        touch=False,
+                        wait_for_role_check_lock=False,
+                    )
+                    is not None
+                )
+            except Exception:  # noqa: BLE001 - unavailable session store fails closed
+                return False
+
+        cached_lookup = getattr(runtime, "cached_principal_for_session", None)
+        if not callable(cached_lookup):
+            return False
+        try:
+            _authoritative, principal = cached_lookup(session_id)
+            return getattr(principal, "authenticated", False) is True
+        except Exception:  # noqa: BLE001 - unavailable session resolver fails closed
+            return False
+
     def _bind_engine_sid(self, sid: str, session_id: str) -> bool:
         if not sid or len(sid) > 256 or not session_id:
             return False
@@ -660,6 +702,13 @@ class SocketIOLiveSendASGI:
             engine_sid is None
             or not self._session_matches_engine_sid(engine_sid, session_id)
         )):
+            if scope_type == "websocket":
+                await self._reject_websocket(send)
+            else:
+                await self._reject_http(send)
+            return
+
+        if not self._has_active_dashboard_session(session_id):
             if scope_type == "websocket":
                 await self._reject_websocket(send)
             else:

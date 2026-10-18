@@ -223,6 +223,20 @@ revoked is cleaned up on its next request:
 `SocketIOPollingBridgeTests.test_unauthenticated_sid_probe_cannot_close_another_session_stream`,
 and `SocketIOPollingBridgeTests.test_post_closes_owners_stream_after_session_loses_stream_capability`.
 
+The ASGI wrapper also validates that the initial Engine.IO handshake carries a
+currently active server-side dashboard session before dispatching it to
+Engine.IO. Missing, unknown, expired, or revoked sessions fail closed (HTTP
+403 for polling; WebSocket policy close); the nonblocking store-lock probe
+fails closed under contention and does not refresh the session's idle deadline.
+Authenticated namespace connection still performs the current RouterOS-role
+and capability checks. Regressions in
+`test_socketio_requires_active_session_before_engineio_handshake`,
+`test_native_websocket_revalidates_routeros_role_change_and_account_disable`,
+and `test_socketio_polling_send_gate_withholds_queued_frame_after_revocation`
+cover missing and unknown cookies, revoked-session reconnect, and an active
+session reaching the transport. This limits unauthenticated transport
+allocation; it is not a rate-limit or public-edge denial-of-service guarantee.
+
 Run focused evidence locally:
 
 ```powershell

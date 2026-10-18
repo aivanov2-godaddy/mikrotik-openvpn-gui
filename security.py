@@ -344,6 +344,23 @@ class SessionStore:
         finally:
             check_lock.release()
 
+    def is_active_nonblocking(self, session_id: str) -> bool:
+        """Check session presence and expiry without waiting on the store lock.
+
+        This is intended for event-loop admission paths: lock contention fails
+        closed instead of stalling the ASGI loop, and the idle deadline is not
+        refreshed by the check.
+        """
+        if not session_id or not self._lock.acquire(blocking=False):
+            return False
+        try:
+            session = self._sessions.get(session_id)
+            if session is None or session_id in self._invalidating:
+                return False
+            return not self._is_expired(session, time.time(), time.monotonic())
+        finally:
+            self._lock.release()
+
     def cached_role_session(
         self,
         session_id: str,
