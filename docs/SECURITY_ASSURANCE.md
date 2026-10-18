@@ -315,6 +315,27 @@ Cloudflare Access, host-memory, or deployed-log checks were performed in this
 run. The external items below therefore remain **NOT VERIFIED**; this update
 does not claim production acceptance or close issue #200.
 
+### Post-merge revalidation — PR #761 — 2026-10-18
+
+PR [#761](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/761)
+merged as `e8af615c42145b9b6a1ea44bee9b217ffc5dc4be`. The ASGI Engine.IO
+boundary now requires an active server-side dashboard session before creating
+polling or WebSocket transport state. The check fails closed for missing,
+unknown, expired, revoked, or lock-contended sessions; it does not update the
+session idle deadline. Existing role/capability enforcement remains in place.
+Regression coverage is in `tests/test_asgi_contract.py` and
+`tests/test_security.py`. All required PR checks passed. Publisher run
+[#39168925504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39168925504)
+published the immutable ARM64/AMD64 images and verified their runtime smoke,
+attestations, SBOMs, and stable-manifest read-back; their digests are recorded
+in [`RELEASES.md`](RELEASES.md).
+
+This is repository and publication evidence only. The image has not been
+verified on the RouterOS canary, and no live proxy/session acceptance is
+claimed. Physical RouterOS permissions and credential-memory exposure, the
+formal credential-memory risk decision, and independent external ASVS review
+remain open under issue #200.
+
 ### Post-merge revalidation — PR #755 — 2026-10-15
 
 PR [#755](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/755)

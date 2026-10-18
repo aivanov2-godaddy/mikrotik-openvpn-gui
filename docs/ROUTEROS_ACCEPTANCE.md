@@ -14,21 +14,21 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#755, commit `f16fe17cc2251939bcdfc10eeb26e8c0be85e9c1`, published by
-[workflow run #38819845718](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38819845718).
+#761, commit `e8af615c42145b9b6a1ea44bee9b217ffc5dc4be`, published by
+[workflow run #39168925504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39168925504).
 Its ARM64 registry digest is
-`sha256:1ad03a1f383c6e25ce29548413c8b98f3938a202590934210d16ff628efb893e`
+`sha256:0d58f3b2c24281d82064b9d95da9d31bb56073c0daa0f116bd7c3e2d8b90d32b`
 and its AMD64 registry digest is
-`sha256:4437eec31d67c781641bb9eea2cdb2c823a35eace245be8e6cf03e5368ef8c18`.
+`sha256:e949bfa43ed1f0ac989cc3a32da95da26a19e5b028fe14761fbca061c4cc305c`.
 Both architectures passed published-runtime smoke tests, detached
 provenance/SBOM attestation verification, and stable-manifest publication and
-read-back. PR #755 stops live telemetry delivery after its source dashboard
-session expires or is revoked; the candidate also includes the session-expiry,
-origin-validation, session-preservation, upstream-error-redaction, and
-device-posture hardening described in the release history. These are
-publication/CI results only. The deployment checkpoint below is historical
-evidence for the previous PR #745 candidate, not PR #755. The new candidate
-must be deployed and tested in its own controlled acceptance window.
+read-back. PR #761 rejects Engine.IO transport setup without an active dashboard
+session before allocating transport state and without refreshing the idle
+deadline; prior session-expiry, origin-validation, session-preservation,
+upstream-error-redaction, and device-posture controls remain in the candidate.
+These are publication/CI results only. The deployment checkpoint below is
+historical evidence for the previous PR #745 candidate, not PR #761. The new
+candidate must be deployed and tested in its own controlled acceptance window.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -56,23 +56,24 @@ live traffic were not measured. SQLite restore and canary rollback were not
 rehearsed in this checkpoint.
 
 **Result: deployment/startup check passed for the historical PR #745 candidate;
-acceptance remains incomplete. Do not carry that result forward to PR #755 or
-promote a candidate to production on the strength of this checkpoint.** The
+acceptance remains incomplete. Do not carry that result forward to later
+candidates, including PR #761, or promote a candidate to production on the
+strength of this checkpoint.** The
 controlled, candidate-matched acceptance window below must still collect its
 required samples and recovery evidence. Keep exact router
 addresses, credentials, session details, and raw logs in private
 operator-controlled records.
 
-## Current candidate status — PR #755
+## Current candidate status — PR #761
 
-The PR #755 image is published, but its RouterOS canary deployment and
+The PR #761 image is published, but its RouterOS canary deployment and
 candidate-specific acceptance have not been verified. The connected test
 client must be observed against this exact image during the controlled window;
 prior PR #745 deployment and health observations cannot be carried forward.
 Keep production on its current image and do not promote until the complete
 pre-promotion report passes and the rollback exercise has been verified.
 
-For each new acceptance run, read back PR #755's exact configured immutable tag
+For each new acceptance run, read back PR #761's exact configured immutable tag
 and health on the canary, then run the pre-promotion collector for that
 candidate. Do not promote until the report passes and rollback has been
 rehearsed. No resource minimum or cross-model/version certification is
@@ -80,7 +81,7 @@ inferred. See the
 [current release record](RELEASES.md#published-images).
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
-remain historical and do not prove PR #755's canary readiness or rollback.
+remain historical and do not prove PR #761's canary readiness or rollback.
 See the [installation compatibility
 matrix](INSTALLATION.md#compatibility-and-support-matrix) and [historical release record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05).
 
