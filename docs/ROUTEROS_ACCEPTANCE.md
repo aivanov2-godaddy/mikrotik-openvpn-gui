@@ -26,9 +26,10 @@ read-back. PR #761 rejects Engine.IO transport setup without an active dashboard
 session before allocating transport state and without refreshing the idle
 deadline; prior session-expiry, origin-validation, session-preservation,
 upstream-error-redaction, and device-posture controls remain in the candidate.
-These are publication/CI results only. The deployment checkpoint below is
-historical evidence for the previous PR #745 candidate, not PR #761. The new
-candidate must be deployed and tested in its own controlled acceptance window.
+These are publication/CI results only. The previous deployment checkpoint
+below is historical evidence for PR #745, not PR #761. PR #761's separate
+point-in-time canary staging status is recorded below; its controlled
+candidate-specific acceptance window is still required.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -66,18 +67,21 @@ operator-controlled records.
 
 ## Current candidate status — PR #761
 
-The PR #761 image is published, but its RouterOS canary deployment and
-candidate-specific acceptance have not been verified. The connected test
-client must be observed against this exact image during the controlled window;
-prior PR #745 deployment and health observations cannot be carried forward.
-Keep production on its current image and do not promote until the complete
+The PR #761 image is published and its exact ARM64 immutable tag was read back
+from the isolated canary on 2026-10-19; RouterOS reported the container healthy
+after start. Production remained on its prior image. This point-in-time
+startup check is not candidate acceptance: the 30-minute window, authenticated
+application readiness, connected test-client events, freshness, reconnect,
+recovery, resource soak, and rollback remain unverified. Prior PR #745
+observations cannot be carried forward. Do not promote until the complete
 pre-promotion report passes and the rollback exercise has been verified.
 
-For each new acceptance run, read back PR #761's exact configured immutable tag
+For the next acceptance run, recheck PR #761's exact configured immutable tag
 and health on the canary, then run the pre-promotion collector for that
-candidate. Do not promote until the report passes and rollback has been
-rehearsed. No resource minimum or cross-model/version certification is
-inferred. See the
+candidate. Do not treat the existing point-in-time status as the required
+30-minute readiness window. Do not promote until the report passes and rollback
+has been rehearsed. No resource minimum or cross-model/version certification
+is inferred. See the
 [current release record](RELEASES.md#published-images).
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
