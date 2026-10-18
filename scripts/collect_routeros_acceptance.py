@@ -392,9 +392,14 @@ def collect(
         failed.append("router_memory_threshold_exceeded")
     if max(storage_values, default=math.inf) > MAX_STORAGE_PERCENT:
         failed.append("router_storage_threshold_exceeded")
+    # A quiet or empty router window cannot prove that the disposable VPN
+    # client's session was observed. Disconnect/reconnect tests are allowed;
+    # require at least one active session at some point, not throughout.
+    if max(session_values, default=0) < 1:
+        failed.append("vpn_test_session_not_observed")
 
     return {
-        "format": "vpn-dashboard-routeros-acceptance-v2",
+        "format": "vpn-dashboard-routeros-acceptance-v3",
         "collected_at": ended.isoformat(),
         "observation_started_at": started.isoformat(),
         "observation_ended_at": ended.isoformat(),
@@ -489,7 +494,7 @@ def main() -> int:
     except (OSError, ValueError, RouterOSBinaryError) as error:
         # Exception text can contain private endpoints or RouterOS response data.
         failure_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "format": "vpn-dashboard-routeros-acceptance-v3",
             "collected": False,
             "collected_at": _utc_now().isoformat(),
             "passed": False,

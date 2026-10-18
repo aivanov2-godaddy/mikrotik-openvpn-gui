@@ -443,7 +443,7 @@ class TelemetryInterfaceSampler:
     def __init__(
         self,
         connection_factory: Callable[[], TelemetryConnection],
-        credentials_provider: Callable[[], tuple[str, str]],
+        credentials_provider: Callable[[], tuple[str, str] | TelemetryCredentialLease],
         broker: TelemetryBroker,
         *,
         interval: float = 5.0,
@@ -453,6 +453,8 @@ class TelemetryInterfaceSampler:
         on_sample: Callable[[], None] | None = None,
         on_events: Callable[[list[TelemetryEvent]], None] | None = None,
         authorization_check: Callable[[str, str], bool] | None = None,
+        authorization_ref_check: Callable[[str], bool] | None = None,
+        authorization_ref_dispatch: Callable[[str, Callable[[], None]], bool] | None = None,
     ) -> None:
         if interval <= 0:
             raise ValueError("interval must be positive")
@@ -466,6 +468,8 @@ class TelemetryInterfaceSampler:
         self._on_sample = on_sample
         self._on_events = on_events
         self._authorization_check = authorization_check
+        self._authorization_ref_check = authorization_ref_check
+        self._authorization_ref_dispatch = authorization_ref_dispatch
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -475,22 +479,60 @@ class TelemetryInterfaceSampler:
 
         connection = self._connection_factory()
         try:
-            username, password = self._credentials_provider()
-            credentials = (username, password)
-            connection.connect(username, password)
-            _require_authorized(self._authorization_check, credentials)
+            provided = self._credentials_provider()
+            if isinstance(provided, TelemetryCredentialLease):
+                username = provided.username
+                authorization_ref = provided.authorization_ref
+                try:
+                    connection.connect(username, provided.password)
+                finally:
+                    provided.password = ""
+                credentials = None
+            else:
+                username, password = provided
+                credentials = (username, password)
+                authorization_ref = None
+                connection.connect(username, password)
+
+            if authorization_ref is not None:
+                _require_authorization_ref(
+                    self._authorization_ref_check, authorization_ref
+                )
+            else:
+                _require_authorized(self._authorization_check, credentials)
             records = read_interface_counters(connection)
-            _require_authorized(self._authorization_check, credentials)
-            events = self._broker.reconcile_interfaces(records, now=int(self._clock()))
-            # Freshness describes a successful RouterOS observation, not only
-            # a counter delta. Quiet interfaces still need to advance the
-            # sample timestamp even though there is nothing to publish.
-            if self._on_sample is not None:
+            if authorization_ref is not None:
+                _require_authorization_ref(
+                    self._authorization_ref_check, authorization_ref
+                )
+            else:
                 _require_authorized(self._authorization_check, credentials)
-                self._on_sample()
-            if self._on_events is not None:
+
+            events: list[TelemetryEvent] = []
+
+            def dispatch() -> None:
+                nonlocal events
+                events = self._broker.reconcile_interfaces(
+                    records, now=int(self._clock())
+                )
+                # Freshness describes a successful RouterOS observation, not
+                # only a counter delta. Quiet polls still advance freshness.
+                if self._on_sample is not None:
+                    self._on_sample()
+                if self._on_events is not None:
+                    self._on_events(list(events))
+
+            if authorization_ref is not None:
+                if self._authorization_ref_dispatch is None or not self._authorization_ref_dispatch(
+                    authorization_ref, dispatch
+                ):
+                    raise TelemetrySupervisorError("credentials_unavailable")
+            else:
+                # Legacy tuple providers have no opaque session reference to
+                # serialize with revocation, so retain the final best-effort
+                # check immediately before dispatch.
                 _require_authorized(self._authorization_check, credentials)
-                self._on_events(list(events))
+                dispatch()
             return events
         finally:
             close = getattr(connection, "close", None)

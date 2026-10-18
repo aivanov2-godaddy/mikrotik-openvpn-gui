@@ -543,13 +543,16 @@ def evaluate(
                 sample_count = _count(raw_routeros_evidence, "sample_count")
                 rest_parity_successful = _count(raw_routeros_evidence, "rest_parity_successful_sample_count")
                 rest_parity_failed = _count(raw_routeros_evidence, "rest_parity_failed_sample_count")
+                active_sessions_min = _count(raw_routeros_evidence, "active_vpn_sessions_min")
+                active_sessions_max = _count(raw_routeros_evidence, "active_vpn_sessions_max")
                 max_gap = _number(raw_routeros_evidence, "max_sample_gap_seconds")
                 resource_values = raw_routeros_evidence.get("resource_peaks")
                 if (
-                    raw_routeros_evidence.get("format") != "vpn-dashboard-routeros-acceptance-v2"
+                    raw_routeros_evidence.get("format") != "vpn-dashboard-routeros-acceptance-v3"
                     or raw_routeros_evidence.get("container_revisions_matched") is not True
                     or rest_parity_successful != sample_count
                     or rest_parity_failed != 0
+                    or active_sessions_max < active_sessions_min
                     or sample_count < MIN_HEALTH_SAMPLES
                     or max_gap > 120
                     or (routeros_ended - routeros_started).total_seconds() < MIN_SOAK_SECONDS
@@ -571,13 +574,17 @@ def evaluate(
                     for name, expected_value in resource_numbers.items():
                         if deployment[name] != expected_value:
                             raise ValueError("RouterOS resource values do not match deployment evidence")
+                if active_sessions_max < 1:
+                    failures.append("vpn_test_session_not_observed")
                 routeros_resource_evidence = {
-                    "format": "vpn-dashboard-routeros-acceptance-v2",
+                    "format": "vpn-dashboard-routeros-acceptance-v3",
                     "observation_started_at": routeros_started.isoformat(),
                     "observation_ended_at": routeros_ended.isoformat(),
                     "sample_count": sample_count,
                     "rest_parity_successful_sample_count": rest_parity_successful,
                     "rest_parity_failed_sample_count": rest_parity_failed,
+                    "active_vpn_sessions_min": active_sessions_min,
+                    "active_vpn_sessions_max": active_sessions_max,
                     "max_sample_gap_seconds": max_gap,
                     "resource_peaks": resource_numbers,
                     "container_revisions_matched": True,

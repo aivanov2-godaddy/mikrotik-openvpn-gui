@@ -14,6 +14,7 @@ from scripts.collect_release_acceptance import (
     _read_certificate_lifecycle_report,
     apply_stream_acceptance,
     collect,
+    finalize_release_acceptance,
 )
 from scripts.sqlite_restore_verifier import verify_sqlite_restore
 from store import MetadataStore
@@ -124,6 +125,24 @@ class FakeTime:
 
 
 class ReleaseCollectionTests(unittest.TestCase):
+    def test_final_gate_catches_failed_rollback_even_when_collection_passed(self) -> None:
+        code, summary, _seen = self.run_collection()
+        self.assertEqual(code, 0)
+        self.assertTrue(summary["passed"])
+        summary["evidence"]["deployments"][0]["rollback_drill_passed"] = False
+        collection_end = datetime.fromisoformat(
+            summary["evidence"]["collection"]["ended_at"].replace("Z", "+00:00")
+        )
+
+        code, summary = finalize_release_acceptance(
+            summary, phase="postpromotion", now=collection_end + timedelta(seconds=1)
+        )
+
+        self.assertEqual(code, 1)
+        self.assertFalse(summary["passed"])
+        self.assertIn("canary_rollback_drill_failed", summary["failed_gates"])
+        self.assertFalse(summary["release_acceptance"]["passed"])
+
     def test_routeros_resource_evidence_joins_only_matching_healthy_revisions(self) -> None:
         from scripts.collect_release_acceptance import attach_routeros_resource_evidence
 
@@ -139,7 +158,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "format": "vpn-dashboard-routeros-acceptance-v3",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -151,6 +170,8 @@ class ReleaseCollectionTests(unittest.TestCase):
             "failed_sample_count": 0,
             "rest_parity_successful_sample_count": 31,
             "rest_parity_failed_sample_count": 0,
+            "active_vpn_sessions_min": 0,
+            "active_vpn_sessions_max": 1,
             "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
             "max_sample_gap_seconds": 60,
             "router_cpu_peak_percent": 24,
@@ -187,7 +208,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v2",
+            "format": "vpn-dashboard-routeros-acceptance-v3",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -199,6 +220,8 @@ class ReleaseCollectionTests(unittest.TestCase):
             "failed_sample_count": 0,
             "rest_parity_successful_sample_count": 30,
             "rest_parity_failed_sample_count": 0,
+            "active_vpn_sessions_min": 0,
+            "active_vpn_sessions_max": 1,
             "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
             "max_sample_gap_seconds": 60,
             "router_cpu_peak_percent": 24,
@@ -1282,7 +1305,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 from scripts.collect_release_acceptance import attach_routeros_resource_evidence
 
                 routeros_report = {
-                    "format": "vpn-dashboard-routeros-acceptance-v2",
+                    "format": "vpn-dashboard-routeros-acceptance-v3",
                     "passed": True,
                     "failed_gates": [],
                     "credentials_or_raw_router_data_written": False,
@@ -1294,6 +1317,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "failed_sample_count": 0,
                     "rest_parity_successful_sample_count": 31,
                     "rest_parity_failed_sample_count": 0,
+                    "active_vpn_sessions_min": 0,
+                    "active_vpn_sessions_max": 1,
                     "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
                     "max_sample_gap_seconds": 60,
                     "router_cpu_peak_percent": 20,

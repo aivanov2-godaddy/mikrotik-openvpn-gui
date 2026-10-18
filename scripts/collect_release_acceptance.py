@@ -126,6 +126,40 @@ def apply_stream_acceptance(
         "failed_gates": stream_failures,
     }
     return (0 if not failures else 1), summary
+
+
+def finalize_release_acceptance(
+    summary: dict[str, Any],
+    *,
+    phase: str,
+    now: datetime | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """Apply the central release evaluator as the final promotion gate.
+
+    Collection and stream/browser checks are intentionally separate stages;
+    neither stage alone is sufficient to mark a release accepted.
+    """
+    evidence = summary.get("evidence")
+    if not isinstance(evidence, dict):
+        raise ValueError("release evidence is missing")
+    acceptance_code, acceptance = validate_evidence(
+        evidence, phase=phase, now=now or _utc_now()
+    )
+    acceptance_failures = acceptance.get("failed_gates", [])
+    if not isinstance(acceptance_failures, list):
+        raise ValueError("release acceptance result is invalid")
+    failed_gates = set(summary.get("failed_gates", []))
+    failed_gates.update(gate for gate in acceptance_failures if isinstance(gate, str))
+    passed = summary.get("passed") is True and acceptance_code == 0 and not failed_gates
+    summary["passed"] = passed
+    summary["failed_gates"] = sorted(failed_gates)
+    summary["release_acceptance"] = {
+        "passed": acceptance.get("passed") is True and acceptance_code == 0,
+        "promotion_eligible": acceptance.get("promotion_eligible") is True and acceptance_code == 0,
+        "production_accepted": acceptance.get("production_accepted") is True and acceptance_code == 0,
+        "failed_gates": sorted(gate for gate in acceptance_failures if isinstance(gate, str)),
+    }
+    return (0 if passed else 1), summary
 REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_redis_configured",
     "vpn_dashboard_redis_last_observed_available",
@@ -230,7 +264,7 @@ def _evidence_timestamp(value: Any, name: str) -> datetime:
 
 def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -> None:
     """Join a redacted RouterOS sample window to matching app-soak evidence."""
-    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v2":
+    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v3":
         raise ValueError("RouterOS evidence format is invalid")
     if routeros.get("passed") is not True or routeros.get("failed_gates") != []:
         raise ValueError("RouterOS evidence did not pass its acceptance gates")
@@ -242,12 +276,17 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
     failed_count = routeros.get("failed_sample_count")
     rest_successful_count = routeros.get("rest_parity_successful_sample_count")
     rest_failed_count = routeros.get("rest_parity_failed_sample_count")
+    active_sessions_min = routeros.get("active_vpn_sessions_min")
+    active_sessions_max = routeros.get("active_vpn_sessions_max")
     if (
         isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count < 30
         or isinstance(successful_count, bool) or successful_count != sample_count
         or isinstance(failed_count, bool) or failed_count != 0
         or isinstance(rest_successful_count, bool) or rest_successful_count != sample_count
         or isinstance(rest_failed_count, bool) or rest_failed_count != 0
+        or isinstance(active_sessions_min, bool) or not isinstance(active_sessions_min, int) or active_sessions_min < 0
+        or isinstance(active_sessions_max, bool) or not isinstance(active_sessions_max, int)
+        or active_sessions_max < active_sessions_min
         or routeros.get("read_only_rest_paths") != ["/rest/system/resource", "/rest/container", "/rest/ppp/active"]
     ):
         raise ValueError("RouterOS evidence sample coverage is incomplete")
@@ -307,12 +346,14 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
         record.update(resources)
 
     collection["routeros_resource_evidence"] = {
-        "format": "vpn-dashboard-routeros-acceptance-v2",
+        "format": "vpn-dashboard-routeros-acceptance-v3",
         "observation_started_at": router_started.isoformat(),
         "observation_ended_at": router_ended.isoformat(),
         "sample_count": sample_count,
         "rest_parity_successful_sample_count": rest_successful_count,
         "rest_parity_failed_sample_count": rest_failed_count,
+        "active_vpn_sessions_min": active_sessions_min,
+        "active_vpn_sessions_max": active_sessions_max,
         "max_sample_gap_seconds": float(max_gap),
         "resource_peaks": resources,
         "container_revisions_matched": True,
@@ -1355,6 +1396,9 @@ def main() -> int:
             observer_report,
             browser_acceptance_projection(browser_report),
             now=_utc_now(),
+        )
+        code, summary = finalize_release_acceptance(
+            summary, phase=args.phase, now=_utc_now()
         )
         _write_json_atomically(Path(args.output), summary["evidence"])
         public_summary = {key: value for key, value in summary.items() if key != "evidence"}

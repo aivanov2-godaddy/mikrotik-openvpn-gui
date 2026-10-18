@@ -78,13 +78,14 @@ class TelemetryRuntime:
             )
             self.sampler = TelemetryInterfaceSampler(
                 self._connection,
-                self._credentials,
+                self._credential_lease,
                 self.broker,
                 interval=5.0,
                 stop_event=self._stop,
                 on_sample=self.state.mark_traffic_samples,
                 on_events=self._publish,
-                authorization_check=self._credentials_valid,
+                authorization_ref_check=self._authorization_ref_valid,
+                authorization_ref_dispatch=self._dispatch_authorized_events,
             )
 
     def start(self) -> None:
