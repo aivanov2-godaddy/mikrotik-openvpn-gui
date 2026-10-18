@@ -13,8 +13,9 @@ tags: `vMAJOR.MINOR.PATCH`.
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
 This public release record documents repository commits, published artifacts,
-and CI provenance only. RouterOS deployment state, live measurements, and
-operator/session details are kept in private operational records.
+CI provenance, and redacted deployment-gate status. Router identity, detailed
+RouterOS state, live measurements, and operator/session details remain in
+private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
@@ -101,9 +102,13 @@ publication/read-back. The stable manifest asset's digest is
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-arm64` | `sha256:0d58f3b2c24281d82064b9d95da9d31bb56073c0daa0f116bd7c3e2d8b90d32b` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-amd64` | `sha256:e949bfa43ed1f0ac989cc3a32da95da26a19e5b028fe14761fbca061c4cc305c` |
 
-These artifacts are published, not deployed to RouterOS. Live-session
-acceptance remains unverified; the formal version remains v2.7.0, and v2.8.0
-must not be tagged or published until candidate-specific canary gates pass.
+These artifacts are published. On 2026-10-19, the exact ARM64 immutable tag
+was read back from the isolated RouterOS canary and the container reported
+healthy after start; production remained on its prior image. This point-in-time
+startup observation is not live-session acceptance, a 30-minute readiness
+window, or a rollback rehearsal. Candidate-specific canary gates remain
+incomplete; the formal version remains v2.7.0, and v2.8.0 must not be tagged or
+published until those gates pass.
 
 ### Previously published mainline candidate — PR #759 — 2026-10-18
 

@@ -21,24 +21,27 @@ SBOM attestation verification, and stable-manifest read-back.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-arm64` | `sha256:0d58f3b2c24281d82064b9d95da9d31bb56073c0daa0f116bd7c3e2d8b90d32b` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-amd64` | `sha256:e949bfa43ed1f0ac989cc3a32da95da26a19e5b028fe14761fbca061c4cc305c` |
 
-These artifacts have **not** been verified as deployed to the RouterOS canary
-or production container. The readiness-only probe recorded below belongs to
-an earlier candidate and does not transfer to this image. A read-only status
-recheck on 2026-10-19 did not produce candidate-matched image read-back or
-live-session evidence; deployment-specific observations remain in private
-operator-controlled records.
+On 2026-10-19, RouterOS read-back confirmed the exact PR #761 ARM64 immutable
+tag on the isolated canary and reported the container healthy after start. The
+production container was left on its prior image. This is point-in-time
+deployment/startup evidence only: the 30-minute acceptance window, authenticated
+dashboard readiness, live-session delivery, and candidate-specific recovery
+checks have not passed. RouterOS read-back confirms the configured tag, not a
+local OCI digest; the registry digest above is bound to the tag by the verified
+publisher workflow. The readiness-only probe recorded below belongs to an
+earlier candidate and does not transfer to this image.
 
-These are public build and registry facts only. This file contains no RouterOS
-deployment assignments, hostnames, addresses, resource readings, logs, or VPN
-session observations. Deployment-specific acceptance evidence belongs in
-operator-controlled storage. The status below is a gate checklist, not a report
-of private measurements.
+Public deployment detail here is limited to the redacted canary-stage status
+above. This file contains no router identity, hostnames, addresses, resource
+readings, logs, or VPN session observations. Detailed deployment and acceptance
+evidence belongs in operator-controlled storage. The table below is a gate
+checklist, not a report of private measurements.
 
 ## Candidate acceptance gates
 
 | Gate | Required result | Public status |
 | --- | --- | --- |
-| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Not verified for `e8af615c`; no candidate-matched canary deployment or readiness window is recorded |
+| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Partial: exact ARM64 tag read-back and healthy status were observed after start on 2026-10-19; the 30-minute window and authenticated application readiness remain unverified |
 | Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `e8af615c`; no authenticated, candidate-matched live-session observation is recorded, so event latency and reconnect remain unmeasured |
 | Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not yet measured for `e8af615c` |
 | Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not yet measured for `e8af615c` |
