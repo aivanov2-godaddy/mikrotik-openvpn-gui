@@ -49,6 +49,20 @@ _SESSION_FIELDS = frozenset(
         "counter_complete",
     }
 )
+_INTERFACE_COUNTER_FIELDS = frozenset(
+    {
+        "id",
+        "name",
+        "rx_bytes",
+        "tx_bytes",
+        "rx_packets",
+        "tx_packets",
+        "rx_bytes_per_second",
+        "tx_bytes_per_second",
+        "rx_packets_per_second",
+        "tx_packets_per_second",
+    }
+)
 
 
 def redact_session(value: Any) -> dict[str, Any]:
@@ -89,11 +103,7 @@ class TelemetryPrincipal:
         if session is None:
             return cls(False)
         raw_capabilities = getattr(session, "capabilities", None)
-        capabilities = (
-            frozenset(str(item) for item in raw_capabilities)
-            if raw_capabilities is not None
-            else None
-        )
+        capabilities = frozenset(str(item) for item in raw_capabilities) if raw_capabilities is not None else None
         return cls(
             authenticated=True,
             auth_method=str(getattr(session, "auth_method", "")),
@@ -141,9 +151,7 @@ class TelemetryGatewayContract:
         self._broker = broker
         self._clock = clock
         self._monotonic_clock = monotonic_clock
-        self._events: deque[tuple[dict[str, Any], float]] = deque(
-            maxlen=max(1, int(max_replay))
-        )
+        self._events: deque[tuple[dict[str, Any], float]] = deque(maxlen=max(1, int(max_replay)))
         self._clients: dict[str, TelemetrySubscription] = {}
         self._max_clients = max(1, int(max_clients))
         self._delivery_queue_ages: deque[float] = deque(maxlen=512)
@@ -156,9 +164,7 @@ class TelemetryGatewayContract:
     @staticmethod
     def _authorize(principal: TelemetryPrincipal) -> None:
         if not principal.may_stream:
-            raise TelemetryAuthorizationError(
-                "an authenticated RouterOS session with sessions.read is required"
-            )
+            raise TelemetryAuthorizationError("an authenticated RouterOS session with sessions.read is required")
 
     @staticmethod
     def _redact_session(value: Any) -> dict[str, Any]:
@@ -170,24 +176,19 @@ class TelemetryGatewayContract:
             raise TelemetryGatewayError(f"unsupported telemetry event: {event.name}")
         payload = event.payload if isinstance(event.payload, dict) else {}
         if event.name == "telemetry.snapshot":
-            safe_payload = {
-                "sessions": [cls._redact_session(item) for item in payload.get("sessions", [])]
-            }
+            safe_payload = {"sessions": [cls._redact_session(item) for item in payload.get("sessions", [])]}
         elif event.name == "vpn.interface.counters":
+            interface_payload = payload.get("interface", payload)
+            if not isinstance(interface_payload, dict):
+                interface_payload = {}
             safe_payload = {
                 key: copy.deepcopy(value)
-                for key, value in payload.items()
-                if key in {
-                    "id", "name", "rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
-                    "rx_bytes_per_second", "tx_bytes_per_second",
-                    "rx_packets_per_second", "tx_packets_per_second",
-                }
+                for key, value in interface_payload.items()
+                if key in _INTERFACE_COUNTER_FIELDS
             }
         elif event.name == "telemetry.counter_reset":
             safe_payload = {
-                key: copy.deepcopy(value)
-                for key, value in payload.items()
-                if key in {"scope", "id", "name", "fields"}
+                key: copy.deepcopy(value) for key, value in payload.items() if key in {"scope", "id", "name", "fields"}
             }
         elif event.name in {"router.capacity.updated", "router.health.updated", "telemetry.reconciled"}:
             safe_payload = {
@@ -196,11 +197,7 @@ class TelemetryGatewayContract:
                 if key in {"cpu_percent", "memory_percent", "storage_percent", "status", "age_seconds"}
             }
         else:
-            safe_payload = {
-                key: copy.deepcopy(value)
-                for key, value in payload.items()
-                if key in _SESSION_FIELDS
-            }
+            safe_payload = {key: copy.deepcopy(value) for key, value in payload.items() if key in _SESSION_FIELDS}
         return {
             "protocol_version": PROTOCOL_VERSION,
             "event": event.name,
@@ -269,9 +266,10 @@ class TelemetryGatewayContract:
             # which may be ahead of this broker's current sequence. Treat
             # that as an epoch change and replace client state with a snapshot
             # instead of returning an empty replay forever.
-            if cursor < 0 or cursor > self._broker.sequence or (
-                queued_frames
-                and cursor < min(frame["sequence"] for frame in queued_frames) - 1
+            if (
+                cursor < 0
+                or cursor > self._broker.sequence
+                or (queued_frames and cursor < min(frame["sequence"] for frame in queued_frames) - 1)
             ):
                 result = [(self._snapshot_frame(), self._monotonic_clock())]
                 self._snapshot_recoveries += 1
@@ -283,17 +281,12 @@ class TelemetryGatewayContract:
                 # replay window) cannot silently advance a client past state
                 # it never received. Sorting also makes an out-of-order
                 # adapter publish recover deterministically.
-                available = sorted(
-                    {frame["sequence"] for frame, _published_at in result}
-                )
+                available = sorted({frame["sequence"] for frame, _published_at in result})
                 complete = (
                     len(available) == self._broker.sequence - cursor
                     and (not available or available[0] == cursor + 1)
                     and (not available or available[-1] == self._broker.sequence)
-                    and all(
-                        following == previous + 1
-                        for previous, following in zip(available, available[1:])
-                    )
+                    and all(following == previous + 1 for previous, following in zip(available, available[1:]))
                 )
                 if not complete:
                     result = [(self._snapshot_frame(), self._monotonic_clock())]
@@ -302,13 +295,10 @@ class TelemetryGatewayContract:
                     result.sort(key=lambda item: item[0]["sequence"])
                     self._replayed_events += len(result)
             if result:
-                subscription.last_seen_sequence = max(
-                    frame["sequence"] for frame, _published_at in result
-                )
+                subscription.last_seen_sequence = max(frame["sequence"] for frame, _published_at in result)
                 observed_at = self._monotonic_clock()
                 self._delivery_queue_ages.extend(
-                    max(0.0, observed_at - published_at)
-                    for _frame, published_at in result
+                    max(0.0, observed_at - published_at) for _frame, published_at in result
                 )
             return copy.deepcopy([frame for frame, _published_at in result])
 
@@ -326,9 +316,7 @@ class TelemetryGatewayContract:
                 "snapshot_recoveries": self._snapshot_recoveries,
                 "rejected_clients": self._rejected_clients,
                 "delivery_observations": len(self._delivery_queue_ages),
-                "delivery_queue_age_seconds": self._delivery_queue_ages[-1]
-                if self._delivery_queue_ages
-                else -1.0,
+                "delivery_queue_age_seconds": self._delivery_queue_ages[-1] if self._delivery_queue_ages else -1.0,
                 "delivery_queue_age_p95_seconds": ages[p95_index] if ages else -1.0,
             }
 

@@ -2,13 +2,15 @@ import types
 import unittest
 
 from routeros_binary import RouterOSReply
-from telemetry_broker import TelemetryBroker
+from telemetry_broker import TelemetryBroker, TelemetryEvent
 from telemetry_gateway import (
+    SUPPORTED_EVENTS,
     TelemetryAuthorizationError,
     TelemetryGatewayContract,
     TelemetryPrincipal,
     TelemetrySubscriptionError,
 )
+from scripts.telemetry_stream_observer import validate_frame
 
 
 class TelemetryGatewayContractTests(unittest.TestCase):
@@ -106,15 +108,9 @@ class TelemetryGatewayContractTests(unittest.TestCase):
 
     def test_missing_sequence_inside_replay_window_recovers_with_snapshot(self) -> None:
         subscription = self.gateway.open(self.principal)
-        first = self.broker.apply(
-            RouterOSReply("re", {".id": "*1", "name": "first"}), now=101
-        )
-        self.broker.apply(
-            RouterOSReply("re", {".id": "*2", "name": "second"}), now=102
-        )
-        third = self.broker.apply(
-            RouterOSReply("re", {".id": "*3", "name": "third"}), now=103
-        )
+        first = self.broker.apply(RouterOSReply("re", {".id": "*1", "name": "first"}), now=101)
+        self.broker.apply(RouterOSReply("re", {".id": "*2", "name": "second"}), now=102)
+        third = self.broker.apply(RouterOSReply("re", {".id": "*3", "name": "third"}), now=103)
         # Model a lost delivery batch while later batches still reach the
         # gateway; the retained buffer has an interior gap, not a stale head.
         self.gateway.publish([*first, *third])
@@ -138,12 +134,8 @@ class TelemetryGatewayContractTests(unittest.TestCase):
             max_replay=8,
         )
         subscription = gateway.open(self.principal)
-        first = self.broker.apply(
-            RouterOSReply("re", {".id": "*1", "name": "first"}), now=101
-        )
-        second = self.broker.apply(
-            RouterOSReply("re", {".id": "*2", "name": "second"}), now=102
-        )
+        first = self.broker.apply(RouterOSReply("re", {".id": "*1", "name": "first"}), now=101)
+        second = self.broker.apply(RouterOSReply("re", {".id": "*2", "name": "second"}), now=102)
         gateway.publish(second)
         gateway.publish(first)
 
@@ -152,6 +144,165 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         self.assertEqual([frame["sequence"] for frame in frames], [1, 2])
         self.assertEqual([frame["payload"]["name"] for frame in frames], ["first", "second"])
         self.assertEqual(gateway.metrics()["snapshot_recoveries"], 0)
+
+    def test_every_supported_event_uses_an_exact_redacted_projection(self) -> None:
+        secret_sentinel = "telemetry-secret-sentinel"
+        session_fields = {
+            "id": "*safe-id",
+            "name": "safe-user",
+            "vpn_address": "10.8.0.2",
+            "source_address": "203.0.113.2",
+            "uptime": "1m",
+            "encoding": "AES-256-GCM",
+            "service": "ovpn-in1",
+            "rx_bytes": 12,
+            "tx_bytes": 34,
+            "rx_packets": 5,
+            "tx_packets": 6,
+            "counter_complete": True,
+        }
+        session_payload = {
+            **session_fields,
+            "password": secret_sentinel,
+            "private_key": secret_sentinel,
+            "access_token": secret_sentinel,
+        }
+        counter_fields = {
+            "id": "*interface-id",
+            "name": "ovpn-in1",
+            "rx_bytes": 100,
+            "tx_bytes": 200,
+            "rx_packets": 10,
+            "tx_packets": 20,
+            "rx_bytes_per_second": 1.5,
+            "tx_bytes_per_second": 2.5,
+            "rx_packets_per_second": 3.5,
+            "tx_packets_per_second": 4.5,
+        }
+        router_fields = {
+            "cpu_percent": 10,
+            "memory_percent": 20,
+            "storage_percent": 30,
+            "status": "healthy",
+            "age_seconds": 0.5,
+        }
+        cases = {
+            "telemetry.snapshot": (
+                {"sessions": [session_payload], "password": secret_sentinel},
+                {"sessions"},
+            ),
+            "vpn.session.connected": (session_payload, set(session_fields)),
+            "vpn.session.updated": (session_payload, set(session_fields)),
+            "vpn.session.disconnected": (session_payload, set(session_fields)),
+            "vpn.interface.counters": (
+                {"interface": {**counter_fields, "private_key": secret_sentinel}, "token": secret_sentinel},
+                set(counter_fields),
+            ),
+            "telemetry.counter_reset": (
+                {
+                    "scope": "interface",
+                    "id": "*interface-id",
+                    "name": "ovpn-in1",
+                    "fields": ["rx_bytes"],
+                    "certificate": secret_sentinel,
+                },
+                {"scope", "id", "name", "fields"},
+            ),
+            "router.capacity.updated": ({**router_fields, "password": secret_sentinel}, set(router_fields)),
+            "router.health.updated": ({**router_fields, "private_key": secret_sentinel}, set(router_fields)),
+            "telemetry.reconciled": ({**router_fields, "access_token": secret_sentinel}, set(router_fields)),
+        }
+        self.assertEqual(set(cases), SUPPORTED_EVENTS)
+
+        for sequence, (event_name, (payload, expected_payload_keys)) in enumerate(cases.items(), start=1):
+            with self.subTest(event=event_name):
+                frame = TelemetryGatewayContract._frame(TelemetryEvent(event_name, sequence, 100, payload))
+                self.assertEqual(
+                    set(frame),
+                    {"protocol_version", "event", "sequence", "router_timestamp", "payload"},
+                )
+                self.assertEqual(set(frame["payload"]), expected_payload_keys)
+                self.assertEqual(validate_frame(event_name, frame), (sequence, event_name))
+                if event_name == "telemetry.snapshot":
+                    self.assertEqual(set(frame["payload"]["sessions"][0]), set(session_fields))
+                if event_name in {
+                    "vpn.session.connected",
+                    "vpn.session.updated",
+                    "vpn.session.disconnected",
+                }:
+                    self.assertEqual(set(frame["payload"]), set(session_fields))
+                if event_name == "vpn.interface.counters":
+                    self.assertEqual(frame["payload"], counter_fields)
+                self.assertNotIn(secret_sentinel, repr(frame))
+
+        flat_interface_frame = TelemetryGatewayContract._frame(
+            TelemetryEvent(
+                "vpn.interface.counters",
+                10,
+                100,
+                {**counter_fields, "password": secret_sentinel},
+            )
+        )
+        self.assertEqual(flat_interface_frame["payload"], counter_fields)
+        self.assertNotIn(secret_sentinel, repr(flat_interface_frame))
+        self.assertEqual(
+            validate_frame("vpn.interface.counters", flat_interface_frame),
+            (10, "vpn.interface.counters"),
+        )
+
+        broker_event = self.broker.reconcile_interfaces(
+            [{".id": "*broker-interface", "name": "ovpn-in1", "rx-byte": 100, "tx-byte": 200}],
+            now=101,
+        )[0]
+        broker_frame = TelemetryGatewayContract._frame(broker_event)
+        self.assertEqual(
+            broker_frame["payload"],
+            {
+                "id": "*broker-interface",
+                "name": "ovpn-in1",
+                "rx_bytes": 100,
+                "tx_bytes": 200,
+                "rx_packets": 0,
+                "tx_packets": 0,
+            },
+        )
+        self.assertEqual(
+            validate_frame(broker_event.name, broker_frame),
+            (broker_event.sequence, broker_event.name),
+        )
+        broker_rate_event = self.broker.reconcile_interfaces(
+            [
+                {
+                    ".id": "*broker-interface",
+                    "name": "ovpn-in1",
+                    "rx-byte": 300,
+                    "tx-byte": 240,
+                    "rx-packet": 10,
+                    "tx-packet": 20,
+                }
+            ],
+            now=103,
+        )[0]
+        broker_rate_frame = TelemetryGatewayContract._frame(broker_rate_event)
+        self.assertEqual(
+            broker_rate_frame["payload"],
+            {
+                "id": "*broker-interface",
+                "name": "ovpn-in1",
+                "rx_bytes": 300,
+                "tx_bytes": 240,
+                "rx_packets": 10,
+                "tx_packets": 20,
+                "rx_bytes_per_second": 100.0,
+                "tx_bytes_per_second": 20.0,
+                "rx_packets_per_second": 5.0,
+                "tx_packets_per_second": 10.0,
+            },
+        )
+        self.assertEqual(
+            validate_frame(broker_rate_event.name, broker_rate_frame),
+            (broker_rate_event.sequence, broker_rate_event.name),
+        )
 
     def test_counter_reset_frames_are_supported_and_redacted(self) -> None:
         subscription = self.gateway.open(self.principal)
