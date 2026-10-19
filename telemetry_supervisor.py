@@ -436,8 +436,11 @@ class TelemetryInterfaceSampler:
 
     RouterOS allows one long-lived ``listen`` sentence per connection.  The
     sampler therefore uses a separate connection factory instead of issuing a
-    competing request on the active-session stream.  It is an opt-in canary
-    primitive and has no mutation methods or production wiring.
+    competing request on the active-session stream.  TelemetryRuntime
+    constructs it when binary or auto transport is enabled and starts its
+    sampling worker with the session supervisor.  This code-level wiring does
+    not establish that a particular deployment enables either mode.  It issues
+    read-only requests and has no RouterOS mutation methods.
     """
 
     def __init__(

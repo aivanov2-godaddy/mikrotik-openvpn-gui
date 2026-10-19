@@ -8,6 +8,40 @@ from telemetry_runtime import TelemetryRuntime
 
 
 class TelemetryRuntimeFreshnessTests(unittest.TestCase):
+    def test_interface_sampler_worker_is_gated_by_requested_transport(self) -> None:
+        def runtime_for(transport: str) -> TelemetryRuntime:
+            return TelemetryRuntime(
+                sessions=SessionStore(),
+                rest_url="https://127.0.0.1",
+                ca_file=None,
+                insecure_tls=False,
+                api_ssl_port=8729,
+                requested_transport=transport,
+            )
+
+        for transport in ("binary", "auto"):
+            with self.subTest(transport=transport):
+                runtime = runtime_for(transport)
+                self.assertIsNotNone(runtime.sampler)
+                with patch("telemetry_runtime.threading.Thread") as make_thread:
+                    runtime.start()
+
+                worker_names = {call.kwargs["name"] for call in make_thread.call_args_list}
+                worker_targets = {
+                    call.kwargs["target"].__name__ for call in make_thread.call_args_list
+                }
+                self.assertEqual(
+                    worker_names,
+                    {"vpn-dashboard-binary", "vpn-dashboard-interface-sampler"},
+                )
+                self.assertIn("_run_sampler", worker_targets)
+
+        fallback = runtime_for("sse")
+        self.assertIsNone(fallback.sampler)
+        with patch("telemetry_runtime.threading.Thread") as make_thread:
+            fallback.start()
+        make_thread.assert_not_called()
+
     def test_live_stream_role_downgrade_is_applied_at_15_second_cache_deadline(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         sessions = SessionStore()

@@ -545,11 +545,16 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
 
 ## Explicitly unverified live-router / deployment evidence
 
-This public document contains no live-router, proxy, or operator-session
-observations. Repository tests establish only the behaviors they exercise; they
-do not verify the deployed access-control policy, reverse-proxy routing, TLS
-termination, live session state, or RouterOS permissions. Keep any such
-deployment evidence in operator-controlled storage.
+The post-merge canary entry above records limited, point-in-time deployment and
+readiness observations, including candidate health/tag readback and an
+authenticated dashboard/session-state readback. These historical observations
+are not controlled security or operational acceptance tests and do not close
+issue #200. That entry omits client identifiers, addresses, credentials, and
+raw telemetry. Repository tests establish only the behaviors they exercise;
+neither those tests nor the limited canary observations verify the deployed
+access-control policy, reverse-proxy routing, TLS termination, full live
+session lifecycle, or RouterOS permissions. Keep detailed deployment evidence
+in operator-controlled storage.
 
 The following remain **NOT VERIFIED** and require an authorized controlled
 test window:
