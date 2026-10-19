@@ -32,6 +32,14 @@ reassessed if the app becomes multi-instance, adds non-RouterOS operator
 accounts, or if measured operator workflows show that the current window is
 inadequate.
 
+NIST SP 800-63B Section 5.2 describes overall and inactivity timeouts, requires a
+session to end when either timeout expires, and says timeout choices depend on
+the authentication assurance level and deployment context. This project has
+not assigned a NIST Authentication Assurance Level to RouterOS-backed
+dashboard sessions and does not claim NIST conformance; the 30-minute and
+8-hour values above are this product's documented risk decision, not a NIST
+prescription. See the [current NIST SP 800-63B session guidance](https://pages.nist.gov/800-63-4/sp800-63b.html).
+
 Deterministic coverage is in
 `tests/test_security.py::test_session_idle_and_absolute_expiry`,
 `tests/test_security.py::test_session_timeouts_use_monotonic_time_when_wall_clock_moves_backward`,

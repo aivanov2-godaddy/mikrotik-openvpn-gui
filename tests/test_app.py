@@ -2297,6 +2297,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         verify.assert_not_called()
         certificates.assert_not_called()
 
+    def test_login_rate_limit_uses_resolved_client_ip(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "wrong-password"}).encode()
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": self.config.public_origin,
+        }
+
+        for attempt in range(5):
+            with self.subTest(attempt=attempt + 1):
+                status, _, _ = self.request("POST", "/login", body=body, headers=headers)
+                self.assertEqual(status, 401)
+
+        self.assertEqual(set(self.server.context.limiter._attempts), {"127.0.0.1"})
+        status, _, payload = self.request("POST", "/login", body=body, headers=headers)
+        self.assertEqual(status, 429, payload.decode())
+
     def test_login_health_and_authentication_boundaries(self) -> None:
         status, headers, payload = self.request("GET", "/healthz")
         self.assertEqual(status, 200)
