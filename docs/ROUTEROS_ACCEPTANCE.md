@@ -14,19 +14,21 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#767, commit `19f7ca90915871d5cfa9e68f356f62dadc90ddf8`, published by
-[workflow run #39194800313](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39194800313).
+#772, commit `624bfbf032396b3b2b21cab1a659985b6d580f79`, published by
+[workflow run #39242524446](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39242524446).
 Its ARM64 registry digest is
-`sha256:dd78656ff241eb090cba52c3825a5421b902983a139b9f91403f82f2109586d5`.
+`sha256:b341f063e405283ea1647670073665375aa3213300afd3b2b4076e7039377fbd`;
+the AMD64 digest is
+`sha256:2cf79dfecf4231f8b33c9e675d64982adc392197ab428dbccde803d2e7bd1721`.
 The ARM64 and AMD64 images passed published-runtime smoke tests, detached
 provenance/SBOM attestation verification, and stable-manifest publication and
-read-back. PR #767 changes static asset cache identity; the candidate retains
-the active-session Engine.IO authorization and other controls from earlier
-merged work. These publication/CI results do not replace hardware acceptance.
-The PR #761 and PR #745 checkpoints below are historical evidence for their
-respective candidates, not PR #767. PR #767's point-in-time canary staging
-status is recorded after those checkpoints; its controlled candidate-specific
-acceptance window is still required.
+read-back. PR #772 disables process core dumps by default before app/server
+startup. These publication/CI results do not establish the RouterOS host's
+core-dump collector policy or replace hardware acceptance. The PR #761, #767,
+and #745 checkpoints below are historical evidence for their respective
+candidates. On 2026-10-19, the canary still reported the PR #767 tag and zero
+active sessions; PR #772 has not been staged, so its candidate-specific
+acceptance window has not started.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -66,9 +68,9 @@ operator-controlled records.
 
 The PR #761 candidate is a prior published image; its exact tag and point-in-
 time health check were recorded on 2026-10-19. That startup check is not
-acceptance and is superseded as the current candidate by PR #767 below.
+acceptance and is superseded as a published candidate by PR #767 and #772 below.
 
-## Current candidate status — PR #767
+## Previous candidate status — PR #767
 
 The PR #767 image is published. On 2026-10-19, RouterOS read-back confirmed the
 exact ARM64 immutable tag
@@ -91,10 +93,34 @@ cross-model/version certification is inferred. See the
 [current release record](RELEASES.md#published-images) and
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-For the next acceptance run, recheck the candidate's exact configured immutable
-tag and health on the canary, then run the pre-promotion collector. Do not treat
-the existing point-in-time status as the required 30-minute readiness window.
-Do not promote until the report passes and rollback has been rehearsed.
+## Latest candidate status — PR #772 (published, not staged)
+
+PR #772 merged as
+`624bfbf032396b3b2b21cab1a659985b6d580f79`. Its ARM64 immutable image is
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-624bfbf032396b3b2b21cab1a659985b6d580f79-arm64`
+with registry digest
+`sha256:b341f063e405283ea1647670073665375aa3213300afd3b2b4076e7039377fbd`.
+The AMD64 image digest is
+`sha256:2cf79dfecf4231f8b33c9e675d64982adc392197ab428dbccde803d2e7bd1721`.
+Main CI and the publisher completed successfully; detached provenance and SPDX
+SBOM attestations, published-runtime smoke, and stable-manifest read-back
+passed. The merged change sets the app process core-dump limit to zero before
+startup; it does not configure or verify the RouterOS host's dump collector.
+
+On 2026-10-19, RouterOS read-back still showed the PR #767 immutable tag on the
+isolated canary and zero active VPN sessions. PR #772 was not staged or tested
+on RouterOS. No production deployment was performed for this candidate. Its
+30-minute canary soak, live-session events and freshness, reconnect/snapshot
+recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
+security checks, and rollback rehearsal are all **not verified**. Do not carry
+the PR #767 point-in-time health/readiness result forward to PR #772.
+
+For the next acceptance run, first stage PR #772 using the reviewed canary-only
+procedure, preserving the existing production image and data. Read back the
+exact configured immutable tag and health, then run the pre-promotion
+collector. Do not treat image publication or the PR #767 point-in-time status
+as the required 30-minute acceptance window. Do not promote until the complete
+candidate-specific report passes and rollback has been rehearsed.
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
 remain historical and do not prove current-candidate canary readiness or rollback.
