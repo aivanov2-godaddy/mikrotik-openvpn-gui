@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import os
 
+from security import disable_process_core_dumps
+
 
 def main() -> int:
+    disable_process_core_dumps()
     engine = os.environ.get("SOCKETIO_ENGINE", "asgi").strip().casefold()
     if engine == "asgi":
         from asgi import main as asgi_main

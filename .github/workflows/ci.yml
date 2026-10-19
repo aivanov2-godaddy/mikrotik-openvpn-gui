@@ -224,6 +224,14 @@ jobs:
             sleep 1
           done
           test "${payload:-}" != ""
+          printf '%s' "$payload" | grep -Fq '"status":"ready"'
+          core_limits="$(docker exec "$container_id" cat /proc/1/limits)"
+          printf '%s\n' "$core_limits" | awk '
+            /^Max core file size/ {
+              if ($5 == 0 && $6 == 0) found = 1
+            }
+            END { exit !found }
+          '
           docker exec "$container_id" python3 -c 'import redis; print(redis.__version__)'
           printf '%s' "$payload" | grep -Fq '"revision":"${{ github.sha }}"'
           test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container_id")" = "${{ github.sha }}"

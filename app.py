@@ -44,6 +44,7 @@ from security import (
     SessionStore,
     SENSITIVE_ACTION_STEP_UP_SECONDS,
     csrf_matches,
+    disable_process_core_dumps,
     has_capability,
     role_capabilities,
     role_label,
@@ -6670,6 +6671,7 @@ def drop_runtime_privileges(database_path: Path) -> None:
 
 
 def main() -> None:
+    disable_process_core_dumps()
     listen = os.environ.get("LISTEN_ADDRESS", "0.0.0.0")
     app_port = int(os.environ.get("APP_PORT", "8080"))
     redirect_port = int(os.environ.get("REDIRECT_PORT", "8081"))
