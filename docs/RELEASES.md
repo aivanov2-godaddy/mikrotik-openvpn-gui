@@ -19,10 +19,10 @@ private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline candidate is PR #767; its immutable artifacts, CI provenance, and
-redacted canary staging status are recorded below. It uses content-hashed
-static asset URLs to prevent stale fixed-version cache keys from keeping
-outdated browser code in use. It retains PR #761's active-session Engine.IO
+mainline candidate is PR #772; its immutable artifacts, CI provenance, and
+redacted canary status are recorded below. PR #772 applies a fail-closed
+process core-dump limit before application/server startup. It retains PR #767's
+content-hashed static assets and PR #761's active-session Engine.IO
 authorization, PR #759's live interface-counter projection,
 PR #758's duplicate CSRF-header rejection, PR #755's session-bound telemetry
 authorization and revocation cleanup, PR #751's hardening of session expiry
@@ -83,7 +83,33 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #767 — 2026-10-19
+### Latest published mainline candidate — PR #772 — 2026-10-19
+
+PR [#772](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/772)
+merged as `624bfbf032396b3b2b21cab1a659985b6d580f79`. It applies a fail-closed
+process core-dump limit before application and server startup. Main CI run
+[#39242524458](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39242524458)
+and publisher run
+[#39242524446](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39242524446)
+passed. The publisher built and smoke-tested ARM64/AMD64 images, verified
+detached provenance and SPDX SBOM attestations, and read back the stable
+manifest. These results do not establish RouterOS host core-dump collector
+policy or canary/production acceptance.
+
+| Platform | Immutable image tag | Published digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-624bfbf032396b3b2b21cab1a659985b6d580f79-arm64` | `sha256:b341f063e405283ea1647670073665375aa3213300afd3b2b4076e7039377fbd` |
+| CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-624bfbf032396b3b2b21cab1a659985b6d580f79-amd64` | `sha256:2cf79dfecf4231f8b33c9e675d64982adc392197ab428dbccde803d2e7bd1721` |
+
+The latest RouterOS read-back on 2026-10-19 still showed PR #767's tag on the
+isolated canary and zero active sessions. PR #772 has not been staged or
+observed on RouterOS, so there is no canary acceptance result for it. The
+previous PR #767 point-in-time health/readiness check is not transferable to
+#772. No production deployment was performed for #772 in this update. The
+formal version remains v2.7.0; do not tag or publish v2.8.0 until the
+candidate-specific acceptance gates pass.
+
+### Previously published mainline candidate — PR #767 — 2026-10-19
 
 PR [#767](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/767)
 merged as `19f7ca90915871d5cfa9e68f356f62dadc90ddf8`. It replaces the fixed
@@ -100,14 +126,11 @@ artifact.
 | --- | --- | --- |
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-19f7ca90915871d5cfa9e68f356f62dadc90ddf8-arm64` | `sha256:dd78656ff241eb090cba52c3825a5421b902983a139b9f91403f82f2109586d5` |
 
-On 2026-10-19, RouterOS read-back confirmed this exact ARM64 tag on the
-isolated canary and reported the container healthy. The authenticated dashboard
-and Connections page loaded and displayed the Socket.IO live indicator.
-RouterOS and the rendered page both showed zero active sessions/devices and an
-empty active-device list. Production remained on its prior image.
-This point-in-time status is not a 30-minute readiness window, live-session
-acceptance, or rollback rehearsal. The formal version remains v2.7.0; do not
-tag or publish v2.8.0 until the candidate-specific acceptance gates pass.
+This candidate was observed on the isolated canary on 2026-10-19, with the
+dashboard and Connections page loading and zero active sessions/devices at the
+check. This point-in-time status is not a 30-minute readiness window,
+live-session acceptance, or rollback rehearsal. PR #772 supersedes it as the
+latest published candidate.
 
 ### Previously published mainline candidate — PR #761 — 2026-10-18
 
@@ -130,7 +153,7 @@ publication/read-back. The stable manifest asset's digest is
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-amd64` | `sha256:e949bfa43ed1f0ac989cc3a32da95da26a19e5b028fe14761fbca061c4cc305c` |
 
 These artifacts are published, not evidence of deployment acceptance for the
-current candidate. PR #767 supersedes this image on mainline. The formal version
+current candidate. PR #772 supersedes this image on mainline. The formal version
 remains v2.7.0, and v2.8.0 must not be tagged or published until the current
 candidate-specific canary gates pass.
 
@@ -155,7 +178,7 @@ tags; its SHA-256 is
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-f426e2f6cc8d048ce954790ca6f110a3c5226796-arm64` | `sha256:c4ef9388763215123bf77abe6253dc84f12d66bbc28f8eb21b88574f38d6ad33` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-f426e2f6cc8d048ce954790ca6f110a3c5226796-amd64` | `sha256:bfcd2cd35fe3530f68ae427b0f8ac3fe0fc90ec8fec4b9e2b0161f9aa089a6b9` |
 
-These artifacts are published, not deployed to RouterOS. PR #767 supersedes
+These artifacts are published, not deployed to RouterOS. PR #772 supersedes
 them on mainline. Live-session acceptance remains unverified; the formal
 version remains v2.7.0, and v2.8.0 must not be tagged or published until the
 candidate-specific canary gates pass.

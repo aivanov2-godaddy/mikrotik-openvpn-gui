@@ -1,37 +1,36 @@
 # Live telemetry acceptance status
 
-Status: **PR #767 artifact published and staged on the isolated canary;
-candidate-specific live acceptance is incomplete; production promotion remains
-gated.**
+Status: **PR #772 artifact published but not staged on the isolated canary;
+candidate-specific live acceptance has not started; production promotion
+remains gated.**
 
 ## Public artifact evidence
 
-PR [#767](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/767)
-(`19f7ca90915871d5cfa9e68f356f62dadc90ddf8`) is the latest published runtime
-candidate. It uses content-hashed static asset URLs so updated browser code is
-not held behind a stale fixed-version cache key. Publisher run
-[#39194800313](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39194800313)
-passed source/security checks, rendered browser/accessibility checks,
-ARM64/AMD64 image publication and runtime smoke, detached provenance and SPDX
-SBOM attestation verification, and stable-manifest read-back. The candidate
-retains the session-bound live-telemetry and Engine.IO authorization controls
-from earlier merged work.
+PR [#772](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/772)
+(`624bfbf032396b3b2b21cab1a659985b6d580f79`) is the latest published runtime
+candidate. It applies a fail-closed process core-dump limit before application
+and server startup. Main CI run
+[#39242524458](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39242524458)
+and publisher run
+[#39242524446](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39242524446)
+completed successfully. The publisher verified detached provenance and SPDX
+SBOM attestations, built and smoke-tested ARM64/AMD64 images, and read back the
+stable manifest. This is repository and artifact evidence; it does not prove
+the RouterOS host's core-dump collector policy or hardware acceptance.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-19f7ca90915871d5cfa9e68f356f62dadc90ddf8-arm64` | `sha256:dd78656ff241eb090cba52c3825a5421b902983a139b9f91403f82f2109586d5` |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-624bfbf032396b3b2b21cab1a659985b6d580f79-arm64` | `sha256:b341f063e405283ea1647670073665375aa3213300afd3b2b4076e7039377fbd` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-624bfbf032396b3b2b21cab1a659985b6d580f79-amd64` | `sha256:2cf79dfecf4231f8b33c9e675d64982adc392197ab428dbccde803d2e7bd1721` |
 
-On 2026-10-19, RouterOS read-back confirmed the exact PR #767 ARM64 immutable
-tag on the isolated canary and reported the container healthy after start. The
-authenticated dashboard and Connections page loaded, displaying the `Live ·
-SOCKETIO` indicator. RouterOS reported zero active sessions; the rendered page
-also showed zero connected devices and an empty list. The
-production container was left on its prior image. This is point-in-time
-deployment and application-readiness evidence only: the 30-minute acceptance
-window, live-session delivery, and candidate-specific recovery checks have not
-passed. RouterOS read-back confirms the configured tag, not a local OCI digest;
-the registry digest above is bound to the tag by the verified publisher
-workflow. Earlier readiness-only probes do not transfer to this image.
+The latest read-back on 2026-10-19 still showed PR #767's immutable tag on the
+isolated canary and zero active RouterOS sessions. PR #772 has not been staged
+or observed on RouterOS, so no canary readiness or live-acceptance result is
+claimed for it. The #767 point-in-time check and earlier readiness-only probes
+do not transfer to #772. RouterOS read-back confirms a configured tag, not a
+local OCI digest; registry digests above are bound to their tags by the
+verified publisher workflow. No production deployment was performed for PR
+#772; production promotion remains gated.
 
 Public deployment detail here is limited to the redacted canary-stage status
 above. This file contains no router identity, hostnames, addresses, resource
@@ -43,16 +42,16 @@ a gate checklist, not a report of private measurements.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |
-| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Partial: exact ARM64 tag read-back, healthy status, and authenticated Connections-page load were observed on 2026-10-19; the 30-minute window remains unverified |
-| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `19f7ca90`: RouterOS and the rendered page showed zero active sessions, so no candidate-matched connect/disconnect event was available to time |
-| Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not yet measured for `19f7ca90`; RouterOS reported zero active sessions, so no active client produced traffic samples |
-| Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not yet measured for `19f7ca90` |
-| Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not yet measured for `19f7ca90` |
-| Binary API and REST parity | Compare equivalent read-only snapshots and document any expected differences. | Not yet measured for `19f7ca90` |
-| Redis/outbox | Exercise unavailable/restarting Redis, retries, duplicate delivery, queue drain, and recovery. | Repository tests exist; candidate-specific live evidence incomplete |
-| Resource impact | Record bounded CPU, memory, storage, and container-health observations over the soak. | Not yet measured for `19f7ca90` |
-| Persistence and rollback | Rehearse SQLite restore and rollback in isolated canary; preserve production state. | Not yet verified for `19f7ca90` |
-| Security and privacy | Unauthenticated clients receive no telemetry; logs and reports contain no secrets or unnecessary private data. | Repository controls are tested; deployed review remains open |
+| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Not started for `624bfbf0`: the canary still reported the PR #767 tag on 2026-10-19; the #772 candidate is not staged |
+| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `624bfbf0`; the candidate is not staged and the latest RouterOS check showed zero active sessions |
+| Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not measured for `624bfbf0`; the candidate is not staged and no active client was present in the latest RouterOS check |
+| Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not measured for `624bfbf0` |
+| Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not measured for `624bfbf0` |
+| Binary API and REST parity | Compare equivalent read-only snapshots and document any expected differences. | Not measured for `624bfbf0` |
+| Redis/outbox | Exercise unavailable/restarting Redis, retries, duplicate delivery, queue drain, and recovery. | Repository tests exist; candidate-specific live evidence not collected |
+| Resource impact | Record bounded CPU, memory, storage, and container-health observations over the soak. | Not measured for `624bfbf0` |
+| Persistence and rollback | Rehearse SQLite restore and rollback in isolated canary; preserve production state. | Not verified for `624bfbf0` |
+| Security and privacy | Unauthenticated clients receive no telemetry; logs and reports contain no secrets or unnecessary private data. | Repository controls are tested; candidate-specific deployed review remains open |
 
 The 30-minute canary window must use one immutable candidate and a connected
 disposable test client. Missing, stale, contradictory, or out-of-window
