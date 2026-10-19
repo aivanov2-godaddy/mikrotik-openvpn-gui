@@ -4,8 +4,9 @@ The input is newline-delimited JSON captured by an operator harness.  It is
 deliberately limited to measurements and boolean test results; RouterOS
 records, credentials, addresses, and identifiers must never be included.
 
-Accepted record types are ``sample``, ``session_transition``, ``traffic_update``,
-``reconnect``, ``comparison``, ``security``, and ``verification``.  A
+Accepted record types include ``deployment_identity``, ``sample``,
+``session_transition``, ``traffic_update``, ``reconnect``, ``comparison``,
+``security``, and ``verification``. A
 sample may contain the fields understood by :mod:`scripts.telemetry_baseline`
 plus ``event_sequence``, ``event_lost``, ``event_duplicated``,
 ``out_of_order``, ``counter_reset``, and ``counter_reset_recovered``.
@@ -21,22 +22,36 @@ import argparse
 from datetime import datetime, timezone
 import json
 import math
+import re
 import sys
 import time
 from pathlib import Path
 from typing import Any, Iterable, TextIO
+from urllib.parse import urlsplit, urlunsplit
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
     from telemetry_baseline import summarize
+    from stream_acceptance import CANARY_ORIGIN
 except ModuleNotFoundError:  # Imported as ``scripts.telemetry_acceptance`` in tests.
     from scripts.telemetry_baseline import summarize
+    from scripts.stream_acceptance import CANARY_ORIGIN
 
 MIN_OBSERVATION_SECONDS = 1800
 MIN_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
 MAX_OBSERVATION_AGE_SECONDS = 900
 MAX_FUTURE_SKEW_SECONDS = 300
+REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+IDENTITY_FIELDS = frozenset({"type", "origin", "candidate_revision", "observed_revision", "observed_at"})
+VERIFIED_IDENTITY_FIELDS = frozenset({
+    "origin", "candidate_revision", "observed_revision", "observation_started_at",
+    "observation_ended_at", "ready_sample_count", "matching_sample_count",
+    "all_samples_ready_for_candidate",
+})
 RECORD_FIELDS = {
+    "deployment_identity": IDENTITY_FIELDS,
     "sample": frozenset({
         "type", "observed_at", "transport", "latency_ms", "event_age_seconds",
         "router_cpu_percent", "router_memory_percent", "router_storage_percent",
@@ -86,8 +101,50 @@ def _number(value: Any, name: str) -> float:
     return result
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        return None
+
+
+def observe_canary_identity(candidate_revision: str) -> dict[str, Any]:
+    """Read the fixed canary readiness endpoint without following redirects."""
+    if not isinstance(candidate_revision, str) or REVISION_PATTERN.fullmatch(candidate_revision) is None:
+        raise ValueError("candidate revision must be a full lowercase commit SHA")
+    request = Request(f"{CANARY_ORIGIN}/readyz", headers={"Accept": "application/json"})
+    try:
+        with build_opener(_NoRedirect()).open(request, timeout=10) as response:
+            if response.status != 200:
+                raise ValueError("canary readiness is not successful")
+            raw = response.read(16_385)
+    except (OSError, HTTPError) as error:
+        raise ValueError("canary readiness could not be independently observed") from error
+    if len(raw) > 16_384:
+        raise ValueError("canary readiness response exceeds its size limit")
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("canary readiness response is invalid") from error
+    if not isinstance(payload, dict):
+        raise ValueError("canary readiness response is invalid")
+    observed_revision = payload.get("revision")
+    if payload.get("status") != "ready" or observed_revision != candidate_revision:
+        raise ValueError("canary readiness revision does not match the candidate")
+    observed_at = time.time()
+    return {
+        "origin": CANARY_ORIGIN,
+        "candidate_revision": candidate_revision,
+        "observed_revision": observed_revision,
+        "observation_started_at": observed_at,
+        "observation_ended_at": observed_at,
+        "ready_sample_count": 1,
+        "matching_sample_count": 1,
+        "all_samples_ready_for_candidate": True,
+    }
+
+
 def evaluate(
-    lines: Iterable[str], *, limits: dict[str, float], now: float | None = None
+    lines: Iterable[str], *, limits: dict[str, float], now: float | None = None,
+    verified_deployment_identity: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     samples: list[str] = []
     session_transitions: list[dict[str, Any]] = []
@@ -108,6 +165,7 @@ def evaluate(
     sample_timestamps: list[float] = []
     attestation_timestamps: list[tuple[str, float]] = []
     verification_records: list[dict[str, bool]] = []
+    deployment_identity: dict[str, str] | None = None
     required_verifications = (
         "event_latency_measured",
         "traffic_freshness_measured",
@@ -130,7 +188,7 @@ def evaluate(
         allowed_fields = RECORD_FIELDS.get(record_type)
         if allowed_fields is None:
             raise ValueError(
-                "type must be sample, session_transition, traffic_update, reconnect, comparison, security, or verification"
+                "type must be deployment_identity, sample, session_transition, traffic_update, reconnect, comparison, security, or verification"
             )
         if set(record) - allowed_fields:
             raise ValueError("record contains fields outside the redacted acceptance schema")
@@ -141,7 +199,48 @@ def evaluate(
                 failures.append(f"{record_type}_timestamp_missing")
             else:
                 attestation_timestamps.append((record_type, _number(record["observed_at"], "observed_at")))
-        if record_type == "sample":
+        if record_type == "deployment_identity":
+            origin = record.get("origin")
+            candidate_revision = record.get("candidate_revision")
+            observed_revision = record.get("observed_revision")
+            identity_observed_at = _number(record.get("observed_at"), "deployment_identity.observed_at")
+            if (
+                deployment_identity is not None
+                or not isinstance(origin, str)
+                or not isinstance(candidate_revision, str)
+                or not isinstance(observed_revision, str)
+                or REVISION_PATTERN.fullmatch(candidate_revision) is None
+                or REVISION_PATTERN.fullmatch(observed_revision) is None
+            ):
+                failures.append("deployment_identity_invalid")
+            else:
+                parsed_origin = urlsplit(origin)
+                if (
+                    parsed_origin.scheme != "https"
+                    or not parsed_origin.hostname
+                    or parsed_origin.username is not None
+                    or parsed_origin.password is not None
+                    or parsed_origin.query
+                    or parsed_origin.fragment
+                    or parsed_origin.path not in {"", "/"}
+                ):
+                    failures.append("deployment_identity_invalid")
+                else:
+                    host = parsed_origin.hostname.encode("idna").decode("ascii").lower()
+                    netloc = f"[{host}]" if ":" in host else host
+                    if parsed_origin.port not in {None, 443}:
+                        netloc += f":{parsed_origin.port}"
+                    deployment_identity = {
+                        "origin": urlunsplit(("https", netloc, "", "", "")),
+                        "candidate_revision": candidate_revision,
+                        "observed_revision": observed_revision,
+                        "observed_at": identity_observed_at,
+                    }
+                    if candidate_revision != observed_revision:
+                        failures.append("deployment_identity_revision_mismatch")
+        if record_type == "deployment_identity":
+            continue
+        elif record_type == "sample":
             samples.append(json.dumps(record, separators=(",", ":")))
             if "observed_at" not in record:
                 failures.append("sample_timestamp_missing")
@@ -461,8 +560,50 @@ def evaluate(
             return None
         return datetime.fromtimestamp(value, timezone.utc).isoformat().replace("+00:00", "Z")
 
+    verified_identity_valid = False
+    identity_verified = False
+    if isinstance(verified_deployment_identity, dict) and set(verified_deployment_identity) == VERIFIED_IDENTITY_FIELDS:
+        verified_start = _number(
+            verified_deployment_identity.get("observation_started_at"), "identity observation start"
+        )
+        verified_end = _number(
+            verified_deployment_identity.get("observation_ended_at"), "identity observation end"
+        )
+        ready_count = verified_deployment_identity.get("ready_sample_count")
+        matching_count = verified_deployment_identity.get("matching_sample_count")
+        verified_identity_valid = (
+            verified_deployment_identity.get("origin") == CANARY_ORIGIN
+            and isinstance(verified_deployment_identity.get("candidate_revision"), str)
+            and REVISION_PATTERN.fullmatch(verified_deployment_identity["candidate_revision"]) is not None
+            and verified_deployment_identity.get("candidate_revision") == verified_deployment_identity.get("observed_revision")
+            and isinstance(ready_count, int) and not isinstance(ready_count, bool) and ready_count >= 2
+            and isinstance(matching_count, int) and not isinstance(matching_count, bool)
+            and matching_count == ready_count
+            and verified_deployment_identity.get("all_samples_ready_for_candidate") is True
+            and verified_end >= verified_start
+        )
+        if deployment_identity is not None and verified_identity_valid:
+            identity_matches = (
+                deployment_identity["origin"] == verified_deployment_identity["origin"]
+                and deployment_identity["candidate_revision"] == verified_deployment_identity["candidate_revision"]
+                and deployment_identity["observed_revision"] == verified_deployment_identity["observed_revision"]
+                and verified_start - 1 <= deployment_identity["observed_at"] <= verified_end + 1
+            )
+            telemetry_window_covered = (
+                window_start is not None
+                and window_end is not None
+                and window_start >= verified_start - 1
+                and window_end <= verified_end + 1
+            )
+            identity_verified = identity_matches and telemetry_window_covered
+    if deployment_identity is None:
+        failures.append("deployment_identity_missing")
+    elif not verified_identity_valid:
+        failures.append("deployment_identity_unverified")
+    elif not identity_verified:
+        failures.append("deployment_identity_mismatch")
     result = {
-        "format": "vpn-dashboard-telemetry-acceptance-v1",
+        "format": "vpn-dashboard-telemetry-acceptance-v2",
         "healthy": not failures and baseline_code == 0,
         "failed_gates": sorted(set(failures)),
         "observation_started_at": iso_timestamp(window_start),
@@ -505,6 +646,10 @@ def evaluate(
         "observation_window_seconds": observation_window,
         "max_sample_gap_seconds": max_sample_gap,
         "verification": verification,
+        "origin": deployment_identity["origin"] if deployment_identity else None,
+        "candidate_revision": deployment_identity["candidate_revision"] if deployment_identity else None,
+        "observed_revision": deployment_identity["observed_revision"] if deployment_identity else None,
+        "identity_verified": bool(identity_verified),
     }
     return (0 if result["healthy"] else 1), result
 
@@ -512,6 +657,7 @@ def evaluate(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", default="-", help="redacted NDJSON file, or - for stdin")
+    parser.add_argument("--candidate-revision", required=True, help="full candidate commit SHA to verify at the fixed canary /readyz endpoint")
     parser.add_argument("--max-latency-p95-ms", type=float, default=1000.0)
     parser.add_argument("--max-event-age-seconds", type=float, default=2.0)
     parser.add_argument("--max-router-cpu-percent", type=float, default=80.0)
@@ -533,8 +679,9 @@ def main() -> int:
         }
         if any(not math.isfinite(value) or value < 0 for value in limits.values()):
             raise ValueError("limits must be finite and non-negative")
+        verified_identity = observe_canary_identity(args.candidate_revision)
         source = _source(args.input)
-        code, result = evaluate(source, limits=limits)
+        code, result = evaluate(source, limits=limits, verified_deployment_identity=verified_identity)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(json.dumps({"healthy": False, "failed_gates": ["invalid_input"], "error": str(error)[:120]}))
         return 2

@@ -66,6 +66,7 @@ from `1728000000` through `1728001800`; intermediate sample lines are omitted.
 Every attestation timestamp below falls inside that same interval.
 
 ```json
+{"type":"deployment_identity","origin":"https://vpn-dev.wanted.sx","candidate_revision":"<full-candidate-sha>","observed_revision":"<full-candidate-sha>","observed_at":1728000900}
 {"type":"sample","observed_at":1728000000,"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
 {"type":"session_transition","observed_at":1728000300,"connected":true,"visible_without_refresh":true,"latency_ms":180}
 {"type":"session_transition","observed_at":1728000600,"connected":false,"visible_without_refresh":true,"latency_ms":220}
@@ -78,8 +79,18 @@ Every attestation timestamp below falls inside that same interval.
 ```
 
 ```text
-python scripts/telemetry_acceptance.py --input private-acceptance.ndjson
+python scripts/telemetry_acceptance.py --input private-acceptance.ndjson --candidate-revision <full-candidate-sha>
 ```
+
+The release collector independently samples `https://vpn-dev.wanted.sx/readyz`
+over certificate-verified HTTPS without following redirects throughout the full
+soak. Every readiness sample must match the candidate revision, and the
+timestamped NDJSON identity plus the complete telemetry sample window must fit
+inside that same observed interval. A one-shot identity check cannot establish
+the identity of an earlier 30-minute telemetry window; therefore the standalone
+CLI's single check is diagnostic only and cannot pass the release identity gate.
+This is origin/revision binding, not a cryptographic signature over browser
+events.
 
 Every sample requires `observed_at`, a non-negative Unix timestamp in seconds.
 Session-transition, reconnect, comparison, security, and verification records also require
@@ -137,8 +148,11 @@ minutes in the future. The standalone telemetry evaluator applies the same
 freshness and future-skew bounds to its latest sample. Collect fresh evidence
 instead of changing recorded timestamps.
 
-For the release gate, `telemetry_acceptance.py` also emits a redacted
-`vpn-dashboard-telemetry-acceptance-v1` aggregate: measured session-transition
+For the release gate, `collect_release_acceptance.py` invokes the telemetry
+evaluator with the readiness samples it directly collected over the same soak.
+The standalone one-shot command cannot supply that trusted interval. The release
+gate emits a redacted
+`vpn-dashboard-telemetry-acceptance-v2` aggregate: measured session-transition
 p95 and no-refresh visibility counts, traffic-update visibility and maximum
 sample age, sequence/gap/duplicate/order counts, and API reconnect/snapshot
 results with the sample window. `collect_release_acceptance.py` combines that

@@ -6,7 +6,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts.telemetry_acceptance import evaluate as _evaluate, main
+from scripts.stream_acceptance import CANARY_ORIGIN
+from scripts.telemetry_acceptance import evaluate as _evaluate, main, observe_canary_identity
 
 
 LIMITS = {
@@ -22,7 +23,21 @@ LIMITS = {
 
 def evaluate(lines, *, limits, now=1_728_001_860):
     """Freeze acceptance time so fixture evidence stays deterministic."""
-    return _evaluate(lines, limits=limits, now=now)
+    return _evaluate(
+        lines,
+        limits=limits,
+        now=now,
+        verified_deployment_identity={
+            "origin": CANARY_ORIGIN,
+            "candidate_revision": "a" * 40,
+            "observed_revision": "a" * 40,
+            "observation_started_at": 1_728_000_000,
+            "observation_ended_at": 1_728_001_800,
+            "ready_sample_count": 31,
+            "matching_sample_count": 31,
+            "all_samples_ready_for_candidate": True,
+        },
+    )
 
 
 def records(*values: dict[str, object]) -> list[str]:
@@ -39,6 +54,9 @@ def records(*values: dict[str, object]) -> list[str]:
 
 def acceptance_window(sample: dict[str, object]) -> list[str]:
     return records(
+        {"type": "deployment_identity", "origin": "https://vpn-dev.wanted.sx",
+         "candidate_revision": "a" * 40, "observed_revision": "a" * 40,
+         "observed_at": 1_728_000_900},
         sample,
         {"type": "session_transition", "observed_at": 1_728_000_300,
          "connected": True, "visible_without_refresh": True, "latency_ms": 180},
@@ -74,7 +92,10 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         for value in ("NaN", "Infinity", "-Infinity"):
             with self.subTest(value=value):
                 output = io.StringIO()
-                with patch("sys.argv", ["telemetry_acceptance.py", f"--max-event-age-seconds={value}"]):
+                with patch("sys.argv", [
+                    "telemetry_acceptance.py", f"--max-event-age-seconds={value}",
+                    "--candidate-revision", "a" * 40,
+                ]):
                     with redirect_stdout(output):
                         self.assertEqual(main(), 2)
                 report = json.loads(output.getvalue())
@@ -87,6 +108,84 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside the redacted acceptance schema") as raised:
             evaluate(records({"type": "sample", "password": private_value}), limits=LIMITS)
         self.assertNotIn(private_value, str(raised.exception))
+
+    def test_deployment_identity_is_required_and_unique(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        window = [line for line in window if json.loads(line).get("type") != "deployment_identity"]
+
+        code, result = evaluate(window, limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertIn("deployment_identity_missing", result["failed_gates"])
+
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        identity = next(line for line in window if json.loads(line).get("type") == "deployment_identity")
+        code, result = evaluate([*window, identity], limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertIn("deployment_identity_invalid", result["failed_gates"])
+
+    def test_user_recorded_deployment_identity_must_match_observed_context(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        changed = [
+            json.dumps({**json.loads(line), "observed_revision": "b" * 40})
+            if json.loads(line).get("type") == "deployment_identity" else line
+            for line in window
+        ]
+
+        code, result = evaluate(changed, limits=LIMITS)
+
+        self.assertEqual(code, 1)
+        self.assertIn("deployment_identity_revision_mismatch", result["failed_gates"])
+        self.assertIn("deployment_identity_mismatch", result["failed_gates"])
+        self.assertFalse(result["identity_verified"])
+
+    def test_missing_independent_observation_never_verifies_identity(self) -> None:
+        code, result = _evaluate(
+            acceptance_window({"type": "sample", "observed_at": 1_728_000_000}),
+            limits=LIMITS,
+            now=1_728_001_860,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("deployment_identity_unverified", result["failed_gates"])
+        self.assertFalse(result["identity_verified"])
+
+    def test_identity_probe_must_cover_the_telemetry_window(self) -> None:
+        verified = {
+            "origin": CANARY_ORIGIN,
+            "candidate_revision": "a" * 40,
+            "observed_revision": "a" * 40,
+            "observation_started_at": 1_728_000_060,
+            "observation_ended_at": 1_728_001_800,
+            "ready_sample_count": 30,
+            "matching_sample_count": 30,
+            "all_samples_ready_for_candidate": True,
+        }
+        code, result = _evaluate(
+            acceptance_window({"type": "sample", "observed_at": 1_728_000_000}),
+            limits=LIMITS,
+            now=1_728_001_860,
+            verified_deployment_identity=verified,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("deployment_identity_mismatch", result["failed_gates"])
+        self.assertFalse(result["identity_verified"])
+
+    def test_direct_identity_probe_accepts_only_ready_candidate_revision(self) -> None:
+        response = io.BytesIO(json.dumps({"status": "ready", "revision": "a" * 40}).encode())
+        response.status = 200
+        response.__enter__ = lambda: response
+        response.__exit__ = lambda *_args: None
+        opener = type("Opener", (), {"open": lambda self, request, timeout: response})()
+        with patch("scripts.telemetry_acceptance.build_opener", return_value=opener):
+            identity = observe_canary_identity("a" * 40)
+
+        self.assertEqual(identity["origin"], CANARY_ORIGIN)
+        self.assertEqual(identity["observed_revision"], "a" * 40)
+        self.assertEqual(identity["ready_sample_count"], 1)
+        self.assertEqual(identity["observation_started_at"], identity["observation_ended_at"])
 
     def test_complete_acceptance_window_passes(self) -> None:
         samples = [
@@ -111,6 +210,9 @@ class TelemetryAcceptanceTests(unittest.TestCase):
             ]
         code, result = evaluate(
             records(
+                {"type": "deployment_identity", "origin": "https://vpn-dev.wanted.sx",
+                 "candidate_revision": "a" * 40, "observed_revision": "a" * 40,
+                 "observed_at": 1_728_000_900},
                 *samples,
                 {"type": "session_transition", "observed_at": 1_728_000_300,
                  "connected": True, "visible_without_refresh": True, "latency_ms": 180},
@@ -153,7 +255,10 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertTrue(result["healthy"])
-        self.assertEqual(result["format"], "vpn-dashboard-telemetry-acceptance-v1")
+        self.assertEqual(result["format"], "vpn-dashboard-telemetry-acceptance-v2")
+        self.assertEqual(result["origin"], "https://vpn-dev.wanted.sx")
+        self.assertEqual(result["candidate_revision"], "a" * 40)
+        self.assertEqual(result["observed_revision"], "a" * 40)
         self.assertEqual(result["session_transition_count"], 2)
         self.assertEqual(result["session_transition_visible_count"], 2)
         self.assertIs(result["ordered_connect_disconnect_observed"], True)

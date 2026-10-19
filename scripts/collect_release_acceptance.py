@@ -29,15 +29,30 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 try:
     from certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
-    from stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
+    from stream_acceptance import CANARY_ORIGIN, browser_acceptance_projection, validate_stream_acceptance
     from sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
+    import redis_recovery_acceptance as redis_recovery_acceptance_module
+    from redis_recovery_acceptance import (
+        download_verified_ci_report,
+        validate_ci_provenance,
+        validate_report as validate_redis_recovery_report,
+    )
+    from rollback_acceptance import summarize_rollback_report, validate_rollback_report
 except ModuleNotFoundError:
     from scripts.certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from scripts.release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
-    from scripts.stream_acceptance import browser_acceptance_projection, validate_stream_acceptance
+    from scripts.stream_acceptance import CANARY_ORIGIN, browser_acceptance_projection, validate_stream_acceptance
     from scripts.sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
+    import scripts.redis_recovery_acceptance as redis_recovery_acceptance_module
+    from scripts.redis_recovery_acceptance import (
+        download_verified_ci_report,
+        validate_ci_provenance,
+        validate_report as validate_redis_recovery_report,
+    )
+    from scripts.rollback_acceptance import summarize_rollback_report, validate_rollback_report
 
 
+MAX_REDIS_RECOVERY_REPORT_BYTES = redis_recovery_acceptance_module.MAX_CI_ARTIFACT_BYTES
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_REGISTRY_RESPONSE_BYTES = 65_536
 MAX_DURATION_SECONDS = 86_400
@@ -45,6 +60,7 @@ MAX_SAMPLES = 10_000
 MAX_STREAM_OBSERVER_REPORT_BYTES = 65_536
 MAX_TELEMETRY_ACCEPTANCE_BYTES = 5_000_000
 MAX_CERTIFICATE_LIFECYCLE_REPORT_BYTES = 16_384
+MAX_ROLLBACK_REPORT_BYTES = 32_768
 MIN_SOAK_SECONDS = 1800
 MIN_HEALTH_SAMPLES = 30
 MAX_SAMPLE_GAP_SECONDS = 120
@@ -96,12 +112,20 @@ def apply_stream_acceptance(
 ) -> tuple[int, dict[str, Any]]:
     """Attach a strict redacted stream/browser report to collected evidence."""
     collection = summary.get("evidence", {}).get("collection", {})
+    deployments = summary.get("evidence", {}).get("deployments", [])
+    candidate_revision = None
+    if isinstance(deployments, list) and deployments and isinstance(deployments[0], dict):
+        candidate_revision = deployments[0].get("revision")
+        if not isinstance(candidate_revision, str):
+            image_match = IMAGE.fullmatch(str(deployments[0].get("image", "")))
+            candidate_revision = image_match.group("revision") if image_match else None
     safe, stream_failures = validate_stream_acceptance(
         observer_report,
         browser_report,
         collection_started_at=collection.get("started_at"),
         collection_ended_at=collection.get("ended_at"),
         now=now or _utc_now(),
+        expected_candidate_revision=candidate_revision,
         minimum_window_seconds=minimum_window_seconds,
     )
     failures = set(collection.get("failed_gates", []))
@@ -243,10 +267,17 @@ def _write_json_atomically(path: Path, document: dict[str, Any]) -> None:
 
 def _read_certificate_lifecycle_report(path: str | Path) -> Any:
     """Load a tightly bounded operator report without retaining oversized input."""
+    return _read_bounded_json_report(
+        path, MAX_CERTIFICATE_LIFECYCLE_REPORT_BYTES, "certificate lifecycle report"
+    )
+
+
+def _read_bounded_json_report(path: str | Path, max_bytes: int, label: str) -> Any:
+    """Read JSON through a bounded binary handle to avoid stat/read races."""
     with Path(path).open("rb") as source:
-        content = source.read(MAX_CERTIFICATE_LIFECYCLE_REPORT_BYTES + 1)
-    if len(content) > MAX_CERTIFICATE_LIFECYCLE_REPORT_BYTES:
-        raise ValueError("certificate lifecycle report exceeds its size limit")
+        content = source.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ValueError(f"{label} exceeds its size limit")
     return json.loads(content)
 
 
@@ -816,6 +847,9 @@ def collect(
     interval_seconds: float = 60,
     timeout_seconds: float = 5,
     phase: str = "postpromotion",
+    redis_recovery_report: Any = None,
+    redis_recovery_provenance: Any = None,
+    rollback_report: Any = None,
     probe: Callable[..., tuple[int, bytes]] = _get,
     registry_probe: Callable[..., str | None] = _registry_digest,
     clock: Callable[[], datetime] = _utc_now,
@@ -862,10 +896,16 @@ def collect(
         verified = verification.get("verified") is True
         checked_at_text = checked_at.isoformat()
         record = records[ENVIRONMENTS.index(environment)]
+        # Bind the private backup restore rehearsal to the exact immutable
+        # application candidate that was sampled above. The backup path and
+        # database contents are never copied into the report.
         record["sqlite_restore_verified"] = verified
         record["sqlite_restore_verified_at"] = checked_at_text if verified else None
         restore_checks.append({
             "environment": environment,
+            "candidate_image": record["image"],
+            "candidate_revision": record["revision"],
+            "candidate_digest": record["digest"],
             "checked_at": checked_at_text,
             "verified": verified,
             "source_opened_read_only": verification.get("source_opened_read_only") is True,
@@ -968,6 +1008,7 @@ def collect(
         elif observed_digest != expected_digest:
             failed_gates.append(f"{environment}_registry_digest_mismatch")
     deployment_samples: dict[str, list[dict[str, Any]]] = {name: [] for name in ENVIRONMENTS}
+    browser_origin_samples: list[dict[str, Any]] = []
     begun = clock()
     began_epoch = begun.timestamp()
     began_monotonic = monotonic()
@@ -1011,6 +1052,20 @@ def collect(
                 "metrics_valid": metrics_valid,
                 "metrics": metrics,
             })
+        browser_origin_code, browser_origin_body = probe(
+            _probe_url(CANARY_ORIGIN, "/readyz"), timeout=timeout_seconds
+        )
+        browser_origin_payload = _json_status(browser_origin_body) if browser_origin_code == 200 else {}
+        browser_origin_revision = browser_origin_payload.get("revision")
+        browser_origin_samples.append({
+            "observed_at": observed.isoformat(),
+            "ready": browser_origin_payload.get("status") == "ready",
+            "revision": browser_origin_revision if isinstance(browser_origin_revision, str) else None,
+            "matches_candidate": (
+                browser_origin_payload.get("status") == "ready"
+                and browser_origin_revision == expected_revisions["canary"]
+            ),
+        })
         remaining = deadline - monotonic()
         if remaining <= 0:
             break
@@ -1037,7 +1092,36 @@ def collect(
     monotonic_duration = max(0.0, ended_monotonic - began_monotonic)
     if wall_duration < 0 or abs(wall_duration - monotonic_duration) > MAX_CLOCK_DRIFT_SECONDS:
         failed_gates.append("collection_clock_anomaly")
-    summary: dict[str, Any] = {"format": "vpn-dashboard-release-collection-v1", "deployments": []}
+    summary: dict[str, Any] = {"format": "vpn-dashboard-release-collection-v2", "deployments": []}
+    browser_origin_matches = [sample["matches_candidate"] for sample in browser_origin_samples]
+    verified_deployment_identity = None
+    if browser_origin_matches and all(browser_origin_matches):
+        verified_deployment_identity = {
+            "origin": CANARY_ORIGIN,
+            "candidate_revision": expected_revisions["canary"],
+            "observed_revision": expected_revisions["canary"],
+            "observation_started_at": datetime.fromisoformat(
+                browser_origin_samples[0]["observed_at"]
+            ).timestamp(),
+            "observation_ended_at": datetime.fromisoformat(
+                browser_origin_samples[-1]["observed_at"]
+            ).timestamp(),
+            "ready_sample_count": len(browser_origin_samples),
+            "matching_sample_count": sum(browser_origin_matches),
+            "all_samples_ready_for_candidate": True,
+        }
+    browser_origin_observation = {
+        "origin": CANARY_ORIGIN,
+        "candidate_revision": expected_revisions["canary"],
+        "observed_revision": (
+            browser_origin_samples[-1]["revision"] if browser_origin_samples else None
+        ),
+        "observation_started_at": browser_origin_samples[0]["observed_at"] if browser_origin_samples else None,
+        "observation_ended_at": browser_origin_samples[-1]["observed_at"] if browser_origin_samples else None,
+        "ready_sample_count": len(browser_origin_samples),
+        "matching_sample_count": sum(browser_origin_matches),
+        "all_samples_ready_for_candidate": bool(browser_origin_matches) and all(browser_origin_matches),
+    }
     for environment in ENVIRONMENTS:
         samples = deployment_samples[environment]
         sample_times = [sample["at"].timestamp() for sample in samples]
@@ -1229,6 +1313,64 @@ def collect(
             ),
             "metrics": metric_summary,
         })
+    candidate_record = records[0]
+    redis_recovery_verification: dict[str, Any] | None = None
+    if redis_recovery_report is None:
+        failed_gates.append("redis_recovery_ci_evidence_missing")
+    else:
+        redis_provenance, provenance_failures = validate_ci_provenance(
+            redis_recovery_provenance,
+            expected_revision=candidate_record["revision"],
+        )
+        failed_gates.extend(provenance_failures)
+        redis_recovery_verification, redis_recovery_failures = validate_redis_recovery_report(
+            redis_recovery_report,
+            expected_revision=candidate_record["revision"],
+            now=ended,
+        )
+        failed_gates.extend(redis_recovery_failures)
+        if redis_recovery_verification is not None and redis_provenance is not None:
+            redis_recovery_verification["ci_provenance"] = redis_provenance
+
+    rollback_rehearsal: dict[str, Any] | None = None
+    if rollback_report is None:
+        failed_gates.append("rollback_readback_evidence_missing")
+    else:
+        rollback_rehearsal, rollback_failures = validate_rollback_report(
+            rollback_report,
+            candidate_image=candidate_record["image"],
+            candidate_digest=candidate_record["digest"],
+            production_image=records[1]["image"],
+            collection_started_at=begun.isoformat(),
+            collection_ended_at=ended.isoformat(),
+        )
+        failed_gates.extend(rollback_failures)
+
+    rollback_summary = summarize_rollback_report(rollback_rehearsal) if rollback_rehearsal else None
+    canary_readbacks = rollback_summary["readbacks"] if rollback_summary else {}
+    candidate_record["rollback_drill_passed"] = rollback_rehearsal is not None
+    candidate_record["rollback_drill_at"] = (
+        canary_readbacks.get("canary_after_rollback", {}).get("observed_at")
+        if rollback_rehearsal else None
+    )
+    candidate_record["production_untouched_on_canary_failure"] = (
+        rollback_summary.get("production_unchanged") is True
+        if rollback_summary else False
+    )
+    candidate_record["production_protection_observed_at"] = (
+        canary_readbacks.get("production_after", {}).get("observed_at")
+        if rollback_rehearsal else None
+    )
+    safe_records["canary"].update({
+        "rollback_drill_passed": candidate_record["rollback_drill_passed"],
+        "rollback_drill_at": candidate_record["rollback_drill_at"],
+        "production_untouched_on_canary_failure": candidate_record[
+            "production_untouched_on_canary_failure"
+        ],
+        "production_protection_observed_at": candidate_record[
+            "production_protection_observed_at"
+        ],
+    })
     enriched_evidence = {
         "format": evidence["format"],
         "deployments": [safe_records[name] for name in ENVIRONMENTS],
@@ -1248,10 +1390,13 @@ def collect(
                 "candidate-canary-only" if phase == "canary-prepromotion" else "canary-and-production"
             ),
             "router_runtime_digest_verified": False,
+            "browser_origin_readiness": browser_origin_observation,
             "stream_acceptance": None,
             "certificate_lifecycle_acceptance": certificate_lifecycle_acceptance,
             "registry_digest_verification": registry_verification,
             "sqlite_restore_verification": sqlite_restore_verification,
+            "redis_recovery_verification": redis_recovery_verification,
+            "rollback_rehearsal": rollback_rehearsal,
         },
     }
     summary["passed"] = not failed_gates
@@ -1263,6 +1408,7 @@ def collect(
     summary["evidence"] = enriched_evidence
     summary["evidence"]["collection"]["passed"] = False
     summary["evidence"]["collection"]["failed_gates"] = summary["failed_gates"]
+    summary["_verified_deployment_identity"] = verified_deployment_identity
     return (0 if summary["passed"] else 1), summary
 
 
@@ -1274,6 +1420,14 @@ def main() -> int:
         "--routeros-report",
         required=True,
         help="completed redacted report from collect_routeros_acceptance.py; must cover the same soak",
+    )
+    parser.add_argument(
+        "--redis-recovery-run-id",
+        help="successful main-branch CI run id; its exact candidate-bound artifact is downloaded and verified with gh",
+    )
+    parser.add_argument(
+        "--rollback-report",
+        help="redacted ordered RouterOS/readiness read-backs for the isolated canary rollback drill",
     )
     parser.add_argument(
         "--stream-observer-report", required=True,
@@ -1320,6 +1474,25 @@ def main() -> int:
             evidence["certificate_lifecycle_acceptance"] = _read_certificate_lifecycle_report(
                 args.certificate_lifecycle_report
             )
+        redis_recovery_report = None
+        redis_recovery_provenance = None
+        if args.redis_recovery_run_id:
+            deployments = evidence.get("deployments")
+            candidate = deployments[0] if isinstance(deployments, list) and deployments else None
+            image_match = IMAGE.fullmatch(candidate.get("image", "")) if isinstance(candidate, dict) else None
+            if image_match is None:
+                raise ValueError("candidate image must contain a full immutable revision before CI verification")
+            redis_recovery_report, redis_recovery_provenance = download_verified_ci_report(
+                args.redis_recovery_run_id,
+                expected_revision=image_match.group("revision"),
+            )
+        rollback_report = None
+        if args.rollback_report:
+            rollback_report = _read_bounded_json_report(
+                args.rollback_report,
+                MAX_ROLLBACK_REPORT_BYTES,
+                "rollback read-back report",
+            )
         cookie = os.environ.get(args.cookie_env) if args.cookie_env else None
         if args.cookie_env and not cookie:
             raise ValueError("the requested cookie environment variable is unset or empty")
@@ -1359,7 +1532,11 @@ def main() -> int:
             interval_seconds=args.interval_seconds,
             timeout_seconds=args.timeout_seconds,
             phase=args.phase,
+            redis_recovery_report=redis_recovery_report,
+            redis_recovery_provenance=redis_recovery_provenance,
+            rollback_report=rollback_report,
         )
+        verified_deployment_identity = summary.pop("_verified_deployment_identity", None)
         routeros_report = json.loads(Path(args.routeros_report).read_text(encoding="utf-8"))
         attach_routeros_resource_evidence(summary["evidence"], routeros_report)
         observer_path = Path(args.stream_observer_report)
@@ -1390,6 +1567,7 @@ def main() -> int:
                 "recovery_seconds": 10,
             },
             now=collection_end.timestamp(),
+            verified_deployment_identity=verified_deployment_identity,
         )
         code, summary = apply_stream_acceptance(
             summary,
