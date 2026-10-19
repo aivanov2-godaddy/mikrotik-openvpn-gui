@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSURANCE_DOCUMENT = ROOT / "docs" / "SECURITY_ASSURANCE.md"
+ROUTE_AUTHORIZATION_DOCUMENT = ROOT / "docs" / "ROUTE_AUTHORIZATION.md"
+SESSION_LIFETIME_DOCUMENT = ROOT / "docs" / "SESSION_LIFETIME_RATIONALE.md"
 ASVS_CONTROL_FIXTURE = ROOT / "tests" / "fixtures" / "asvs_5_0_0_scoped_control_ids.json"
 VALID_MATRIX_STATUSES = {"TESTED", "PARTIAL", "GAP", "N/A", "EXTERNAL"}
 EXPECTED_ASVS_VERSION = "5.0.0"
@@ -238,6 +240,73 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertEqual(cloudflare_session_row[1], "EXTERNAL")
         self.assertIn("Cloudflare Access", cloudflare_session_row[2])
         self.assertIn("has not been verified", cloudflare_session_row[2])
+
+    def test_route_document_explicitly_covers_logout_authorization(self) -> None:
+        route_document = ROUTE_AUTHORIZATION_DOCUMENT.read_text(encoding="utf-8")
+        logout_row = next(
+            (line for line in route_document.splitlines() if "`POST /logout`" in line),
+            "",
+        )
+        self.assertTrue(logout_row, "route authorization inventory must document logout")
+        for boundary in (
+            "non-expired RouterOS-authenticated dashboard session",
+            "valid form `csrf` token",
+            "duplicate `Origin` fields",
+            "same-origin `Referer`",
+            "Destroys only the calling dashboard session",
+            "does not terminate other sessions",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, logout_row)
+        self.assertIn("foreign `Origin`", route_document)
+        self.assertIn("`Origin: null`", route_document)
+
+    def test_partial_asvs_statuses_match_the_bounded_evidence(self) -> None:
+        rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
+        for control in ("V7.4.2", "V7.4.5", "V8.1.1", "V8.1.3–V8.1.4"):
+            with self.subTest(control=control):
+                self.assertEqual(rows[control][1], "PARTIAL")
+
+        self.assertIn("does not proactively invalidate every session", rows["V7.4.2"][2])
+        self.assertIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
+        self.assertIn("not yet mechanically reconciled against every route", rows["V8.1.1"][2])
+        self.assertIn("resolved client IP", rows["V8.1.3–V8.1.4"][2])
+
+    def test_documented_contextual_login_limit_matches_runtime_defaults(self) -> None:
+        limiter_module = ast.parse((ROOT / "security.py").read_text(encoding="utf-8"))
+        limiter_class = next(
+            node
+            for node in limiter_module.body
+            if isinstance(node, ast.ClassDef) and node.name == "LoginRateLimiter"
+        )
+        initializer = next(
+            node
+            for node in limiter_class.body
+            if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+        )
+        positional_names = [argument.arg for argument in initializer.args.args]
+        defaults = dict(
+            zip(positional_names[-len(initializer.args.defaults):], initializer.args.defaults)
+        )
+        self.assertEqual(ast.literal_eval(defaults["limit"]), 5)
+        self.assertEqual(ast.literal_eval(defaults["window_seconds"]), 300)
+
+        context_policy = self.document.split(
+            "## Contextual inputs used in application decisions", maxsplit=1
+        )[1].split("\n## ", maxsplit=1)[0]
+        self.assertIn("resolved client IP", context_policy)
+        self.assertIn("rolling 300-second window", context_policy)
+        self.assertIn("five attempts", context_policy)
+        self.assertIn("HTTP 429", context_policy)
+        self.assertIn("RouterOS availability failure", context_policy)
+        self.assertIn("browser `Origin`", context_policy)
+        self.assertIn("[ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md)", context_policy)
+
+    def test_session_lifetime_rationale_distinguishes_nist_guidance_from_product_policy(self) -> None:
+        rationale = SESSION_LIFETIME_DOCUMENT.read_text(encoding="utf-8")
+        self.assertIn("NIST SP 800-63B Section 5.2", rationale)
+        self.assertIn("not assigned a NIST Authentication Assurance Level", rationale)
+        self.assertIn("does not claim NIST conformance", rationale)
 
     def test_live_deployment_and_independent_review_gaps_remain_explicit(self) -> None:
         unverified_heading = "## Explicitly unverified live-router / deployment evidence"
