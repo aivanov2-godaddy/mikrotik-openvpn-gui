@@ -14,22 +14,19 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#761, commit `e8af615c42145b9b6a1ea44bee9b217ffc5dc4be`, published by
-[workflow run #39168925504](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39168925504).
+#767, commit `19f7ca90915871d5cfa9e68f356f62dadc90ddf8`, published by
+[workflow run #39194800313](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39194800313).
 Its ARM64 registry digest is
-`sha256:0d58f3b2c24281d82064b9d95da9d31bb56073c0daa0f116bd7c3e2d8b90d32b`
-and its AMD64 registry digest is
-`sha256:e949bfa43ed1f0ac989cc3a32da95da26a19e5b028fe14761fbca061c4cc305c`.
-Both architectures passed published-runtime smoke tests, detached
+`sha256:dd78656ff241eb090cba52c3825a5421b902983a139b9f91403f82f2109586d5`.
+The ARM64 and AMD64 images passed published-runtime smoke tests, detached
 provenance/SBOM attestation verification, and stable-manifest publication and
-read-back. PR #761 rejects Engine.IO transport setup without an active dashboard
-session before allocating transport state and without refreshing the idle
-deadline; prior session-expiry, origin-validation, session-preservation,
-upstream-error-redaction, and device-posture controls remain in the candidate.
-These are publication/CI results only. The previous deployment checkpoint
-below is historical evidence for PR #745, not PR #761. PR #761's separate
-point-in-time canary staging status is recorded below; its controlled
-candidate-specific acceptance window is still required.
+read-back. PR #767 changes static asset cache identity; the candidate retains
+the active-session Engine.IO authorization and other controls from earlier
+merged work. These publication/CI results do not replace hardware acceptance.
+The PR #761 and PR #745 checkpoints below are historical evidence for their
+respective candidates, not PR #767. PR #767's point-in-time canary staging
+status is recorded after those checkpoints; its controlled candidate-specific
+acceptance window is still required.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -58,34 +55,48 @@ rehearsed in this checkpoint.
 
 **Result: deployment/startup check passed for the historical PR #745 candidate;
 acceptance remains incomplete. Do not carry that result forward to later
-candidates, including PR #761, or promote a candidate to production on the
-strength of this checkpoint.** The
+candidates, including PR #761 and PR #767, or promote a candidate to production
+on the strength of this checkpoint.** The
 controlled, candidate-matched acceptance window below must still collect its
 required samples and recovery evidence. Keep exact router
 addresses, credentials, session details, and raw logs in private
 operator-controlled records.
 
-## Current candidate status — PR #761
+## Previous candidate status — PR #761
 
-The PR #761 image is published and its exact ARM64 immutable tag was read back
-from the isolated canary on 2026-10-19; RouterOS reported the container healthy
-after start. Production remained on its prior image. This point-in-time
-startup check is not candidate acceptance: the 30-minute window, authenticated
-application readiness, connected test-client events, freshness, reconnect,
-recovery, resource soak, and rollback remain unverified. Prior PR #745
-observations cannot be carried forward. Do not promote until the complete
-pre-promotion report passes and the rollback exercise has been verified.
+The PR #761 candidate is a prior published image; its exact tag and point-in-
+time health check were recorded on 2026-10-19. That startup check is not
+acceptance and is superseded as the current candidate by PR #767 below.
 
-For the next acceptance run, recheck PR #761's exact configured immutable tag
-and health on the canary, then run the pre-promotion collector for that
-candidate. Do not treat the existing point-in-time status as the required
-30-minute readiness window. Do not promote until the report passes and rollback
-has been rehearsed. No resource minimum or cross-model/version certification
-is inferred. See the
-[current release record](RELEASES.md#published-images).
+## Current candidate status — PR #767
+
+The PR #767 image is published. On 2026-10-19, RouterOS read-back confirmed the
+exact ARM64 immutable tag
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-19f7ca90915871d5cfa9e68f356f62dadc90ddf8-arm64`
+and reported the canary healthy after start. The published ARM64 digest is
+`sha256:dd78656ff241eb090cba52c3825a5421b902983a139b9f91403f82f2109586d5`.
+The authenticated dashboard and Connections page loaded and displayed the
+Socket.IO live indicator, but there were zero active devices at that check.
+Production remained on its prior image. The previous canary tag,
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-arm64`,
+is the identified rollback target; rollback has not been rehearsed.
+
+This is point-in-time deployment and application-readiness evidence only. The
+30-minute window, live connect/disconnect and traffic measurements, reconnect
+and snapshot recovery, event/counter integrity, resource soak, Redis/SQLite
+recovery, and rollback remain unverified. Do not promote until the complete
+pre-promotion report passes and rollback is rehearsed. No resource minimum or
+cross-model/version certification is inferred. See the
+[current release record](RELEASES.md#published-images) and
+[acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
+
+For the next acceptance run, recheck the candidate's exact configured immutable
+tag and health on the canary, then run the pre-promotion collector. Do not treat
+the existing point-in-time status as the required 30-minute readiness window.
+Do not promote until the report passes and rollback has been rehearsed.
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
-remain historical and do not prove PR #761's canary readiness or rollback.
+remain historical and do not prove current-candidate canary readiness or rollback.
 See the [installation compatibility
 matrix](INSTALLATION.md#compatibility-and-support-matrix) and [historical release record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05).
 
