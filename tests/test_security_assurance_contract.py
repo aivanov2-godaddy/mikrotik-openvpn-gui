@@ -189,6 +189,39 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("external log layers", unverified)
         self.assertIn("Complete an independent, requirement-by-requirement ASVS review", unverified)
 
+    def test_unverified_section_does_not_deny_historical_canary_observations(self) -> None:
+        unverified_heading = "## Explicitly unverified live-router / deployment evidence"
+        unverified = " ".join(
+            self.document.split(unverified_heading, maxsplit=1)[1]
+            .split("\n## ", maxsplit=1)[0]
+            .split()
+        )
+        self.assertIn("limited, point-in-time deployment and readiness observations", unverified)
+        self.assertIn("not controlled security or operational acceptance tests", unverified)
+        self.assertIn("do not close issue #200", unverified)
+        self.assertNotIn("contains no live-router", unverified)
+
+    def test_sampler_documentation_matches_enabled_runtime_wiring(self) -> None:
+        supervisor_path = ROOT / "telemetry_supervisor.py"
+        supervisor = ast.parse(supervisor_path.read_text(encoding="utf-8"))
+        sampler = next(
+            node
+            for node in supervisor.body
+            if isinstance(node, ast.ClassDef) and node.name == "TelemetryInterfaceSampler"
+        )
+        sampler_docstring = " ".join((ast.get_docstring(sampler) or "").lower().split())
+        self.assertIn(
+            "telemetryruntime constructs it when binary or auto transport is enabled",
+            sampler_docstring,
+        )
+        self.assertIn("starts its sampling worker with the session supervisor", sampler_docstring)
+        self.assertIn(
+            "does not establish that a particular deployment enables either mode",
+            sampler_docstring,
+        )
+        self.assertIn("has no routeros mutation methods", sampler_docstring)
+        self.assertNotIn("no production wiring", sampler_docstring)
+
     def test_routeros_credential_memory_tradeoff_is_not_claimed_as_resolved(self) -> None:
         self.assertIn("Risk decision status: unresolved.", self.document)
         self.assertIn("no second password store is introduced", self.document)
