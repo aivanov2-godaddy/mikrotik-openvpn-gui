@@ -19,15 +19,21 @@ from typing import Any
 
 try:
     from certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
-    from stream_acceptance import validate_stream_acceptance
+    from stream_acceptance import CANARY_ORIGIN, validate_stream_acceptance
     from sqlite_restore_verifier import validate_restore_verification
-    from redis_recovery_acceptance import validate_report as validate_redis_recovery_report
+    from redis_recovery_acceptance import (
+        validate_ci_provenance,
+        validate_report as validate_redis_recovery_report,
+    )
     from rollback_acceptance import summarize_rollback_report, validate_rollback_report
 except ModuleNotFoundError:
     from scripts.certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
-    from scripts.stream_acceptance import validate_stream_acceptance
+    from scripts.stream_acceptance import CANARY_ORIGIN, validate_stream_acceptance
     from scripts.sqlite_restore_verifier import validate_restore_verification
-    from scripts.redis_recovery_acceptance import validate_report as validate_redis_recovery_report
+    from scripts.redis_recovery_acceptance import (
+        validate_ci_provenance,
+        validate_report as validate_redis_recovery_report,
+    )
     from scripts.rollback_acceptance import summarize_rollback_report, validate_rollback_report
 
 
@@ -131,6 +137,7 @@ def evaluate(
     registry_verification: Any = None
     registry_digests_verified = False
     validated_stream_acceptance: dict[str, Any] | None = None
+    browser_origin_readiness: dict[str, Any] | None = None
     redis_recovery_verification: dict[str, Any] | None = None
     rollback_rehearsal: dict[str, Any] | None = None
     rollback_readbacks: dict[str, Any] | None = None
@@ -144,8 +151,8 @@ def evaluate(
         failures.append("live_collection_missing")
         collection_phase = phase
     else:
-        if not isinstance(collection, dict) or collection.get("format") != "vpn-dashboard-release-collection-v1":
-            raise ValueError("collection must use vpn-dashboard-release-collection-v1")
+        if not isinstance(collection, dict) or collection.get("format") != "vpn-dashboard-release-collection-v2":
+            raise ValueError("collection must use vpn-dashboard-release-collection-v2")
         collection_phase = collection.get("phase")
         if collection_phase not in {"canary-prepromotion", "postpromotion"}:
             raise ValueError("collection phase must be canary-prepromotion or postpromotion")
@@ -198,8 +205,52 @@ def evaluate(
                     now=current_time,
                 )
                 failures.extend(redis_failures)
+                _provenance, provenance_failures = validate_ci_provenance(
+                    raw_redis_recovery.get("ci_provenance")
+                    if isinstance(raw_redis_recovery, dict) else None,
+                    expected_revision=expected_candidate_revision,
+                )
+                failures.extend(provenance_failures)
             except (TypeError, ValueError):
                 failures.append("redis_recovery_ci_evidence_invalid")
+
+        raw_browser_origin = collection.get("browser_origin_readiness")
+        browser_origin_fields = {
+            "origin", "candidate_revision", "observed_revision", "observation_started_at",
+            "observation_ended_at", "ready_sample_count", "matching_sample_count",
+            "all_samples_ready_for_candidate",
+        }
+        origin_start = _timestamp(raw_browser_origin, "observation_started_at") if isinstance(raw_browser_origin, dict) else None
+        origin_end = _timestamp(raw_browser_origin, "observation_ended_at") if isinstance(raw_browser_origin, dict) else None
+        ready_count = raw_browser_origin.get("ready_sample_count") if isinstance(raw_browser_origin, dict) else None
+        matching_count = raw_browser_origin.get("matching_sample_count") if isinstance(raw_browser_origin, dict) else None
+        if (
+            not isinstance(raw_browser_origin, dict)
+            or set(raw_browser_origin) != browser_origin_fields
+            or raw_browser_origin.get("origin") != CANARY_ORIGIN
+            or expected_candidate_revision is None
+            or raw_browser_origin.get("candidate_revision") != expected_candidate_revision
+            or raw_browser_origin.get("observed_revision") != expected_candidate_revision
+            or isinstance(ready_count, bool) or not isinstance(ready_count, int) or ready_count < 1
+            or isinstance(matching_count, bool) or not isinstance(matching_count, int)
+            or matching_count != ready_count
+            or raw_browser_origin.get("all_samples_ready_for_candidate") is not True
+            or origin_start is None or origin_end is None or origin_end < origin_start
+            or collection_started is None or collection_ended is None
+            or origin_start < collection_started or origin_end > collection_ended
+        ):
+            failures.append("browser_origin_readiness_unverified")
+        else:
+            browser_origin_readiness = {
+                "origin": CANARY_ORIGIN,
+                "candidate_revision": expected_candidate_revision,
+                "observed_revision": expected_candidate_revision,
+                "observation_started_at": origin_start.isoformat(),
+                "observation_ended_at": origin_end.isoformat(),
+                "ready_sample_count": ready_count,
+                "matching_sample_count": matching_count,
+                "all_samples_ready_for_candidate": True,
+            }
 
         raw_rollback = collection.get("rollback_rehearsal")
         if raw_rollback is None:
@@ -224,7 +275,7 @@ def evaluate(
         stream_acceptance = collection.get("stream_acceptance")
         if collection_passed and (
             not isinstance(stream_acceptance, dict) or stream_acceptance.get("format") != (
-                "vpn-dashboard-stream-acceptance-v1"
+                "vpn-dashboard-stream-acceptance-v2"
             )
         ):
             failures.append("stream_acceptance_missing_or_invalid")
@@ -667,7 +718,21 @@ def evaluate(
             "candidate-canary-only" if collection_phase == "canary-prepromotion" else "canary-and-production"
         ),
         "router_runtime_digest_verified": False,
+        "evidence_authenticity": {
+            "redis_recovery": (
+                "github-attestation-claim-verified-during-collection-not-reverified-offline"
+                if isinstance(redis_recovery_verification, dict)
+                and isinstance(redis_recovery_verification.get("ci_provenance"), dict)
+                and redis_recovery_verification["ci_provenance"].get("attestation_verified_during_collection") is True
+                else "not-cryptographically-verified"
+            ),
+            "rollback_readbacks": (
+                rollback_rehearsal.get("evidence_basis") if rollback_rehearsal else "missing"
+            ),
+            "final_report": "unsigned-local-report",
+        },
         "routeros_resource_evidence": routeros_resource_evidence,
+        "browser_origin_readiness": browser_origin_readiness,
         "certificate_lifecycle_acceptance": certificate_lifecycle_acceptance,
         "stream_acceptance": validated_stream_acceptance,
         "sqlite_restore_verification": sqlite_restore_verification,

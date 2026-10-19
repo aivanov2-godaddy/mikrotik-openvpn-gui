@@ -48,7 +48,11 @@ def reports() -> tuple[dict[str, object], dict[str, object]]:
         "observed_stream_healthy": True,
     }
     browser = {
-        "format": "vpn-dashboard-telemetry-acceptance-v1",
+        "format": "vpn-dashboard-telemetry-acceptance-v2",
+        "origin": CANARY_ORIGIN,
+        "candidate_revision": "a" * 40,
+        "observed_revision": "a" * 40,
+        "identity_verified": True,
         "healthy": True,
         "failed_gates": [],
         "observation_started_at": START,
@@ -89,11 +93,19 @@ class StreamAcceptanceTests(unittest.TestCase):
     def test_complete_redacted_browser_and_stream_evidence_passes(self) -> None:
         safe, failures = self.validate(*reports())
         self.assertEqual(failures, [])
-        self.assertEqual(safe["format"], "vpn-dashboard-stream-acceptance-v1")
+        self.assertEqual(safe["format"], "vpn-dashboard-stream-acceptance-v2")
         self.assertEqual(safe["stream_observation"]["reconnect_snapshot_count"], 1)
         self.assertEqual(safe["browser_telemetry"]["session_event_latency_p95_ms"], 450)
         self.assertEqual(safe["browser_telemetry"]["security_tests"], 1)
         self.assertEqual(safe["browser_telemetry"]["verification"], {name: True for name in VERIFICATION_FIELDS})
+
+    def test_self_declared_browser_identity_fails_without_independent_readyz_binding(self) -> None:
+        observer, browser = reports()
+        browser["identity_verified"] = False
+
+        _safe, failures = self.validate(observer, browser)
+
+        self.assertIn("browser_candidate_identity_mismatch", failures)
 
     def test_missing_reports_fail_closed(self) -> None:
         _, failures = self.validate(None, None)
@@ -189,9 +201,20 @@ class StreamAcceptanceTests(unittest.TestCase):
         self.assertIsNone(safe["stream_observation"]["origin"])
         self.assertEqual(safe["stream_observation"]["observed_revision"], "b" * 40)
 
+    def test_browser_evidence_must_be_bound_to_the_canary_candidate(self) -> None:
+        observer, browser = reports()
+        browser["origin"] = "https://vpn.wanted.sx"
+        browser["observed_revision"] = "b" * 40
+
+        safe, failures = self.validate(observer, browser)
+
+        self.assertIn("browser_candidate_identity_mismatch", failures)
+        self.assertIsNone(safe["browser_telemetry"]["origin"])
+        self.assertEqual(safe["browser_telemetry"]["observed_revision"], "b" * 40)
+
     def test_browser_projection_keeps_only_allowlisted_verification_details(self) -> None:
         projection = browser_acceptance_projection({
-            "format": "vpn-dashboard-telemetry-acceptance-v1",
+            "format": "vpn-dashboard-telemetry-acceptance-v2",
             "security_tests": 2,
             "verification": {**{name: True for name in VERIFICATION_FIELDS}, "private": "secret"},
             "private": "PRIVATE-SENTINEL",

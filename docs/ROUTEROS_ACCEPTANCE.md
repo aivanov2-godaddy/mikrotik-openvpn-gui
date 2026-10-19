@@ -274,11 +274,16 @@ rollback rehearsal; that remains a separate controlled RouterOS procedure.
 
 ### Redis recovery CI and canary rollback evidence
 
-The passing collector requires both `--redis-recovery-report` and
+The passing collector requires `--redis-recovery-run-id` and
 `--rollback-report`. The Redis report is produced by the `redis-integration`
-CI job and uploaded as `redis-recovery-<full-source-sha>`. Download the artifact
-from the successful `main` push run for the exact deployed candidate source
-revision (a pull-request merge-ref SHA is not the eventual main commit); the shape is
+CI job and uploaded as `redis-recovery-<full-source-sha>`. The collector uses
+the authenticated GitHub CLI to verify the run metadata, download the exact
+artifact from a successful `main` push for the candidate revision, and verify
+its cryptographically signed GitHub artifact attestation against the CI
+workflow and exact source commit. A separate, main-push-only attestation job
+receives the OIDC and attestation permissions; the integration-test job stays
+limited to read-only repository contents. A
+pull-request merge-ref SHA is not the eventual main commit. The report shape is
 illustrated in [`redis-recovery-evidence.example.json`](redis-recovery-evidence.example.json).
 The example is synthetic and must not be submitted as real test evidence. It is
 source-integration evidence for Redis outage, restart, backlog replay, and
@@ -288,22 +293,47 @@ Reports older than seven days, for a different commit, with missing/skipped
 scenarios, or with extra fields fail closed. Keep CI logs and Redis payloads out
 of the release report.
 
-The rollback input is a redacted operator read-back—not an automated rollback
-command. Follow the canary-only rollback runbook, capture the exact ordered
-read-backs shown in
-[`rollback-rehearsal-evidence.example.json`](rollback-rehearsal-evidence.example.json),
-and do not change production. It must show the production image before and
-after unchanged, the canary candidate healthy and ready, and the canary back
-on its prior immutable image after rollback. Then reapply the candidate and
-capture a final healthy/ready canary read-back before starting the candidate
-soak. Image tag, candidate source SHA,
-and registry digest are checked against the collector's candidate. Read-backs
-must be ordered, completed before the collection starts, and no older than
-24 hours at collection start. This keeps the rollback exercise separate from
-the candidate soak. The router's runtime digest is not independently
-verified by this evidence. The JSON is operator-provided and is not a signed
-attestation; preserve the source evidence privately and never include router
-addresses, credentials, user data, or raw logs.
+The rollback report must be captured by
+`scripts/collect_rollback_acceptance.py`; do not hand-author the checkpoint
+booleans or timestamps. It reads both dashboard containers through authenticated
+RouterOS Binary API and REST, independently checks both `/readyz` origins, and
+fails unless those observations agree. Probes are restricted to the exact HTTPS
+hosts `vpn-dev.wanted.sx` for canary and `vpn.wanted.sx` for production; IP
+literals, plaintext HTTP, nonstandard ports, and arbitrary hosts are rejected.
+It prompts for six ordered
+canary-only stages; it does not issue RouterOS commands or modify production.
+Use the redacted shape in
+[`rollback-rehearsal-evidence.example.json`](rollback-rehearsal-evidence.example.json)
+only to understand the schema, never as real evidence. The source observations
+must show production unchanged, the canary candidate healthy and ready, rollback
+to the exact previous image, and candidate restoration before its soak. The
+RouterOS-configured image tag is read back; the collector does not claim that
+the router's cached image digest was verified. The report is explicitly
+`operator-attested-unsigned`: its schema and values are validated, but the saved
+file is editable and is not cryptographic proof that the historical API reads
+occurred. It cannot by itself establish cryptographically verified acceptance.
+Keep it private and never include router addresses, credentials, user data, or
+raw logs.
+
+Run the rollback capture before the candidate soak, with read-only RouterOS
+API/REST credentials supplied via the documented environment variables (or
+entered at hidden prompts). Readiness URLs must use the exact configured
+environment hostname over HTTPS.
+
+```powershell
+python scripts/collect_rollback_acceptance.py `
+  --output private-rollback-rehearsal.json `
+  --candidate-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<candidate-sha>-arm64 `
+  --candidate-digest sha256:<candidate-registry-digest> `
+  --previous-canary-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<previous-sha>-arm64 `
+  --production-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<production-sha>-arm64 `
+  --canary-url https://vpn-dev.wanted.sx `
+  --production-url https://vpn.wanted.sx
+```
+
+The example uses placeholders; replace them locally. The capture remains
+read-only and asks the operator to perform each canary transition between
+checkpoints. Never promote production as part of this drill.
 
 ### Certificate lifecycle acceptance evidence
 
@@ -372,7 +402,7 @@ observer only accepts an explicitly named canary/development HTTPS origin; it
 does not record event payloads, identities, addresses, or credentials.
 
 The telemetry-acceptance evaluator emits a
-`vpn-dashboard-telemetry-acceptance-v1` aggregate with its sample window,
+`vpn-dashboard-telemetry-acceptance-v2` aggregate with its sample window,
 browser-visible connect/disconnect and traffic-update counts, transition
 latency p95, maximum traffic-sample age, sequence/gap/duplicate/order counts,
 and reconnect-test outcome. The release collector takes only those allowlisted
@@ -407,8 +437,11 @@ python scripts/telemetry_stream_observer.py `
 
 # Terminal 2 / trusted browser harness: capture redacted
 # sample/session/traffic/reconnect records during the same window into
-# private-telemetry-acceptance.ndjson. Run telemetry_acceptance.py against it
-# after collection if you want the standalone diagnostic summary.
+# private-telemetry-acceptance.ndjson. Include one timestamped
+# deployment_identity record with the fixed canary origin and candidate SHA;
+# the release collector verifies it against repeated direct /readyz
+# observations covering this same window. A one-shot standalone readiness
+# check cannot establish soak identity.
 
 # Terminal 3: app plus RouterOS collection, started within five seconds of the
 # other captures. The observer report is read after the soak ends.
@@ -475,7 +508,14 @@ collector. Canary rollback and production-protection checks remain operator
 exercises and must be timestamped within the preceding 24 hours (or during the
 window). Missing, future-dated, or older exercise claims fail acceptance; do
 not copy results from an earlier release. Local evidence files are not
-cryptographic attestations and can be edited after collection.
+cryptographic attestations and can be edited after collection. Release reports
+therefore include an `evidence_authenticity` projection: Redis source evidence
+is marked `github-attestation-claim-verified-during-collection-not-reverified-offline`,
+meaning the collector verified the source artifact at collection time but the
+local evaluator does not reverify that signature; rollback read-backs are
+operator-attested and unsigned, and the final local report is unsigned. A `passed` value means
+recorded acceptance gates passed under those stated evidence assumptions; it is
+not a cryptographic signature over the overall report.
 
 ```powershell
 $secureCanaryToken = Read-Host 'Canary health.read API token' -AsSecureString
@@ -485,7 +525,7 @@ python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
   --routeros-report private-routeros-window.json `
-  --redis-recovery-report private-redis-recovery.json `
+  --redis-recovery-run-id 123456789 `
   --rollback-report private-rollback-rehearsal.json `
   --stream-observer-report private-stream-observation.json `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
@@ -619,7 +659,7 @@ python scripts/collect_release_acceptance.py `
   --input private-release-evidence.json `
   --output private-release-collection.json `
   --routeros-report private-routeros-window.json `
-  --redis-recovery-report private-redis-recovery.json `
+  --redis-recovery-run-id 123456789 `
   --rollback-report private-rollback-rehearsal.json `
   --stream-observer-report private-stream-observation.json `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `

@@ -31,7 +31,8 @@ OBSERVER_FIELDS = frozenset({
 })
 
 BROWSER_FIELDS = frozenset({
-    "format", "healthy", "failed_gates", "observation_started_at",
+    "format", "healthy", "failed_gates", "observation_started_at", "origin",
+    "candidate_revision", "observed_revision", "identity_verified",
     "observation_ended_at", "session_transition_count",
     "session_transition_visible_count", "connected_transition_observed",
     "disconnected_transition_observed", "ordered_connect_disconnect_observed",
@@ -122,7 +123,7 @@ def validate_stream_acceptance(
         raise ValueError("evaluation time must include a timezone")
 
     failed: list[str] = []
-    safe: dict[str, Any] = {"format": "vpn-dashboard-stream-acceptance-v1"}
+    safe: dict[str, Any] = {"format": "vpn-dashboard-stream-acceptance-v2"}
 
     if not isinstance(observer, dict):
         failed.append("stream_observation_missing")
@@ -257,8 +258,15 @@ def validate_stream_acceptance(
             now.astimezone(timezone.utc) - browser_end
         ).total_seconds() > MAX_REPORT_AGE_SECONDS:
             failed.append("browser_telemetry_stale")
-        if browser.get("format") != "vpn-dashboard-telemetry-acceptance-v1":
+        if browser.get("format") != "vpn-dashboard-telemetry-acceptance-v2":
             failed.append("browser_telemetry_format_invalid")
+        if (
+            browser.get("origin") != CANARY_ORIGIN
+            or browser.get("candidate_revision") != expected_candidate_revision
+            or browser.get("observed_revision") != expected_candidate_revision
+            or browser.get("identity_verified") is not True
+        ):
+            failed.append("browser_candidate_identity_mismatch")
         if browser.get("healthy") is not True or browser.get("failed_gates") != []:
             failed.append("browser_telemetry_failed")
         security_tests = _count(browser.get("security_tests"))
@@ -327,7 +335,15 @@ def validate_stream_acceptance(
         ):
             failed.append("browser_reconnect_evidence_failed")
         safe["browser_telemetry"] = {
-            "format": "vpn-dashboard-telemetry-acceptance-v1",
+            "format": "vpn-dashboard-telemetry-acceptance-v2",
+            "origin": browser.get("origin") if browser.get("origin") == CANARY_ORIGIN else None,
+            "candidate_revision": browser.get("candidate_revision")
+            if isinstance(browser.get("candidate_revision"), str)
+            and REVISION_PATTERN.fullmatch(browser["candidate_revision"]) else None,
+            "observed_revision": browser.get("observed_revision")
+            if isinstance(browser.get("observed_revision"), str)
+            and REVISION_PATTERN.fullmatch(browser["observed_revision"]) else None,
+            "identity_verified": browser.get("identity_verified") is True,
             "failed_gates": [],
             "observation_started_at": browser.get("observation_started_at") if browser_start else None,
             "observation_ended_at": browser.get("observation_ended_at") if browser_end else None,

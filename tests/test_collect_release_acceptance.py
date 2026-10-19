@@ -18,7 +18,12 @@ from scripts.collect_release_acceptance import (
 )
 from scripts.sqlite_restore_verifier import verify_sqlite_restore
 from scripts.stream_acceptance import CANARY_ORIGIN, VERIFICATION_FIELDS
-from scripts.redis_recovery_acceptance import REPORT_FORMAT as REDIS_RECOVERY_FORMAT, REQUIRED_TEST_NAMES
+from scripts.redis_recovery_acceptance import (
+    REPORT_FORMAT as REDIS_RECOVERY_FORMAT,
+    REQUIRED_TEST_NAMES,
+    report_projection_sha256,
+    validate_report as validate_redis_report,
+)
 from scripts.rollback_acceptance import REPORT_FORMAT as ROLLBACK_REPORT_FORMAT
 from store import MetadataStore
 
@@ -39,6 +44,31 @@ def redis_recovery_report(revision: str = REVISION) -> dict[str, object]:
     }
 
 
+def redis_ci_provenance(revision: str = REVISION) -> dict[str, object]:
+    report = redis_recovery_report(revision)
+    safe, failures = validate_redis_report(
+        report,
+        expected_revision=revision,
+        now=datetime(2026, 10, 2, 10, tzinfo=timezone.utc),
+    )
+    if failures or safe is None:
+        raise AssertionError("test Redis recovery fixture is invalid")
+    return {
+        "repository": "aivanov2-godaddy/mikrotik-openvpn-gui",
+        "workflow_path": ".github/workflows/ci.yml",
+        "event": "push",
+        "branch": "main",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": revision,
+        "run_id": "123456789",
+        "artifact_id": "987654321",
+        "artifact_name": f"redis-recovery-{revision}",
+        "attestation_verified_during_collection": True,
+        "report_sha256": report_projection_sha256(safe),
+    }
+
+
 def rollback_report_for(
     candidate_image: str,
     candidate_digest: str,
@@ -49,12 +79,31 @@ def rollback_report_for(
     prior_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
 
     def readback(environment: str, image: str, offset_seconds: int) -> dict[str, object]:
+        observed = (start + timedelta(seconds=offset_seconds)).isoformat()
+        canary_revision = image.split(":sha-", 1)[1].split("-arm64", 1)[0] if environment == "canary" else prior_image.split(":sha-", 1)[1].split("-arm64", 1)[0]
+        production_revision = production_image.split(":sha-", 1)[1].split("-arm64", 1)[0]
+        source = {
+            "collector": "authenticated-routeros-api-rest-readyz-v1",
+            "captured_at": observed,
+            "api_authenticated": True,
+            "rest_authenticated": True,
+            "rest_parity_verified": True,
+            "canary_revision": canary_revision,
+            "production_revision": production_revision,
+            "canary_ready_revision": canary_revision,
+            "production_ready_revision": production_revision,
+            "canary_healthy": True,
+            "production_healthy": True,
+            "canary_ready": True,
+            "production_ready": True,
+        }
         return {
             "environment": environment,
-            "observed_at": (start + timedelta(seconds=offset_seconds)).isoformat(),
+            "observed_at": observed,
             "image": image,
             "healthy": True,
             "ready": True,
+            "source": source,
         }
 
     return {
@@ -614,6 +663,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         unknown_metric_sample: int | None = None,
         wall_clock_adjustment_seconds: float = 0,
         phase: str = "postpromotion",
+        browser_origin_revision: str | None = None,
         production_revision: str | None = None,
         production_observed_revision: str | None = None,
         registry_digests: dict[str, str | None] | None = None,
@@ -683,11 +733,14 @@ class ReleaseCollectionTests(unittest.TestCase):
             if url.endswith("/healthz"):
                 return (200 if ready else 503), b'{"status":"ok"}'
             if url.endswith("/readyz"):
-                expected_revision = (
-                    production_revision
-                    if "private.example" in url and production_revision is not None
-                    else REVISION
-                )
+                if "vpn-dev.wanted.sx" in url and browser_origin_revision is not None:
+                    expected_revision = browser_origin_revision
+                else:
+                    expected_revision = (
+                        production_revision
+                        if "private.example" in url and production_revision is not None
+                        else REVISION
+                    )
                 if "private.example" in url and production_observed_revision is not None:
                     expected_revision = production_observed_revision
                 payload = {"status": "ready", "revision": expected_revision if ready else "f" * 40}
@@ -816,6 +869,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 minimum_health_samples=2,
                 phase=phase,
                 redis_recovery_report=redis_report,
+                redis_recovery_provenance=redis_ci_provenance(redis_source_revision or REVISION),
                 rollback_report=rollback_readbacks,
             )
         finally:
@@ -839,8 +893,12 @@ class ReleaseCollectionTests(unittest.TestCase):
             "latency_note": "not measured; client/server clock offset is not established",
             "failed_gates": [], "observed_stream_healthy": True,
         }
+        verified_identity = report.pop("_verified_deployment_identity", None)
         browser = {
-            "format": "vpn-dashboard-telemetry-acceptance-v1", "healthy": True,
+            "format": "vpn-dashboard-telemetry-acceptance-v2", "healthy": True,
+            "origin": CANARY_ORIGIN,
+            "candidate_revision": REVISION, "observed_revision": REVISION,
+            "identity_verified": verified_identity is not None,
             "failed_gates": [], "observation_started_at": started,
             "observation_ended_at": ended, "session_transition_count": 2,
             "session_transition_visible_count": 2, "connected_transition_observed": True,
@@ -869,8 +927,10 @@ class ReleaseCollectionTests(unittest.TestCase):
             "vpn-dashboard-certificate-lifecycle-acceptance-v1",
         )
         collected = report["evidence"]
-        self.assertEqual(collected["collection"]["format"], "vpn-dashboard-release-collection-v1")
+        self.assertEqual(collected["collection"]["format"], "vpn-dashboard-release-collection-v2")
         self.assertEqual(collected["collection"]["phase"], "postpromotion")
+        self.assertEqual(collected["collection"]["browser_origin_readiness"]["ready_sample_count"], 31)
+        self.assertTrue(collected["collection"]["browser_origin_readiness"]["all_samples_ready_for_candidate"])
         self.assertEqual(
             [entry["verified"] for entry in collected["collection"]["registry_digest_verification"]],
             [True, True],
@@ -906,10 +966,8 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertTrue(all(check["candidate_image"] == IMAGE for check in restore_checks))
         self.assertTrue(all(check["candidate_revision"] == REVISION for check in restore_checks))
         self.assertTrue(all(check["candidate_digest"] == "sha256:" + "b" * 64 for check in restore_checks))
-        collection = report["evidence"]["collection"]
-        self.assertEqual(
-            collection["redis_recovery_verification"]["source_revision"], REVISION
-        )
+        collection = collected["collection"]
+        self.assertEqual(collection["redis_recovery_verification"]["source_revision"], REVISION)
         self.assertEqual(collection["redis_recovery_verification"]["scope"], "source-integration-tests")
         self.assertFalse(collection["redis_recovery_verification"]["runtime_image_digest_verified"])
         self.assertEqual(collection["rollback_rehearsal"]["candidate_image"], IMAGE)
@@ -932,6 +990,13 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertNotIn("private-label", serialized)
         self.assertNotIn("session=secret-cookie", serialized)
         self.assertNotIn("192.168.1.2", serialized)
+
+    def test_browser_origin_candidate_mismatch_blocks_identity_binding(self) -> None:
+        code, report, _seen = self.run_collection(browser_origin_revision="f" * 40)
+
+        self.assertEqual(code, 1)
+        self.assertFalse(report["evidence"]["collection"]["browser_origin_readiness"]["all_samples_ready_for_candidate"])
+        self.assertIn("browser_candidate_identity_mismatch", report["stream_acceptance"]["failed_gates"])
 
     def test_missing_local_backups_override_optimistic_input_and_fail_closed(self) -> None:
         code, report, _ = self.run_collection(missing_sqlite_backups=("canary", "production"))
@@ -1392,6 +1457,10 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "started_at": started,
                     "ended_at": ended,
                     "duration_seconds": 1800,
+                })
+                collected_evidence["collection"]["browser_origin_readiness"].update({
+                    "observation_started_at": started,
+                    "observation_ended_at": ended,
                 })
                 collected_evidence["collection"]["sqlite_restore_verification"]["checks"][0][
                     "checked_at"

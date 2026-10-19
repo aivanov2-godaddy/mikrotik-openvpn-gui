@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 import unittest
 
 from scripts.rollback_acceptance import REPORT_FORMAT, summarize_rollback_report, validate_rollback_report
@@ -14,35 +16,45 @@ START = "2026-10-02T10:00:00Z"
 END = "2026-10-02T10:30:00Z"
 
 
+def readback(environment: str, observed_at: str, image: str) -> dict[str, object]:
+    image_revision = image.split(":sha-", 1)[1].split("-arm64", 1)[0]
+    canary_revision = image_revision if environment == "canary" else "c" * 40
+    production_revision = image_revision if environment == "production" else REVISION
+    return {
+        "environment": environment,
+        "observed_at": observed_at,
+        "image": image,
+        "healthy": True,
+        "ready": True,
+        "source": {
+            "collector": "authenticated-routeros-api-rest-readyz-v1",
+            "captured_at": observed_at,
+            "api_authenticated": True,
+            "rest_authenticated": True,
+            "rest_parity_verified": True,
+            "canary_revision": canary_revision,
+            "production_revision": production_revision,
+            "canary_ready_revision": canary_revision,
+            "production_ready_revision": production_revision,
+            "canary_healthy": True,
+            "production_healthy": True,
+            "canary_ready": True,
+            "production_ready": True,
+        },
+    }
+
+
 def report() -> dict[str, object]:
     return {
         "format": REPORT_FORMAT,
         "candidate_image": CANDIDATE,
         "candidate_digest": DIGEST,
-        "production_before": {
-            "environment": "production", "observed_at": "2026-10-02T09:50:00Z",
-            "image": CANDIDATE, "healthy": True, "ready": True,
-        },
-        "canary_before": {
-            "environment": "canary", "observed_at": "2026-10-02T09:51:00Z",
-            "image": PRIOR, "healthy": True, "ready": True,
-        },
-        "canary_candidate": {
-            "environment": "canary", "observed_at": "2026-10-02T09:52:00Z",
-            "image": CANDIDATE, "healthy": True, "ready": True,
-        },
-        "canary_after_rollback": {
-            "environment": "canary", "observed_at": "2026-10-02T09:53:00Z",
-            "image": PRIOR, "healthy": True, "ready": True,
-        },
-        "production_after": {
-            "environment": "production", "observed_at": "2026-10-02T09:54:00Z",
-            "image": CANDIDATE, "healthy": True, "ready": True,
-        },
-        "canary_candidate_restored": {
-            "environment": "canary", "observed_at": "2026-10-02T09:55:00Z",
-            "image": CANDIDATE, "healthy": True, "ready": True,
-        },
+        "production_before": readback("production", "2026-10-02T09:50:00Z", CANDIDATE),
+        "canary_before": readback("canary", "2026-10-02T09:51:00Z", PRIOR),
+        "canary_candidate": readback("canary", "2026-10-02T09:52:00Z", CANDIDATE),
+        "canary_after_rollback": readback("canary", "2026-10-02T09:53:00Z", PRIOR),
+        "production_after": readback("production", "2026-10-02T09:54:00Z", CANDIDATE),
+        "canary_candidate_restored": readback("canary", "2026-10-02T09:55:00Z", CANDIDATE),
     }
 
 
@@ -62,11 +74,28 @@ class RollbackAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(failures, [])
         safe = summarize_rollback_report(validated)
+        self.assertEqual(safe["evidence_basis"], "operator-attested-unsigned")
         self.assertTrue(safe["production_unchanged"])
         self.assertEqual(safe["rollback_target_image"], PRIOR)
         self.assertIs(safe["router_runtime_digest_verified"], False)
         self.assertTrue(safe["candidate_restored_before_soak"])
         self.assertEqual(safe["readbacks"]["canary_after_rollback"]["revision"], "c" * 40)
+
+    def test_documented_example_matches_the_source_bound_schema(self) -> None:
+        example_path = Path(__file__).resolve().parents[1] / "docs" / "rollback-rehearsal-evidence.example.json"
+        value = json.loads(example_path.read_text(encoding="utf-8"))
+
+        validated, failures = validate_rollback_report(
+            value,
+            candidate_image=value["candidate_image"],
+            candidate_digest=value["candidate_digest"],
+            production_image=value["production_before"]["image"],
+            collection_started_at="2026-10-19T12:00:00Z",
+            collection_ended_at="2026-10-19T12:30:00Z",
+        )
+
+        self.assertEqual(failures, [])
+        self.assertIsNotNone(validated)
 
     def test_candidate_must_be_restored_after_rollback_before_soak(self) -> None:
         value = report()
@@ -93,6 +122,7 @@ class RollbackAcceptanceTests(unittest.TestCase):
             "production_after", "canary_candidate_restored",
         ):
             value[name]["observed_at"] = "2026-09-30T09:00:00Z"
+            value[name]["source"]["captured_at"] = "2026-09-30T09:00:00Z"
 
         safe, failures = self.validate(value)
 
@@ -101,6 +131,7 @@ class RollbackAcceptanceTests(unittest.TestCase):
 
         value = report()
         value["production_after"]["observed_at"] = "2026-10-02T10:00:01Z"
+        value["production_after"]["source"]["captured_at"] = "2026-10-02T10:00:01Z"
         safe, failures = self.validate(value)
 
         self.assertIsNone(safe)
@@ -139,9 +170,28 @@ class RollbackAcceptanceTests(unittest.TestCase):
 
         value = copy.deepcopy(report())
         value["production_before"]["observed_at"] = "2026-10-01T09:59:00Z"
+        value["production_before"]["source"]["captured_at"] = "2026-10-01T09:59:00Z"
         safe, failures = self.validate(value)
         self.assertIsNone(safe)
         self.assertIn("rollback_readback_outside_window", failures)
+
+    def test_manual_or_unbound_readback_is_rejected(self) -> None:
+        value = report()
+        value["canary_candidate"]["source"].pop("rest_parity_verified")
+
+        safe, failures = self.validate(value)
+
+        self.assertIsNone(safe)
+        self.assertIn("rollback_readback_invalid", failures)
+
+    def test_production_state_is_bound_across_every_checkpoint(self) -> None:
+        value = report()
+        value["canary_candidate"]["source"]["production_revision"] = "e" * 40
+
+        safe, failures = self.validate(value)
+
+        self.assertIsNone(safe)
+        self.assertIn("production_image_changed_during_canary_rollback", failures)
 
 
 if __name__ == "__main__":

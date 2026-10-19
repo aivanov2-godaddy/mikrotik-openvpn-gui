@@ -12,7 +12,14 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from scripts.release_acceptance import evaluate, main
-from scripts.redis_recovery_acceptance import REPORT_FORMAT as REDIS_RECOVERY_FORMAT, REQUIRED_TEST_NAMES
+from scripts.redis_recovery_acceptance import (
+    REPORT_FORMAT as REDIS_RECOVERY_FORMAT,
+    REQUIRED_TEST_NAMES,
+    CI_REPOSITORY,
+    CI_WORKFLOW_PATH,
+    report_projection_sha256,
+    validate_report as validate_redis_report,
+)
 from scripts.rollback_acceptance import REPORT_FORMAT as ROLLBACK_REPORT_FORMAT
 
 
@@ -25,9 +32,27 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         prior = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
 
         def readback(environment: str, observed_at: str, image: str) -> dict[str, object]:
+            observed_revision = image.split(":sha-", 1)[1].split("-arm64", 1)[0]
+            production_revision = production_image.split(":sha-", 1)[1].split("-arm64", 1)[0]
+            canary_revision = observed_revision if environment == "canary" else prior.split(":sha-", 1)[1].split("-arm64", 1)[0]
             return {
                 "environment": environment, "observed_at": observed_at,
                 "image": image, "healthy": True, "ready": True,
+                "source": {
+                    "collector": "authenticated-routeros-api-rest-readyz-v1",
+                    "captured_at": observed_at,
+                    "api_authenticated": True,
+                    "rest_authenticated": True,
+                    "rest_parity_verified": True,
+                    "canary_revision": canary_revision,
+                    "production_revision": production_revision,
+                    "canary_ready_revision": canary_revision,
+                    "production_ready_revision": production_revision,
+                    "canary_healthy": True,
+                    "production_healthy": True,
+                    "canary_ready": True,
+                    "production_ready": True,
+                },
             }
 
         return {
@@ -94,12 +119,22 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.evidence = {
             "format": "vpn-dashboard-release-evidence-v2",
             "collection": {
-                "format": "vpn-dashboard-release-collection-v1",
+                "format": "vpn-dashboard-release-collection-v2",
                 "phase": "postpromotion",
                 "passed": True,
                 "failed_gates": [],
                 "started_at": "2026-10-02T10:00:00Z",
                 "ended_at": "2026-10-02T10:30:00Z",
+                "browser_origin_readiness": {
+                    "origin": "https://vpn-dev.wanted.sx",
+                    "candidate_revision": revision,
+                    "observed_revision": revision,
+                    "observation_started_at": "2026-10-02T10:00:00Z",
+                    "observation_ended_at": "2026-10-02T10:30:00Z",
+                    "ready_sample_count": 31,
+                    "matching_sample_count": 31,
+                    "all_samples_ready_for_candidate": True,
+                },
                 "certificate_lifecycle_acceptance": self._certificate_lifecycle_acceptance(),
                 "registry_digest_verification": [
                     {
@@ -119,6 +154,20 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     "test_results": {name: "passed" for name in REQUIRED_TEST_NAMES},
                     "scope": "source-integration-tests",
                     "runtime_image_digest_verified": False,
+                    "ci_provenance": {
+                        "repository": CI_REPOSITORY,
+                        "workflow_path": CI_WORKFLOW_PATH,
+                        "event": "push",
+                        "branch": "main",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "head_sha": revision,
+                        "run_id": "123456789",
+                        "artifact_id": "987654321",
+                        "artifact_name": f"redis-recovery-{revision}",
+                        "attestation_verified_during_collection": True,
+                        "report_sha256": "d" * 64,
+                    },
                 },
                 "rollback_rehearsal": self._rollback_readbacks(
                     revision, "sha256:" + "b" * 64, f"ghcr.io/example/vpn:sha-{revision}-arm64"
@@ -190,6 +239,15 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 for environment in ("canary", "production")
             ],
         }
+        redis_report = self.evidence["collection"]["redis_recovery_verification"]
+        raw_redis_report = dict(redis_report)
+        raw_redis_report.pop("ci_provenance")
+        safe_redis_report, redis_failures = validate_redis_report(
+            raw_redis_report, expected_revision=revision, now=self.NOW
+        )
+        if redis_failures or safe_redis_report is None:
+            raise AssertionError("release test Redis report fixture is invalid")
+        redis_report["ci_provenance"]["report_sha256"] = report_projection_sha256(safe_redis_report)
         from scripts.stream_acceptance import CANARY_ORIGIN, VERIFICATION_FIELDS, validate_stream_acceptance
 
         start = "2026-10-02T10:00:00Z"
@@ -212,7 +270,10 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "failed_gates": [], "observed_stream_healthy": True,
         }
         browser = {
-            "format": "vpn-dashboard-telemetry-acceptance-v1", "healthy": True,
+            "format": "vpn-dashboard-telemetry-acceptance-v2", "healthy": True,
+            "origin": "https://vpn-dev.wanted.sx",
+            "candidate_revision": revision, "observed_revision": revision,
+            "identity_verified": True,
             "failed_gates": [], "observation_started_at": start,
             "observation_ended_at": end, "session_transition_count": 2,
             "session_transition_visible_count": 2, "connected_transition_observed": True,
@@ -243,7 +304,15 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertNotIn("details", report["deployments"][0])
         self.assertTrue(report["registry_tag_digests_verified"])
         self.assertFalse(report["router_runtime_digest_verified"])
-        self.assertEqual(report["stream_acceptance"]["format"], "vpn-dashboard-stream-acceptance-v1")
+        self.assertEqual(report["stream_acceptance"]["format"], "vpn-dashboard-stream-acceptance-v2")
+        self.assertEqual(
+            report["evidence_authenticity"],
+            {
+                "redis_recovery": "github-attestation-claim-verified-during-collection-not-reverified-offline",
+                "rollback_readbacks": "operator-attested-unsigned",
+                "final_report": "unsigned-local-report",
+            },
+        )
         self.assertEqual(
             report["certificate_lifecycle_acceptance"]["candidate_digest"],
             self.evidence["deployments"][0]["digest"],
@@ -332,7 +401,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_failed_live_collection_cannot_be_overridden_by_deployment_claims(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["collection"] = {
-            "format": "vpn-dashboard-release-collection-v1",
+            "format": "vpn-dashboard-release-collection-v2",
             "phase": "postpromotion",
             "passed": False,
             "failed_gates": ["canary_traffic_sample_stale"],
@@ -352,12 +421,13 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_passing_live_collection_is_accepted_and_malformed_collection_is_rejected(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["collection"] = {
-            "format": "vpn-dashboard-release-collection-v1",
+            "format": "vpn-dashboard-release-collection-v2",
             "phase": "postpromotion",
             "passed": True,
             "failed_gates": [],
             "started_at": "2026-10-02T10:00:00Z",
             "ended_at": "2026-10-02T10:30:00Z",
+            "browser_origin_readiness": deepcopy(self.evidence["collection"]["browser_origin_readiness"]),
             "registry_digest_verification": deepcopy(self.evidence["collection"]["registry_digest_verification"]),
             "redis_recovery_verification": deepcopy(self.evidence["collection"]["redis_recovery_verification"]),
             "rollback_rehearsal": deepcopy(self.evidence["collection"]["rollback_rehearsal"]),
