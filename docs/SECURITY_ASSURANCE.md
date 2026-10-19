@@ -447,6 +447,25 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
   Python string handling cannot provide reliable secure erasure. The current
   RouterOS API integration requires reusable credentials; replacing that
   model needs a RouterOS-supported alternative and is not solved here.
+  The production entrypoint sets both POSIX RLIMIT_CORE limits to zero before
+  importing the application; the direct HTTP and ASGI runtime main functions
+  also apply the guard before server startup. Startup fails closed if the
+  process limit cannot be applied. This is defense in depth against ordinary
+  per-process core files, not proof that host dumps are disabled: Linux ignores
+  RLIMIT_CORE when its kernel core pattern pipes dumps to a collector, and this
+  setting does not prevent privileged host memory inspection or other dump
+  mechanisms. See the
+  [Linux resource-limit](https://man7.org/linux/man-pages/man2/getrlimit.2.html)
+  and [core-dump](https://man7.org/linux/man-pages/man5/core.5.html)
+  documentation. Regressions cover limit application and failure, plus startup
+  ordering in the entrypoint, HTTP runtime, and ASGI runtime:
+  tests/test_entrypoint.py::ProcessCoreDumpTests.test_posix_runtime_sets_soft_and_hard_core_limits_to_zero,
+  tests/test_entrypoint.py::ProcessCoreDumpTests.test_posix_runtime_fails_closed_when_limit_cannot_be_set,
+  tests/test_entrypoint.py::ProcessCoreDumpTests.test_core_dump_guard_runs_before_runtime_imported_main,
+  tests/test_entrypoint.py::ProcessCoreDumpTests.test_http_runtime_guards_before_building_application, and
+  tests/test_entrypoint.py::ProcessCoreDumpTests.test_asgi_runtime_guards_before_creating_application;
+  the deployed host's
+  collector/core-pattern policy remains unverified.
   **Risk decision status: unresolved.** The repository records this trade-off
   but contains no named risk owner, formal acceptance, or review date; deployment
   or continued use must not be interpreted as risk acceptance. Revisit before
@@ -590,8 +609,8 @@ test window:
 - Verify proxy TLS termination, secure-cookie handling, same-origin policy,
   and expected cross-origin denial using the actual public deployment.
 - Review RouterOS user permissions and credential-memory exposure on the
-  physical host; this code-only change cannot inspect host process memory or
-  router policy.
+  physical host, including the host core-dump collector policy; this code-only
+  change cannot inspect host process memory or router policy.
 - Verify deployed application, reverse-proxy, and host logs do not expose
   credentials, session cookies, or profile-share bearer URLs. Repository tests
   cover only the application's sanitized access logger, not external log

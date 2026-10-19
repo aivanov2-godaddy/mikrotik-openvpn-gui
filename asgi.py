@@ -29,7 +29,7 @@ from app import (
     build_context,
     drop_runtime_privileges,
 )
-from security import SECURITY_HEADERS
+from security import SECURITY_HEADERS, disable_process_core_dumps
 
 
 ASGIMessage = dict[str, Any]
@@ -1191,6 +1191,7 @@ def create_application() -> tuple[Any, DashboardServer, Any]:
 
 
 def main() -> None:
+    disable_process_core_dumps()
     import uvicorn
 
     application, server, redirect_server = create_application()

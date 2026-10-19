@@ -3,11 +3,25 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import os
 import secrets
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+
+def disable_process_core_dumps() -> None:
+    """Fail closed if POSIX process core-file limits cannot be disabled."""
+    if os.name != "posix":
+        return
+
+    try:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    except (AttributeError, ImportError, OSError, ValueError):
+        raise SystemExit("Unable to disable process core dumps") from None
 
 
 SESSION_IDLE_SECONDS = 30 * 60
