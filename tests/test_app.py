@@ -26,7 +26,7 @@ from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from routeros_binary import RouterOSReply
 from security import LoginRateLimiter, SessionStore, has_capability
 from store import MetadataStore
-from templates import dashboard_page, evaluate_device_posture
+from templates import ASSET_VERSION, _asset_version, _page, dashboard_page, evaluate_device_posture
 from telemetry_socketio_polling import SocketIOPollingBridge
 from tests.mock_routeros import MockRouterOS
 
@@ -58,6 +58,24 @@ class ContainerImageTargetTests(unittest.TestCase):
         self.assertFalse(result["supported"])
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["image_suffix"])
+
+
+class StaticAssetVersionTests(unittest.TestCase):
+    def test_asset_version_changes_when_a_versioned_asset_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            static_dir = Path(temporary_directory)
+            for name in ("app.css", "app.js", "manifest.webmanifest", "openvpn-logo.svg", "socket.io.min.js"):
+                (static_dir / name).write_bytes(name.encode("utf-8"))
+
+            original_version = _asset_version(static_dir)
+            (static_dir / "app.js").write_bytes(b"changed application bundle")
+
+            self.assertNotEqual(original_version, _asset_version(static_dir))
+
+    def test_asset_version_is_used_by_dashboard_asset_urls(self) -> None:
+        self.assertRegex(ASSET_VERSION, r"^[0-9a-f]{16}$")
+        page = _page("test", "", script=True)
+        self.assertIn(f"/static/app.js?v={ASSET_VERSION}", page)
 
 
 class CertificateExpiryParsingTests(unittest.TestCase):
@@ -2352,7 +2370,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'<details class="dashboard-reference">', page)
         self.assertIn(b"How this dashboard works", page)
         self.assertIn(b"View connections", page)
-        self.assertIn(b'<img class="dashboard-openvpn-logo" src="/static/openvpn-logo.svg?v=20261006-openvpn-logo-v1" alt="OpenVPN">', page)
+        self.assertIn(
+            f'<img class="dashboard-openvpn-logo" src="/static/openvpn-logo.svg?v={ASSET_VERSION}" alt="OpenVPN">'.encode(),
+            page,
+        )
         self.assertIn(b"Manage devices", page)
         self.assertIn(b"Connection history", page)
         self.assertIn(b'<details class="user-activity-disclosure">', page)

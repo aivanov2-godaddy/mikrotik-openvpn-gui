@@ -1,16 +1,40 @@
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from icons import icon_sprite
 from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from security import has_capability, normalize_role, role_label
 
-ASSET_VERSION = "20261006-openvpn-logo-v1"
+_VERSIONED_ASSETS = (
+    "app.css",
+    "app.js",
+    "manifest.webmanifest",
+    "openvpn-logo.svg",
+    "socket.io.min.js",
+)
+
+
+def _asset_version(static_dir: Path | None = None) -> str:
+    """Return a content-derived cache key for every versioned UI asset."""
+    asset_root = static_dir or Path(__file__).resolve().parent / "static"
+    digest = hashlib.sha256()
+    for name in _VERSIONED_ASSETS:
+        payload = (asset_root / name).read_bytes()
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return digest.hexdigest()[:16]
+
+
+ASSET_VERSION = _asset_version()
 
 
 def _icon(name: str, extra_class: str = "") -> str:
