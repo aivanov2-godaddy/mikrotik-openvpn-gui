@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from typing import Any, Iterable
@@ -108,6 +109,9 @@ def _source_revision() -> str:
 
 
 def _suite() -> unittest.TestSuite:
+    repository_root = Path(__file__).resolve().parents[1]
+    if str(repository_root) not in sys.path:
+        sys.path.insert(0, str(repository_root))
     from tests.test_redis_integration import RedisOutboxRecoveryTests
 
     loader = unittest.defaultTestLoader
@@ -165,7 +169,8 @@ def run(output: Path) -> int:
                     else "not-run"
                 )
             exit_code = 1
-    except Exception:
+    except Exception as exc:
+        print(f"Redis recovery acceptance setup failed ({type(exc).__name__})", file=sys.stderr)
         exit_code = 2
         test_results = {name: "not-run" for name in REQUIRED_TEST_NAMES}
     ended = datetime.now(timezone.utc)

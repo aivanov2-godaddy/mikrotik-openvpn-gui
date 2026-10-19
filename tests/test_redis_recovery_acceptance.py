@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 from scripts.redis_recovery_acceptance import (
@@ -11,6 +14,25 @@ from scripts.redis_recovery_acceptance import (
 
 
 class RedisRecoveryAcceptanceTests(unittest.TestCase):
+    def test_target_suite_imports_when_invoked_from_scripts_directory(self) -> None:
+        script_directory = Path(__file__).resolve().parents[1] / "scripts"
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from redis_recovery_acceptance import _iter_cases, _suite; "
+                "print(len(list(_iter_cases(_suite()))))",
+            ],
+            cwd=script_directory,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertEqual(probe.stdout.strip(), str(len(REQUIRED_TEST_NAMES)))
+
     def setUp(self) -> None:
         self.report = {
             "format": REPORT_FORMAT,

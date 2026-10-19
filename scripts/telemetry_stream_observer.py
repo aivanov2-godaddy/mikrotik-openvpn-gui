@@ -366,9 +366,6 @@ async def observe(
     *,
     expected_revision: str | None = None,
 ) -> dict[str, Any]:
-    import websockets
-    from websockets.exceptions import InvalidStatus, WebSocketException
-
     parsed_origin = urlsplit(origin)
     local_test_origin = (
         parsed_origin.scheme == "http"
@@ -421,6 +418,9 @@ async def observe(
             failed["failed_gates"] = sorted(set(failed["failed_gates"]) | {"candidate_runtime_revision_mismatch"})
             failed["observed_stream_healthy"] = False
             return failed
+    import websockets
+    from websockets.exceptions import InvalidStatus, WebSocketException
+
     parsed = urlsplit(origin)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     websocket_url = f"{scheme}://{parsed.netloc}/socket.io/?EIO=4&transport=websocket"
