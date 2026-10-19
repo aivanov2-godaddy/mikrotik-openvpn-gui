@@ -31,8 +31,8 @@ try:
     from release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
     from stream_acceptance import CANARY_ORIGIN, browser_acceptance_projection, validate_stream_acceptance
     from sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
+    import redis_recovery_acceptance as redis_recovery_acceptance_module
     from redis_recovery_acceptance import (
-        MAX_CI_ARTIFACT_BYTES as MAX_REDIS_RECOVERY_REPORT_BYTES,
         download_verified_ci_report,
         validate_ci_provenance,
         validate_report as validate_redis_recovery_report,
@@ -43,8 +43,8 @@ except ModuleNotFoundError:
     from scripts.release_acceptance import DIGEST, ENVIRONMENTS, IMAGE, evaluate as validate_evidence
     from scripts.stream_acceptance import CANARY_ORIGIN, browser_acceptance_projection, validate_stream_acceptance
     from scripts.sqlite_restore_verifier import RESTORE_REPORT_FORMAT, verify_sqlite_restore
+    import scripts.redis_recovery_acceptance as redis_recovery_acceptance_module
     from scripts.redis_recovery_acceptance import (
-        MAX_CI_ARTIFACT_BYTES as MAX_REDIS_RECOVERY_REPORT_BYTES,
         download_verified_ci_report,
         validate_ci_provenance,
         validate_report as validate_redis_recovery_report,
@@ -52,6 +52,7 @@ except ModuleNotFoundError:
     from scripts.rollback_acceptance import summarize_rollback_report, validate_rollback_report
 
 
+MAX_REDIS_RECOVERY_REPORT_BYTES = redis_recovery_acceptance_module.MAX_CI_ARTIFACT_BYTES
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_REGISTRY_RESPONSE_BYTES = 65_536
 MAX_DURATION_SECONDS = 86_400
