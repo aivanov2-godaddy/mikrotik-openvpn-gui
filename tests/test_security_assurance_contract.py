@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 import unittest
 from pathlib import Path
@@ -10,47 +11,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSURANCE_DOCUMENT = ROOT / "docs" / "SECURITY_ASSURANCE.md"
+ASVS_CONTROL_FIXTURE = ROOT / "tests" / "fixtures" / "asvs_5_0_0_scoped_control_ids.json"
 VALID_MATRIX_STATUSES = {"TESTED", "PARTIAL", "GAP", "N/A", "EXTERNAL"}
-SCOPED_ASVS_CONTROLS = frozenset(
-    {
-        "V3.3.1",
-        "V3.3.2",
-        "V3.3.3",
-        "V3.3.4",
-        "V3.3.5",
-        "V3.5.1",
-        "V7.1.1",
-        "V7.1.2",
-        "V7.1.3",
-        "V7.2.1–V7.2.3",
-        "V7.2.4",
-        "V7.3.1–V7.3.2",
-        "V7.4.1",
-        "V7.4.2",
-        "V7.4.3",
-        "V7.4.4",
-        "V7.4.5",
-        "V7.5.1",
-        "V7.5.2",
-        "V7.5.3",
-        "V7.6.1",
-        "V7.6.2",
-        "V8.1.1",
-        "V8.1.2",
-        "V8.1.3–V8.1.4",
-        "V8.2.1",
-        "V8.2.2",
-        "V8.2.3",
-        "V8.2.4",
-        "V8.3.1",
-        "V8.3.2",
-        "V8.3.3",
-        "V8.4.1",
-        "V8.4.2",
-        "V4.4.1",
-        "V4.4.2",
-        "V4.4.3–V4.4.4",
-    }
+EXPECTED_ASVS_VERSION = "5.0.0"
+EXPECTED_ASVS_SOURCE = "https://github.com/OWASP/ASVS/tree/v5.0.0_release"
+EXPECTED_ASVS_SOURCE_ARTIFACT = (
+    "https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0_release/5.0/docs_en/"
+    "OWASP_Application_Security_Verification_Standard_5.0.0_en.json"
+)
+EXPECTED_ASVS_SOURCE_SHA256 = (
+    "bcdbec214d70abcfad9284a31d4f9e5134305831d628aad3aa85d7e26626cb35"
+)
+ASVS_CONTROL_ID = re.compile(r"V[1-9]\d*\.[1-9]\d*\.[1-9]\d*")
+ASVS_CONTROL_RANGE = re.compile(
+    rf"(?P<start>{ASVS_CONTROL_ID.pattern})\s*[-\u2013\u2014]\s*"
+    rf"(?P<end>{ASVS_CONTROL_ID.pattern})"
 )
 TEST_REFERENCE = re.compile(
     r"(tests/[A-Za-z0-9_./]+\.py)::([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
@@ -78,6 +53,37 @@ def _assurance_matrix(document: str) -> list[list[str]]:
             continue
         table.append(cells)
     return table
+
+
+def _load_asvs_control_fixture() -> dict[str, object]:
+    fixture = json.loads(ASVS_CONTROL_FIXTURE.read_text(encoding="utf-8"))
+    if not isinstance(fixture, dict):
+        raise AssertionError("ASVS control fixture must be a JSON object")
+    return fixture
+
+
+def _expand_asvs_control_cell(cell: str) -> list[str]:
+    """Expand a single ASVS identifier or an inclusive same-section range."""
+    if ASVS_CONTROL_ID.fullmatch(cell):
+        return [cell]
+
+    match = ASVS_CONTROL_RANGE.fullmatch(cell)
+    if match is None:
+        raise ValueError(f"invalid ASVS control or range: {cell!r}")
+
+    start_parts = tuple(int(part) for part in match.group("start")[1:].split("."))
+    end_parts = tuple(int(part) for part in match.group("end")[1:].split("."))
+    if start_parts[:2] != end_parts[:2]:
+        raise ValueError(f"ASVS range must remain within one section: {cell!r}")
+    if start_parts[2] > end_parts[2]:
+        raise ValueError(f"ASVS range must be in ascending order: {cell!r}")
+
+    chapter, section, first_requirement = start_parts
+    last_requirement = end_parts[2]
+    return [
+        f"V{chapter}.{section}.{requirement}"
+        for requirement in range(first_requirement, last_requirement + 1)
+    ]
 
 
 def _has_definition(node: ast.AST, names: list[str]) -> bool:
@@ -138,8 +144,65 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
 
     def test_scoped_asvs_matrix_covers_its_declared_control_set(self) -> None:
         matrix = _assurance_matrix(self.document)
-        actual_controls = {row[0] for row in matrix[1:]}
-        self.assertEqual(actual_controls, SCOPED_ASVS_CONTROLS)
+        fixture_controls = _load_asvs_control_fixture()["control_ids"]
+        self.assertIsInstance(fixture_controls, list)
+        actual_controls = [
+            control
+            for row in matrix[1:]
+            for control in _expand_asvs_control_cell(row[0])
+        ]
+        self.assertEqual(
+            len(actual_controls),
+            len(set(actual_controls)),
+            "ASVS matrix must not repeat a control, including through overlapping ranges",
+        )
+        self.assertEqual(set(actual_controls), set(fixture_controls))
+
+    def test_asvs_control_fixture_pins_version_source_and_digest(self) -> None:
+        fixture = _load_asvs_control_fixture()
+        self.assertEqual(fixture.get("asvs_version"), EXPECTED_ASVS_VERSION)
+        self.assertEqual(fixture.get("source_url"), EXPECTED_ASVS_SOURCE)
+        self.assertEqual(fixture.get("source_artifact_url"), EXPECTED_ASVS_SOURCE_ARTIFACT)
+
+        source_sha256 = fixture.get("source_sha256")
+        self.assertIsInstance(source_sha256, str)
+        self.assertRegex(source_sha256, r"^[0-9a-f]{64}$")
+        self.assertEqual(source_sha256, EXPECTED_ASVS_SOURCE_SHA256)
+
+    def test_asvs_control_fixture_ids_are_unique_and_valid(self) -> None:
+        fixture_controls = _load_asvs_control_fixture().get("control_ids")
+        self.assertIsInstance(fixture_controls, list)
+        self.assertTrue(fixture_controls, "ASVS control fixture must not be empty")
+        self.assertTrue(
+            all(isinstance(control, str) for control in fixture_controls),
+            "ASVS fixture control IDs must all be strings",
+        )
+        self.assertEqual(
+            len(fixture_controls),
+            len(set(fixture_controls)),
+            "ASVS fixture control IDs must be unique",
+        )
+        for control in fixture_controls:
+            with self.subTest(control=control):
+                self.assertRegex(control, rf"^{ASVS_CONTROL_ID.pattern}$")
+
+    def test_asvs_matrix_range_expansion_is_inclusive_and_validated(self) -> None:
+        self.assertEqual(
+            _expand_asvs_control_cell("V7.2.1–V7.2.3"),
+            ["V7.2.1", "V7.2.2", "V7.2.3"],
+        )
+        self.assertEqual(
+            _expand_asvs_control_cell("V4.4.3-V4.4.4"),
+            ["V4.4.3", "V4.4.4"],
+        )
+        self.assertEqual(
+            _expand_asvs_control_cell("V8.1.3—V8.1.4"),
+            ["V8.1.3", "V8.1.4"],
+        )
+        for invalid_range in ("V7.2.3–V7.2.1", "V7.2.1–V7.3.2", "V7.2.1–V7.2.x"):
+            with self.subTest(control_range=invalid_range):
+                with self.assertRaises(ValueError):
+                    _expand_asvs_control_cell(invalid_range)
 
     def test_documented_test_references_resolve_to_existing_test_nodes(self) -> None:
         code_spans = re.findall(r"`([^`]+)`", self.document, flags=re.DOTALL)
