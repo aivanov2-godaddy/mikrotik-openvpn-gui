@@ -1,0 +1,137 @@
+{
+  "format": "vpn-dashboard-rollback-rehearsal-v2",
+  "candidate_image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64",
+  "candidate_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "production_before": {
+    "environment": "production",
+    "observed_at": "2026-10-19T11:50:00+00:00",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-dddddddddddddddddddddddddddddddddddddddd-arm64",
+    "healthy": true,
+    "ready": true,
+    "source": {
+      "collector": "authenticated-routeros-api-rest-readyz-v1",
+      "captured_at": "2026-10-19T11:50:00+00:00",
+      "api_authenticated": true,
+      "rest_authenticated": true,
+      "rest_parity_verified": true,
+      "canary_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_ready_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_ready_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_healthy": true,
+      "production_healthy": true,
+      "canary_ready": true,
+      "production_ready": true
+    }
+  },
+  "canary_before": {
+    "environment": "canary",
+    "observed_at": "2026-10-19T11:50:10+00:00",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-cccccccccccccccccccccccccccccccccccccccc-arm64",
+    "healthy": true,
+    "ready": true,
+    "source": {
+      "collector": "authenticated-routeros-api-rest-readyz-v1",
+      "captured_at": "2026-10-19T11:50:10+00:00",
+      "api_authenticated": true,
+      "rest_authenticated": true,
+      "rest_parity_verified": true,
+      "canary_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_ready_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_ready_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_healthy": true,
+      "production_healthy": true,
+      "canary_ready": true,
+      "production_ready": true
+    }
+  },
+  "canary_candidate": {
+    "environment": "canary",
+    "observed_at": "2026-10-19T11:50:20+00:00",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64",
+    "healthy": true,
+    "ready": true,
+    "source": {
+      "collector": "authenticated-routeros-api-rest-readyz-v1",
+      "captured_at": "2026-10-19T11:50:20+00:00",
+      "api_authenticated": true,
+      "rest_authenticated": true,
+      "rest_parity_verified": true,
+      "canary_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "production_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_ready_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "production_ready_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_healthy": true,
+      "production_healthy": true,
+      "canary_ready": true,
+      "production_ready": true
+    }
+  },
+  "canary_after_rollback": {
+    "environment": "canary",
+    "observed_at": "2026-10-19T11:50:30+00:00",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-cccccccccccccccccccccccccccccccccccccccc-arm64",
+    "healthy": true,
+    "ready": true,
+    "source": {
+      "collector": "authenticated-routeros-api-rest-readyz-v1",
+      "captured_at": "2026-10-19T11:50:30+00:00",
+      "api_authenticated": true,
+      "rest_authenticated": true,
+      "rest_parity_verified": true,
+      "canary_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_ready_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_ready_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_healthy": true,
+      "production_healthy": true,
+      "canary_ready": true,
+      "production_ready": true
+    }
+  },
+  "production_after": {
+    "environment": "production",
+    "observed_at": "2026-10-19T11:50:40+00:00",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-dddddddddddddddddddddddddddddddddddddddd-arm64",
+    "healthy": true,
+    "ready": true,
+    "source": {
+      "collector": "authenticated-routeros-api-rest-readyz-v1",
+      "captured_at": "2026-10-19T11:50:40+00:00",
+      "api_authenticated": true,
+      "rest_authenticated": true,
+      "rest_parity_verified": true,
+      "canary_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_ready_revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "production_ready_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_healthy": true,
+      "production_healthy": true,
+      "canary_ready": true,
+      "production_ready": true
+    }
+  },
+  "canary_candidate_restored": {
+    "environment": "canary",
+    "observed_at": "2026-10-19T11:50:50+00:00",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64",
+    "healthy": true,
+    "ready": true,
+    "source": {
+      "collector": "authenticated-routeros-api-rest-readyz-v1",
+      "captured_at": "2026-10-19T11:50:50+00:00",
+      "api_authenticated": true,
+      "rest_authenticated": true,
+      "rest_parity_verified": true,
+      "canary_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "production_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_ready_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "production_ready_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "canary_healthy": true,
+      "production_healthy": true,
+      "canary_ready": true,
+      "production_ready": true
+    }
+  }
+}

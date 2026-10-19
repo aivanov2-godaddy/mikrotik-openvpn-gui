@@ -108,6 +108,90 @@ class SqliteRestoreVerifierTests(unittest.TestCase):
         self.assertFalse(result["source_opened_read_only"])
         self.assertEqual(result["failure_code"], "backup_too_large")
 
+    def test_insufficient_temporary_space_fails_before_opening_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory) / "backup.sqlite3"
+            backup.write_bytes(b"valid-looking-sized-source")
+
+            with (
+                patch(
+                    "scripts.sqlite_restore_verifier.shutil.disk_usage",
+                    return_value=type("DiskUsage", (), {"free": 0})(),
+                ),
+                patch("scripts.sqlite_restore_verifier.sqlite3.connect") as connect,
+            ):
+                result = verify_sqlite_restore(backup)
+
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["source_opened_read_only"])
+        self.assertEqual(result["failure_code"], "insufficient_temporary_space")
+        connect.assert_not_called()
+
+    def test_interrupted_copy_fails_closed_and_removes_temporary_database(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = MetadataStore(str(root / "live.sqlite3"))
+            backup = root / "backup.sqlite3"
+            store.backup_database(str(backup))
+            real_connect = sqlite3.connect
+            temporary_roots: list[Path] = []
+            real_temporary_directory = tempfile.TemporaryDirectory
+
+            class InterruptedConnection(sqlite3.Connection):
+                def backup(self, _target, **_kwargs) -> None:
+                    raise sqlite3.OperationalError("simulated interrupted copy")
+
+            class RecordingTemporaryDirectory(real_temporary_directory):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    temporary_roots.append(Path(self.name))
+
+            def connect(*args, **kwargs):
+                kwargs["factory"] = InterruptedConnection
+                return real_connect(*args, **kwargs)
+
+            with (
+                patch("scripts.sqlite_restore_verifier.sqlite3.connect", side_effect=connect),
+                patch(
+                    "scripts.sqlite_restore_verifier.tempfile.TemporaryDirectory",
+                    RecordingTemporaryDirectory,
+                ),
+            ):
+                result = verify_sqlite_restore(backup)
+
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["failure_code"], "restore_interrupted")
+        self.assertTrue(result["temporary_copy_removed"])
+        self.assertEqual(len(temporary_roots), 1)
+        self.assertFalse(temporary_roots[0].exists())
+
+    def test_read_only_restore_accepts_live_wal_source_with_uncommitted_write(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "live.sqlite3"
+            MetadataStore(str(database))
+            connection = sqlite3.connect(database)
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(
+                "INSERT INTO user_metadata(vpn_user, email, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                ("committed-user", "committed@example.invalid", 1, 1),
+            )
+            connection.commit()
+            connection.execute("BEGIN")
+            connection.execute(
+                "INSERT INTO user_metadata(vpn_user, email, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                ("uncommitted-user", "uncommitted@example.invalid", 2, 2),
+            )
+
+            result = verify_sqlite_restore(database)
+            connection.rollback()
+            connection.close()
+
+        self.assertTrue(result["verified"])
+        self.assertTrue(result["restored_integrity"])
+        self.assertTrue(result["restored_data_counts_match"])
+
     def test_temporary_permission_failure_fails_closed_before_copying_data(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import unittest
 
-from scripts.stream_acceptance import validate_stream_acceptance
+from scripts.stream_acceptance import (
+    CANARY_ORIGIN,
+    VERIFICATION_FIELDS,
+    browser_acceptance_projection,
+    validate_stream_acceptance,
+)
 
 
 START = "2026-10-02T10:00:00Z"
@@ -18,6 +23,9 @@ def reports() -> tuple[dict[str, object], dict[str, object]]:
         "ended_at": END,
         "duration_seconds": 1800,
         "origin_role": "canary",
+        "origin": CANARY_ORIGIN,
+        "candidate_revision": "a" * 40,
+        "observed_revision": "a" * 40,
         "transport": "socketio-websocket",
         "connections": 2,
         "disconnects": 1,
@@ -40,7 +48,11 @@ def reports() -> tuple[dict[str, object], dict[str, object]]:
         "observed_stream_healthy": True,
     }
     browser = {
-        "format": "vpn-dashboard-telemetry-acceptance-v1",
+        "format": "vpn-dashboard-telemetry-acceptance-v2",
+        "origin": CANARY_ORIGIN,
+        "candidate_revision": "a" * 40,
+        "observed_revision": "a" * 40,
+        "identity_verified": True,
         "healthy": True,
         "failed_gates": [],
         "observation_started_at": START,
@@ -61,6 +73,8 @@ def reports() -> tuple[dict[str, object], dict[str, object]]:
         "out_of_order_event_count": 0,
         "reconnect_test_count": 1,
         "reconnect_success_count": 1,
+        "security_tests": 1,
+        "verification": {name: True for name in VERIFICATION_FIELDS},
     }
     return observer, browser
 
@@ -73,14 +87,25 @@ class StreamAcceptanceTests(unittest.TestCase):
             collection_started_at=START,
             collection_ended_at=END,
             now=NOW,
+            expected_candidate_revision="a" * 40,
         )
 
     def test_complete_redacted_browser_and_stream_evidence_passes(self) -> None:
         safe, failures = self.validate(*reports())
         self.assertEqual(failures, [])
-        self.assertEqual(safe["format"], "vpn-dashboard-stream-acceptance-v1")
+        self.assertEqual(safe["format"], "vpn-dashboard-stream-acceptance-v2")
         self.assertEqual(safe["stream_observation"]["reconnect_snapshot_count"], 1)
         self.assertEqual(safe["browser_telemetry"]["session_event_latency_p95_ms"], 450)
+        self.assertEqual(safe["browser_telemetry"]["security_tests"], 1)
+        self.assertEqual(safe["browser_telemetry"]["verification"], {name: True for name in VERIFICATION_FIELDS})
+
+    def test_self_declared_browser_identity_fails_without_independent_readyz_binding(self) -> None:
+        observer, browser = reports()
+        browser["identity_verified"] = False
+
+        _safe, failures = self.validate(observer, browser)
+
+        self.assertIn("browser_candidate_identity_mismatch", failures)
 
     def test_missing_reports_fail_closed(self) -> None:
         _, failures = self.validate(None, None)
@@ -99,6 +124,7 @@ class StreamAcceptanceTests(unittest.TestCase):
         safe, failures = validate_stream_acceptance(
             observer, browser, collection_started_at=START, collection_ended_at=END,
             now=datetime(2026, 10, 2, 10, 46, tzinfo=timezone.utc),
+            expected_candidate_revision="a" * 40,
         )
         self.assertIn("stream_observation_stale", failures)
         self.assertIn("browser_telemetry_stale", failures)
@@ -112,6 +138,7 @@ class StreamAcceptanceTests(unittest.TestCase):
             collection_started_at=START,
             collection_ended_at="2026-10-02T11:00:00Z",
             now=NOW,
+            expected_candidate_revision="a" * 40,
         )
         self.assertIn("stream_observation_window_invalid", failures)
         self.assertIn("browser_telemetry_window_invalid", failures)
@@ -164,6 +191,48 @@ class StreamAcceptanceTests(unittest.TestCase):
         safe, failures = self.validate(observer, browser)
         self.assertIn("browser_telemetry_schema_invalid", failures)
         self.assertNotIn("PRIVATE-SENTINEL", str(safe))
+
+    def test_stream_origin_and_runtime_revision_must_match_candidate(self) -> None:
+        observer, browser = reports()
+        observer["origin"] = "https://vpn-dev.attacker.example"
+        observer["observed_revision"] = "b" * 40
+        safe, failures = self.validate(observer, browser)
+        self.assertIn("stream_candidate_identity_mismatch", failures)
+        self.assertIsNone(safe["stream_observation"]["origin"])
+        self.assertEqual(safe["stream_observation"]["observed_revision"], "b" * 40)
+
+    def test_browser_evidence_must_be_bound_to_the_canary_candidate(self) -> None:
+        observer, browser = reports()
+        browser["origin"] = "https://vpn.wanted.sx"
+        browser["observed_revision"] = "b" * 40
+
+        safe, failures = self.validate(observer, browser)
+
+        self.assertIn("browser_candidate_identity_mismatch", failures)
+        self.assertIsNone(safe["browser_telemetry"]["origin"])
+        self.assertEqual(safe["browser_telemetry"]["observed_revision"], "b" * 40)
+
+    def test_browser_projection_keeps_only_allowlisted_verification_details(self) -> None:
+        projection = browser_acceptance_projection({
+            "format": "vpn-dashboard-telemetry-acceptance-v2",
+            "security_tests": 2,
+            "verification": {**{name: True for name in VERIFICATION_FIELDS}, "private": "secret"},
+            "private": "PRIVATE-SENTINEL",
+        })
+        self.assertEqual(projection["security_tests"], 2)
+        self.assertEqual(projection["verification"], {name: True for name in VERIFICATION_FIELDS})
+        self.assertNotIn("PRIVATE-SENTINEL", str(projection))
+
+    def test_missing_or_false_verification_details_fail_closed(self) -> None:
+        observer, browser = reports()
+        browser["verification"]["secret_scan_complete"] = False
+        _, failures = self.validate(observer, browser)
+        self.assertIn("browser_security_verification_incomplete", failures)
+
+        observer, browser = reports()
+        browser.pop("verification")
+        _, failures = self.validate(observer, browser)
+        self.assertIn("browser_security_verification_incomplete", failures)
 
     def test_failed_stream_and_browser_evaluations_cannot_be_overridden(self) -> None:
         observer, browser = reports()

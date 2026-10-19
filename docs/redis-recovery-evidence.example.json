@@ -1,0 +1,17 @@
+{
+  "format": "vpn-dashboard-redis-recovery-ci-v1",
+  "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "started_at": "2026-10-18T10:00:00+00:00",
+  "ended_at": "2026-10-18T10:02:00+00:00",
+  "test_results": {
+    "test_ambiguous_publish_retry_keeps_stable_id_for_consumer_deduplication": "passed",
+    "test_background_dispatcher_recovers_and_drains_after_redis_restart": "passed",
+    "test_duplicate_stream_delivery_has_one_idempotent_consumer_effect": "passed",
+    "test_large_outage_backlog_drains_in_bounded_batches_after_recovery": "passed",
+    "test_outbox_survives_redis_restart_and_drains_without_leaking_secrets": "passed",
+    "test_pending_outbox_recovers_when_redis_loses_unacknowledged_stream_data": "passed",
+    "test_worker_restart_after_xadd_retries_durable_event_with_same_id": "passed"
+  },
+  "scope": "source-integration-tests",
+  "runtime_image_digest_verified": false
+}

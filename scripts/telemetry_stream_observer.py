@@ -21,10 +21,15 @@ import re
 import tempfile
 import time
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 NAMESPACE = "/telemetry"
+CANARY_HOST = "vpn-dev.wanted.sx"
+CANARY_ORIGIN = f"https://{CANARY_HOST}"
+REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 MAX_DURATION_SECONDS = 1800
 MAX_COOKIE_LENGTH = 8192
 MAX_SEQUENCES_PER_EPOCH = 100_000
@@ -92,10 +97,52 @@ def validate_canary_origin(value: str) -> str:
         or parsed.fragment
     ):
         raise ValueError("origin must be a credential-free HTTPS origin")
-    first_label = parsed.hostname.casefold().split(".", 1)[0]
-    if "canary" not in first_label and "dev" not in first_label:
-        raise ValueError("origin is not an explicitly named canary or development host")
-    return f"{parsed.scheme}://{parsed.netloc}"
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("origin port is invalid") from error
+    if parsed.hostname.casefold().rstrip(".") != CANARY_HOST or port not in {None, 443}:
+        raise ValueError("origin must exactly match the approved canary host")
+    return CANARY_ORIGIN
+
+
+def validate_revision(value: str) -> str:
+    if not isinstance(value, str) or not REVISION_PATTERN.fullmatch(value):
+        raise ValueError("candidate revision must be a full lowercase Git SHA")
+    return value
+
+
+class _RejectRedirects(HTTPRedirectHandler):
+    """Never forward a session cookie through an HTTP redirect."""
+
+    def redirect_request(self, req: Request, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
+def fetch_runtime_revision(origin: str, cookie: str) -> str:
+    """Read only the authenticated runtime revision from the pinned canary."""
+    approved_origin = validate_canary_origin(origin)
+    request = Request(
+        f"{approved_origin}/api/observability",
+        headers={"Accept": "application/json", "Cookie": cookie, "Origin": approved_origin},
+        method="GET",
+    )
+    opener = build_opener(_RejectRedirects())
+    try:
+        with opener.open(request, timeout=15) as response:
+            if response.status != 200:
+                raise ValueError("runtime revision endpoint was not authorized")
+            body = response.read(65_537)
+    except (HTTPError, URLError, OSError) as error:
+        raise ValueError("runtime revision endpoint could not be verified") from error
+    if len(body) > 65_536:
+        raise ValueError("runtime revision response exceeded its size limit")
+    try:
+        payload = json.loads(body)
+        revision = payload["current"]["revision"]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise ValueError("runtime revision response was invalid") from error
+    return validate_revision(revision)
 
 
 def _non_negative_int(value: Any, name: str) -> int:
@@ -312,13 +359,68 @@ def _write_atomically(path: Path, report: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
-async def observe(origin: str, cookie: str, duration_seconds: float) -> dict[str, Any]:
-    import websockets
-    from websockets.exceptions import InvalidStatus, WebSocketException
+async def observe(
+    origin: str,
+    cookie: str,
+    duration_seconds: float,
+    *,
+    expected_revision: str | None = None,
+) -> dict[str, Any]:
+    parsed_origin = urlsplit(origin)
+    local_test_origin = (
+        parsed_origin.scheme == "http"
+        and parsed_origin.hostname in {"127.0.0.1", "localhost", "::1"}
+        and expected_revision is None
+    )
+    if local_test_origin:
+        if parsed_origin.path not in {"", "/"} or parsed_origin.query or parsed_origin.fragment:
+            raise ValueError("test observer origin must be a bare loopback origin")
+    else:
+        origin = validate_canary_origin(origin)
+        if expected_revision is None:
+            raise ValueError("candidate revision is required for live canary observation")
+        expected_revision = validate_revision(expected_revision)
 
     recorder = TelemetryStreamRecorder()
     started_at = _utc_now()
     started = time.monotonic()
+    observed_revision: str | None = None
+    if expected_revision is not None:
+        try:
+            observed_revision = await asyncio.to_thread(fetch_runtime_revision, origin, cookie)
+        except ValueError:
+            failed = recorder.report(
+                started_at=started_at,
+                ended_at=_utc_now(),
+                duration=time.monotonic() - started,
+                connected_at_end=False,
+            )
+            failed.update({
+                "origin": origin,
+                "candidate_revision": expected_revision,
+                "observed_revision": None,
+            })
+            failed["failed_gates"] = sorted(set(failed["failed_gates"]) | {"candidate_runtime_revision_unverified"})
+            failed["observed_stream_healthy"] = False
+            return failed
+        if observed_revision != expected_revision:
+            failed = recorder.report(
+                started_at=started_at,
+                ended_at=_utc_now(),
+                duration=time.monotonic() - started,
+                connected_at_end=False,
+            )
+            failed.update({
+                "origin": origin,
+                "candidate_revision": expected_revision,
+                "observed_revision": observed_revision,
+            })
+            failed["failed_gates"] = sorted(set(failed["failed_gates"]) | {"candidate_runtime_revision_mismatch"})
+            failed["observed_stream_healthy"] = False
+            return failed
+    import websockets
+    from websockets.exceptions import InvalidStatus, WebSocketException
+
     parsed = urlsplit(origin)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     websocket_url = f"{scheme}://{parsed.netloc}/socket.io/?EIO=4&transport=websocket"
@@ -397,17 +499,24 @@ async def observe(origin: str, cookie: str, duration_seconds: float) -> dict[str
             await asyncio.sleep(min(retry_delay, max(0.0, deadline - time.monotonic())))
             retry_delay = min(5.0, retry_delay * 2)
     ended = time.monotonic()
-    return recorder.report(
+    report = recorder.report(
         started_at=started_at,
         ended_at=_utc_now(),
         duration=ended - started,
         connected_at_end=connected_at_end,
     )
+    report.update({
+        "origin": origin,
+        "candidate_revision": expected_revision,
+        "observed_revision": observed_revision,
+    })
+    return report
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--canary-origin", required=True, help="HTTPS canary origin; production hosts are rejected")
+    parser.add_argument("--canary-origin", required=True, help="must be https://vpn-dev.wanted.sx")
+    parser.add_argument("--expected-revision", required=True, help="full lowercase candidate Git SHA")
     parser.add_argument(
         "--cookie-env", required=True, help="environment variable holding the short-lived Cookie header"
     )
@@ -415,34 +524,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, help="private local JSON report path")
     args = parser.parse_args(argv)
     output = Path(args.output)
+    origin: str | None = None
+    candidate_revision: str | None = None
     try:
         origin = validate_canary_origin(args.canary_origin)
+        candidate_revision = validate_revision(args.expected_revision)
         if not math.isfinite(args.duration_seconds) or not 30 <= args.duration_seconds <= MAX_DURATION_SECONDS:
             raise ValueError("duration must be between 30 and 1800 seconds")
         cookie = os.environ.get(args.cookie_env, "")
         if not cookie or len(cookie) > MAX_COOKIE_LENGTH or "\r" in cookie or "\n" in cookie:
             raise ValueError("the named short-lived Cookie environment variable is unset or invalid")
-        report = asyncio.run(observe(origin, cookie, args.duration_seconds))
+        report = asyncio.run(observe(
+            origin, cookie, args.duration_seconds, expected_revision=candidate_revision
+        ))
     except Exception:
-        report = {
-            "format": "vpn-dashboard-telemetry-stream-observation-v1",
-            "started_at": _utc_now(),
-            "ended_at": _utc_now(),
-            "duration_seconds": 0,
-            "origin_role": "canary",
-            "transport": "socketio-websocket",
-            "raw_frames_written": False,
-            "identities_or_addresses_written": False,
-            "credentials_written": False,
-            "latency_measured": False,
-            "failed_gates": ["stream_observation_failed"],
-            "observed_stream_healthy": False,
-        }
+        now = _utc_now()
+        report = TelemetryStreamRecorder().report(
+            started_at=now, ended_at=now, duration=0, connected_at_end=False
+        )
+        report.update({
+            "origin": origin,
+            "candidate_revision": candidate_revision,
+            "observed_revision": None,
+        })
+        report["failed_gates"] = sorted(set(report["failed_gates"]) | {"stream_observation_failed"})
+        report["observed_stream_healthy"] = False
+        print(json.dumps({"observed_stream_healthy": False, "failed_gates": report["failed_gates"]}))
         try:
             _write_atomically(output, report)
         except OSError:
             pass
-        print(json.dumps({"observed_stream_healthy": False, "failed_gates": report["failed_gates"]}))
         return 2
     try:
         _write_atomically(output, report)

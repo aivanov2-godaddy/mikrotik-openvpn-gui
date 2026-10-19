@@ -4,9 +4,13 @@ import asyncio
 import importlib.util
 import socket
 import unittest
+from unittest.mock import patch
 
 from scripts.telemetry_stream_observer import (
     TelemetryStreamRecorder,
+    CANARY_ORIGIN,
+    _RejectRedirects,
+    fetch_runtime_revision,
     observe,
     validate_frame,
     validate_canary_origin,
@@ -158,20 +162,64 @@ class TelemetryStreamObserverTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
-    def test_origin_requires_https_and_explicit_canary_or_dev_subdomain(self) -> None:
+    def test_origin_is_pinned_to_the_exact_canary_host(self) -> None:
         self.assertEqual(
-            validate_canary_origin("https://vpn-dev.example.test/"),
-            "https://vpn-dev.example.test",
+            validate_canary_origin("https://VPN-DEV.WANTED.SX:443/"),
+            CANARY_ORIGIN,
         )
         for origin in (
-            "http://vpn-dev.example.test",
+            "http://vpn-dev.wanted.sx",
             "https://vpn.example.test",
-            "https://vpn-dev.example.test/path",
-            "https://user:password@vpn-dev.example.test",
-            "https://vpn-dev.example.test/?token=secret",
+            "https://vpn-dev.attacker.example",
+            "https://attacker.example/vpn-dev.wanted.sx",
+            "https://vpn-dev.wanted.sx.attacker.example",
+            "https://vpn-dev.wanted.sx:8443",
+            "https://vpn-dev.wanted.sx/path",
+            "https://user:password@vpn-dev.wanted.sx",
+            "https://vpn-dev.wanted.sx/?token=secret",
         ):
             with self.subTest(origin=origin), self.assertRaises(ValueError):
                 validate_canary_origin(origin)
+
+    def test_rejected_host_is_never_used_to_send_the_cookie(self) -> None:
+        with patch("scripts.telemetry_stream_observer.build_opener") as opener:
+            with self.assertRaisesRegex(ValueError, "approved canary"):
+                fetch_runtime_revision("https://vpn-dev.attacker.example", "PRIVATE-COOKIE")
+        opener.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "approved canary"):
+            asyncio.run(observe("https://vpn-dev.attacker.example", "PRIVATE-COOKIE", 30))
+
+    def test_authenticated_revision_probe_refuses_redirects(self) -> None:
+        redirect_handler = _RejectRedirects()
+        redirect_request = redirect_handler.redirect_request(
+            object(), object(), 302, "Found", {}, "https://attacker.example/collect"
+        )
+        self.assertIsNone(redirect_request)
+
+    def test_authenticated_revision_probe_sends_cookie_only_to_pinned_api(self) -> None:
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            @staticmethod
+            def read(_size: int) -> bytes:
+                return b'{"current":{"revision":"' + b"a" * 40 + b'"}}'
+
+        class FakeOpener:
+            def open(_self, request, timeout):
+                self.assertEqual(request.full_url, f"{CANARY_ORIGIN}/api/observability")
+                self.assertEqual(request.get_header("Cookie"), "PRIVATE-COOKIE")
+                self.assertEqual(timeout, 15)
+                return Response()
+
+        opener = FakeOpener()
+        with patch("scripts.telemetry_stream_observer.build_opener", return_value=opener):
+            self.assertEqual(fetch_runtime_revision(CANARY_ORIGIN, "PRIVATE-COOKIE"), "a" * 40)
 
     def test_records_only_aggregate_names_and_sequence_facts(self) -> None:
         recorder = TelemetryStreamRecorder()
