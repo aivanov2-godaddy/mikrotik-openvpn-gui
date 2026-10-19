@@ -31,6 +31,7 @@ FAILURE_CODES = frozenset({
     "invalid_sqlite",
     "required_schema_missing",
     "restore_timeout",
+    "restore_interrupted",
     "restore_failed",
     "restored_schema_mismatch",
     "restored_data_mismatch",
@@ -38,9 +39,12 @@ FAILURE_CODES = frozenset({
     "temporary_copy_cleanup_failed",
     "invalid_backup_path",
 })
-RESTORE_REPORT_FORMAT = "vpn-dashboard-sqlite-restore-verification-v2"
+RESTORE_REPORT_FORMAT = "vpn-dashboard-sqlite-restore-verification-v3"
 RESTORE_CHECK_FIELDS = frozenset({
     "environment",
+    "candidate_image",
+    "candidate_revision",
+    "candidate_digest",
     "checked_at",
     "verified",
     "source_opened_read_only",
@@ -222,6 +226,7 @@ def verify_sqlite_restore(
     temporary_root: Path | None = None
     restored_path: Path | None = None
     failure_code: str | None = None
+    restore_phase = "opening_source"
     try:
         deadline.check()
         resolved_source = source_path.resolve(strict=True)
@@ -274,7 +279,9 @@ def verify_sqlite_restore(
                         if total * page_size > MAX_BACKUP_BYTES:
                             raise _BackupTooLarge
 
+                    restore_phase = "copying"
                     source.backup(restored, pages=128, progress=check_backup_progress, sleep=0.05)
+                    restore_phase = "validating_copy"
                     deadline.check()
                     restored.commit()
                     deadline.check()
@@ -305,6 +312,13 @@ def verify_sqlite_restore(
     except sqlite3.Error as error:
         if deadline.expired():
             failure_code = "restore_timeout"
+        elif restore_phase == "copying":
+            message = str(error).casefold()
+            failure_code = (
+                "insufficient_temporary_space"
+                if "full" in message or "disk" in message or getattr(error, "sqlite_errorcode", None) == getattr(sqlite3, "SQLITE_FULL", -1)
+                else "restore_interrupted"
+            )
         elif isinstance(error, sqlite3.DatabaseError):
             failure_code = "invalid_sqlite"
         else:
@@ -409,6 +423,18 @@ def validate_restore_verification(
             raise ValueError("inconsistent restore verification result")
 
         deployment = deployments[0 if environment == "canary" else 1]
+        identity_fields = {
+            "candidate_image": deployment.get("image"),
+            "candidate_revision": deployment.get("revision"),
+            "candidate_digest": deployment.get("digest"),
+        }
+        if (
+            not isinstance(identity_fields["candidate_image"], str)
+            or not isinstance(identity_fields["candidate_revision"], str)
+            or not isinstance(identity_fields["candidate_digest"], str)
+            or any(check.get(field) != value for field, value in identity_fields.items())
+        ):
+            raise ValueError("restore verification candidate identity mismatch")
         if deployment.get("sqlite_restore_verified") is not check["verified"]:
             raise ValueError("restore verification does not match deployment evidence")
         deployment_timestamp = deployment.get("sqlite_restore_verified_at")
@@ -435,6 +461,7 @@ def validate_restore_verification(
             stale_environments.append(environment)
         safe_checks.append({
             "environment": environment,
+            **identity_fields,
             "checked_at": checked_at.isoformat(),
             **{field: check[field] for field in boolean_fields},
             "failure_code": failure_code,

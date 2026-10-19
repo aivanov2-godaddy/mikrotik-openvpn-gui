@@ -17,11 +17,57 @@ from scripts.collect_release_acceptance import (
     finalize_release_acceptance,
 )
 from scripts.sqlite_restore_verifier import verify_sqlite_restore
+from scripts.stream_acceptance import CANARY_ORIGIN, VERIFICATION_FIELDS
+from scripts.redis_recovery_acceptance import REPORT_FORMAT as REDIS_RECOVERY_FORMAT, REQUIRED_TEST_NAMES
+from scripts.rollback_acceptance import REPORT_FORMAT as ROLLBACK_REPORT_FORMAT
 from store import MetadataStore
 
 
 REVISION = "a" * 40
 IMAGE = f"ghcr.io/example/vpn:sha-{REVISION}-arm64"
+
+
+def redis_recovery_report(revision: str = REVISION) -> dict[str, object]:
+    return {
+        "format": REDIS_RECOVERY_FORMAT,
+        "source_revision": revision,
+        "started_at": "2026-10-01T23:50:00Z",
+        "ended_at": "2026-10-01T23:51:00Z",
+        "test_results": {name: "passed" for name in REQUIRED_TEST_NAMES},
+        "scope": "source-integration-tests",
+        "runtime_image_digest_verified": False,
+    }
+
+
+def rollback_report_for(
+    candidate_image: str,
+    candidate_digest: str,
+    production_image: str,
+    started_at: datetime,
+) -> dict[str, object]:
+    start = started_at.astimezone(timezone.utc)
+    prior_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+
+    def readback(environment: str, image: str, offset_seconds: int) -> dict[str, object]:
+        return {
+            "environment": environment,
+            "observed_at": (start + timedelta(seconds=offset_seconds)).isoformat(),
+            "image": image,
+            "healthy": True,
+            "ready": True,
+        }
+
+    return {
+        "format": ROLLBACK_REPORT_FORMAT,
+        "candidate_image": candidate_image,
+        "candidate_digest": candidate_digest,
+        "production_before": readback("production", production_image, -600),
+        "canary_before": readback("canary", prior_image, -590),
+        "canary_candidate": readback("canary", candidate_image, -580),
+        "canary_after_rollback": readback("canary", prior_image, -570),
+        "production_after": readback("production", production_image, -560),
+        "canary_candidate_restored": readback("canary", candidate_image, -550),
+    }
 
 
 def certificate_lifecycle_evidence() -> dict[str, object]:
@@ -129,7 +175,9 @@ class ReleaseCollectionTests(unittest.TestCase):
         code, summary, _seen = self.run_collection()
         self.assertEqual(code, 0)
         self.assertTrue(summary["passed"])
-        summary["evidence"]["deployments"][0]["rollback_drill_passed"] = False
+        summary["evidence"]["collection"]["rollback_rehearsal"][
+            "canary_after_rollback"
+        ]["healthy"] = False
         collection_end = datetime.fromisoformat(
             summary["evidence"]["collection"]["ended_at"].replace("Z", "+00:00")
         )
@@ -573,6 +621,9 @@ class ReleaseCollectionTests(unittest.TestCase):
         omit_prior_production_digest: bool = False,
         include_certificate_lifecycle_report: bool = True,
         certificate_lifecycle_report: dict[str, object] | None = None,
+        omit_redis_recovery_report: bool = False,
+        redis_source_revision: str | None = None,
+        omit_rollback_report: bool = False,
         missing_sqlite_backups: tuple[str, ...] = (),
         corrupt_sqlite_backups: tuple[str, ...] = (),
         extra_sqlite_backup_paths: dict[str, str | Path] | None = None,
@@ -730,6 +781,17 @@ class ReleaseCollectionTests(unittest.TestCase):
                     backup_path.write_bytes(b"not a sqlite database")
                 backup_paths[environment] = backup_path
             backup_paths.update(extra_sqlite_backup_paths or {})
+            candidate_deployment = source["deployments"][0]
+            production_deployment = source["deployments"][1]
+            redis_report = None if omit_redis_recovery_report else redis_recovery_report(
+                redis_source_revision or REVISION
+            )
+            rollback_readbacks = None if omit_rollback_report else rollback_report_for(
+                candidate_deployment["image"],
+                candidate_deployment["digest"],
+                production_deployment["image"],
+                time.current,
+            )
             code, report = collect(
                 source,
                 readyz_urls={"canary": "https://192.168.1.2", "production": "https://private.example"},
@@ -753,6 +815,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 minimum_soak_seconds=1,
                 minimum_health_samples=2,
                 phase=phase,
+                redis_recovery_report=redis_report,
+                rollback_report=rollback_readbacks,
             )
         finally:
             backup_directory.cleanup()
@@ -761,7 +825,9 @@ class ReleaseCollectionTests(unittest.TestCase):
         observer = {
             "format": "vpn-dashboard-telemetry-stream-observation-v1",
             "started_at": started, "ended_at": ended, "duration_seconds": 1800,
-            "origin_role": "canary", "transport": "socketio-websocket",
+            "origin_role": "canary", "origin": CANARY_ORIGIN,
+            "candidate_revision": REVISION, "observed_revision": REVISION,
+            "transport": "socketio-websocket",
             "connections": 2, "disconnects": 1, "reconnects": 1,
             "stream_connected_at_end": True, "event_count": 3,
             "event_counts": {"telemetry.snapshot": 2, "vpn.session.updated": 1},
@@ -787,6 +853,8 @@ class ReleaseCollectionTests(unittest.TestCase):
             "event_sequence_gap_count": 0, "duplicate_event_count": 0,
             "out_of_order_event_count": 0, "reconnect_test_count": 1,
             "reconnect_success_count": 1,
+            "security_tests": 1,
+            "verification": {name: True for name in VERIFICATION_FIELDS},
         }
         code, report = apply_stream_acceptance(
             report, observer, browser, now=time.current, minimum_window_seconds=1800,
@@ -835,6 +903,20 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertTrue(all(check["restored_integrity"] for check in restore_checks))
         self.assertTrue(all(check["restored_data_counts_match"] for check in restore_checks))
         self.assertTrue(all(check["temporary_copy_removed"] for check in restore_checks))
+        self.assertTrue(all(check["candidate_image"] == IMAGE for check in restore_checks))
+        self.assertTrue(all(check["candidate_revision"] == REVISION for check in restore_checks))
+        self.assertTrue(all(check["candidate_digest"] == "sha256:" + "b" * 64 for check in restore_checks))
+        collection = report["evidence"]["collection"]
+        self.assertEqual(
+            collection["redis_recovery_verification"]["source_revision"], REVISION
+        )
+        self.assertEqual(collection["redis_recovery_verification"]["scope"], "source-integration-tests")
+        self.assertFalse(collection["redis_recovery_verification"]["runtime_image_digest_verified"])
+        self.assertEqual(collection["rollback_rehearsal"]["candidate_image"], IMAGE)
+        self.assertEqual(
+            report["evidence"]["deployments"][0]["rollback_drill_at"],
+            collection["rollback_rehearsal"]["canary_after_rollback"]["observed_at"],
+        )
         supervisor = report["deployments"][0]["metrics"]["telemetry_supervisor"]
         self.assertEqual(supervisor["status_last"], "healthy")
         self.assertEqual(supervisor["reconnects"]["delta"], 1)
@@ -862,6 +944,21 @@ class ReleaseCollectionTests(unittest.TestCase):
         checks = report["evidence"]["collection"]["sqlite_restore_verification"]["checks"]
         self.assertEqual([check["failure_code"] for check in checks], ["backup_missing", "backup_missing"])
         self.assertNotIn("release-acceptance-backups-", json.dumps(report))
+
+    def test_missing_redis_or_rollback_evidence_cannot_be_overridden_by_input_booleans(self) -> None:
+        _, redis_report, _ = self.run_collection(omit_redis_recovery_report=True)
+        self.assertIn("redis_recovery_ci_evidence_missing", redis_report["failed_gates"])
+
+        _, rollback_report, _ = self.run_collection(omit_rollback_report=True)
+        self.assertIn("rollback_readback_evidence_missing", rollback_report["failed_gates"])
+        canary = rollback_report["evidence"]["deployments"][0]
+        self.assertFalse(canary["rollback_drill_passed"])
+        self.assertFalse(canary["production_untouched_on_canary_failure"])
+
+    def test_redis_ci_report_must_match_candidate_revision(self) -> None:
+        _, report, _ = self.run_collection(redis_source_revision="c" * 40)
+
+        self.assertIn("redis_recovery_ci_candidate_mismatch", report["failed_gates"])
 
     def test_corrupt_canary_backup_fails_only_its_restore_gate(self) -> None:
         code, report, _ = self.run_collection(corrupt_sqlite_backups=("canary",))
@@ -972,6 +1069,26 @@ class ReleaseCollectionTests(unittest.TestCase):
             report_path.write_text(" " * (16_384 + 1), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "size limit"):
                 _read_certificate_lifecycle_report(report_path)
+
+    def test_new_acceptance_report_loaders_are_byte_bounded(self) -> None:
+        from scripts.collect_release_acceptance import (
+            MAX_REDIS_RECOVERY_REPORT_BYTES,
+            MAX_ROLLBACK_REPORT_BYTES,
+            _read_bounded_json_report,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            report_path = Path(temporary_directory) / "bounded-report.json"
+            report_path.write_text('{"safe":true}', encoding="utf-8")
+            self.assertEqual(_read_bounded_json_report(report_path, 32, "test report"), {"safe": True})
+
+            for limit, label in (
+                (MAX_REDIS_RECOVERY_REPORT_BYTES, "Redis recovery report"),
+                (MAX_ROLLBACK_REPORT_BYTES, "rollback read-back report"),
+            ):
+                report_path.write_bytes(b" " * (limit + 1))
+                with self.subTest(label=label), self.assertRaisesRegex(ValueError, "size limit"):
+                    _read_bounded_json_report(report_path, limit, label)
 
     def test_measured_telemetry_slo_violations_fail_closed(self) -> None:
         code, report, _ = self.run_collection(

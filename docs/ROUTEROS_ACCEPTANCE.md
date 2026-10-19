@@ -272,6 +272,39 @@ copy and removes it; the source database/backup remains read-only. A passing
 collection is not a promotion action and does not execute or prove the required
 rollback rehearsal; that remains a separate controlled RouterOS procedure.
 
+### Redis recovery CI and canary rollback evidence
+
+The passing collector requires both `--redis-recovery-report` and
+`--rollback-report`. The Redis report is produced by the `redis-integration`
+CI job and uploaded as `redis-recovery-<full-source-sha>`. Download the artifact
+from the successful `main` push run for the exact deployed candidate source
+revision (a pull-request merge-ref SHA is not the eventual main commit); the shape is
+illustrated in [`redis-recovery-evidence.example.json`](redis-recovery-evidence.example.json).
+The example is synthetic and must not be submitted as real test evidence. It is
+source-integration evidence for Redis outage, restart, backlog replay, and
+duplicate handling; it explicitly sets `runtime_image_digest_verified: false`
+and does not prove that Redis behavior was exercised inside the deployed image.
+Reports older than seven days, for a different commit, with missing/skipped
+scenarios, or with extra fields fail closed. Keep CI logs and Redis payloads out
+of the release report.
+
+The rollback input is a redacted operator read-back—not an automated rollback
+command. Follow the canary-only rollback runbook, capture the exact ordered
+read-backs shown in
+[`rollback-rehearsal-evidence.example.json`](rollback-rehearsal-evidence.example.json),
+and do not change production. It must show the production image before and
+after unchanged, the canary candidate healthy and ready, and the canary back
+on its prior immutable image after rollback. Then reapply the candidate and
+capture a final healthy/ready canary read-back before starting the candidate
+soak. Image tag, candidate source SHA,
+and registry digest are checked against the collector's candidate. Read-backs
+must be ordered, completed before the collection starts, and no older than
+24 hours at collection start. This keeps the rollback exercise separate from
+the candidate soak. The router's runtime digest is not independently
+verified by this evidence. The JSON is operator-provided and is not a signed
+attestation; preserve the source evidence privately and never include router
+addresses, credentials, user data, or raw logs.
+
 ### Certificate lifecycle acceptance evidence
 
 Any collection marked `passed: true` must include a
@@ -420,6 +453,11 @@ timestamp fields are ignored and overwritten by this rehearsal. A missing,
 oversized, unreadable, corrupt, or non-application backup fails that
 environment's restore gate; it cannot pass using an optimistic input boolean.
 The report exposes only whether row counts matched, never the counts themselves.
+The v3 restore report binds each result to the immutable candidate image tag,
+source revision, and registry digest. CI also exercises a WAL-backed source,
+preflight low-space rejection, and interrupted-copy cleanup. These tests do
+not simulate every real filesystem failure mode; an unexpected mid-copy disk
+error is reported as restore failure, not as proof that the source was intact.
 
 The collector also overwrites app health, readiness, timestamps, sample
 counts, sample gaps, and Redis publish evidence. Unknown input fields are
@@ -447,6 +485,8 @@ python scripts/collect_release_acceptance.py `
   --input private-evidence.json `
   --output private-collected-evidence.json `
   --routeros-report private-routeros-window.json `
+  --redis-recovery-report private-redis-recovery.json `
+  --rollback-report private-rollback-rehearsal.json `
   --stream-observer-report private-stream-observation.json `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<approved-canary-origin> `
@@ -579,6 +619,8 @@ python scripts/collect_release_acceptance.py `
   --input private-release-evidence.json `
   --output private-release-collection.json `
   --routeros-report private-routeros-window.json `
+  --redis-recovery-report private-redis-recovery.json `
+  --rollback-report private-rollback-rehearsal.json `
   --stream-observer-report private-stream-observation.json `
   --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
   --canary-url https://<private-canary-origin> `

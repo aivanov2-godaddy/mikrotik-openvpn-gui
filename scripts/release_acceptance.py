@@ -21,10 +21,14 @@ try:
     from certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from stream_acceptance import validate_stream_acceptance
     from sqlite_restore_verifier import validate_restore_verification
+    from redis_recovery_acceptance import validate_report as validate_redis_recovery_report
+    from rollback_acceptance import summarize_rollback_report, validate_rollback_report
 except ModuleNotFoundError:
     from scripts.certificate_lifecycle_acceptance import validate_certificate_lifecycle_acceptance
     from scripts.stream_acceptance import validate_stream_acceptance
     from scripts.sqlite_restore_verifier import validate_restore_verification
+    from scripts.redis_recovery_acceptance import validate_report as validate_redis_recovery_report
+    from scripts.rollback_acceptance import summarize_rollback_report, validate_rollback_report
 
 
 IMAGE = re.compile(
@@ -127,7 +131,13 @@ def evaluate(
     registry_verification: Any = None
     registry_digests_verified = False
     validated_stream_acceptance: dict[str, Any] | None = None
+    redis_recovery_verification: dict[str, Any] | None = None
+    rollback_rehearsal: dict[str, Any] | None = None
+    rollback_readbacks: dict[str, Any] | None = None
     collection_passed = False
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None or current_time.utcoffset() is None:
+        raise ValueError("now must include a timezone")
     if phase is not None and phase not in {"canary-prepromotion", "postpromotion"}:
         raise ValueError("phase must be canary-prepromotion or postpromotion")
     if collection is None:
@@ -165,14 +175,52 @@ def evaluate(
             failures.append("live_collection_window_too_short")
         if collection_duration <= 0:
             failures.append("live_collection_window_invalid")
-        current_time = now or datetime.now(timezone.utc)
-        if current_time.tzinfo is None or current_time.utcoffset() is None:
-            raise ValueError("now must include a timezone")
         age_seconds = (current_time - collection_ended).total_seconds()
         if age_seconds > MAX_COLLECTION_AGE_SECONDS:
             failures.append("live_collection_stale")
         if age_seconds < -MAX_FUTURE_SKEW_SECONDS:
             failures.append("live_collection_future_dated")
+        expected_candidate_revision = None
+        if isinstance(deployments, list) and deployments and isinstance(deployments[0], dict):
+            candidate_image_match = IMAGE.fullmatch(str(deployments[0].get("image", "")))
+            if candidate_image_match:
+                expected_candidate_revision = candidate_image_match.group("revision")
+        raw_redis_recovery = collection.get("redis_recovery_verification")
+        if expected_candidate_revision is None:
+            failures.append("redis_recovery_ci_candidate_unavailable")
+        elif raw_redis_recovery is None:
+            failures.append("redis_recovery_ci_evidence_missing")
+        else:
+            try:
+                redis_recovery_verification, redis_failures = validate_redis_recovery_report(
+                    raw_redis_recovery,
+                    expected_revision=expected_candidate_revision,
+                    now=current_time,
+                )
+                failures.extend(redis_failures)
+            except (TypeError, ValueError):
+                failures.append("redis_recovery_ci_evidence_invalid")
+
+        raw_rollback = collection.get("rollback_rehearsal")
+        if raw_rollback is None:
+            failures.append("rollback_readback_evidence_missing")
+        elif not isinstance(deployments, list) or len(deployments) != 2:
+            failures.append("rollback_candidate_identity_unavailable")
+        else:
+            try:
+                rollback_readbacks, rollback_failures = validate_rollback_report(
+                    raw_rollback,
+                    candidate_image=str(deployments[0].get("image", "")),
+                    candidate_digest=deployments[0].get("digest"),
+                    production_image=str(deployments[1].get("image", "")),
+                    collection_started_at=collection.get("started_at"),
+                    collection_ended_at=collection.get("ended_at"),
+                )
+                failures.extend(rollback_failures)
+                if rollback_readbacks is not None:
+                    rollback_rehearsal = summarize_rollback_report(rollback_readbacks)
+            except (TypeError, ValueError):
+                failures.append("rollback_readback_evidence_invalid")
         stream_acceptance = collection.get("stream_acceptance")
         if collection_passed and (
             not isinstance(stream_acceptance, dict) or stream_acceptance.get("format") != (
@@ -190,6 +238,7 @@ def evaluate(
                     collection_started_at=collection.get("started_at"),
                     collection_ended_at=collection.get("ended_at"),
                     now=current_time,
+                    expected_candidate_revision=expected_candidate_revision,
                 )
             except ValueError:
                 stream_failures = ["stream_acceptance_window_invalid"]
@@ -198,6 +247,22 @@ def evaluate(
     for record, expected_environment in zip(deployments, ENVIRONMENTS):
         if not isinstance(record, dict):
             raise ValueError("each deployment must be an object")
+        record = dict(record)
+        if expected_environment == "canary":
+            readbacks = rollback_rehearsal.get("readbacks", {}) if rollback_rehearsal else {}
+            record["rollback_drill_passed"] = rollback_rehearsal is not None
+            record["rollback_drill_at"] = (
+                readbacks.get("canary_after_rollback", {}).get("observed_at")
+                if rollback_rehearsal else None
+            )
+            record["production_untouched_on_canary_failure"] = (
+                rollback_rehearsal.get("production_unchanged") is True
+                if rollback_rehearsal else False
+            )
+            record["production_protection_observed_at"] = (
+                readbacks.get("production_after", {}).get("observed_at")
+                if rollback_rehearsal else None
+            )
         if record.get("environment") != expected_environment:
             raise ValueError("deployments must be ordered canary, then production")
         image = str(record.get("image", ""))
@@ -259,10 +324,10 @@ def evaluate(
             optional=prior_production_baseline or backup_restore is not True,
         )
         rollback_drill_at = _optional_timestamp(
-            record, "rollback_drill_at", optional=prior_production_baseline or expected_environment != "canary"
+            record, "rollback_drill_at", optional=True
         )
         production_protection_at = _optional_timestamp(
-            record, "production_protection_observed_at", optional=prior_production_baseline or expected_environment != "canary"
+            record, "production_protection_observed_at", optional=True
         )
         session_event_age = _optional_number(
             record, "session_event_max_age_seconds", optional=True
@@ -606,6 +671,8 @@ def evaluate(
         "certificate_lifecycle_acceptance": certificate_lifecycle_acceptance,
         "stream_acceptance": validated_stream_acceptance,
         "sqlite_restore_verification": sqlite_restore_verification,
+        "redis_recovery_verification": redis_recovery_verification,
+        "rollback_rehearsal": rollback_rehearsal,
         "failed_gates": sorted(set(failures)),
         "deployments": safe_records,
     }

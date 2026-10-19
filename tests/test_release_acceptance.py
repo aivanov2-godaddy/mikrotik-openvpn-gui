@@ -12,10 +12,35 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from scripts.release_acceptance import evaluate, main
+from scripts.redis_recovery_acceptance import REPORT_FORMAT as REDIS_RECOVERY_FORMAT, REQUIRED_TEST_NAMES
+from scripts.rollback_acceptance import REPORT_FORMAT as ROLLBACK_REPORT_FORMAT
 
 
 class ReleaseAcceptanceTests(unittest.TestCase):
     NOW = datetime(2026, 10, 2, 10, 31, tzinfo=timezone.utc)
+
+    @staticmethod
+    def _rollback_readbacks(revision: str, digest: str, production_image: str) -> dict[str, object]:
+        candidate = f"ghcr.io/example/vpn:sha-{revision}-arm64"
+        prior = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+
+        def readback(environment: str, observed_at: str, image: str) -> dict[str, object]:
+            return {
+                "environment": environment, "observed_at": observed_at,
+                "image": image, "healthy": True, "ready": True,
+            }
+
+        return {
+            "format": ROLLBACK_REPORT_FORMAT,
+            "candidate_image": candidate,
+            "candidate_digest": digest,
+            "production_before": readback("production", "2026-10-02T09:50:00Z", production_image),
+            "canary_before": readback("canary", "2026-10-02T09:51:00Z", prior),
+            "canary_candidate": readback("canary", "2026-10-02T09:52:00Z", candidate),
+            "canary_after_rollback": readback("canary", "2026-10-02T09:53:00Z", prior),
+            "production_after": readback("production", "2026-10-02T09:54:00Z", production_image),
+            "canary_candidate_restored": readback("canary", "2026-10-02T09:55:00Z", candidate),
+        }
 
     @staticmethod
     def _routeros_resource_evidence() -> dict[str, object]:
@@ -86,11 +111,26 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     }
                     for environment in ("canary", "production")
                 ],
+                "redis_recovery_verification": {
+                    "format": REDIS_RECOVERY_FORMAT,
+                    "source_revision": revision,
+                    "started_at": "2026-10-01T23:50:00Z",
+                    "ended_at": "2026-10-01T23:51:00Z",
+                    "test_results": {name: "passed" for name in REQUIRED_TEST_NAMES},
+                    "scope": "source-integration-tests",
+                    "runtime_image_digest_verified": False,
+                },
+                "rollback_rehearsal": self._rollback_readbacks(
+                    revision, "sha256:" + "b" * 64, f"ghcr.io/example/vpn:sha-{revision}-arm64"
+                ),
                 "sqlite_restore_verification": {
-                    "format": "vpn-dashboard-sqlite-restore-verification-v2",
+                    "format": "vpn-dashboard-sqlite-restore-verification-v3",
                     "checks": [
                         {
                             "environment": environment,
+                            "candidate_image": f"ghcr.io/example/vpn:sha-{revision}-arm64",
+                            "candidate_revision": revision,
+                            "candidate_digest": "sha256:" + "b" * 64,
                             "checked_at": "2026-10-02T10:24:00Z",
                             "verified": True,
                             "source_opened_read_only": True,
@@ -150,14 +190,16 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 for environment in ("canary", "production")
             ],
         }
-        from scripts.stream_acceptance import validate_stream_acceptance
+        from scripts.stream_acceptance import CANARY_ORIGIN, VERIFICATION_FIELDS, validate_stream_acceptance
 
         start = "2026-10-02T10:00:00Z"
         end = "2026-10-02T10:30:00Z"
         observer = {
             "format": "vpn-dashboard-telemetry-stream-observation-v1",
             "started_at": start, "ended_at": end, "duration_seconds": 1800,
-            "origin_role": "canary", "transport": "socketio-websocket",
+            "origin_role": "canary", "origin": CANARY_ORIGIN,
+            "candidate_revision": revision, "observed_revision": revision,
+            "transport": "socketio-websocket",
             "connections": 2, "disconnects": 1, "reconnects": 1,
             "stream_connected_at_end": True, "event_count": 3,
             "event_counts": {"telemetry.snapshot": 2, "vpn.session.updated": 1},
@@ -183,10 +225,12 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "event_sequence_gap_count": 0, "duplicate_event_count": 0,
             "out_of_order_event_count": 0, "reconnect_test_count": 1,
             "reconnect_success_count": 1,
+            "security_tests": 1,
+            "verification": {name: True for name in VERIFICATION_FIELDS},
         }
         safe_stream, failures = validate_stream_acceptance(
             observer, browser, collection_started_at=start, collection_ended_at=end,
-            now=self.NOW,
+            now=self.NOW, expected_candidate_revision=revision,
         )
         self.assertEqual(failures, [])
         self.evidence["collection"]["stream_acceptance"] = safe_stream
@@ -301,7 +345,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertFalse(report["passed"])
-        self.assertEqual(report["failed_gates"], ["live_collection_failed"])
+        self.assertIn("live_collection_failed", report["failed_gates"])
+        self.assertIn("redis_recovery_ci_evidence_missing", report["failed_gates"])
+        self.assertIn("rollback_readback_evidence_missing", report["failed_gates"])
 
     def test_passing_live_collection_is_accepted_and_malformed_collection_is_rejected(self) -> None:
         evidence = deepcopy(self.evidence)
@@ -313,6 +359,8 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "started_at": "2026-10-02T10:00:00Z",
             "ended_at": "2026-10-02T10:30:00Z",
             "registry_digest_verification": deepcopy(self.evidence["collection"]["registry_digest_verification"]),
+            "redis_recovery_verification": deepcopy(self.evidence["collection"]["redis_recovery_verification"]),
+            "rollback_rehearsal": deepcopy(self.evidence["collection"]["rollback_rehearsal"]),
             "sqlite_restore_verification": deepcopy(
                 self.evidence["collection"]["sqlite_restore_verification"]
             ),
@@ -486,6 +534,12 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         evidence["deployments"][0]["sqlite_restore_verified_at"] = "2026-09-30T10:24:00Z"
         evidence["deployments"][0]["rollback_drill_at"] = "2026-09-30T10:26:00Z"
         evidence["deployments"][0]["production_protection_observed_at"] = "2026-09-30T10:27:00Z"
+        evidence["collection"]["rollback_rehearsal"]["canary_after_rollback"][
+            "observed_at"
+        ] = "2026-09-30T10:26:00Z"
+        evidence["collection"]["rollback_rehearsal"]["production_after"][
+            "observed_at"
+        ] = "2026-09-30T10:27:00Z"
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_sqlite_restore_evidence_stale_or_outside_window", report["failed_gates"])
@@ -535,6 +589,34 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertIn("sqlite_restore_verification_invalid", report["failed_gates"])
         self.assertIsNone(report["sqlite_restore_verification"])
 
+    def test_restore_report_must_match_candidate_image_revision_and_digest(self) -> None:
+        check = self.evidence["collection"]["sqlite_restore_verification"]["checks"][0]
+        check["candidate_revision"] = "c" * 40
+
+        code, report = evaluate(self.evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertIn("sqlite_restore_verification_invalid", report["failed_gates"])
+
+    def test_redis_recovery_ci_evidence_is_bound_to_candidate_source_revision(self) -> None:
+        self.evidence["collection"]["redis_recovery_verification"]["source_revision"] = "c" * 40
+
+        code, report = evaluate(self.evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertIn("redis_recovery_ci_candidate_mismatch", report["failed_gates"])
+
+    def test_structured_rollback_readbacks_fail_if_production_image_changes(self) -> None:
+        self.evidence["collection"]["rollback_rehearsal"]["production_after"]["image"] = (
+            f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+        )
+
+        code, report = evaluate(self.evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertIn("production_image_changed_during_canary_rollback", report["failed_gates"])
+        self.assertIsNone(report["rollback_rehearsal"])
+
     def test_pre_promotion_collection_passes_gate_without_claiming_production_acceptance(self) -> None:
         self.evidence["collection"]["phase"] = "canary-prepromotion"
         self.evidence["collection"]["sqlite_restore_verification"]["checks"] = self.evidence[
@@ -544,6 +626,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         production = self.evidence["deployments"][1]
         production["image"] = previous_image
         production["digest"] = None
+        self.evidence["collection"]["rollback_rehearsal"] = self._rollback_readbacks(
+            "a" * 40, "sha256:" + "b" * 64, previous_image
+        )
         for field in (
             "transport", "rest_fallback", "redis_configured", "redis_publish_verified",
             "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
@@ -590,6 +675,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         production["image"] = previous_image
         production["digest"] = previous_digest
         production["transport"] = "socketio"
+        self.evidence["collection"]["rollback_rehearsal"] = self._rollback_readbacks(
+            "a" * 40, "sha256:" + "b" * 64, previous_image
+        )
         self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
             "registry_digest_verification"
         ][:1]
@@ -648,7 +736,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "router_cpu_peak_percent"):
             evaluate(evidence, now=self.NOW)
         evidence = deepcopy(self.evidence)
-        evidence["deployments"][0]["rollback_drill_passed"] = False
+        evidence["collection"]["rollback_rehearsal"]["canary_after_rollback"]["healthy"] = False
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_rollback_drill_failed", report["failed_gates"])

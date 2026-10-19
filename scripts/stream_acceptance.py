@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import math
+import re
 from typing import Any
 
 
@@ -11,9 +12,16 @@ MAX_WINDOW_SKEW_SECONDS = 5
 MAX_REPORT_AGE_SECONDS = 900
 MAX_BROWSER_EVENT_LATENCY_MS = 1000
 MAX_BROWSER_TRAFFIC_AGE_SECONDS = 2
+CANARY_ORIGIN = "https://vpn-dev.wanted.sx"
+REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+VERIFICATION_FIELDS = frozenset({
+    "event_latency_measured", "traffic_freshness_measured", "counter_reset_tested",
+    "event_integrity_tested", "binary_rest_parity_tested", "secret_scan_complete",
+})
 
 OBSERVER_FIELDS = frozenset({
-    "format", "started_at", "ended_at", "duration_seconds", "origin_role",
+    "format", "started_at", "ended_at", "duration_seconds", "origin_role", "origin",
+    "candidate_revision", "observed_revision",
     "transport", "connections", "disconnects", "reconnects",
     "stream_connected_at_end", "event_count", "event_counts", "snapshot_count",
     "reconnect_snapshot_count", "sequence_gaps", "duplicate_sequences",
@@ -33,6 +41,7 @@ BROWSER_FIELDS = frozenset({
     "traffic_sample_age_max_seconds", "event_sequence_observation_count",
     "event_sequence_gap_count", "duplicate_event_count",
     "out_of_order_event_count", "reconnect_test_count", "reconnect_success_count",
+    "security_tests", "verification",
 })
 
 
@@ -40,7 +49,14 @@ def browser_acceptance_projection(result: Any) -> dict[str, Any] | None:
     """Keep only the stable aggregate contract emitted by telemetry_acceptance."""
     if not isinstance(result, dict):
         return None
-    return {name: result.get(name) for name in BROWSER_FIELDS}
+    projected = {name: result.get(name) for name in BROWSER_FIELDS}
+    verification = result.get("verification")
+    projected["verification"] = (
+        {name: verification.get(name) for name in VERIFICATION_FIELDS}
+        if isinstance(verification, dict)
+        else None
+    )
+    return projected
 
 
 def _timestamp(value: Any) -> datetime | None:
@@ -94,6 +110,7 @@ def validate_stream_acceptance(
     collection_started_at: str,
     collection_ended_at: str,
     now: datetime,
+    expected_candidate_revision: str | None = None,
     minimum_window_seconds: float = 1800,
 ) -> tuple[dict[str, Any], list[str]]:
     """Return a safe aggregate projection and stable, non-sensitive gate names."""
@@ -155,6 +172,18 @@ def validate_stream_acceptance(
             or observer.get("transport") != "socketio-websocket"
         ):
             failed.append("stream_observation_identity_invalid")
+        if (
+            expected_candidate_revision is None
+            or not isinstance(expected_candidate_revision, str)
+            or not REVISION_PATTERN.fullmatch(expected_candidate_revision)
+        ):
+            failed.append("stream_candidate_revision_unavailable")
+        if (
+            observer.get("origin") != CANARY_ORIGIN
+            or observer.get("candidate_revision") != expected_candidate_revision
+            or observer.get("observed_revision") != expected_candidate_revision
+        ):
+            failed.append("stream_candidate_identity_mismatch")
         if observer.get("observed_stream_healthy") is not True or observer.get("failed_gates") != []:
             failed.append("stream_observation_failed")
         if observer.get("stream_connected_at_end") is not True:
@@ -191,6 +220,13 @@ def validate_stream_acceptance(
             "ended_at": observer.get("ended_at") if obs_end else None,
             "duration_seconds": duration,
             "origin_role": "canary",
+            "origin": observer.get("origin") if observer.get("origin") == CANARY_ORIGIN else None,
+            "candidate_revision": observer.get("candidate_revision")
+            if isinstance(observer.get("candidate_revision"), str)
+            and REVISION_PATTERN.fullmatch(observer["candidate_revision"]) else None,
+            "observed_revision": observer.get("observed_revision")
+            if isinstance(observer.get("observed_revision"), str)
+            and REVISION_PATTERN.fullmatch(observer["observed_revision"]) else None,
             "transport": "socketio-websocket",
             "event_counts": event_counts,
             **counts,
@@ -225,6 +261,16 @@ def validate_stream_acceptance(
             failed.append("browser_telemetry_format_invalid")
         if browser.get("healthy") is not True or browser.get("failed_gates") != []:
             failed.append("browser_telemetry_failed")
+        security_tests = _count(browser.get("security_tests"))
+        verification = browser.get("verification")
+        if (
+            security_tests is None or security_tests < 1
+            or not isinstance(verification, dict)
+            or set(verification) != VERIFICATION_FIELDS
+            or any(not isinstance(verification.get(name), bool) for name in VERIFICATION_FIELDS)
+            or not all(verification.get(name) is True for name in VERIFICATION_FIELDS)
+        ):
+            failed.append("browser_security_verification_incomplete")
 
         numbers = {
             name: _count(browser.get(name))
@@ -293,6 +339,11 @@ def validate_stream_acceptance(
             "disconnected_transition_observed": browser.get("disconnected_transition_observed") is True,
             "ordered_connect_disconnect_observed": browser.get("ordered_connect_disconnect_observed") is True,
             "healthy": browser.get("healthy") is True and browser.get("failed_gates") == [],
+            "security_tests": security_tests,
+            "verification": (
+                {name: verification.get(name) for name in VERIFICATION_FIELDS}
+                if isinstance(verification, dict) else None
+            ),
         }
 
     return safe, sorted(set(failed))
