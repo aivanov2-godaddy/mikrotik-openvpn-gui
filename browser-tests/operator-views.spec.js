@@ -617,7 +617,7 @@ async function tabTo(page, locator) {
     if (await locator.evaluate((element) => element === document.activeElement)) return;
     await page.keyboard.press('Tab');
   }
-  throw new Error('Could not reach the requested navigation link using Tab');
+  throw new Error('Could not reach the requested control using Tab');
 }
 
 test('keyboard-only navigation activates Dashboard, VPN Users, and Connections', async ({ page }) => {
@@ -725,6 +725,39 @@ test('539 CSS-pixel 200% zoom-equivalent viewport keeps sign-out label readable'
 
   const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(pageWidth, 'the page must not overflow the zoom-equivalent viewport').toBeLessThanOrEqual(539);
+});
+
+test('shared Sign out stays visible and keyboard reachable on every operator view at 539 CSS px', async ({ page }) => {
+  // A 1078px desktop at 200% browser zoom is approximately 539 CSS px. This
+  // tests the responsive equivalent, not actual browser zoom.
+  await page.setViewportSize({ width: 539, height: 700 });
+  const signOutButton = page.getByRole('button', { name: /Sign out/ });
+
+  for (const view of accessibilityViews) {
+    if (view.target !== 'overview') {
+      await page.getByRole('link', { name: view.name, exact: true }).click();
+    }
+
+    await expect(page.locator(`[data-view="${view.target}"]`)).toBeVisible();
+    await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
+    await expect(signOutButton, `${view.name}: shared Sign out control stays visible`).toBeVisible();
+
+    // Anchor at the first control in the shared header; reach Sign out through
+    // the normal Tab sequence without activating it.
+    await page.locator('.mikrotik-wordmark').focus();
+    await tabTo(page, signOutButton);
+    await expect(signOutButton, `${view.name}: Sign out is reachable by keyboard`).toBeFocused();
+    const focusVisible = await signOutButton.evaluate((button) => button.matches(':focus-visible'));
+    expect(focusVisible, `${view.name}: keyboard focus is indicated`).toBe(true);
+
+    const bounds = await signOutButton.evaluate((button) => ({
+      left: button.getBoundingClientRect().left,
+      right: button.getBoundingClientRect().right,
+      viewportWidth: window.innerWidth,
+    }));
+    expect(bounds.left, `${view.name}: Sign out is not clipped off the left edge`).toBeGreaterThanOrEqual(0);
+    expect(bounds.right, `${view.name}: Sign out remains inside the viewport`).toBeLessThanOrEqual(bounds.viewportWidth);
+  }
 });
 
 test('dashboard metric context wraps instead of truncating at 200%-zoom width', async ({ page }) => {
