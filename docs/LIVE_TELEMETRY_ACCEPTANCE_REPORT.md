@@ -24,7 +24,8 @@ from earlier merged work.
 On 2026-10-19, RouterOS read-back confirmed the exact PR #767 ARM64 immutable
 tag on the isolated canary and reported the container healthy after start. The
 authenticated dashboard and Connections page loaded, displaying the `Live ·
-SOCKETIO` indicator; the page showed zero active devices at the time. The
+SOCKETIO` indicator. RouterOS reported zero active sessions; the rendered page
+also showed zero connected devices and an empty list. The
 production container was left on its prior image. This is point-in-time
 deployment and application-readiness evidence only: the 30-minute acceptance
 window, live-session delivery, and candidate-specific recovery checks have not
@@ -43,8 +44,8 @@ a gate checklist, not a report of private measurements.
 | Gate | Required result | Public status |
 | --- | --- | --- |
 | Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Partial: exact ARM64 tag read-back, healthy status, and authenticated Connections-page load were observed on 2026-10-19; the 30-minute window remains unverified |
-| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `19f7ca90`: the dashboard showed zero active devices, so no candidate-matched connect/disconnect event was available to time |
-| Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not yet measured for `19f7ca90`; the live indicator was visible, but no active client produced traffic samples |
+| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for `19f7ca90`: RouterOS and the rendered page showed zero active sessions, so no candidate-matched connect/disconnect event was available to time |
+| Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not yet measured for `19f7ca90`; RouterOS reported zero active sessions, so no active client produced traffic samples |
 | Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not yet measured for `19f7ca90` |
 | Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not yet measured for `19f7ca90` |
 | Binary API and REST parity | Compare equivalent read-only snapshots and document any expected differences. | Not yet measured for `19f7ca90` |

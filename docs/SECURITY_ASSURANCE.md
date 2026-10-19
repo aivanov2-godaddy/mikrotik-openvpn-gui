@@ -326,7 +326,8 @@ published ARM64 artifact and provenance are recorded in
 
 The exact ARM64 tag was read back from the isolated canary and RouterOS
 reported it healthy. The authenticated dashboard and Connections page loaded
-with a Socket.IO live indicator, but there were zero active devices; no live
+with a Socket.IO live indicator. RouterOS and the rendered page both showed
+zero active sessions/devices and an empty active-device list. No live
 session-event, expiry/revocation, reconnect, or cross-origin transport test was
 performed in this staging check. Production was left on its prior image. This
 is deployment/readiness evidence only, not a security acceptance result.

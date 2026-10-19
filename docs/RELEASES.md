@@ -102,8 +102,9 @@ artifact.
 
 On 2026-10-19, RouterOS read-back confirmed this exact ARM64 tag on the
 isolated canary and reported the container healthy. The authenticated dashboard
-and Connections page loaded and displayed the Socket.IO live indicator; there
-were zero active devices at the check. Production remained on its prior image.
+and Connections page loaded and displayed the Socket.IO live indicator.
+RouterOS and the rendered page both showed zero active sessions/devices and an
+empty active-device list. Production remained on its prior image.
 This point-in-time status is not a 30-minute readiness window, live-session
 acceptance, or rollback rehearsal. The formal version remains v2.7.0; do not
 tag or publish v2.8.0 until the candidate-specific acceptance gates pass.

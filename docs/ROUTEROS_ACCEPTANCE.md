@@ -76,7 +76,8 @@ exact ARM64 immutable tag
 and reported the canary healthy after start. The published ARM64 digest is
 `sha256:dd78656ff241eb090cba52c3825a5421b902983a139b9f91403f82f2109586d5`.
 The authenticated dashboard and Connections page loaded and displayed the
-Socket.IO live indicator, but there were zero active devices at that check.
+Socket.IO live indicator. RouterOS and the rendered Connections page both
+showed zero active sessions/devices and an empty active-device list.
 Production remained on its prior image. The previous canary tag,
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-e8af615c42145b9b6a1ea44bee9b217ffc5dc4be-arm64`,
 is the identified rollback target; rollback has not been rehearsed.
