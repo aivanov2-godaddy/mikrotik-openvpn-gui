@@ -315,6 +315,26 @@ Cloudflare Access, host-memory, or deployed-log checks were performed in this
 run. The external items below therefore remain **NOT VERIFIED**; this update
 does not claim production acceptance or close issue #200.
 
+### Post-merge revalidation — PR #767 — 2026-10-19
+
+PR [#767](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/767)
+changes static asset cache identity to content-hashed URLs so clients can load
+the current bundle after an update. It does not change authentication,
+authorization, session, telemetry payload, or RouterOS policy behavior. The
+published ARM64 artifact and provenance are recorded in
+[`RELEASES.md`](RELEASES.md).
+
+The exact ARM64 tag was read back from the isolated canary and RouterOS
+reported it healthy. The authenticated dashboard and Connections page loaded
+with a Socket.IO live indicator. RouterOS and the rendered page both showed
+zero active sessions/devices and an empty active-device list. No live
+session-event, expiry/revocation, reconnect, or cross-origin transport test was
+performed in this staging check. Production was left on its prior image. This
+is deployment/readiness evidence only, not a security acceptance result.
+Physical RouterOS permissions and credential-memory exposure, the formal
+credential-memory risk decision, and independent external ASVS review remain
+open under issue #200.
+
 ### Post-merge revalidation — PR #761 — 2026-10-18
 
 PR [#761](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/761)
@@ -330,11 +350,11 @@ published the immutable ARM64/AMD64 images and verified their runtime smoke,
 attestations, SBOMs, and stable-manifest read-back; their digests are recorded
 in [`RELEASES.md`](RELEASES.md).
 
-This is repository and publication evidence only. The image has not been
-verified on the RouterOS canary, and no live proxy/session acceptance is
-claimed. Physical RouterOS permissions and credential-memory exposure, the
-formal credential-memory risk decision, and independent external ASVS review
-remain open under issue #200.
+This is repository and publication evidence only for PR #761. At the time of
+this entry, that image had not been verified on the RouterOS canary. No live
+proxy/session acceptance is claimed for that candidate. Physical RouterOS
+permissions and credential-memory exposure, the formal credential-memory risk
+decision, and independent external ASVS review remain open under issue #200.
 
 ### Post-merge revalidation — PR #755 — 2026-10-15
 
