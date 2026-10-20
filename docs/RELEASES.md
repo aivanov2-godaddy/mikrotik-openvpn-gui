@@ -101,13 +101,15 @@ policy or canary/production acceptance.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-624bfbf032396b3b2b21cab1a659985b6d580f79-arm64` | `sha256:b341f063e405283ea1647670073665375aa3213300afd3b2b4076e7039377fbd` |
 | CHR/x86 AMD64 (evaluation) | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-624bfbf032396b3b2b21cab1a659985b6d580f79-amd64` | `sha256:2cf79dfecf4231f8b33c9e675d64982adc392197ab428dbccde803d2e7bd1721` |
 
-The latest RouterOS read-back on 2026-10-19 still showed PR #767's tag on the
-isolated canary and zero active sessions. PR #772 has not been staged or
-observed on RouterOS, so there is no canary acceptance result for it. The
-previous PR #767 point-in-time health/readiness check is not transferable to
-#772. No production deployment was performed for #772 in this update. The
-formal version remains v2.7.0; do not tag or publish v2.8.0 until the
-candidate-specific acceptance gates pass.
+On 2026-10-19, the PR #772 ARM64 tag was staged on the isolated canary.
+RouterOS read-back reported the configured immutable tag and a healthy
+container at that point in time; the post-start check found zero active VPN
+sessions. This is startup evidence, not a canary acceptance result: the
+30-minute soak, live-session freshness/reconnect, failure recovery, deployed
+security checks, and rollback remain unverified. At that read-back, production
+remained on its prior image. The formal version remains v2.7.0; do not tag or
+publish v2.8.0 until the candidate-specific acceptance gates pass. See
+[the candidate report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
 ### Previously published mainline candidate — PR #767 — 2026-10-19
 

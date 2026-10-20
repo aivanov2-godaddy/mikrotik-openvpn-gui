@@ -26,6 +26,7 @@ from app import (
     DashboardHandler,
     DashboardServer,
     RedirectHandler,
+    _same_origin,
     build_context,
     drop_runtime_privileges,
 )
@@ -684,12 +685,22 @@ class SocketIOLiveSendASGI:
             await self.app(scope, receive, send)
             return
 
-        origin_count = sum(
-            1
-            for key, _value in scope.get("headers", [])
+        origins = [
+            bytes(value).decode("latin-1")
+            for key, value in scope.get("headers", [])
             if bytes(key).lower() == b"origin"
+        ]
+        public_origin = getattr(
+            getattr(getattr(self.http_adapter, "server", None), "context", None),
+            "public_origin",
+            None,
         )
-        if origin_count > 1:
+        # Engine.IO may derive its allowed origin from forwarded host/proto
+        # headers. They are not an authority for this browser origin boundary.
+        if len(origins) > 1 or (origins and (
+            not isinstance(public_origin, str)
+            or not _same_origin(origins[0], public_origin)
+        )):
             if scope_type == "websocket":
                 await self._reject_websocket(send)
             else:
