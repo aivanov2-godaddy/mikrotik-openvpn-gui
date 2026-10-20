@@ -26,9 +26,9 @@ read-back. PR #772 disables process core dumps by default before app/server
 startup. These publication/CI results do not establish the RouterOS host's
 core-dump collector policy or replace hardware acceptance. The PR #761, #767,
 and #745 checkpoints below are historical evidence for their respective
-candidates. On 2026-10-19, the canary still reported the PR #767 tag and zero
-active sessions; PR #772 has not been staged, so its candidate-specific
-acceptance window has not started.
+candidates. An earlier 2026-10-19 checkpoint still showed the PR #767 tag and
+zero active sessions; later that day PR #772 was staged and reported healthy,
+as recorded below. Its candidate-specific acceptance window has not passed.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -93,7 +93,7 @@ cross-model/version certification is inferred. See the
 [current release record](RELEASES.md#published-images) and
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-## Latest candidate status — PR #772 (published, not staged)
+## Latest candidate status — PR #772 (staged, acceptance pending)
 
 PR #772 merged as
 `624bfbf032396b3b2b21cab1a659985b6d580f79`. Its ARM64 immutable image is
@@ -107,20 +107,19 @@ SBOM attestations, published-runtime smoke, and stable-manifest read-back
 passed. The merged change sets the app process core-dump limit to zero before
 startup; it does not configure or verify the RouterOS host's dump collector.
 
-On 2026-10-19, RouterOS read-back still showed the PR #767 immutable tag on the
-isolated canary and zero active VPN sessions. PR #772 was not staged or tested
-on RouterOS. No production deployment was performed for this candidate. Its
+On 2026-10-19, RouterOS read-back reported the PR #772 immutable tag and a
+healthy container on the isolated canary. The post-start check found zero
+active VPN sessions. This is point-in-time startup evidence only; no production
+deployment was performed for this candidate. Its
 30-minute canary soak, live-session events and freshness, reconnect/snapshot
 recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
-security checks, and rollback rehearsal are all **not verified**. Do not carry
-the PR #767 point-in-time health/readiness result forward to PR #772.
+security checks, and rollback rehearsal are all **not verified**.
 
-For the next acceptance run, first stage PR #772 using the reviewed canary-only
-procedure, preserving the existing production image and data. Read back the
-exact configured immutable tag and health, then run the pre-promotion
-collector. Do not treat image publication or the PR #767 point-in-time status
-as the required 30-minute acceptance window. Do not promote until the complete
-candidate-specific report passes and rollback has been rehearsed.
+For the next acceptance run, confirm the staged PR #772 immutable tag and
+canary health while preserving the existing production image and data. Then
+run the pre-promotion collector. Do not treat image publication or startup
+health as the required 30-minute acceptance window. Do not promote until the
+complete candidate-specific report passes and rollback has been rehearsed.
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
 remain historical and do not prove current-candidate canary readiness or rollback.

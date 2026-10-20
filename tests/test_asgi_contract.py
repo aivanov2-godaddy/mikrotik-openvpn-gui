@@ -183,6 +183,67 @@ class ASGIContractTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_socketio_asgi_rejects_foreign_origin_despite_forged_forwarded_host(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        delegated: list[str] = []
+
+        async def inner(scope, _receive, _send) -> None:
+            delegated.append(scope["type"])
+
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+        application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
+
+        async def exercise() -> None:
+            for scope_type in ("http", "websocket"):
+                messages: list[dict[str, object]] = []
+                scope = {
+                    "type": scope_type,
+                    "method": "GET",
+                    "path": "/socket.io/",
+                    "query_string": b"EIO=4&transport=polling",
+                    "headers": [
+                        (b"host", b"vpn.example.test"),
+                        (b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii")),
+                        (b"origin", b"https://attacker.example"),
+                        (b"x-forwarded-host", b"attacker.example"),
+                        (b"x-forwarded-proto", b"https"),
+                    ],
+                }
+
+                async def receive() -> dict[str, object]:
+                    return {"type": "http.request", "body": b"", "more_body": False}
+
+                async def send(message: dict[str, object]) -> None:
+                    messages.append(message)
+
+                await application(scope, receive, send)
+                if scope_type == "http":
+                    self.assertEqual(
+                        [message.get("status") for message in messages if message["type"] == "http.response.start"],
+                        [403],
+                    )
+                else:
+                    self.assertEqual([message["type"] for message in messages], ["websocket.close"])
+
+                # A legitimate same-origin request with the same cookie still
+                # reaches the transport; only the foreign origin is denied.
+                allowed_scope = dict(scope)
+                allowed_scope["headers"] = [
+                    (key, b"https://vpn.example.test" if key == b"origin" else value)
+                    for key, value in scope["headers"]
+                    if key not in {b"x-forwarded-host", b"x-forwarded-proto"}
+                ]
+                await application(allowed_scope, receive, send)
+            self.assertEqual(delegated, ["http", "websocket"])
+
+        asyncio.run(exercise())
+
     def test_native_websocket_preserves_telemetry_redaction_allowlists(self) -> None:
         if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
             self.skipTest("native WebSocket runtime dependencies are not installed")
@@ -395,6 +456,9 @@ class ASGIContractTests(unittest.TestCase):
 
     def test_native_websocket_expiry_closes_stream_and_blocks_reconnect(self) -> None:
         self._exercise_native_websocket_lifecycle("expiry")
+
+    def test_native_websocket_absolute_expiry_closes_stream_and_blocks_reconnect(self) -> None:
+        self._exercise_native_websocket_lifecycle("absolute-expiry")
 
     def test_native_websocket_revalidates_routeros_role_change_and_account_disable(self) -> None:
         if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn")):
@@ -684,6 +748,17 @@ class ASGIContractTests(unittest.TestCase):
                             "last_seen_monotonic",
                             time.monotonic() - sessions.idle_seconds - 1,
                         )
+                    elif transition == "absolute-expiry":
+                        current = await asyncio.to_thread(
+                            sessions.get, session.session_id, touch=False
+                        )
+                        self.assertIsNotNone(current)
+                        await asyncio.to_thread(
+                            setattr,
+                            current,
+                            "created_monotonic",
+                            time.monotonic() - sessions.absolute_seconds - 1,
+                        )
                     else:
                         # Keep the opaque session valid but remove its live-stream grant.
                         current = await asyncio.to_thread(
@@ -699,7 +774,7 @@ class ASGIContractTests(unittest.TestCase):
                     self.assertEqual(gateway.closed, ["subscription-1"])
                     self.assertEqual(native.metrics()["active_connections"], 0)
 
-                if transition in {"revoke", "expiry"}:
+                if transition in {"revoke", "expiry", "absolute-expiry"}:
                     with self.assertRaises(websockets.exceptions.InvalidStatus) as denied:
                         async with websockets.connect(
                             ws_url,
@@ -712,7 +787,7 @@ class ASGIContractTests(unittest.TestCase):
                     self.assertEqual(gateway.opened, ["subscription-1"])
                     self.assertEqual(native.metrics()["rejected_connections_total"], 0)
                     self.assertEqual(native.metrics()["active_connections"], 0)
-                    if transition == "expiry":
+                    if transition in {"expiry", "absolute-expiry"}:
                         self.assertIsNone(sessions.get(session.session_id, touch=False))
                 else:
                     self.assertIsNotNone(sessions.get(session.session_id, touch=False))
@@ -3936,7 +4011,7 @@ class ASGIContractTests(unittest.TestCase):
         import socketio
         import uvicorn
 
-        from asgi import NativeSocketIO, SocketIOLiveSendASGI
+        from asgi import NativeSocketIO, SocketIOLiveSendASGI, TrustedProxySchemeASGI
         from telemetry_gateway import TelemetryPrincipal
 
         async def exercise() -> None:
@@ -3972,7 +4047,10 @@ class ASGIContractTests(unittest.TestCase):
 
             runtime = Runtime()
             native = NativeSocketIO(runtime)
-            adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
+            adapter = DashboardHTTPASGI(SimpleNamespace(
+                telemetry_runtime=runtime,
+                context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            ))
             engineio_application = socketio.ASGIApp(
                 native.server, socketio_path="socket.io"
             )
@@ -3982,9 +4060,10 @@ class ASGIContractTests(unittest.TestCase):
                 engineio_requests += 1
                 await engineio_application(scope, receive, send)
 
-            application = SocketIOLiveSendASGI(
-                counted_engineio_app,
-                adapter,
+            socketio_gate = SocketIOLiveSendASGI(counted_engineio_app, adapter)
+            application = TrustedProxySchemeASGI(
+                socketio_gate,
+                ("127.0.0.1",),
             )
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -3997,13 +4076,18 @@ class ASGIContractTests(unittest.TestCase):
             )
             server_task = asyncio.create_task(server.serve(sockets=[listener]))
 
-            def request(path: str, cookie_session_id: str) -> tuple[int, bytes]:
+            def request(
+                path: str, cookie_session_id: str, extra_headers: dict[str, str] | None = None
+            ) -> tuple[int, bytes]:
                 connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
                 try:
                     connection.request(
                         "GET",
                         path,
-                        headers={"Cookie": f"__Host-vpn_session={cookie_session_id}"},
+                        headers={
+                            "Cookie": f"__Host-vpn_session={cookie_session_id}",
+                            **(extra_headers or {}),
+                        },
                     )
                     response = connection.getresponse()
                     return response.status, response.read()
@@ -4027,7 +4111,7 @@ class ASGIContractTests(unittest.TestCase):
                 self.assertTrue(handshake.startswith(b"0{"), handshake)
                 self.assertEqual(engineio_requests, 1)
                 engine_sid = json.loads(handshake[1:].decode("utf-8"))["sid"]
-                self.assertTrue(application._session_matches_engine_sid(
+                self.assertTrue(socketio_gate._session_matches_engine_sid(
                     engine_sid, original.session_id
                 ))
 
@@ -4042,9 +4126,40 @@ class ASGIContractTests(unittest.TestCase):
                 self.assertEqual(status, 403)
                 self.assertEqual(response_body, b"")
                 self.assertEqual(engineio_requests, 1)
-                self.assertTrue(application._session_matches_engine_sid(
+                self.assertTrue(socketio_gate._session_matches_engine_sid(
                     engine_sid, original.session_id
                 ))
+
+                legitimate_origin_headers = {
+                    "Origin": "https://vpn.example.test",
+                    "X-Forwarded-Host": "vpn.example.test",
+                    "X-Forwarded-Proto": "https",
+                }
+                status, handshake = await asyncio.to_thread(
+                    request,
+                    "/socket.io/?EIO=4&transport=polling&t=same-origin",
+                    original.session_id,
+                    legitimate_origin_headers,
+                )
+                self.assertEqual(status, 200)
+                self.assertTrue(handshake.startswith(b"0{"), handshake)
+                self.assertEqual(engineio_requests, 2)
+
+                # Forwarded host/proto cannot make a foreign browser Origin
+                # authoritative, even when Engine.IO would accept that pair.
+                status, response_body = await asyncio.to_thread(
+                    request,
+                    "/socket.io/?EIO=4&transport=polling&t=foreign-origin",
+                    original.session_id,
+                    {
+                        **legitimate_origin_headers,
+                        "Origin": "https://attacker.example",
+                        "X-Forwarded-Host": "attacker.example",
+                    },
+                )
+                self.assertEqual(status, 403)
+                self.assertEqual(response_body, b"")
+                self.assertEqual(engineio_requests, 2)
             finally:
                 server.should_exit = True
                 await asyncio.wait_for(server_task, timeout=5)

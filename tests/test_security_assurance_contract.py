@@ -263,12 +263,13 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
 
     def test_partial_asvs_statuses_match_the_bounded_evidence(self) -> None:
         rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
-        for control in ("V7.4.2", "V7.4.5", "V8.1.1", "V8.1.3–V8.1.4"):
+        for control in ("V7.4.2", "V7.4.5", "V7.5.2", "V8.1.1", "V8.1.3–V8.1.4"):
             with self.subTest(control=control):
                 self.assertEqual(rows[control][1], "PARTIAL")
 
         self.assertIn("does not proactively invalidate every session", rows["V7.4.2"][2])
         self.assertIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
+        self.assertIn("There is no terminate-all action", rows["V7.5.2"][2])
         self.assertIn("not yet mechanically reconciled against every route", rows["V8.1.1"][2])
         self.assertIn("resolved client IP", rows["V8.1.3–V8.1.4"][2])
 
