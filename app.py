@@ -3739,15 +3739,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if not self._require_csrf(session, form.get("csrf", "")):
             return
-        self.server.context.store.audit(
-            actor=session.username,
-            action="session.revoked",
-            target="dashboard",
-            status="success",
-            details={"reason": "logout", "role": normalize_role(session.role)},
-        )
         self.server.context.sessions.destroy(session.session_id)
         cookie = "__Host-vpn_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict"
+        try:
+            self.server.context.store.audit(
+                actor=session.username,
+                action="session.revoked",
+                target="dashboard",
+                status="success",
+                details={"reason": "logout", "role": normalize_role(session.role)},
+            )
+        except Exception:
+            # A failed audit write must not leave a valid logout session behind.
+            # Avoid logging the session, actor, or database exception text.
+            print("audit event=session.revoked status=failed")
         self._redirect("/login", cookie=cookie)
 
     def _reauthenticate(self) -> None:

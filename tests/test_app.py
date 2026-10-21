@@ -9,6 +9,7 @@ import io
 import inspect
 import json
 import re
+import sqlite3
 import tempfile
 import threading
 import time
@@ -1013,6 +1014,53 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"origin", payload.lower())
         self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
         self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
+
+    def test_logout_revokes_live_access_when_audit_write_fails(self) -> None:
+        self.login()
+        sid, cookie = self.connect_socketio_polling()
+        queued_marker = self.queue_socketio_test_event(sid)
+        session_id = cookie.split("=", 1)[1]
+
+        with (
+            mock.patch.object(
+                self.server.context.store,
+                "audit",
+                side_effect=sqlite3.OperationalError("injected database failure"),
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            status, headers, payload = self.request(
+                "POST",
+                "/logout",
+                body=urllib.parse.urlencode({"csrf": self.csrf}).encode(),
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 303, payload.decode("utf-8"))
+        self.assertEqual(headers["location"], "/login")
+        self.assertIn("Max-Age=0", headers["set-cookie"])
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertIn("audit event=session.revoked status=failed", output.getvalue())
+        self.assertNotIn("injected database failure", output.getvalue())
+
+        status, _, payload = self.request(
+            "GET", "/api/events", headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 401)
+        self.assertNotIn(b"event: status", payload)
+
+        status, _, payload = self.request(
+            "GET",
+            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        )
+        self.assertEqual(status, 401)
+        self.assertNotIn(queued_marker.encode(), payload)
+        self.assertNotIn(sid, self.server.socketio_bridge._clients)
+        self.assertEqual(self.server.socketio_bridge.gateway.client_count, 0)
 
     def test_logout_rejects_duplicate_origin_headers_even_with_valid_csrf_token(self) -> None:
         self.login()
