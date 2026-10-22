@@ -28,7 +28,9 @@ RouterOS hardware acceptance.
 On 2026-10-23, the manual RouterOS updater was invoked for the #776 ARM64
 immutable tag. Read-back confirmed that exact tag and RouterOS marked the
 container healthy after start. The 30-minute readiness soak is still in
-progress. The registry digests above are bound to their
+progress. The authenticated canary dashboard loaded and showed zero active VPN
+sessions at that observation, so live session-event and traffic-freshness
+measurements could not be taken. The registry digests above are bound to their
 tags by the verified publisher workflow; RouterOS reports the configured tag,
 not a local OCI digest. Production remains on its prior image and has not been
 changed. No live acceptance or production promotion is claimed.

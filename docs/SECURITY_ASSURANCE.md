@@ -340,6 +340,26 @@ Cloudflare Access, host-memory, or deployed-log checks were performed in this
 run. The external items below therefore remain **NOT VERIFIED**; this update
 does not claim production acceptance or close issue #200.
 
+### Post-merge revalidation — PR #776 — 2026-10-23
+
+PR [#776](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/776)
+ensures the server-side session is revoked before a logout audit write, so an
+audit-storage failure cannot leave the session active. The regression is
+`tests/test_app.py::DashboardIntegrationTests.test_logout_revokes_live_access_when_audit_write_fails`;
+the required PR checks and published artifact verification passed. See
+[`RELEASES.md`](RELEASES.md) for the immutable image identities and attestation
+evidence.
+
+On 2026-10-23, RouterOS read-back confirmed the exact #776 ARM64 tag and marked
+the canary healthy after start. The authenticated canary dashboard loaded, but
+reported zero active VPN sessions at that observation, so live session-event,
+expiry/revocation, reconnect, and cross-origin transport behavior were not
+measured. The 30-minute readiness soak is in progress. Production remains on
+its prior image. This is candidate startup evidence only, not security
+acceptance. Physical RouterOS permissions and credential-memory exposure, the
+formal credential-memory risk decision, and independent external ASVS review
+remain open under issue #200.
+
 ### Post-merge revalidation — PR #767 — 2026-10-19
 
 PR [#767](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/767)
