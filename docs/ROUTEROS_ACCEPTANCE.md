@@ -14,21 +14,19 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published mainline candidate is PR
-#772, commit `624bfbf032396b3b2b21cab1a659985b6d580f79`, published by
-[workflow run #39242524446](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39242524446).
+#776, commit `c4b4b76793b2454e81362867d8654962627de6fa`, published by
+[workflow run #39867875877](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39867875877).
 Its ARM64 registry digest is
-`sha256:b341f063e405283ea1647670073665375aa3213300afd3b2b4076e7039377fbd`;
+`sha256:8b5dfa0d2c4fae542e0c560576a91432812823ebe55ecc6bcad7bbfa7c0e922e`;
 the AMD64 digest is
-`sha256:2cf79dfecf4231f8b33c9e675d64982adc392197ab428dbccde803d2e7bd1721`.
-The ARM64 and AMD64 images passed published-runtime smoke tests, detached
-provenance/SBOM attestation verification, and stable-manifest publication and
-read-back. PR #772 disables process core dumps by default before app/server
-startup. These publication/CI results do not establish the RouterOS host's
-core-dump collector policy or replace hardware acceptance. The PR #761, #767,
-and #745 checkpoints below are historical evidence for their respective
-candidates. An earlier 2026-10-19 checkpoint still showed the PR #767 tag and
-zero active sessions; later that day PR #772 was staged and reported healthy,
-as recorded below. Its candidate-specific acceptance window has not passed.
+`sha256:fad2b337196e5fe09d2040acb3353e4acc5fe2d894bc49866a0470369c75d4f9`.
+Main CI, image smoke tests, provenance/SBOM attestations, and stable-manifest
+publication/read-back passed. PR #776 revokes the server-side session before
+the logout audit write. A manual canary update was invoked on 2026-10-23; the
+exact ARM64 tag was read back and RouterOS marked it healthy after start. The
+30-minute readiness soak is in progress. Production remains on its prior
+image. These publication results do not replace candidate-specific
+hardware acceptance. PR #772 and earlier checkpoints below are historical.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -67,8 +65,7 @@ operator-controlled records.
 ## Previous candidate status — PR #761
 
 The PR #761 candidate is a prior published image; its exact tag and point-in-
-time health check were recorded on 2026-10-19. That startup check is not
-acceptance and is superseded as a published candidate by PR #767 and #772 below.
+acceptance and is superseded by the later PR #767, #772, and #776 candidates.
 
 ## Previous candidate status — PR #767
 
@@ -93,7 +90,28 @@ cross-model/version certification is inferred. See the
 [current release record](RELEASES.md#published-images) and
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-## Latest candidate status — PR #772 (staged, acceptance pending)
+## Latest candidate status — PR #776 (healthy startup; acceptance pending)
+
+PR #776 merged as
+`c4b4b76793b2454e81362867d8654962627de6fa`. Its immutable ARM64 image is
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-c4b4b76793b2454e81362867d8654962627de6fa-arm64`
+with registry digest
+`sha256:8b5dfa0d2c4fae542e0c560576a91432812823ebe55ecc6bcad7bbfa7c0e922e`.
+The AMD64 image digest is
+`sha256:fad2b337196e5fe09d2040acb3353e4acc5fe2d894bc49866a0470369c75d4f9`.
+Main CI run #39867875857 and publisher run #39867875877 passed. Provenance
+attestations verify against the repository's container workflow and exact
+source commit. The manual canary-only updater was invoked on 2026-10-23;
+read-back confirms the exact tag and healthy startup. The 30-minute readiness
+soak is in progress. Production was not changed.
+
+The current acceptance window must still capture session latency and traffic
+freshness, reconnect/snapshot recovery, event and counter integrity, Binary API
+versus REST parity, Redis delivery/recovery, resource impact, SQLite restore,
+rollback, and deployed security/privacy checks. Do not promote or create v2.8.0
+until the candidate-matched acceptance report passes and rollback is rehearsed.
+
+## Previous candidate status — PR #772 (2026-10-19)
 
 PR #772 merged as
 `624bfbf032396b3b2b21cab1a659985b6d580f79`. Its ARM64 immutable image is
@@ -115,11 +133,11 @@ deployment was performed for this candidate. Its
 recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
 security checks, and rollback rehearsal are all **not verified**.
 
-For the next acceptance run, confirm the staged PR #772 immutable tag and
-canary health while preserving the existing production image and data. Then
-run the pre-promotion collector. Do not treat image publication or startup
-health as the required 30-minute acceptance window. Do not promote until the
-complete candidate-specific report passes and rollback has been rehearsed.
+This is historical evidence only. PR #776 is the latest published candidate;
+use its current status above for any new acceptance run. Do not treat image
+publication or startup health as the required 30-minute acceptance window. Do
+not promote until the complete candidate-specific report passes and rollback
+has been rehearsed.
 The PR #497 rollback/readiness results described in the [historical release
 record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05)
 remain historical and do not prove current-candidate canary readiness or rollback.
@@ -465,9 +483,11 @@ the NDJSON input and observer output private; never place raw event frames,
 identities, addresses, or secrets in either file:
 
 ```powershell
+# Set VPN_CANDIDATE_SHA to the exact full lowercase commit SHA for this image.
 # Terminal 1: authenticated, redacted Socket.IO observation of the canary.
 python scripts/telemetry_stream_observer.py `
   --canary-origin https://<approved-canary-origin> `
+  --expected-revision $env:VPN_CANDIDATE_SHA `
   --cookie-env VPN_CANARY_COOKIE `
   --duration-seconds 1800 `
   --output private-stream-observation.json
