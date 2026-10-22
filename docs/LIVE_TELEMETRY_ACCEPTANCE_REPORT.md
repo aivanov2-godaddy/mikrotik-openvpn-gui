@@ -1,10 +1,10 @@
 # Live telemetry acceptance status
 
-Status: **PR #776 is published and attested. On 2026-10-23 the canary read back
-the exact immutable tag and RouterOS reported it healthy after start; the
-30-minute readiness soak is in progress.
-Candidate-specific live acceptance is incomplete; production promotion remains
-gated.**
+Status: **PR #776 is published and attested. RouterOS read back the exact
+immutable tag and reported the canary healthy after start. The readiness
+updater is no longer active, and no completed 30-minute sample record was
+verified; the readiness gate is therefore not passed. Candidate-specific live
+acceptance is incomplete; production promotion remains gated.**
 
 ## Public artifact evidence
 
@@ -27,13 +27,19 @@ RouterOS hardware acceptance.
 
 On 2026-10-23, the manual RouterOS updater was invoked for the #776 ARM64
 immutable tag. Read-back confirmed that exact tag and RouterOS marked the
-container healthy after start. The 30-minute readiness soak is still in
-progress. The authenticated canary dashboard loaded and showed zero active VPN
-sessions at that observation, so live session-event and traffic-freshness
-measurements could not be taken. The registry digests above are bound to their
-tags by the verified publisher workflow; RouterOS reports the configured tag,
-not a local OCI digest. Production remains on its prior image and has not been
-changed. No live acceptance or production promotion is claimed.
+container healthy after start. At the latest read-back the updater was no
+longer active and no completed 30-minute sample record was verified, so the
+readiness gate is **not passed**. During a later authenticated dashboard
+observation, the connected-user count changed in the already-open page without
+a manual refresh; the exact event latency and traffic-sample age were not
+timed. A canary sign-out attempt returned an origin-rejection error and did
+not revoke the session. The canary `PUBLIC_ORIGIN` setting matched the expected
+canary origin, but the rejected request's origin/header shape was not captured;
+do not weaken origin or CSRF checks while investigating. The registry digests
+above are bound to their tags by the verified publisher workflow; RouterOS
+reports the configured tag, not a local OCI digest. Production remains on its
+prior image and has not been changed. No live acceptance or production
+promotion is claimed.
 
 Public deployment detail here is limited to the redacted canary-stage status
 above. This file contains no router identity, hostnames, addresses, resource
@@ -45,8 +51,8 @@ a gate checklist, not a report of private measurements.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |
-| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Exact #776 ARM64 tag read back and RouterOS reported healthy after start; 30-minute soak in progress |
-| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | Not measured for #776 |
+| Candidate identity and readiness | Canary reports the exact immutable candidate and remains healthy for the agreed window. | Exact #776 ARM64 tag and healthy startup read back; updater is no longer active and no completed 30-minute evidence was verified |
+| Session event latency | Connect/disconnect visible in the open dashboard within 1 second. | A connected-user change appeared without manual refresh; exact latency and disconnect timing not measured |
 | Traffic freshness | Samples are no older than 2 seconds; no manual refresh is needed. | Not measured for #776 |
 | Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not measured for #776 |
 | Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not measured for #776 |
@@ -54,7 +60,7 @@ a gate checklist, not a report of private measurements.
 | Redis/outbox | Exercise unavailable/restarting Redis, retries, duplicate delivery, queue drain, and recovery. | Repository tests exist; candidate-specific live evidence not collected |
 | Resource impact | Record bounded CPU, memory, storage, and container-health observations over the soak. | Not measured for #776 |
 | Persistence and rollback | Rehearse SQLite restore and rollback in isolated canary; preserve production state. | Not verified for #776 |
-| Security and privacy | Unauthenticated clients receive no telemetry; logs and reports contain no secrets or unnecessary private data. | Repository controls are tested; candidate-specific deployed review remains open |
+| Security and privacy | Unauthenticated clients receive no telemetry; logout revokes the session; logs and reports contain no secrets or unnecessary private data. | Canary sign-out was rejected by the origin check and did not revoke the session; request header shape not captured; deployed investigation remains open |
 
 The 30-minute canary window must use one immutable candidate and a connected
 disposable test client. Missing, stale, contradictory, or out-of-window

@@ -351,14 +351,19 @@ the required PR checks and published artifact verification passed. See
 evidence.
 
 On 2026-10-23, RouterOS read-back confirmed the exact #776 ARM64 tag and marked
-the canary healthy after start. The authenticated canary dashboard loaded, but
-reported zero active VPN sessions at that observation, so live session-event,
-expiry/revocation, reconnect, and cross-origin transport behavior were not
-measured. The 30-minute readiness soak is in progress. Production remains on
-its prior image. This is candidate startup evidence only, not security
-acceptance. Physical RouterOS permissions and credential-memory exposure, the
-formal credential-memory risk decision, and independent external ASVS review
-remain open under issue #200.
+the canary healthy after start. A later authenticated dashboard observation
+showed the connected-user count change without a manual refresh; exact event
+latency was not timed. A canary sign-out attempt was rejected by the origin
+check and did not revoke the session. The configured canary `PUBLIC_ORIGIN`
+matched the expected origin, but the rejected request's origin/header shape was
+not captured. Do not weaken origin or CSRF validation; deployed logout and
+session-revocation acceptance remains open pending diagnosis. The updater is no
+longer active and no completed 30-minute sample record was verified, so the
+readiness soak is not passed. Production remains on its prior image. This is
+candidate startup/live-display evidence only, not security acceptance.
+Physical RouterOS permissions and credential-memory exposure, the formal
+credential-memory risk decision, and independent external ASVS review remain
+open under issue #200.
 
 ### Post-merge revalidation — PR #767 — 2026-10-19
 

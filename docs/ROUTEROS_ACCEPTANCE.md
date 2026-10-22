@@ -24,8 +24,13 @@ Main CI, image smoke tests, provenance/SBOM attestations, and stable-manifest
 publication/read-back passed. PR #776 revokes the server-side session before
 the logout audit write. A manual canary update was invoked on 2026-10-23; the
 exact ARM64 tag was read back and RouterOS marked it healthy after start. The
-30-minute readiness soak is in progress. Production remains on its prior
-image. These publication results do not replace candidate-specific
+updater is no longer active and no completed 30-minute sample record was
+verified, so the readiness gate is not passed. A later authenticated dashboard
+observation showed a connected-user change without manual refresh, but event
+latency was not timed. Canary sign-out was rejected by the origin check and did
+not revoke the session; the configured canary origin matched the expected
+value, but the request header shape was not captured. Production remains on its
+prior image. These publication results do not replace candidate-specific
 hardware acceptance. PR #772 and earlier checkpoints below are historical.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
@@ -102,8 +107,12 @@ The AMD64 image digest is
 Main CI run #39867875857 and publisher run #39867875877 passed. Provenance
 attestations verify against the repository's container workflow and exact
 source commit. The manual canary-only updater was invoked on 2026-10-23;
-read-back confirms the exact tag and healthy startup. The 30-minute readiness
-soak is in progress. Production was not changed.
+read-back confirms the exact tag and healthy startup. The updater is no longer
+active and no completed 30-minute sample record was verified; readiness is not
+passed. A connected-user change appeared in the open dashboard without manual
+refresh, but exact latency was not timed. A canary sign-out attempt was
+rejected by the origin check and did not revoke the session; investigate this
+without weakening origin or CSRF protections. Production was not changed.
 
 The current acceptance window must still capture session latency and traffic
 freshness, reconnect/snapshot recovery, event and counter integrity, Binary API

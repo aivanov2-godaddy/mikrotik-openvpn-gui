@@ -105,10 +105,15 @@ The stable release manifest asset was published and read back; its SHA-256 is
 `d00f32bb8c77f89232350cadccd15bb181fac6df03de965ce10cff452705833e`.
 On 2026-10-23, the RouterOS canary updater was invoked for the ARM64 tag. A
 read-back confirmed the exact immutable tag and RouterOS reported the container
-healthy after start; the 30-minute readiness soak remains in progress.
-Production remains on its prior image. CI, image publication, and provenance
-verification do not constitute RouterOS acceptance. The formal version remains
-v2.7.0; do not create v2.8.0 until candidate-specific acceptance passes.
+healthy after start, but the updater is no longer active and no completed
+30-minute sample record was verified. The readiness gate is not passed. A later
+dashboard observation showed a connected-user change without manual refresh;
+exact latency was not timed. A canary sign-out attempt was rejected by the
+origin check and did not revoke the session; its request header shape remains
+unknown. Production remains on its prior image. CI, image publication, and
+provenance verification do not constitute RouterOS acceptance. The formal
+version remains v2.7.0; do not create v2.8.0 until candidate-specific
+acceptance passes.
 
 ### Previously published mainline candidate — PR #772 — 2026-10-19
 
