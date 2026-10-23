@@ -12,7 +12,7 @@ import urllib.request
 import uuid
 from typing import Any, Protocol
 
-from event_safety import sanitize_payload
+from event_safety import sanitize_integration_event
 
 
 class IntegrationOutbox(Protocol):
@@ -72,7 +72,7 @@ class RedisStreamPublisher:
         )
 
     def publish(self, event: dict[str, Any]) -> str:
-        payload = sanitize_payload(event)
+        payload = sanitize_integration_event(event)
         event_id = str(payload.get("event_id") or uuid.uuid4())
         payload["event_id"] = event_id
         try:
@@ -170,7 +170,7 @@ class WebhookDispatcher:
             self._wake.set()
             return
         try:
-            self._queue.put_nowait(sanitize_payload(event))
+            self._queue.put_nowait(sanitize_integration_event(event))
         except queue.Full:
             # The durable app path always supplies a store. This fallback is
             # observational and must never block control-plane requests.
@@ -257,10 +257,12 @@ class WebhookDispatcher:
                     self._store.mark_integration_delivered(event_id)
 
     def _deliver_with_retries(self, event: dict[str, Any]) -> None:
+        normalized_event = sanitize_integration_event(event)
+        normalized_event["event_id"] = str(normalized_event.get("event_id") or uuid.uuid4())
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
-                self._deliver(event, attempt=attempt)
+                self._deliver(normalized_event, attempt=attempt)
             except Exception as error:  # noqa: BLE001 - integration boundary
                 last_error = error
                 if attempt < 3:
@@ -280,9 +282,7 @@ class WebhookDispatcher:
         raise last_error or RuntimeError("integration delivery failed")
 
     def _deliver(self, event: dict[str, Any], *, attempt: int) -> None:
-        payload = sanitize_payload(event)
-        if not isinstance(payload, dict):
-            raise ValueError("integration payload must be an object")
+        payload = sanitize_integration_event(event)
         event_id = str(payload.get("event_id") or uuid.uuid4())
         payload["event_id"] = event_id
         body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
