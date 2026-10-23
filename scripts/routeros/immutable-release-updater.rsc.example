@@ -256,22 +256,28 @@
         :set skipUpdate true
     }
 
-    :set updaterStep "container-lookup"
+    :set updaterStep "canary-container-lookup"
     :local canaryId [/container/find where name=$canaryContainer]
+    :set updaterStep "production-container-lookup"
     :local productionId [/container/find where name=$productionContainer]
+    :set updaterStep "canary-container-count-check"
     :if ([:len $canaryId] != 1) do={ :error "exactly one named canary container is required" }
+    :set updaterStep "production-container-count-check"
     :if ([:len $productionId] != 1) do={ :error "exactly one named production container is required" }
 
     # No-op if production already runs this exact immutable release.
-    :set updaterStep "container-state-read"
+    :set updaterStep "production-image-read"
     :local productionCurrent [/container/get $productionId remote-image]
+    :set updaterStep "production-image-validation"
     :if (([:len $productionCurrent] != $expectedLength) || ([:pick $productionCurrent 0 $prefixLength] != $imagePrefix) || ([:pick $productionCurrent ($prefixLength + 40) $expectedLength] != "-arm64")) do={
         :error "production must already use an allowed immutable ARM64 image before automatic updates are enabled"
     }
+    :set updaterStep "production-noop-check"
     :if ($productionCurrent = $image) do={
         :log info ("vpn-gui immutable updater: production already uses " . $image)
         :set skipUpdate true
     }
+    :set updaterStep "canary-image-read"
     :local canaryCurrent [/container/get $canaryId remote-image]
     :set updaterStep "pending-state-read"
     :local pendingState ""
@@ -337,19 +343,29 @@
         :local canaryRestoreImage $canaryCurrent
         :if ($canaryCurrent = $image) do={ :set canaryRestoreImage $productionCurrent }
         :do {
+        :set updaterStep "canary-stop"
         /container/stop $canaryId
+        :set updaterStep "canary-image-set"
         /container/set $canaryId remote-image=$image
+        :set updaterStep "canary-image-update"
         /container/update $canaryId
+        :set updaterStep "canary-start"
         /container/start $canaryId
     } on-error={
         :log error ("vpn-gui immutable updater: canary lifecycle failed; step=" . $updaterStep . "; details redacted")
         :set updaterStep "canary-rollback-lifecycle"
+        :log warning ("vpn-gui immutable updater: rollback starting; step=" . $updaterStep)
         :do {
+            :set updaterStep "canary-rollback-stop"
             /container/stop $canaryId
+            :set updaterStep "canary-rollback-image-set"
             /container/set $canaryId remote-image=$canaryRestoreImage
+            :set updaterStep "canary-rollback-image-update"
             /container/update $canaryId
+            :set updaterStep "canary-rollback-start"
             /container/start $canaryId
-        } on-error={ :log error "vpn-gui immutable updater: rollback failed; step=canary-rollback-lifecycle; details redacted; operator action required" }
+        } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
+        :set updaterStep "failure-state-write"
         :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
         :set updaterStep "canary-lifecycle"
         :error "canary lifecycle gate failed"
@@ -374,12 +390,18 @@
     :if (!$canaryHealthy) do={
         :log error ("vpn-gui immutable updater: canary readiness failed; step=canary-readiness; details redacted; production unchanged")
         :set updaterStep "canary-rollback-readiness"
+        :log warning ("vpn-gui immutable updater: rollback starting; step=" . $updaterStep)
         :do {
+            :set updaterStep "canary-rollback-readiness-stop"
             /container/stop $canaryId
+            :set updaterStep "canary-rollback-readiness-image-set"
             /container/set $canaryId remote-image=$canaryRestoreImage
+            :set updaterStep "canary-rollback-readiness-image-update"
             /container/update $canaryId
+            :set updaterStep "canary-rollback-readiness-start"
             /container/start $canaryId
-        } on-error={ :log error "vpn-gui immutable updater: rollback failed; step=canary-rollback-readiness; details redacted; operator action required" }
+        } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
+        :set updaterStep "failure-state-write"
         :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
         :set updaterStep "canary-readiness"
         :error "canary readiness gate failed"
@@ -407,12 +429,18 @@
     :if (!$canaryStable) do={
         :log error ("vpn-gui immutable updater: canary soak failed; step=canary-soak; details redacted; production unchanged")
         :set updaterStep "canary-rollback-soak"
+        :log warning ("vpn-gui immutable updater: rollback starting; step=" . $updaterStep)
         :do {
+            :set updaterStep "canary-rollback-soak-stop"
             /container/stop $canaryId
+            :set updaterStep "canary-rollback-soak-image-set"
             /container/set $canaryId remote-image=$canaryRestoreImage
+            :set updaterStep "canary-rollback-soak-image-update"
             /container/update $canaryId
+            :set updaterStep "canary-rollback-soak-start"
             /container/start $canaryId
-        } on-error={ :log error "vpn-gui immutable updater: rollback failed; step=canary-rollback-soak; details redacted; operator action required" }
+        } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
+        :set updaterStep "failure-state-write"
         :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
         :set updaterStep "canary-soak"
         :error "canary readiness soak failed"
