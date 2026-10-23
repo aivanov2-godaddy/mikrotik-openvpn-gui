@@ -1274,6 +1274,72 @@ class ASGIContractTests(unittest.TestCase):
             for _ in range(acquired):
                 _SOCKETIO_ROLE_CHECK_SLOTS.release()
 
+    def test_established_socketio_repeat_connect_fails_closed_on_capacity_timeout(self) -> None:
+        from asgi import (
+            NativeSocketIO,
+            _SOCKETIO_ROLE_CHECK_LIMIT,
+            _SOCKETIO_ROLE_CHECK_SLOTS,
+        )
+
+        class Gateway:
+            def __init__(self) -> None:
+                self.closed: list[str] = []
+
+            def close(self, subscription: str) -> None:
+                self.closed.append(subscription)
+
+        class Runtime:
+            def __init__(self) -> None:
+                self.gateway = Gateway()
+                self.role_lookups = 0
+
+            def principal_for_session(self, _session_id: str, *, force_role_check: bool = False):
+                self.role_lookups += 1
+                raise AssertionError("capacity timeout must not start a role lookup")
+
+        runtime = Runtime()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = runtime
+        native._subscriptions = {"socket-1": "subscription-1"}
+        native._session_ids = {"socket-1": "valid-session"}
+        native._tasks = {}
+        native._connections_total = 1
+        native._disconnects_total = 0
+        native._rejected_connections_total = 0
+        environ = {
+            "asgi.scope": {
+                "headers": [(b"cookie", b"__Host-vpn_session=valid-session")],
+            },
+        }
+
+        acquired = 0
+        try:
+            for _ in range(_SOCKETIO_ROLE_CHECK_LIMIT):
+                self.assertTrue(_SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False))
+                acquired += 1
+
+            async def exercise() -> None:
+                self.assertFalse(
+                    await asyncio.wait_for(native.connect("socket-1", environ), timeout=0.5)
+                )
+
+            with mock.patch("asgi._ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS", 0.04):
+                asyncio.run(exercise())
+
+            self.assertEqual(runtime.role_lookups, 0)
+            self.assertEqual(runtime.gateway.closed, ["subscription-1"])
+            self.assertEqual(native._subscriptions, {})
+            self.assertEqual(native._session_ids, {})
+            self.assertEqual(native._rejected_connections_total, 1)
+            self.assertEqual(native._disconnects_total, 1)
+            extra_slot_acquired = _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False)
+            if extra_slot_acquired:
+                acquired += 1
+            self.assertFalse(extra_slot_acquired)
+        finally:
+            for _ in range(acquired):
+                _SOCKETIO_ROLE_CHECK_SLOTS.release()
+
     def test_socketio_cache_waits_for_inflight_forced_refresh_and_denial(self) -> None:
         import threading
 
@@ -1428,6 +1494,65 @@ class ASGIContractTests(unittest.TestCase):
                 await asyncio.gather(*pending, return_exceptions=True)
 
         asyncio.run(exercise())
+
+    def test_live_pump_disconnects_when_session_gate_wait_times_out(self) -> None:
+        from asgi import NativeSocketIO
+
+        class Principal:
+            may_stream = True
+
+        principal = Principal()
+        role_lock = threading.Lock()
+        role_lock.acquire()
+
+        class Gateway:
+            @staticmethod
+            def poll(_subscription: str) -> list[dict[str, object]]:
+                return [{"event": "telemetry.reconciled", "status": "online"}]
+
+        class Runtime:
+            gateway = Gateway()
+
+            @staticmethod
+            def cached_principal_for_session(
+                _session_id: str, *, role_check_lock_held: bool = False
+            ) -> tuple[bool, Principal]:
+                return True, principal
+
+            @staticmethod
+            def role_check_lock_for_session(_session_id: str):
+                return role_lock
+
+        class Server:
+            def __init__(self) -> None:
+                self.disconnects: list[tuple[str, str]] = []
+                self.emitted: list[str] = []
+
+            async def disconnect(self, sid: str, *, namespace: str) -> None:
+                self.disconnects.append((sid, namespace))
+
+            async def emit(self, event: str, _payload, *, to: str, namespace: str) -> None:
+                self.emitted.append(event)
+
+        server = Server()
+        native = object.__new__(NativeSocketIO)
+        native.runtime = Runtime()
+        native.server = server
+        native._subscriptions = {"socket-1": "subscription-1"}
+        native._session_ids = {"socket-1": "valid-session"}
+        native._events_emitted_total = 0
+
+        async def exercise() -> None:
+            await asyncio.wait_for(native._pump("socket-1", "subscription-1"), timeout=0.5)
+
+        try:
+            with mock.patch("asgi._ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS", 0.04):
+                asyncio.run(exercise())
+            self.assertEqual(server.disconnects, [("socket-1", NativeSocketIO.namespace)])
+            self.assertEqual(server.emitted, [])
+            self.assertTrue(role_lock.locked())
+        finally:
+            role_lock.release()
 
     def test_socketio_event_delivery_is_serialized_with_session_invalidation(self) -> None:
         import threading

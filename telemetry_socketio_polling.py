@@ -18,6 +18,12 @@ from typing import Any
 
 from telemetry_gateway import TelemetryGatewayContract, TelemetrySubscriptionError
 
+DEFAULT_MAX_CLIENTS = 128
+
+
+class PollingClientCapacityError(RuntimeError):
+    """Raised when the bounded polling SID table has no available slot."""
+
 
 @dataclass(slots=True)
 class PollingClient:
@@ -30,7 +36,11 @@ class PollingClient:
 
 
 class SocketIOPollingBridge:
-    """Authenticate and service the Engine.IO polling handshake."""
+    """Authenticate and service Engine.IO polling with a bounded SID table.
+
+    The default table limit is 128 clients, matching the telemetry gateway's
+    default subscription limit. Idle entries are reaped before applying it.
+    """
 
     protocol_version = 4
 
@@ -40,11 +50,13 @@ class SocketIOPollingBridge:
         principal_resolver: Any,
         *,
         idle_timeout_seconds: float = 45.0,
+        max_clients: int = DEFAULT_MAX_CLIENTS,
         clock: Any = time.monotonic,
     ) -> None:
         self.gateway = gateway
         self.principal_resolver = principal_resolver
         self.idle_timeout_seconds = max(0.0, float(idle_timeout_seconds))
+        self.max_clients = max(1, int(max_clients))
         self.clock = clock
         self._clients: dict[str, PollingClient] = {}
         self._lock = threading.RLock()
@@ -54,10 +66,12 @@ class SocketIOPollingBridge:
         principal = self.principal_resolver(session_id)
         if principal is None or not principal.may_stream:
             return None
-        sid = secrets.token_urlsafe(18)
         with self._lock:
             now = self.clock()
             self._expire_idle_locked(now)
+            if len(self._clients) >= self.max_clients:
+                raise PollingClientCapacityError("Socket.IO polling client capacity reached")
+            sid = secrets.token_urlsafe(18)
             self._clients[sid] = PollingClient(sid, session_id, now)
         packet = "0" + json.dumps(
             {

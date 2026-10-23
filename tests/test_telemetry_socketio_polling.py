@@ -1,11 +1,12 @@
 import json
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from routeros_binary import RouterOSReply
 from telemetry_broker import TelemetryBroker, TelemetryEvent
 from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
-from telemetry_socketio_polling import SocketIOPollingBridge
+from telemetry_socketio_polling import PollingClientCapacityError, SocketIOPollingBridge
 
 
 class SocketIOPollingBridgeTests(unittest.TestCase):
@@ -43,6 +44,56 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
             lambda _session_id: TelemetryPrincipal(False),
         )
         self.assertIsNone(bridge.handshake("session-1"))
+
+    def test_handshake_capacity_is_bounded_after_authentication(self) -> None:
+        gateway = TelemetryGatewayContract(self.broker, clock=lambda: 100, max_clients=4)
+
+        def resolve(session_id: str) -> TelemetryPrincipal | None:
+            if session_id == "unauthorized":
+                return TelemetryPrincipal(False)
+            return self.principal
+
+        bridge = SocketIOPollingBridge(gateway, resolve, max_clients=1)
+        first = bridge.handshake("session-1")
+        self.assertIsNotNone(first)
+        first_sid, _ = first
+        self.assertTrue(bridge.post(first_sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(gateway.client_count, 1)
+
+        # Authentication is evaluated before capacity, and rejected handshakes
+        # never receive an SID or create an additional gateway subscription.
+        self.assertIsNone(bridge.handshake("unauthorized"))
+        with self.assertRaises(PollingClientCapacityError):
+            bridge.handshake("session-2")
+
+        self.assertEqual(set(bridge._clients), {first_sid})
+        self.assertEqual(gateway.client_count, 1)
+
+    def test_parallel_handshakes_never_exceed_capacity(self) -> None:
+        authenticated = threading.Barrier(2)
+
+        def resolve(_session_id: str) -> TelemetryPrincipal:
+            authenticated.wait(timeout=2)
+            return self.principal
+
+        bridge = SocketIOPollingBridge(
+            self.bridge.gateway,
+            resolve,
+            max_clients=1,
+        )
+
+        def attempt(session_id: str) -> str:
+            try:
+                result = bridge.handshake(session_id)
+            except PollingClientCapacityError:
+                return "full"
+            return "accepted" if result is not None else "unauthorized"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = list(executor.map(attempt, ("session-1", "session-2")))
+
+        self.assertCountEqual(outcomes, ["accepted", "full"])
+        self.assertEqual(len(bridge._clients), 1)
 
     def test_polling_sid_is_bound_to_the_session_that_opened_it(self) -> None:
         result = self.bridge.handshake("session-1")
@@ -170,6 +221,7 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
             gateway,
             lambda _session_id: self.principal,
             idle_timeout_seconds=10,
+            max_clients=1,
             clock=lambda: now[0],
         )
         first = bridge.handshake("session-1")
@@ -178,6 +230,10 @@ class SocketIOPollingBridgeTests(unittest.TestCase):
         self.assertTrue(bridge.post(first_sid, "session-1", b"40/telemetry,"))
         self.assertEqual(gateway.client_count, 1)
         self.assertTrue(bridge.post(first_sid, "session-1", b"40/telemetry,"))
+        self.assertEqual(gateway.client_count, 1)
+
+        with self.assertRaises(PollingClientCapacityError):
+            bridge.handshake("session-2")
         self.assertEqual(gateway.client_count, 1)
 
         # At the exact timeout boundary, the next handshake reaps the client

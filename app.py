@@ -54,7 +54,7 @@ from store import MetadataStore
 from templates import dashboard_page, login_page
 from telemetry_state import TelemetryRuntimeState
 from telemetry_runtime import TelemetryRuntime
-from telemetry_socketio_polling import SocketIOPollingBridge
+from telemetry_socketio_polling import PollingClientCapacityError, SocketIOPollingBridge
 from telemetry_gateway import redact_session
 
 
@@ -2410,7 +2410,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         session_id = self._session_id()
         sid = query.get("sid", [""])[0]
         if not sid:
-            result = bridge.handshake(session_id)
+            try:
+                result = bridge.handshake(session_id)
+            except PollingClientCapacityError:
+                self._json(
+                    {"error": "Socket.IO polling capacity reached; retry shortly"},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    extra={"Retry-After": "1"},
+                )
+                return
             if result is None:
                 self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
                 return
