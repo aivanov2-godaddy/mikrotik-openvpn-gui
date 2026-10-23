@@ -29,7 +29,10 @@ class ASGIContractTests(unittest.TestCase):
         expired_session.last_seen_monotonic = time.monotonic() - 3601
         revoked_session = sessions.create("revoked", "test-only-password", role="owner")
         sessions.revoke(revoked_session.session_id)
-        adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=SimpleNamespace(sessions=sessions)))
+        adapter = DashboardHTTPASGI(SimpleNamespace(
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+        ))
         delegated: list[str] = []
 
         async def inner(scope, _receive, _send) -> None:
@@ -51,7 +54,10 @@ class ASGIContractTests(unittest.TestCase):
                 for cookie in denied_cookies
             ):
                 messages: list[dict[str, object]] = []
-                headers = [(b"host", b"vpn.example.test")]
+                headers = [
+                    (b"host", b"vpn.example.test"),
+                    (b"origin", b"https://vpn.example.test"),
+                ]
                 if cookie is not None:
                     headers.append((b"cookie", cookie))
                 scope = {
@@ -83,6 +89,7 @@ class ASGIContractTests(unittest.TestCase):
                 "query_string": b"EIO=4&transport=polling",
                 "headers": [
                     (b"host", b"vpn.example.test"),
+                    (b"origin", b"https://vpn.example.test"),
                     (
                         b"cookie",
                         f"__Host-vpn_session={active_session.session_id}".encode("ascii"),
@@ -105,12 +112,16 @@ class ASGIContractTests(unittest.TestCase):
             )
             fallback_application = SocketIOLiveSendASGI(
                 inner,
-                DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=fallback_runtime)),
+                DashboardHTTPASGI(SimpleNamespace(
+                    telemetry_runtime=fallback_runtime,
+                    context=SimpleNamespace(public_origin="https://vpn.example.test"),
+                )),
             )
             fallback_scope = {
                 **valid_scope,
                 "headers": [
                     (b"host", b"vpn.example.test"),
+                    (b"origin", b"https://vpn.example.test"),
                     (b"cookie", b"__Host-vpn_session=cached-session"),
                 ],
             }
@@ -239,6 +250,142 @@ class ASGIContractTests(unittest.TestCase):
             [message.get("status") for message in messages if message.get("type") == "http.response.start"],
             [403],
         )
+
+    def test_socketio_asgi_rejects_originless_polling_get_without_same_origin_referer(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        sessions = SessionStore()
+        active_session = sessions.create("operator", "test-only-router-password", role="owner")
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+        delegated: list[str] = []
+
+        async def inner(scope, _receive, _send) -> None:
+            delegated.append(scope["type"])
+
+        application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
+        messages: list[dict[str, object]] = []
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/socket.io/",
+            "query_string": b"EIO=4&transport=polling",
+            "headers": [
+                (b"host", b"vpn.example.test"),
+                (b"cookie", f"__Host-vpn_session={active_session.session_id}".encode("ascii")),
+            ],
+        }
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        asyncio.run(application(scope, receive, send))
+
+        self.assertEqual(delegated, [])
+        self.assertEqual(
+            [message.get("status") for message in messages if message.get("type") == "http.response.start"],
+            [403],
+        )
+
+    def test_socketio_asgi_allows_originless_polling_get_with_same_origin_referer(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        sessions = SessionStore()
+        active_session = sessions.create("operator", "test-only-router-password", role="owner")
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+        delegated: list[str] = []
+
+        async def inner(scope, _receive, _send) -> None:
+            delegated.append(scope["type"])
+
+        application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/socket.io/",
+            "query_string": b"EIO=4&transport=polling",
+            "headers": [
+                (b"host", b"vpn.example.test"),
+                (b"referer", b"https://vpn.example.test/dashboard"),
+                (b"cookie", f"__Host-vpn_session={active_session.session_id}".encode("ascii")),
+            ],
+        }
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(_message: dict[str, object]) -> None:
+            return None
+
+        asyncio.run(application(scope, receive, send))
+
+        self.assertEqual(delegated, ["http"])
+
+    def test_socketio_asgi_rejects_ambiguous_originless_referer_evidence(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        sessions = SessionStore()
+        active_session = sessions.create("operator", "test-only-router-password", role="owner")
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+        delegated: list[str] = []
+
+        async def inner(scope, _receive, _send) -> None:
+            delegated.append(scope["type"])
+
+        application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
+        same_origin_referer = b"https://vpn.example.test/dashboard"
+        cases = (
+            (
+                "duplicate referer",
+                [
+                    (b"referer", same_origin_referer),
+                    (b"referer", same_origin_referer),
+                ],
+            ),
+            ("malformed referer port", [(b"referer", b"https://vpn.example.test:invalid/")]),
+            (
+                "opaque origin",
+                [(b"origin", b"null"), (b"referer", same_origin_referer)],
+            ),
+        )
+        for name, evidence_headers in cases:
+            with self.subTest(name=name):
+                messages: list[dict[str, object]] = []
+                scope = {
+                    "type": "http",
+                    "method": "GET",
+                    "path": "/socket.io/",
+                    "query_string": b"EIO=4&transport=polling",
+                    "headers": [
+                        (b"host", b"vpn.example.test"),
+                        *evidence_headers,
+                        (b"cookie", f"__Host-vpn_session={active_session.session_id}".encode("ascii")),
+                    ],
+                }
+
+                async def receive() -> dict[str, object]:
+                    return {"type": "http.request", "body": b"", "more_body": False}
+
+                async def send(message: dict[str, object]) -> None:
+                    messages.append(message)
+
+                asyncio.run(application(scope, receive, send))
+                self.assertEqual(delegated, [])
+                self.assertEqual(
+                    [message.get("status") for message in messages if message.get("type") == "http.response.start"],
+                    [403],
+                )
 
     def test_socketio_asgi_rejects_duplicate_origins_for_http_and_websocket(self) -> None:
         from asgi import SocketIOLiveSendASGI
@@ -4447,6 +4594,7 @@ class ASGIContractTests(unittest.TestCase):
                         path,
                         headers={
                             "Cookie": f"__Host-vpn_session={cookie_session_id}",
+                            "Referer": "https://vpn.example.test/dashboard",
                             **(extra_headers or {}),
                         },
                     )
@@ -4744,7 +4892,8 @@ class ASGIContractTests(unittest.TestCase):
         adapter = SimpleNamespace(
             _send_authorized_live_message=authorized_send,
             server=SimpleNamespace(
-                telemetry_runtime=SimpleNamespace(sessions=ActiveSessions())
+                telemetry_runtime=SimpleNamespace(sessions=ActiveSessions()),
+                context=SimpleNamespace(public_origin="https://vpn.example.test"),
             ),
         )
         gate = SocketIOLiveSendASGI(engineio_app, adapter)
@@ -4765,6 +4914,7 @@ class ASGIContractTests(unittest.TestCase):
             "path": "/socket.io/",
             "query_string": b"EIO=4&transport=polling",
             "headers": [
+                (b"origin", b"https://vpn.example.test"),
                 (b"cookie", f"__Host-vpn_session={session_id}".encode("ascii")),
             ],
         }
@@ -4780,7 +4930,14 @@ class ASGIContractTests(unittest.TestCase):
             nonlocal calls
             calls += 1
 
-        gate = SocketIOLiveSendASGI(inner, object())
+        sessions = SimpleNamespace(
+            get=lambda _session_id, **_kwargs: object(),
+        )
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+        gate = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
         self.assertTrue(gate._bind_engine_sid("expired-engine-sid", "session-a"))
         messages: list[dict[str, object]] = []
 
@@ -4799,7 +4956,10 @@ class ASGIContractTests(unittest.TestCase):
                         "method": "GET",
                         "path": "/socket.io/",
                         "query_string": query,
-                        "headers": [(b"cookie", b"__Host-vpn_session=session-a")],
+                        "headers": [
+                            (b"origin", b"https://vpn.example.test"),
+                            (b"cookie", b"__Host-vpn_session=session-a"),
+                        ],
                     },
                     asyncio.Future,
                     send,
@@ -4811,7 +4971,10 @@ class ASGIContractTests(unittest.TestCase):
                         "method": "GET",
                         "path": "/socket.io/",
                         "query_string": b"EIO=4&transport=polling&sid=expired-engine-sid",
-                        "headers": [(b"cookie", b"__Host-vpn_session=session-a")],
+                        "headers": [
+                            (b"origin", b"https://vpn.example.test"),
+                            (b"cookie", b"__Host-vpn_session=session-a"),
+                        ],
                     },
                     asyncio.Future,
                     send,

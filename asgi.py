@@ -48,6 +48,33 @@ _SOCKETIO_MAX_SESSION_BINDINGS = 4096
 _ASGI_AUTHORIZATION_WAIT_POLL_SECONDS = 0.025
 
 
+def _same_origin_referer(headers: Any, public_origin: Any) -> bool:
+    """Require one valid same-origin Referer when a polling GET omits Origin."""
+    referers = [
+        bytes(value).decode("latin-1")
+        for key, value in headers
+        if bytes(key).lower() == b"referer"
+    ]
+    if len(referers) != 1:
+        return False
+    try:
+        parsed = urllib.parse.urlsplit(referers[0])
+        if (
+            parsed.scheme.casefold() not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return False
+        # Accessing port validates malformed port syntax before comparison.
+        _ = parsed.port
+    except ValueError:
+        return False
+    return isinstance(public_origin, str) and _same_origin(
+        f"{parsed.scheme}://{parsed.netloc}", public_origin
+    )
+
+
 def _configured_authorization_wait_timeout() -> float:
     """Return a finite, short authorization acquisition timeout.
 
@@ -739,11 +766,18 @@ class SocketIOLiveSendASGI:
         # headers. They are not an authority for this browser origin boundary.
         # Browser WebSocket handshakes must carry exactly one Origin so the
         # configured public origin can be checked before Engine.IO allocation.
-        # Only HTTP GET polling retains missing-Origin compatibility; other
-        # HTTP methods still require origin evidence before Engine.IO dispatch.
+        # HTTP GET polling may omit Origin only with exactly one matching
+        # same-origin Referer; no browser evidence is rejected before Engine.IO
+        # can allocate a transport SID. Other HTTP methods require Origin.
         missing_required_origin = not origins and (
             scope_type == "websocket"
-            or (scope_type == "http" and method != "GET")
+            or (
+                scope_type == "http"
+                and (
+                    method != "GET"
+                    or not _same_origin_referer(scope.get("headers", []), public_origin)
+                )
+            )
         )
         invalid_supplied_origin = bool(origins) and (
             len(origins) > 1

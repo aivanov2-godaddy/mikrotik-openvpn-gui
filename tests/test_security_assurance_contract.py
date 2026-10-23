@@ -491,8 +491,14 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
 
         websocket_origin_finding = rows["V4.4.2"][2]
         self.assertIn("require exactly one Origin", websocket_origin_finding)
-        self.assertIn("HTTP polling GET may omit Origin", websocket_origin_finding)
-        self.assertIn("Deployed proxy behavior is unverified", websocket_origin_finding)
+        self.assertIn(
+            "HTTP polling GET may omit Origin only when exactly one same-origin Referer is present",
+            websocket_origin_finding,
+        )
+        self.assertIn(
+            "Deployed proxy behavior and independent full-scope review remain unverified",
+            websocket_origin_finding,
+        )
 
         self.assertIn("does not proactively invalidate every session", rows["V7.4.2"][2])
         self.assertIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])

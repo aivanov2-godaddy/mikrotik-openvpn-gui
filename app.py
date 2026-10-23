@@ -2478,7 +2478,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return True
         origin = origins[0] if origins else None
         if origin is None and not require_origin:
-            return False
+            # Polling GETs may omit Origin in some clients, but must still
+            # prove a same-origin browser context before allocating a SID.
+            if self._login_origin_allowed():
+                return False
+            self._json(
+                {"error": "Socket.IO polling origin is not allowed"},
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return True
         if origin is not None and _same_origin(origin, self.server.context.public_origin):
             return False
         self._json(
