@@ -1,22 +1,34 @@
 # Live telemetry acceptance status
 
-Status: **PR #798 is the latest published and attested mainline image; no
-post-publication RouterOS staging/deployment is recorded for it. The latest candidate-bound canary
-record remains PR #776 and no candidate-matched 30-minute sample record was
-verified. A read-only inventory at approximately 14:33 UTC on 2026-10-23 showed
-the PR #788 ARM64 tag configured on canary and production; this predates the
-publication of PR #798. A separate read-only RouterOS PPP Active Connections
-check at approximately 14:50 UTC showed one active VPN session; a later check
-at approximately 15:02 UTC showed none. At that time the canary dashboard was
-at its application sign-in page, so the router-side session was not correlated
-with dashboard telemetry. These are dated historical observations, not a
-statement of the current connection state. Readiness is not passed;
-candidate-specific live acceptance is incomplete and production promotion
-remains gated.**
+Status: **PR #803 is the latest published and attested mainline image. On
+2026-10-24 its exact immutable ARM64 tag and revision were staged/read back on
+the isolated canary; the local readiness endpoint reported `ready`. A manual
+rollback to the previous canary image passed readiness, then PR #803 was
+restored and readiness reverified. Production remains on its prior image and
+was not changed. A new 30-sample, one-minute-spaced readiness observation has
+started but is not complete. The canary dashboard remains at its app sign-in
+form in the available browser view, so authenticated live telemetry, event
+latency/freshness, and reconnect/snapshot recovery are not verified. The
+installed updater remains unreconciled and was not run. Candidate-specific
+acceptance and production promotion remain gated.**
+
+## Current candidate checkpoint — PR #803
+
+PR [#803](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/803)
+is commit `e12d1708e81959f02c182659dc5bb35a82229fef`. The immutable ARM64
+registry digest is
+`sha256:d0fe3c7c19cd49db9499e645e4d31467cc264d8575b74da59d4beffc9967250c`.
+Publisher, provenance/SBOM, and runtime-smoke checks passed. RouterOS read-back
+confirmed the exact candidate revision on canary. The rollback drill used the
+previous immutable canary image and its matching readiness revision, then
+restored the candidate and verified its readiness again. The production image
+remains unchanged. The 30-minute readiness-only sample series is in progress;
+no application-level live-event acceptance or telemetry/security pass is
+claimed from readiness alone.
 
 ## Public artifact evidence
 
-PR [#798](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/798)
+Previously published PR [#798](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/798)
 merged as `041a9d2ac7581dac18911c236cbbb3aee4280273`. Main CI run
 [#40000779522](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40000779522)
 and publisher run
@@ -36,7 +48,7 @@ did not stage or deploy the image on RouterOS.
 PR #798 is not a numbered release; v2.7.0 remains the latest formal version.
 Image publication did not deploy to RouterOS or establish live acceptance.
 
-### Latest candidate-bound canary artifact — PR #776
+### Historical candidate-bound canary artifact — PR #776
 
 PR [#776](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/776)
 (`c4b4b76793b2454e81362867d8654962627de6fa`) is the latest candidate-bound
@@ -91,8 +103,9 @@ a gate checklist, not a report of private measurements.
 ## Candidate acceptance gates
 
 The following table is the historical acceptance record for candidate PR #776;
-it is not the current canary image state. PR #798 is the latest published
-candidate, but no post-publication staging or live acceptance is recorded.
+it is not the current canary image state. PR #803 is currently staged on the
+canary with readiness/rollback verification recorded above, but full live
+acceptance remains incomplete.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |
