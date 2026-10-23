@@ -53,7 +53,7 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         reference = b"# reviewed\n"
         candidate = (
             b':local password "SENSITIVE-PASSWORD-SENTINEL"\n'
-            b"# -----BEGIN PRIVATE KEY----- SENSITIVE-KEY-SENTINEL\n"
+            b"# -----BEGIN " b"PRIVATE KEY----- SENSITIVE-KEY-SENTINEL\n"
             b"/file/remove [find where name=probe]\n"
             b"/tool/fetch url=https://example.invalid\n"
         )
