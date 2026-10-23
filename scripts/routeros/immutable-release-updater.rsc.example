@@ -157,6 +157,39 @@
     :if ([:find $body $expectedRevision] = nil) do={ :return "revision-mismatch" }
     :return "ready"
 }
+:local verifyCanaryRestore do={
+    :local canaryId $1
+    :local restoreImage $2
+    :local restoreCommit $3
+    :local endpoint $4
+    :local transport $5
+    :local attempts $6
+    :local retryDelay $7
+    :local restoredImage ""
+    :local imageReadFailed false
+    :onerror restoreImageError,restoreImageAttributes in={
+        :set restoredImage [/container/get $canaryId remote-image]
+    } do={
+        :set imageReadFailed true
+    }
+    :if ($imageReadFailed) do={ :return "image-read-failed" }
+    :if ($restoredImage != $restoreImage) do={ :return "image-mismatch" }
+
+    :local revisionReady false
+    :for attempt from=1 to=$attempts do={
+        :delay $retryDelay
+        :local readinessResult "check-error"
+        :do {
+            :set readinessResult [$fetchReady $endpoint $transport $restoreCommit]
+        } on-error={
+            :set readinessResult "check-error"
+        }
+        :if ($readinessResult = "ready") do={ :set revisionReady true }
+        :if ($revisionReady) do={ :break }
+    }
+    :if (!$revisionReady) do={ :return "readiness-failed" }
+    :return "verified"
+}
 
 # RouterOS job state is authoritative for overlap detection. The legacy global
 # is retained only as a diagnostic flag: it may remain true after an interrupted
@@ -342,6 +375,18 @@
         :log info ("vpn-gui immutable updater: testing canary " . $image)
         :local canaryRestoreImage $canaryCurrent
         :if ($canaryCurrent = $image) do={ :set canaryRestoreImage $productionCurrent }
+        :set updaterStep "canary-restore-image-validation"
+        :if (([:len $canaryRestoreImage] != $expectedLength) || ([:pick $canaryRestoreImage 0 $prefixLength] != $imagePrefix) || ([:pick $canaryRestoreImage ($prefixLength + 40) $expectedLength] != "-arm64")) do={
+            :error "canary restore image is not an allowed immutable ARM64 image"
+        }
+        :local canaryRestoreCommit [:pick $canaryRestoreImage $prefixLength ($prefixLength + 40)]
+        :for restoreIndex from=0 to=39 do={
+            :local restoreCharacter [:pick $canaryRestoreCommit $restoreIndex ($restoreIndex + 1)]
+            :if ([:find $hex $restoreCharacter] = nil) do={
+                :error "canary restore image tag is not lowercase hexadecimal"
+            }
+        }
+        :local rollbackVerification ""
         :do {
         :set updaterStep "canary-stop"
         /container/stop $canaryId
@@ -364,6 +409,14 @@
             /container/update $canaryId
             :set updaterStep "canary-rollback-start"
             /container/start $canaryId
+            :set updaterStep "canary-rollback-lifecycle-verification"
+            :set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit $canaryReadyUrl $canaryReadyTransport $pollAttempts $pollDelay]
+            :if ($rollbackVerification = "verified") do={
+                :log warning "vpn-gui immutable updater: canary rollback verified; step=canary-rollback-lifecycle; restored immutable image and ready revision confirmed; production unchanged"
+            } else={
+                :set updaterStep ("canary-rollback-lifecycle-" . $rollbackVerification)
+                :log error ("vpn-gui immutable updater: rollback verification failed; step=" . $updaterStep . "; details redacted; operator action required")
+            }
         } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
         :set updaterStep "failure-state-write"
         :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
@@ -400,6 +453,14 @@
             /container/update $canaryId
             :set updaterStep "canary-rollback-readiness-start"
             /container/start $canaryId
+            :set updaterStep "canary-rollback-readiness-verification"
+            :set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit $canaryReadyUrl $canaryReadyTransport $pollAttempts $pollDelay]
+            :if ($rollbackVerification = "verified") do={
+                :log warning "vpn-gui immutable updater: canary rollback verified; step=canary-rollback-readiness; restored immutable image and ready revision confirmed; production unchanged"
+            } else={
+                :set updaterStep ("canary-rollback-readiness-" . $rollbackVerification)
+                :log error ("vpn-gui immutable updater: rollback verification failed; step=" . $updaterStep . "; details redacted; operator action required")
+            }
         } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
         :set updaterStep "failure-state-write"
         :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
@@ -439,6 +500,14 @@
             /container/update $canaryId
             :set updaterStep "canary-rollback-soak-start"
             /container/start $canaryId
+            :set updaterStep "canary-rollback-soak-verification"
+            :set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit $canaryReadyUrl $canaryReadyTransport $pollAttempts $pollDelay]
+            :if ($rollbackVerification = "verified") do={
+                :log warning "vpn-gui immutable updater: canary rollback verified; step=canary-rollback-soak; restored immutable image and ready revision confirmed; production unchanged"
+            } else={
+                :set updaterStep ("canary-rollback-soak-" . $rollbackVerification)
+                :log error ("vpn-gui immutable updater: rollback verification failed; step=" . $updaterStep . "; details redacted; operator action required")
+            }
         } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
         :set updaterStep "failure-state-write"
         :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
