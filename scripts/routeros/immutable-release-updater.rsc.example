@@ -295,22 +295,36 @@
         # update errors (including multiline contents) before the readiness
         # soak. The short-lived random probe contains no private data.
         :set updaterStep "state-directory-probe"
-        :local stateProbeFile ($stateDirectory . "/.vpn-gui-write-check-" . [:rndnum from=100000 to=999999] . ".tmp")
+        # Use a normal RouterOS filename rather than a dot-prefixed file; some
+        # RouterOS file surfaces treat hidden-style names inconsistently.
+        :local stateProbeFile ($stateDirectory . "/vpn-gui-write-check-" . [:rndnum from=100000 to=999999] . ".tmp")
         :local stateProbeContents "probe=updated\nmultiline=yes"
         :local stateProbeFailed false
+        :local stateProbeFailureStep ""
         :local stateProbeId
         :do {
+            :set updaterStep "state-directory-probe-create"
             $writeState $stateProbeFile "probe=created"
+            :set updaterStep "state-directory-probe-update"
             $writeState $stateProbeFile $stateProbeContents
+            :set updaterStep "state-directory-probe-verify"
             :set stateProbeId [/file/find where name=$stateProbeFile]
-            :if (([:len $stateProbeId] != 1) || ([/file/get $stateProbeId contents] != $stateProbeContents)) do={ :set stateProbeFailed true }
+            :if (([:len $stateProbeId] != 1) || ([/file/get $stateProbeId contents] != $stateProbeContents)) do={
+                :set stateProbeFailed true
+                :set stateProbeFailureStep $updaterStep
+            }
+            :set updaterStep "state-directory-probe-cleanup"
             :if ([:len $stateProbeId] = 1) do={ /file/remove $stateProbeId }
         } on-error={
             :set stateProbeFailed true
+            :if ($stateProbeFailureStep = "") do={ :set stateProbeFailureStep $updaterStep }
+            :set updaterStep "state-directory-probe-cleanup"
             :do { :set stateProbeId [/file/find where name=$stateProbeFile]; :if ([:len $stateProbeId] = 1) do={ /file/remove $stateProbeId } } on-error={}
         }
         :if ($stateProbeFailed) do={
-            :error ("router-local state directory is missing or not writable: " . $stateDirectory . "; no container changed")
+            :if ($stateProbeFailureStep = "") do={ :set stateProbeFailureStep "state-directory-probe-cleanup" }
+            :set updaterStep $stateProbeFailureStep
+            :error ("router-local state directory probe failed; no container changed")
         }
     }
 

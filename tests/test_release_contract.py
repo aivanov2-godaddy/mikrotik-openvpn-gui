@@ -245,7 +245,21 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('candidate already staged; production unchanged', executable)
         self.assertIn(':local stateDirectory "disk1/vpn-dashboard"', executable)
         self.assertIn(':local pendingFile ($stateDirectory . "/routeros-update-pending.txt")', executable)
-        self.assertIn('router-local state directory is missing or not writable:', executable)
+        self.assertIn('router-local state directory probe failed; no container changed', executable)
+        self.assertIn('($stateDirectory . "/vpn-gui-write-check-"', executable)
+        self.assertNotIn('"/.vpn-gui-write-check-"', executable)
+        for step in (
+            "state-directory-probe-create",
+            "state-directory-probe-update",
+            "state-directory-probe-verify",
+            "state-directory-probe-cleanup",
+        ):
+            self.assertIn(f'"{step}"', executable)
+        self.assertIn(":set updaterStep $stateProbeFailureStep", executable)
+        self.assertLess(
+            executable.index(":set updaterStep $stateProbeFailureStep"),
+            executable.index('router-local state directory probe failed; no container changed'),
+        )
         self.assertIn('$writeState $stateProbeFile "probe=created"', executable)
         self.assertIn('$writeState $stateProbeFile $stateProbeContents', executable)
         self.assertIn('[/file/get $stateProbeId contents] != $stateProbeContents', executable)
