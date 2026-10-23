@@ -36,7 +36,7 @@ async function expectNoSeriousAxeViolations(page, testInfo, stateName) {
   expect(serious, `${stateName}: no serious/critical WCAG 2.2 A/AA findings`).toEqual([]);
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   // Freeze browser time and prevent a real-time transport from starting. The
   // mock app supplies deterministic REST fixtures; live-event timing is out of
   // scope for screenshot comparisons and has separate integration coverage.
@@ -46,6 +46,21 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, 'EventSource', { configurable: true, value: undefined });
   });
+  if (/Connections history keeps search|VPN user status filters/.test(testInfo.title)) {
+    // These tests inject their own status and stream updates. Suppress only the
+    // dashboard's startup and recurring status polls so a real REST response
+    // cannot replace the deterministic rows while assertions are running.
+    await page.addInitScript(() => {
+      const setTimeoutNative = window.setTimeout.bind(window);
+      const setIntervalNative = window.setInterval.bind(window);
+      window.setTimeout = (handler, delay, ...args) => (
+        delay === 1200 ? 0 : setTimeoutNative(handler, delay, ...args)
+      );
+      window.setInterval = (handler, delay, ...args) => (
+        delay === 5000 ? 0 : setIntervalNative(handler, delay, ...args)
+      );
+    });
+  }
   await page.route('**/api/telemetry', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ transport: 'sse', socketio_enabled: false }),
