@@ -170,6 +170,7 @@
     :error "vpn-gui immutable updater lock held"
 }
 :set vpnGuiImmutableUpdateLock true
+:local updaterStep "startup"
 
 :onerror updaterError,updaterErrorAttributes in={
     :if (($maintenanceStartHour < 0) || ($maintenanceStartHour > 23) || ($maintenanceEndHour < 0) || ($maintenanceEndHour > 23)) do={
@@ -198,11 +199,14 @@
     # making the release data executable: the response is still JSON-only,
     # HTTPS-only, certificate-validated, and redirect-bounded below. Keep the
     # query short and numeric: this form was verified with RouterOS fetch.
+    :set updaterStep "manifest-fetch"
     :local manifestRequestUrl ($manifestUrl . "?cb=" . [:rndnum from=100000 to=999999])
     :local fetched [/tool/fetch url=$manifestRequestUrl mode=https check-certificate=yes http-max-redirect-count=2 output=user as-value]
+    :set updaterStep "manifest-response-check"
     :if (($fetched->"status") != "finished") do={
         :error "release manifest fetch did not finish"
     }
+    :set updaterStep "manifest-parse"
     :local manifest [:deserialize from=json value=($fetched->"data")]
     :local schema ($manifest->"schema")
     :local images ($manifest->"images")
@@ -211,6 +215,7 @@
 
     # Fail closed unless the manifest names this format exactly:
     # ghcr.io/<configured public owner>/mikrotik-openvpn-gui:sha-<40 lowercase hex>-arm64
+    :set updaterStep "candidate-validation"
     :if ($schema != 1) do={
         :error "manifest schema is not accepted"
     }
@@ -233,10 +238,12 @@
             :error "manifest commit contains a non-lowercase-hex character"
         }
     }
+    :set updaterStep "readiness-configuration"
     :local canaryReadyTransport [$readinessTransport $canaryReadyUrl]
 
     # Do not repeatedly disrupt a canary for the same previously rejected
     # immutable candidate. A new SHA begins with a fresh failure count.
+    :set updaterStep "failure-state-read"
     :local previousFailure ""
     :do { :set previousFailure [/file/get [find where name=$failureFile] contents] } on-error={}
     :local failedImage [$stateLine $previousFailure "failed-image="]
@@ -249,12 +256,14 @@
         :set skipUpdate true
     }
 
+    :set updaterStep "container-lookup"
     :local canaryId [/container/find where name=$canaryContainer]
     :local productionId [/container/find where name=$productionContainer]
     :if ([:len $canaryId] != 1) do={ :error "exactly one named canary container is required" }
     :if ([:len $productionId] != 1) do={ :error "exactly one named production container is required" }
 
     # No-op if production already runs this exact immutable release.
+    :set updaterStep "container-state-read"
     :local productionCurrent [/container/get $productionId remote-image]
     :if (([:len $productionCurrent] != $expectedLength) || ([:pick $productionCurrent 0 $prefixLength] != $imagePrefix) || ([:pick $productionCurrent ($prefixLength + 40) $expectedLength] != "-arm64")) do={
         :error "production must already use an allowed immutable ARM64 image before automatic updates are enabled"
@@ -264,6 +273,7 @@
         :set skipUpdate true
     }
     :local canaryCurrent [/container/get $canaryId remote-image]
+    :set updaterStep "pending-state-read"
     :local pendingState ""
     :do { :set pendingState [/file/get [find where name=$pendingFile] contents] } on-error={}
     :local pendingImage [$stateLine $pendingState "candidate-image="]
@@ -284,6 +294,7 @@
         # any container mutation. This catches missing paths and RouterOS file
         # update errors (including multiline contents) before the readiness
         # soak. The short-lived random probe contains no private data.
+        :set updaterStep "state-directory-probe"
         :local stateProbeFile ($stateDirectory . "/.vpn-gui-write-check-" . [:rndnum from=100000 to=999999] . ".tmp")
         :local stateProbeContents "probe=updated\nmultiline=yes"
         :local stateProbeFailed false
@@ -308,6 +319,7 @@
     # writes mountlists, envlists, root-dir, interface, router configuration,
     # SQLite data, certificates, users, firewall, or proxy settings.
     :if (!$skipUpdate) do={
+        :set updaterStep "canary-lifecycle"
         :log info ("vpn-gui immutable updater: testing canary " . $image)
         :local canaryRestoreImage $canaryCurrent
         :if ($canaryCurrent = $image) do={ :set canaryRestoreImage $productionCurrent }
@@ -317,17 +329,20 @@
         /container/update $canaryId
         /container/start $canaryId
     } on-error={
-        :log error ("vpn-gui immutable updater: canary extraction/start failed; restoring " . $canaryRestoreImage)
-        $recordFailure $image
+        :log error ("vpn-gui immutable updater: canary lifecycle failed; step=" . $updaterStep . "; details redacted")
+        :set updaterStep "canary-rollback-lifecycle"
         :do {
             /container/stop $canaryId
             /container/set $canaryId remote-image=$canaryRestoreImage
             /container/update $canaryId
             /container/start $canaryId
-        } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
+        } on-error={ :log error "vpn-gui immutable updater: rollback failed; step=canary-rollback-lifecycle; details redacted; operator action required" }
+        :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
+        :set updaterStep "canary-lifecycle"
         :error "canary lifecycle gate failed"
     }
 
+    :set updaterStep "canary-readiness"
     :local canaryHealthy false
     :for attempt from=1 to=$pollAttempts do={
         :delay $pollDelay
@@ -344,14 +359,16 @@
         :if ($canaryHealthy) do={ :break }
     }
     :if (!$canaryHealthy) do={
-        :log error ("vpn-gui immutable updater: canary rejected " . $image . "; restoring " . $canaryRestoreImage . "; production unchanged")
-        $recordFailure $image
+        :log error ("vpn-gui immutable updater: canary readiness failed; step=canary-readiness; details redacted; production unchanged")
+        :set updaterStep "canary-rollback-readiness"
         :do {
             /container/stop $canaryId
             /container/set $canaryId remote-image=$canaryRestoreImage
             /container/update $canaryId
             /container/start $canaryId
-        } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
+        } on-error={ :log error "vpn-gui immutable updater: rollback failed; step=canary-rollback-readiness; details redacted; operator action required" }
+        :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
+        :set updaterStep "canary-readiness"
         :error "canary readiness gate failed"
     }
 
@@ -359,6 +376,7 @@
     # successful readiness samples spaced at least 60 seconds apart; any
     # failed, incomplete, or mismatched-revision response rejects and rolls back
     # the candidate while production remains untouched.
+    :set updaterStep "canary-soak"
     :local canaryStable true
     :for sample from=1 to=$canaryValidationSamples do={
         :delay $canaryValidationInterval
@@ -374,25 +392,29 @@
         :log info ("vpn-gui immutable updater: canary readiness sample " . $sample . "/" . $canaryValidationSamples . " passed revision=" . $commit)
     }
     :if (!$canaryStable) do={
-        :log error ("vpn-gui immutable updater: canary readiness soak failed; restoring " . $canaryRestoreImage . "; production unchanged")
-        $recordFailure $image
+        :log error ("vpn-gui immutable updater: canary soak failed; step=canary-soak; details redacted; production unchanged")
+        :set updaterStep "canary-rollback-soak"
         :do {
             /container/stop $canaryId
             /container/set $canaryId remote-image=$canaryRestoreImage
             /container/update $canaryId
             /container/start $canaryId
-        } on-error={ :log error "vpn-gui immutable updater: canary rollback also failed; operator action required" }
+        } on-error={ :log error "vpn-gui immutable updater: rollback failed; step=canary-rollback-soak; details redacted; operator action required" }
+        :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
+        :set updaterStep "canary-soak"
         :error "canary readiness soak failed"
     }
     :log info ("vpn-gui immutable updater: canary readiness soak passed samples=" . $canaryValidationSamples)
 
+    :set updaterStep "pending-state-write"
     :local pending ("candidate-image=" . $image . "\nprior-production-image=" . $productionCurrent . "\ncommit=" . $commit . "\nstaged-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
     $writeState $pendingFile $pending
     $recordHistory "canary-staged" $image "readiness-soak-passed; production-unchanged"
     :log info ("vpn-gui immutable updater: canary staged; full acceptance and explicit promotion controller required; production unchanged " . $image)
+    :set updaterStep "complete"
     }
 } do={
-    :log error "vpn-gui immutable updater: update failed; details redacted"
+    :log error ("vpn-gui immutable updater: update failed; step=" . $updaterStep . "; details redacted")
 }
 :set vpnGuiImmutableUpdateLock false
 

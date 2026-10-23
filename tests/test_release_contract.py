@@ -197,7 +197,27 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('"\\\"revision\\\":\\\""', updater)
         self.assertIn(":onerror fetchError,fetchAttributes in={", executable)
         self.assertIn(":onerror updaterError,updaterErrorAttributes in={", executable)
-        self.assertIn('"vpn-gui immutable updater: update failed; details redacted"', executable)
+        self.assertIn('update failed; step=" . $updaterStep . "; details redacted', executable)
+        for step in (
+            "manifest-fetch",
+            "manifest-response-check",
+            "manifest-parse",
+            "candidate-validation",
+            "readiness-configuration",
+            "failure-state-read",
+            "container-lookup",
+            "container-state-read",
+            "pending-state-read",
+            "state-directory-probe",
+            "canary-lifecycle",
+            "canary-readiness",
+            "canary-soak",
+            "pending-state-write",
+            "canary-rollback-lifecycle",
+            "canary-rollback-readiness",
+            "canary-rollback-soak",
+        ):
+            self.assertIn(f'"{step}"', executable)
         self.assertNotIn("$updaterError", executable)
         self.assertNotIn("$updaterErrorAttributes", executable)
         self.assertNotIn("see preceding log entry", executable)
@@ -217,6 +237,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn(":log warning $fetchError", executable)
         self.assertNotIn(":log warning $fetchAttributes", executable)
         self.assertNotIn(":log warning $body", executable)
+        self.assertNotIn('" . $updaterError', executable)
+        self.assertNotIn('" . $updaterErrorAttributes', executable)
         self.assertIn("historyFile", executable)
         self.assertIn('event=" . $event', executable)
         self.assertIn('$recordHistory "canary-staged"', updater)
@@ -278,6 +300,31 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn('$recordFailure $image', executable)
         self.assertIn('"canary readiness soak failed"', executable)
+
+    def test_updater_rolls_back_before_best_effort_failure_journaling(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+
+        cases = (
+            ("canary lifecycle failed; step=", "canary-rollback-lifecycle", "canary lifecycle gate failed"),
+            ("canary readiness failed; step=", "canary-rollback-readiness", "canary readiness gate failed"),
+            ("canary soak failed; step=", "canary-rollback-soak", "canary readiness soak failed"),
+        )
+        for failure_message, rollback_step, terminal_error in cases:
+            with self.subTest(rollback_step=rollback_step):
+                block_start = executable.index(failure_message)
+                block_end = executable.index(f'"{terminal_error}"', block_start)
+                block = executable[block_start:block_end]
+                self.assertLess(
+                    block.index(f':set updaterStep "{rollback_step}"'),
+                    block.index(":do { $recordFailure $image } on-error={"),
+                )
+                self.assertIn(f"step={rollback_step}; details redacted", block)
+                self.assertIn("step=failure-state-write; details redacted", block)
 
     def test_gated_promoter_rechecks_acceptance_before_router_mutation(self) -> None:
         promoter = (ROOT / "scripts" / "promote_routeros_release.py").read_text(encoding="utf-8")
