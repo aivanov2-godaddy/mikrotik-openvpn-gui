@@ -41,6 +41,8 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
         self.assertIn("$env:GH_TOKEN = $ghToken", self.section)
         self.assertIn("Remove-Item Env:GH_TOKEN", self.section)
         self.assertIn("gh auth token", self.section)
+        self.assertIn("process-scoped environment", self.section)
+        self.assertIn("never write them to files, reports, or command arguments", self.section)
         blocks = re.findall(r"```powershell\s*\n(.*?)```", self.section, flags=re.DOTALL)
         self.assertGreaterEqual(len(blocks), 2)
         for block in blocks:

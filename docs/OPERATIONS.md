@@ -297,8 +297,10 @@ to a private local file and fill only the RouterOS/operator-exercise evidence.
 Do not enter deployment health, image-digest, or telemetry claims by hand; the
 read-only collector owns those fields. SQLite restore flags are also not
 operator input: supply local consistent backup paths to the collector, which
-performs and records the restore rehearsal. Keep every evidence file, report,
-backup, and token outside the repository in an operator-controlled directory.
+performs and records the restore rehearsal. Keep all evidence files, reports,
+and backups outside the repository in a private operator-controlled directory.
+Supply credentials and tokens only through process-scoped environment
+variables; never write them to files, reports, or command arguments.
 
 For candidate source commit
 `8fb7a6d3d64f5d57f5ed5f74cdaae121dc0ad6ee`, the successful main-branch CI run
