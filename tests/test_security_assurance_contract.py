@@ -607,11 +607,13 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "Two bounded, read-only source reviews against PR #791's commit",
             roadmap,
         )
-        self.assertIn("PR #794 is now merged as", roadmap)
+        self.assertIn("PR #798 is merged and published as", roadmap)
+        self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
         self.assertIn("The two bounded source reviews described above", self.document)
         self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)
         self.assertIn("publication is not an independent security review", assurance)
-        self.assertIn("Latest published mainline security changes — PR #794", assurance)
+        self.assertIn("Latest published mainline security changes — PR #798", assurance)
+        self.assertIn("Previously published mainline security changes — PR #794", assurance)
 
     def test_unverified_section_does_not_deny_historical_canary_observations(self) -> None:
         unverified_heading = "## Explicitly unverified live-router / deployment evidence"

@@ -11,14 +11,15 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-Formal release **v2.7.0** remains the latest numbered release. PR #794
-(`beba66c0f36231511ec1b9cc664f2be39a128750`) is both the latest merged mainline
-commit and the latest published image. Its main CI and ARM64/AMD64 image
-publication, smoke tests, provenance/SBOM verification, and stable-manifest
-publication/read-back passed; immutable tags and digests are recorded in
-[`RELEASES.md`](RELEASES.md). PR #794 hardens WebSocket Origin validation and
-admin-session inventory. Publication did not stage or deploy the image on
-RouterOS.
+Formal release **v2.7.0** remains the latest numbered release. PR #798
+(`041a9d2ac7581dac18911c236cbbb3aee4280273`) is the latest merged mainline
+commit and published image. Its ARM64/AMD64 builds, runtime smoke,
+provenance/SBOM verification, and stable-manifest publication/read-back passed;
+immutable tags and digests are recorded in [`RELEASES.md`](RELEASES.md). PR
+#798 gates originless polling GET on same-origin Referer evidence before
+allocating Engine.IO state and preserves the browser fallback with a
+same-origin referrer policy. No image has been staged or deployed on RouterOS
+as part of these merges.
 
 The latest candidate-bound canary record remains PR #776; no passing
 candidate-bound 30-minute observation is recorded. A read-only RouterOS
@@ -37,22 +38,21 @@ container changes were made during those snapshots.
 Earlier qualitative observations of live changes without refresh are not
 measured latency or freshness acceptance. Two bounded, read-only source reviews
 against PR #791's commit found no confirmed authorization bypass in their
-reviewed paths. PR #794 is now merged as
-`beba66c0f36231511ec1b9cc664f2be39a128750`; it rejects missing, duplicate, or
-foreign-Origin WebSocket handshakes before Engine.IO allocation, retains
-missing-Origin compatibility only for session-bound HTTP polling GET, and adds
-regression coverage for reconnect and the natural 15-second role-cache
-deadline. It also replaces admin-session cookie identifiers in the session
-inventory with non-authenticating revocation references. PR #794 has since been
-published, but no post-publication RouterOS staging/deployment is recorded. The
-assurance matrix remains PARTIAL pending deployed proxy verification and
+reviewed paths. PR #798 is merged and published as
+`041a9d2ac7581dac18911c236cbbb3aee4280273`. It permits an originless polling
+GET only when exactly one same-origin Referer is present before Engine.IO
+allocation, sets a same-origin Referrer-Policy so browser polling supplies that
+evidence, and adds server and rendered-browser regressions. Its PR checks
+and publisher passed; no post-publication RouterOS staging is recorded.
+The assurance matrix remains PARTIAL pending deployed proxy verification and
 complete control review. Candidate-specific live acceptance, physical-host
 credential-memory/log review, and the named owner risk decision remain open.
 No production promotion is claimed here.
 
 Open issue [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785)
 tracks updater reconciliation and safe canary-only staging. PR #791 adds
-diagnostics to the checked-in example, but the installed updater's source and
+step-level diagnostics and PR #797 verifies the restored immutable image tag
+and readiness in the checked-in example. The installed updater's source and
 production-promotion behavior remain unreconciled; do not rerun it until that
 discrepancy is resolved.
 
@@ -70,21 +70,19 @@ pass.
 | Complete | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201), [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202), [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | RouterOS least-privilege diagnostics, mutation safety, SBOM/provenance and compatibility policy |
 | Closed in GitHub — implementation; device/certificate acceptance remains | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. PR #702 adds a collapsed, read-only CRL configuration observation to Device Profiles without restoring the removed overview alert. PR #705 hardens cleanup of temporary RouterOS profile-export artifacts. PR #707 gates retirement on testing the replacement identity; PR #718 adds fail-closed checkpoint-failure coverage; PR #722 rejects stale, malformed, missing-expiry, and wrong-CA CRL snapshots. PR #730 requires both the stored RouterOS certificate ID and normalized fingerprint to match for a read-only inventory match. PR #737 adds a candidate-bound, operator-attested certificate-lifecycle evidence gate; its merge does not itself prove a successful live lifecycle test. The GitHub issue is closed, but candidate/device-backed CRL freshness, staged renewal and retirement, fresh-connect rejection, active-session behavior, read-back, and canary rollback evidence remain release gates tracked by #205. Profile recovery issues a new identity rather than re-downloading a retained private key. |
 | Complete — acceptance tooling; live gates remain | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Closed by PR #709. The bounded read-only collector and SQLite restore verifier are implemented. Candidate-matched live soak, deployment, and rollback evidence remain release gates tracked by #205 (device/certificate acceptance) and #200 (security assurance); closing this implementation issue does not claim device acceptance. |
-| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #794 is the latest published image; its ARM64/AMD64 digests are recorded in RELEASES.md, but no post-publication RouterOS staging is recorded. It adds fail-closed WebSocket Origin checks, keeps session-bound HTTP polling GET compatibility, uses non-authenticating admin-session revocation references, and tests initial/reconnect boundaries plus the natural role-cache deadline. V4.4.2 remains PARTIAL pending deployed proxy verification and full control review. The 15-second application role cache is not a verified RouterOS-side revocation bound. Still required: complete independent scoped ASVS assessment; candidate-matched authenticated live-session, revocation/reconnect, freshness and soak evidence; candidate-bound readiness/resource data; event/counter integrity, Binary API/REST parity, deployed Redis/SQLite recovery and rollback; physical RouterOS permission and credential-memory/log/dump review; and the named owner risk decision. See SECURITY_ASSURANCE.md and LIVE_TELEMETRY_ACCEPTANCE_REPORT.md. |
+| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #798 is the latest published image, with ARM64/AMD64 digests in RELEASES.md; no post-publication RouterOS staging is recorded. It gates originless polling GET on same-origin Referer evidence before Engine.IO allocation and tests browser policy compatibility. V4.4.2 remains PARTIAL pending deployed proxy verification and full control review. The 15-second application role cache is not a verified RouterOS-side revocation bound. Still required: complete independent scoped ASVS assessment; candidate-matched authenticated live-session, revocation/reconnect, freshness and soak evidence; candidate-bound readiness/resource data; event/counter integrity, Binary API/REST parity, deployed Redis/SQLite recovery and rollback; physical RouterOS permission and credential-memory/log/dump review; and the named owner risk decision. See SECURITY_ASSURANCE.md and LIVE_TELEMETRY_ACCEPTANCE_REPORT.md. |
+| Open — updater reconciliation / safe staging | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | PR #797 improves rollback verification in the checked-in updater example. The installed updater remains unreconciled and has not been rerun; resolve its source/promotion mismatch before using it. Live candidate staging, rollback rehearsal, and the 30-minute acceptance window remain unverified. |
 | Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Close only after remaining device/certificate acceptance (tracked here despite #194's GitHub closure), #200 security review, and candidate-specific live acceptance gates pass; include the #199 collector/restore evidence in the candidate report. |
 
 PR #776 added a regression-tested logout ordering fix: revoke the session
 before writing the audit event. PR #778 added redacted origin-rejection
-diagnostics and Engine.IO handshake SID binding. PR #791 added precise
-step-level failure markers to the example RouterOS updater; PR #794 is the
-latest published and attested mainline image. Neither publication staged an
-image or updater on RouterOS. These merges do not close the remaining
-deployed-security and device-acceptance gates in #200 and #205.
-PR #794 tightened WebSocket Origin and admin-session revocation-reference
-handling and has since been published as the latest immutable candidate. It
-has not been deployed on RouterOS. No publication staged an image or updater
-on RouterOS. These merges do not close the remaining deployed-security and
-device-acceptance gates in #200 and #205.
+diagnostics and Engine.IO handshake SID binding. PR #791 and #797 improve the
+checked-in example RouterOS updater; neither installs nor executes it. PR #794
+added WebSocket Origin and admin-session revocation-reference hardening. PR
+#798 adds evidence-gated originless polling and browser coverage. These source
+changes and image publications do not stage an image or updater on RouterOS
+and do not close the deployed-security and device-acceptance gates in #200 and
+#205.
 
 The ASVS matrix classifies V8.3.2 as a known product gap. The application role
 cache is 15 seconds, but the current [MikroTik REST API manual](https://manual.mikrotik.com/docs/developer-guides/rest-api/)
