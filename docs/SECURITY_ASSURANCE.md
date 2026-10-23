@@ -356,6 +356,27 @@ live logout result are therefore unverified; issue #200 remains open for
 candidate-specific acceptance, physical RouterOS review, the credential-
 memory risk decision, and independent scoped ASVS review.
 
+### ASGI live-send cancellation boundary — 2026-10-23
+
+The live-send timeout is cooperative, not a hard transport-abort deadline. On
+timeout the application requests cancellation and keeps the per-session role
+lock until the ASGI `send` coroutine exits. This prevents a later authorization
+change from racing a still-running send, but an ASGI server or test transport
+that suppresses cancellation can delay logout/revocation without a fixed upper
+bound. Regression coverage proves this fail-safe behavior and that no new frame
+is sent after revocation completes (`tests/test_asgi_contract.py::ASGIContractTests.test_asgi_noncooperative_send_delays_revocation_but_blocks_later_delivery`);
+it does not prove hard-bounded revocation.
+A portable ASGI transport-abort mechanism is not available in the current
+adapter. Treat hard-bounded revocation as unresolved for issue #200 and do not
+claim that the configured timeout guarantees it.
+
+The session-termination review receipt store now validates expiry, issuing
+session, and intent while holding its lock before deleting a receipt. A
+cross-session denial therefore leaves the owner's valid receipt usable; the
+regression `DashboardIntegrationTests.test_session_termination_review_receipt_is_bound_to_issuing_session`
+verifies the denied attempt makes no RouterOS mutation and the owner can still
+complete the reviewed action.
+
 ### Post-merge revalidation — PR #776 — 2026-10-23
 
 PR [#776](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/776)

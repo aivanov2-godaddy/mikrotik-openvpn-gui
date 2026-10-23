@@ -6843,6 +6843,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         target_id = next(iter(self.mock.state.active_sessions))
         review = self.preview_session_termination(target_id)
+        owner_cookie = self.cookie
+        owner_csrf = self.csrf
         before_mutations = list(self.mock.state.mutation_requests)
 
         # A second equally privileged browser session must not be able to use
@@ -6863,6 +6865,21 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(json.loads(payload)["code"], "routeros.review_stale")
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertIn(target_id, self.mock.state.active_sessions)
+
+        # A failed cross-session attempt must not consume the owner's receipt.
+        self.cookie = owner_cookie
+        self.csrf = owner_csrf
+        status, _, payload = self.json_request(
+            "DELETE",
+            f"/api/sessions/{urllib.parse.quote(target_id, safe='*')}",
+            {
+                "confirmation": "user-two",
+                "reason": review["reason"],
+                "review_token": review["review_token"],
+            },
+        )
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertNotIn(target_id, self.mock.state.active_sessions)
 
     def test_session_termination_rejects_missing_rationale_before_routeros_read(self) -> None:
         self.login()

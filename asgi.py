@@ -443,7 +443,12 @@ class DashboardHTTPASGI:
 
     @staticmethod
     async def _send_and_drain(send: Send, message: ASGIMessage) -> None:
-        """Keep the role lock until an in-flight ASGI send really completes."""
+        """Request cancellation on timeout, retaining the role lock until send exits.
+
+        This is a cooperative timeout: ASGI has no portable transport-abort
+        primitive, so a send callable that suppresses cancellation can delay
+        session revocation until that callable returns.
+        """
         sending = asyncio.ensure_future(send(message))
         try:
             await asyncio.wait_for(
@@ -460,7 +465,7 @@ class DashboardHTTPASGI:
 
     @staticmethod
     async def _drain_send(sending: asyncio.Future[Any]) -> None:
-        """Wait until a cancelled child send cannot emit more bytes."""
+        """Wait for the child send to exit before releasing its authorization lock."""
         while not sending.done():
             try:
                 await asyncio.shield(sending)

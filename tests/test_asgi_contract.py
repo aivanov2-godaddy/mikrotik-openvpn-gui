@@ -3851,6 +3851,94 @@ class ASGIContractTests(unittest.TestCase):
             sent,
         )
 
+    def test_asgi_noncooperative_send_delays_revocation_but_blocks_later_delivery(self) -> None:
+        from telemetry_gateway import TelemetryPrincipal
+
+        sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        class Runtime:
+            @staticmethod
+            def role_check_lock_for_session(session_id: str):
+                return sessions.role_check_lock(session_id)
+
+            @staticmethod
+            def cached_principal_for_session(
+                session_id: str, *, role_check_lock_held: bool = False
+            ):
+                current = sessions.get(
+                    session_id,
+                    touch=False,
+                    role_check_lock_held=role_check_lock_held,
+                    wait_for_role_check_lock=False,
+                )
+                return True, TelemetryPrincipal.from_session(current)
+
+            @staticmethod
+            def principal_for_session(
+                session_id: str, *, force_role_check: bool = False
+            ):
+                return TelemetryPrincipal.from_session(
+                    sessions.get(session_id, touch=False)
+                )
+
+        application = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=Runtime()))
+        send_started = asyncio.Event()
+        cancellation_seen = asyncio.Event()
+        release_send = asyncio.Event()
+        delivered: list[dict[str, object]] = []
+
+        async def noncooperative_send(message: dict[str, object]) -> None:
+            send_started.set()
+            try:
+                await release_send.wait()
+            except asyncio.CancelledError:
+                cancellation_seen.set()
+                await release_send.wait()
+            delivered.append(message)
+
+        async def exercise() -> None:
+            with mock.patch("asgi._ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS", 0.05):
+                delivery = asyncio.create_task(
+                    application._send_authorized_live_message(
+                        session.session_id,
+                        {"type": "http.response.body", "body": b"frame"},
+                        noncooperative_send,
+                    )
+                )
+                revocation: asyncio.Task[bool] | None = None
+                try:
+                    await asyncio.wait_for(send_started.wait(), timeout=1)
+                    revocation = asyncio.create_task(
+                        asyncio.to_thread(sessions.revoke, session.session_id)
+                    )
+                    await asyncio.wait_for(cancellation_seen.wait(), timeout=1)
+                    self.assertFalse(revocation.done())
+                    self.assertEqual(delivered, [])
+
+                    release_send.set()
+                    with self.assertRaises(TimeoutError):
+                        await delivery
+                    self.assertTrue(await asyncio.wait_for(revocation, timeout=1))
+                    self.assertEqual(len(delivered), 1)
+                    self.assertFalse(
+                        await application._send_authorized_live_message(
+                            session.session_id,
+                            {"type": "http.response.body", "body": b"later-frame"},
+                            noncooperative_send,
+                        )
+                    )
+                    self.assertEqual(len(delivered), 1)
+                finally:
+                    release_send.set()
+                    if not delivery.done():
+                        delivery.cancel()
+                    await asyncio.gather(delivery, return_exceptions=True)
+                    if revocation is not None:
+                        await asyncio.gather(revocation, return_exceptions=True)
+
+        asyncio.run(exercise())
+
     def test_socketio_polling_send_gate_withholds_queued_frame_after_revocation(self) -> None:
         from asgi import SocketIOLiveSendASGI
         from telemetry_gateway import TelemetryPrincipal
