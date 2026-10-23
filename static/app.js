@@ -2,6 +2,7 @@ let csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 const counters = new Map();
 const histories = new Map();
 const HISTORY_LIMIT = 60;
+const LIVE_VIEW_STATE_KEY = 'vpn-dashboard-live-view-state';
 // Live counters can arrive through both the status poll and the telemetry
 // stream.  Do not turn a near-duplicate snapshot into a multi-gigabit spike
 // just because the two responses were received a few milliseconds apart.
@@ -15,6 +16,8 @@ const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
 let pollingInFlight = false;
 let lastLiveSnapshotAt = 0;
+let latestLiveSessions = null;
+let liveSnapshotVersion = 0;
 const LIVE_SNAPSHOT_FRESHNESS_MS = 10_000;
 let realtimeSource = null;
 let socketIoSource = null;
@@ -540,7 +543,40 @@ function syncActiveSessions(sessions, timestamp) {
   });
 }
 
+function syncUserConnectionStatuses(sessions) {
+  const connectedNames = new Set(sessions.map((session) => String(session.name || '')));
+  $$('.user-card[data-user-name]').forEach((card) => {
+    const connected = connectedNames.has(card.dataset.userName);
+    card.dataset.userConnected = String(connected);
+    card.dataset.userConnectionStale = 'false';
+    const status = $('[data-connection-status]', card);
+    if (!status) return;
+    status.className = `connection-badge ${connected ? 'online' : 'offline'}`;
+    $('span', status).textContent = connected ? 'Connected' : 'Offline';
+    status.disabled = !connected;
+    if (connected) status.dataset.viewTarget = 'live-sessions';
+    else delete status.dataset.viewTarget;
+  });
+  if (bulkRoot) applyBulkFilters();
+}
+
+function setUserConnectionStatusesStale(stale) {
+  $$('.user-card[data-user-name]').forEach((card) => {
+    card.dataset.userConnectionStale = String(stale);
+    const status = $('[data-connection-status]', card);
+    if (!status) return;
+    const connected = card.dataset.userConnected === 'true';
+    status.className = `connection-badge ${stale ? 'stale' : connected ? 'online' : 'offline'}`;
+    $('span', status).textContent = stale ? 'Status delayed' : connected ? 'Connected' : 'Offline';
+    status.disabled = stale || !connected;
+    if (!stale && connected) status.dataset.viewTarget = 'live-sessions';
+    else delete status.dataset.viewTarget;
+  });
+  if (bulkRoot) applyBulkFilters();
+}
+
 function setActiveSessionsStale(stale) {
+  setUserConnectionStatusesStale(stale);
   $$('[data-active-session-list] .session-card').forEach((card) => {
     card.classList.toggle('session-stale', stale);
     const status = $('[data-session-state]', card);
@@ -575,8 +611,13 @@ function formatDuration(seconds) {
 
 function applyConnectionSearch() {
   const query = ($('[data-connection-search]')?.value || '').trim().toLocaleLowerCase();
+  const status = $('[data-connection-status-filter]')?.value || 'all';
   $$('[data-connection-row]').forEach((row) => {
-    row.classList.toggle('is-filtered-out', Boolean(query) && !row.dataset.connectionSearch.includes(query));
+    const matchesQuery = !query || (row.dataset.connectionSearch || '').includes(query);
+    const matchesStatus = status === 'all'
+      || (status === 'active' && row.dataset.historyLive === 'true')
+      || (status === 'ended' && row.dataset.historyLive !== 'true');
+    row.classList.toggle('is-filtered-out', !matchesQuery || !matchesStatus);
   });
 }
 
@@ -584,6 +625,9 @@ function renderConnectionHistory(connections = []) {
   const history = $('[data-connection-history]');
   const body = $('.connection-history-table tbody', history || undefined);
   if (!history || !body) return;
+  const viewport = $('.responsive-table', history);
+  const scrollTop = viewport?.scrollTop || 0;
+  const scrollLeft = viewport?.scrollLeft || 0;
   const now = Math.floor(Date.now() / 1000);
   const renderKey = JSON.stringify({
     minute: Math.floor(now / 60),
@@ -638,6 +682,10 @@ function renderConnectionHistory(connections = []) {
     row.append(cell);
     body.replaceChildren(row);
   }
+  if (viewport) {
+    viewport.scrollTop = scrollTop;
+    viewport.scrollLeft = scrollLeft;
+  }
   history.dataset.openCount = String(connections.filter((item) => !item.disconnected_at).length);
   applyConnectionSearch();
 }
@@ -666,6 +714,7 @@ function reconcileConnectionHistory(sessions = []) {
     }
   });
   history.dataset.openCount = String(openCount);
+  applyConnectionSearch();
 }
 
 function renderAlerts(alerts = []) {
@@ -715,13 +764,89 @@ function renderAlerts(alerts = []) {
   }));
 }
 
+function rememberOperatorViewState() {
+  const historyViewport = $('.history-panel .responsive-table');
+  const workspaceViewport = $('.workspace-content');
+  const state = {
+    version: 1,
+    userSearch: $('[data-user-search]')?.value || '',
+    userStatus: $('[data-bulk-status]')?.value || 'all',
+    userTag: $('[data-bulk-tag]')?.value || '',
+    selectedUserIds: selectedBulkUsers(),
+    connectionSearch: $('[data-connection-search]')?.value || '',
+    connectionStatus: $('[data-connection-status-filter]')?.value || 'all',
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    workspaceScrollTop: workspaceViewport?.scrollTop || 0,
+    workspaceScrollLeft: workspaceViewport?.scrollLeft || 0,
+    historyScrollTop: historyViewport?.scrollTop || 0,
+    historyScrollLeft: historyViewport?.scrollLeft || 0,
+  };
+  try {
+    sessionStorage.setItem(LIVE_VIEW_STATE_KEY, JSON.stringify(state));
+  } catch (_) {
+    // Storage can be disabled by the browser; the live update still proceeds.
+  }
+}
+
+function restoreOperatorViewState() {
+  let state;
+  try {
+    state = JSON.parse(sessionStorage.getItem(LIVE_VIEW_STATE_KEY) || 'null');
+    sessionStorage.removeItem(LIVE_VIEW_STATE_KEY);
+  } catch (_) {
+    return;
+  }
+  if (!state || state.version !== 1) return;
+
+  const setInput = (selector, value, maxLength) => {
+    const control = $(selector);
+    if (control && typeof value === 'string') control.value = value.slice(0, maxLength);
+  };
+  setInput('[data-user-search]', state.userSearch, 256);
+  setInput('[data-bulk-status]', state.userStatus, 32);
+  setInput('[data-bulk-tag]', state.userTag, 64);
+  setInput('[data-connection-search]', state.connectionSearch, 256);
+  setInput('[data-connection-status-filter]', state.connectionStatus, 32);
+
+  const availableIds = new Set($$('[data-user-select]')
+    .map((input) => input.closest('.user-card')?.dataset.userId)
+    .filter(Boolean));
+  const selectedIds = new Set((Array.isArray(state.selectedUserIds) ? state.selectedUserIds : [])
+    .filter((id) => typeof id === 'string' && availableIds.has(id))
+    .slice(0, 500));
+  $$('[data-user-select]').forEach((input) => {
+    input.checked = selectedIds.has(input.closest('.user-card')?.dataset.userId);
+  });
+
+  if (bulkRoot) applyBulkFilters();
+  applyConnectionSearch();
+  requestAnimationFrame(() => {
+    window.scrollTo(
+      Math.max(0, Math.min(100000, Number(state.scrollX) || 0)),
+      Math.max(0, Math.min(100000, Number(state.scrollY) || 0)),
+    );
+    const workspaceViewport = $('.workspace-content');
+    if (workspaceViewport) {
+      workspaceViewport.scrollTop = Math.max(0, Math.min(100000, Number(state.workspaceScrollTop) || 0));
+      workspaceViewport.scrollLeft = Math.max(0, Math.min(100000, Number(state.workspaceScrollLeft) || 0));
+    }
+    const historyViewport = $('.history-panel .responsive-table');
+    if (historyViewport) {
+      historyViewport.scrollTop = Math.max(0, Math.min(100000, Number(state.historyScrollTop) || 0));
+      historyViewport.scrollLeft = Math.max(0, Math.min(100000, Number(state.historyScrollLeft) || 0));
+    }
+  });
+}
+
 function scheduleAutomaticPageSync() {
   if (pageReloadScheduled) return;
   pageReloadScheduled = true;
+  rememberOperatorViewState();
   setTimeout(() => location.reload(), 0);
 }
 
-function updateDashboard(payload) {
+function updateDashboard(payload, liveVersionAtRequest = liveSnapshotVersion) {
   // Only the rendered user cards participate in this comparison. Other views
   // also contain action controls with data-user-id (profile actions, template
   // checkboxes, and device controls) but those elements do not carry a user
@@ -738,16 +863,15 @@ function updateDashboard(payload) {
     return;
   }
 
-  const byUser = new Map();
-  payload.sessions.forEach((session) => {
-    if (!byUser.has(session.name)) byUser.set(session.name, []);
-    byUser.get(session.name).push(session);
-  });
+  // A poll can have been in flight when a newer SSE/Socket.IO snapshot arrived.
+  // Do not let that older response revert session cards, totals, or user filters.
+  const sessions = liveSnapshotVersion > liveVersionAtRequest && latestLiveSessions
+    ? latestLiveSessions
+    : payload.sessions;
   const timestamp = Date.now();
   cards.forEach((card) => {
     const user = payload.users.find((item) => item.name === card.dataset.userName);
     if (!user) return;
-    const sessions = byUser.get(card.dataset.userName) || [];
     card.dataset.userDisabled = String(Boolean(user.disabled));
     card.dataset.userComment = user.comment || 'No description';
     card.dataset.userEmail = user.email || 'Email not assigned';
@@ -756,23 +880,18 @@ function updateDashboard(payload) {
     const account = $('[data-account-status]', card);
     account.textContent = user.disabled ? 'Disabled' : 'Enabled';
     account.className = `account-badge ${user.disabled ? 'disabled' : 'enabled'}`;
-    const connection = $('[data-connection-status]', card);
-    connection.className = `connection-badge ${sessions.length ? 'online' : 'offline'}`;
-    $('span', connection).textContent = sessions.length ? 'Connected' : 'Offline';
-    connection.disabled = !sessions.length;
-    if (sessions.length) connection.dataset.viewTarget = 'live-sessions';
-    else delete connection.dataset.viewTarget;
   });
-  syncActiveSessions(payload.sessions, timestamp);
+  syncUserConnectionStatuses(sessions);
+  syncActiveSessions(sessions, timestamp);
   renderObservability(payload);
 
   $$('[data-user-total]').forEach((item) => { item.textContent = payload.users.length; });
-  $$('[data-session-total]').forEach((item) => { item.textContent = payload.sessions.length; });
-  $$('[data-nav-session-count]').forEach((item) => { item.textContent = payload.sessions.length; });
-  const activeUsers = new Set(payload.sessions.map((session) => session.name)).size;
+  $$('[data-session-total]').forEach((item) => { item.textContent = sessions.length; });
+  $$('[data-nav-session-count]').forEach((item) => { item.textContent = sessions.length; });
+  const activeUsers = new Set(sessions.map((session) => session.name)).size;
   $('[data-active-users]').textContent = `${activeUsers} connected user${activeUsers === 1 ? '' : 's'}`;
-  const rx = payload.sessions.reduce((total, item) => total + (Number(item.rx_bytes) || 0), 0);
-  const tx = payload.sessions.reduce((total, item) => total + (Number(item.tx_bytes) || 0), 0);
+  const rx = sessions.reduce((total, item) => total + (Number(item.rx_bytes) || 0), 0);
+  const tx = sessions.reduce((total, item) => total + (Number(item.tx_bytes) || 0), 0);
   $('[data-traffic-total]').textContent = `↓ ${formatBytes(rx)} · ↑ ${formatBytes(tx)}`;
   if (payload.router) {
     const percentUsed = (free, total) => {
@@ -860,7 +979,10 @@ function updateLiveSnapshot(payload) {
   // appear to have happened in a few milliseconds.
   const timestamp = Date.now();
   lastLiveSnapshotAt = timestamp;
+  latestLiveSessions = sessions;
+  liveSnapshotVersion += 1;
   reconcileConnectionHistory(sessions);
+  syncUserConnectionStatuses(sessions);
   syncActiveSessions(sessions, timestamp);
   reconcileTerminationAttempt(sessions);
   setActiveSessionsStale(false);
@@ -924,11 +1046,12 @@ function connectRealtime() {
 async function pollStatus() {
   if (document.hidden || pollingInFlight) return;
   pollingInFlight = true;
+  const liveVersionAtRequest = liveSnapshotVersion;
   const indicators = $$('[data-live-indicator]');
   try {
     const response = await resultOrError(await api('/api/status'));
     const payload = await response.json();
-    updateDashboard(payload);
+    updateDashboard(payload, liveVersionAtRequest);
     pollingFailures = 0;
     // The status endpoint refreshes the full dashboard snapshot; the live
     // indicator itself is governed by telemetry freshness, not by this poll.
@@ -1665,9 +1788,10 @@ function applyBulkFilters() {
   cards.forEach((card) => {
     const haystack = `${card.dataset.userName} ${card.dataset.userEmail} ${card.dataset.userComment} ${card.dataset.userTags || ''}`.toLocaleLowerCase();
     const matchesQuery = !query || haystack.includes(query);
+    const connectionStatusIsFresh = card.dataset.userConnectionStale !== 'true';
     const matchesStatus = filters.status === 'all'
-      || (filters.status === 'online' && card.dataset.userConnected === 'true')
-      || (filters.status === 'offline' && card.dataset.userConnected !== 'true' && card.dataset.userDisabled !== 'true')
+      || (filters.status === 'online' && connectionStatusIsFresh && card.dataset.userConnected === 'true')
+      || (filters.status === 'offline' && connectionStatusIsFresh && card.dataset.userConnected !== 'true' && card.dataset.userDisabled !== 'true')
       || (filters.status === 'suspended' && card.dataset.userDisabled === 'true');
     const matchesTag = !filters.tag || (card.dataset.userTags || '').split(',').map((tag) => tag.trim()).includes(filters.tag);
     const matches = matchesQuery && matchesStatus && matchesTag;
@@ -1688,6 +1812,8 @@ function updateBulkSelection() {
   const selected = $$('[data-user-select]:checked').length;
   const count = $('[data-bulk-selection]');
   if (count) count.textContent = `${selected} selected`;
+  const actionControls = $('[data-bulk-action-controls]');
+  if (actionControls) actionControls.hidden = selected === 0;
   const action = $('[data-bulk-action]')?.value || '';
   const previewButton = $('[data-bulk-preview]');
   const allowed = action !== 'revoke' || bulkRoot?.dataset.canBulkRevoke === 'true';
@@ -1858,6 +1984,7 @@ function applyHistoryFilters() {
 $('[data-connection-search]')?.addEventListener('input', (event) => {
   applyConnectionSearch();
 });
+$('[data-connection-status-filter]')?.addEventListener('change', applyConnectionSearch);
 
 document.addEventListener('click', async (event) => {
   const trigger = event.target.closest('[data-view-target]');
@@ -3090,3 +3217,4 @@ setInterval(pollStatus, 5000);
 setInterval(() => {
   if (!document.hidden && !$('#profile-security')?.hidden) refreshCertificateSettings();
 }, 30000);
+restoreOperatorViewState();
