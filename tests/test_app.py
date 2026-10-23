@@ -620,6 +620,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'<form method="post" action="/login"', page)
         self.assertIn(b'<button class="primary" type="submit">Connect</button>', page)
 
+    def test_dashboard_uses_same_origin_referrer_policy_for_originless_live_polling(self) -> None:
+        self.login()
+        status, headers, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["referrer-policy"], "same-origin")
+        self.assertIn(b"Live ", page)
+
     def test_login_session_cookie_has_required_host_security_and_size_properties(self) -> None:
         body = urllib.parse.urlencode(
             {"username": "admin", "password": "routerpass"}
@@ -778,6 +785,78 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body, b"0{}")
         self.assertEqual(len(calls), 1)
+
+    def test_socketio_polling_rejects_missing_origin_and_referer_before_handshake(self) -> None:
+        self.login()
+        calls: list[str] = []
+
+        class Bridge:
+            def handshake(self, session_id: str) -> tuple[str, str]:
+                calls.append(session_id)
+                return "test-sid", "0{}"
+
+        self.server.socketio_bridge = Bridge()
+        status, _, _ = self.request(
+            "GET", "/socket.io/?EIO=4&transport=polling",
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(calls, [])
+
+    def test_socketio_polling_accepts_missing_origin_with_same_origin_referer(self) -> None:
+        self.login()
+        calls: list[str] = []
+
+        class Bridge:
+            def handshake(self, session_id: str) -> tuple[str, str]:
+                calls.append(session_id)
+                return "test-sid", "0{}"
+
+        self.server.socketio_bridge = Bridge()
+        status, _, body = self.request(
+            "GET",
+            "/socket.io/?EIO=4&transport=polling",
+            headers={"Referer": f"{self.config.public_origin}/dashboard"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"0{}")
+        self.assertEqual(len(calls), 1)
+
+    def test_socketio_polling_rejects_missing_origin_with_foreign_referer(self) -> None:
+        self.login()
+        calls: list[str] = []
+
+        class Bridge:
+            def handshake(self, session_id: str) -> tuple[str, str]:
+                calls.append(session_id)
+                return "test-sid", "0{}"
+
+        self.server.socketio_bridge = Bridge()
+        status, _, _ = self.request(
+            "GET",
+            "/socket.io/?EIO=4&transport=polling",
+            headers={"Referer": "https://attacker.example/"},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(calls, [])
+
+    def test_socketio_polling_rejects_duplicate_referers_before_handshake(self) -> None:
+        self.login()
+        calls: list[str] = []
+
+        class Bridge:
+            def handshake(self, session_id: str) -> tuple[str, str]:
+                calls.append(session_id)
+                return "test-sid", "0{}"
+
+        self.server.socketio_bridge = Bridge()
+        referer = f"{self.config.public_origin}/dashboard"
+        status, _ = self.raw_request(
+            "GET",
+            "/socket.io/?EIO=4&transport=polling",
+            [("Referer", referer), ("Referer", referer)],
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(calls, [])
 
     def test_socketio_polling_capacity_returns_retryable_service_unavailable(self) -> None:
         self.login()

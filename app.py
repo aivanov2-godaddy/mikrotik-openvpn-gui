@@ -1583,11 +1583,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         dashboard_name=self.server.context.config.dashboard_name,
                         router_display_name=self.server.context.config.router_display_name,
                     ),
-                    # Chromium may serialize a same-origin native form POST as
-                    # Origin: null when the page's policy suppresses Referer.
-                    # Permit only a same-origin Referer on this page so the
-                    # origin guard can still validate the browser submission.
-                    extra={"Referrer-Policy": "same-origin"},
                 )
             return
         if path == "/dashboard":
@@ -2478,7 +2473,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return True
         origin = origins[0] if origins else None
         if origin is None and not require_origin:
-            return False
+            # Polling GETs may omit Origin in some clients, but must still
+            # prove a same-origin browser context before allocating a SID.
+            if self._login_origin_allowed():
+                return False
+            self._json(
+                {"error": "Socket.IO polling origin is not allowed"},
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return True
         if origin is not None and _same_origin(origin, self.server.context.public_origin):
             return False
         self._json(

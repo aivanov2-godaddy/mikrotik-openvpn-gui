@@ -1,5 +1,34 @@
 const { test, expect } = require('@playwright/test');
 
+test('same-origin polling GET carries Referer evidence under the dashboard policy', async ({ page }) => {
+  let pollingHeaders = null;
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true, socketio_engine: 'asgi' }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: 'window.io = () => ({ on() { return this; }, close() {} });',
+  }));
+  await page.route('**/socket.io/**', async (route) => {
+    pollingHeaders = await route.request().allHeaders();
+    await route.fulfill({ status: 403, body: '' });
+  });
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  const dashboardUrl = page.url();
+
+  await page.evaluate(() => fetch('/socket.io/?EIO=4&transport=polling', { credentials: 'same-origin' }));
+
+  await expect.poll(() => pollingHeaders).not.toBeNull();
+  expect(pollingHeaders.referer).toBe(dashboardUrl);
+});
+
 test('falls back to SSE and applies a live snapshot after Socket.IO transport failure', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-10-03T12:00:00.000Z'));
 
