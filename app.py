@@ -39,6 +39,7 @@ from profile_diagnostics import diagnose_profile
 from security import (
     ConcurrentSessionLimitReached,
     LoginRateLimiter,
+    LIVE_STREAM_ROLE_REVALIDATION_SECONDS,
     SECURITY_HEADERS,
     Session,
     SessionStore,
@@ -3181,7 +3182,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # not sufficient: logout, revocation, or expiry must stop the
                 # next telemetry write. Do not touch idle time merely because
                 # the stream is open.
-                current_session = self.server.telemetry_runtime.revalidate_session(session_id)
+                current_session = self.server.telemetry_runtime.revalidate_session(
+                    session_id,
+                    role_revalidation_interval_seconds=LIVE_STREAM_ROLE_REVALIDATION_SECONDS,
+                )
                 if (
                     current_session is None
                     or current_session.auth_method != "routeros"

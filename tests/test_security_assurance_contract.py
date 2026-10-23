@@ -512,11 +512,12 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         role_change = rows["V8.3.2"]
 
         self.assertEqual(role_change[1], "GAP")
-        self.assertIn("15-second stream-role cache", role_change[2])
-        self.assertIn("group's policies", role_change[2])
+        self.assertIn("one-second application role-cache interval", role_change[2])
+        self.assertIn("ordinary requests retain a 15-second cache", role_change[2])
+        self.assertIn("group-policy changes take effect", role_change[2])
         self.assertIn("up to 10 minutes later", role_change[2])
         self.assertIn("not verified on the deployed RouterOS 7.24.5", role_change[2])
-        self.assertIn("Effective authorization on an already-open stream may therefore remain stale", role_change[2])
+        self.assertIn("Effective authorization may therefore remain stale beyond the app-side one-second stream interval", role_change[2])
         self.assertIn("no immediate RouterOS change notification", role_change[2])
         self.assertIn("would not prevent information leakage", role_change[2])
 

@@ -4818,14 +4818,14 @@ class ASGIContractTests(unittest.TestCase):
                 # Simulate RouterOS no longer resolving this account to an
                 # authorized role (for example, a disabled or removed user).
                 # Keep the real monotonic clock and leave the live stream open
-                # until it naturally crosses the 15-second revalidation bound.
+                # until it naturally crosses the one-second live-stream bound.
                 last_role_check_at = role_check_times[-1]
                 role_state["role"] = None
                 refresh_started = await asyncio.wait_for(
-                    asyncio.to_thread(role_refresh_started.wait, 22), timeout=23
+                    asyncio.to_thread(role_refresh_started.wait, 8), timeout=9
                 )
                 self.assertTrue(refresh_started)
-                self.assertGreaterEqual(role_check_times[-1] - last_role_check_at, 15.0)
+                self.assertGreaterEqual(role_check_times[-1] - last_role_check_at, 1.0)
                 blocked_events = runtime.broker.apply(
                     RouterOSReply(
                         "re",

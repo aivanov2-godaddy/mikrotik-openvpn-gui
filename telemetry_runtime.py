@@ -14,7 +14,11 @@ from urllib.parse import urlsplit
 from typing import Any, Callable, Iterable, Mapping
 
 from routeros_binary import RouterOSBinaryConnection
-from security import SESSION_ROLE_REVALIDATION_SECONDS, SessionStore
+from security import (
+    LIVE_STREAM_ROLE_REVALIDATION_SECONDS,
+    SESSION_ROLE_REVALIDATION_SECONDS,
+    SessionStore,
+)
 from telemetry_broker import TelemetryBroker, TelemetryEvent
 from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
 from telemetry_state import TelemetryRuntimeState
@@ -25,9 +29,15 @@ from telemetry_supervisor import (
     TelemetrySupervisorConfig,
 )
 
+MAX_CONCURRENT_LIVE_ROLE_REFRESHES = 4
+
 
 class TelemetryRuntime:
     """Start and stop the Binary API telemetry workers for one dashboard."""
+
+    _live_role_refresh_slots = threading.BoundedSemaphore(
+        MAX_CONCURRENT_LIVE_ROLE_REFRESHES
+    )
 
     def __init__(
         self,
@@ -123,7 +133,9 @@ class TelemetryRuntime:
         # of operator activity. Otherwise an unattended socket could keep an
         # otherwise-idle dashboard session alive indefinitely.
         session = self.revalidate_session(
-            session_id, force_role_check=force_role_check
+            session_id,
+            force_role_check=force_role_check,
+            role_revalidation_interval_seconds=LIVE_STREAM_ROLE_REVALIDATION_SECONDS,
         )
         if session is None:
             return None
@@ -147,7 +159,7 @@ class TelemetryRuntime:
             return True, TelemetryPrincipal.from_session(session)
         fresh, session = self.sessions.cached_role_session(
             session_id,
-            interval_seconds=SESSION_ROLE_REVALIDATION_SECONDS,
+            interval_seconds=LIVE_STREAM_ROLE_REVALIDATION_SECONDS,
             role_check_lock_held=role_check_lock_held,
         )
         principal = TelemetryPrincipal.from_session(session) if session is not None else None
@@ -157,22 +169,51 @@ class TelemetryRuntime:
         """Return the lock that serializes RouterOS role refresh and delivery."""
         return self.sessions.role_check_lock(session_id)
 
-    def revalidate_session(self, session_id: str, *, force_role_check: bool = False):
+    def revalidate_session(
+        self,
+        session_id: str,
+        *,
+        force_role_check: bool = False,
+        role_revalidation_interval_seconds: int = SESSION_ROLE_REVALIDATION_SECONDS,
+    ):
         """Re-check a dashboard session and its RouterOS-derived role.
 
-        This is shared by ordinary authenticated requests and both live
-        transports. Session role checks are bounded and do not extend idle
-        lifetime. Tests or embedders without RouterOS access may omit the
-        resolver; production wires the existing RouterOS REST client.
+        Ordinary authenticated requests retain the standard role-cache
+        interval; live transports pass their shorter interval explicitly.
+        Session role checks are bounded and do not extend idle lifetime. Tests
+        or embedders without RouterOS access may omit the resolver; production
+        wires the existing RouterOS REST client.
         """
         role_resolver = getattr(self, "role_resolver", None)
         if role_resolver is None:
             return self.sessions.get(session_id, touch=False)
-        return self.sessions.revalidate_role(
-            session_id,
-            role_resolver,
-            interval_seconds=0 if force_role_check else SESSION_ROLE_REVALIDATION_SECONDS,
+        is_live_check = (
+            role_revalidation_interval_seconds
+            <= LIVE_STREAM_ROLE_REVALIDATION_SECONDS
         )
+        if is_live_check and not force_role_check:
+            fresh, cached_session = self.sessions.cached_role_session(
+                session_id,
+                interval_seconds=role_revalidation_interval_seconds,
+            )
+            if fresh:
+                return cached_session
+
+        if is_live_check and not self._live_role_refresh_slots.acquire(
+            blocking=False
+        ):
+            return None
+        try:
+            return self.sessions.revalidate_role(
+                session_id,
+                role_resolver,
+                interval_seconds=(
+                    0 if force_role_check else role_revalidation_interval_seconds
+                ),
+            )
+        finally:
+            if is_live_check:
+                self._live_role_refresh_slots.release()
 
     def _connection(self) -> RouterOSBinaryConnection:
         return RouterOSBinaryConnection(
