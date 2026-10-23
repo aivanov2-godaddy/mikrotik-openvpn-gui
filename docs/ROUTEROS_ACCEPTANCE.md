@@ -200,7 +200,12 @@ Record only the facts needed to reproduce a compatibility result:
 Do not use or copy `/container/print detail` or container environment-list
 output into an acceptance record: detailed RouterOS output may expose Redis
 URLs/passwords or other secrets. Capture only the selected non-secret fields
-needed for the test, and keep raw terminal output private.
+needed for the test, and keep raw terminal output private. Apply the same rule
+to WinBox/WebFig: the Containers table's environment column and its
+accessibility representation may contain complete values even when the UI
+visually clips them. Do not capture, copy, export, or paste that view or its
+accessibility tree into chat, tickets, logs, or repository artifacts. Use the
+allowlisted acceptance collector or record only non-secret status fields.
 
 Include RouterOS version, architecture, candidate tag/digest, and whether the
 test is physical ARM64 or CHR/x86.
