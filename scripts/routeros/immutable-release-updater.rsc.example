@@ -295,8 +295,7 @@
         # update errors (including multiline contents) before the readiness
         # soak. The short-lived random probe contains no private data.
         :set updaterStep "state-directory-probe"
-        # Use a normal RouterOS filename rather than a dot-prefixed file; some
-        # RouterOS file surfaces treat hidden-style names inconsistently.
+        # Use a plain temporary filename for the RouterOS state-directory probe.
         :local stateProbeFile ($stateDirectory . "/vpn-gui-write-check-" . [:rndnum from=100000 to=999999] . ".tmp")
         :local stateProbeContents "probe=updated\nmultiline=yes"
         :local stateProbeFailed false
