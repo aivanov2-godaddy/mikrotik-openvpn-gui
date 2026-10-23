@@ -535,12 +535,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         report = (ROOT / "docs" / "LIVE_TELEMETRY_ACCEPTANCE_REPORT.md").read_text(
             encoding="utf-8"
         )
+        report = " ".join(report.split())
         self.assertIn(
             "historical acceptance record for candidate PR #776", report
         )
-        self.assertIn("approximately 14:50 UTC showed one", report)
-        self.assertIn("approximately 15:02 UTC showed zero active sessions", report)
-        self.assertIn("does not correlate the session with", report)
+        self.assertIn(
+            "at approximately 14:50 UTC showed one active VPN session", report
+        )
+        self.assertIn("later check at approximately 15:02 UTC showed none", report)
+        self.assertIn("was not correlated with dashboard telemetry", report)
 
     def test_documented_contextual_login_limit_matches_runtime_defaults(self) -> None:
         limiter_module = ast.parse((ROOT / "security.py").read_text(encoding="utf-8"))
@@ -590,6 +593,19 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("RouterOS user permissions and credential-memory exposure", unverified)
         self.assertIn("external log layers", unverified)
         self.assertIn("Complete an independent, requirement-by-requirement ASVS review", unverified)
+
+    def test_pr793_publication_is_not_misrepresented_as_independent_review(self) -> None:
+        roadmap = " ".join((ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8").split())
+        assurance = " ".join(self.document.split())
+        self.assertIn(
+            "Two bounded, read-only source reviews against PR #791's commit",
+            roadmap,
+        )
+        self.assertIn("PR #794 is now merged as", roadmap)
+        self.assertIn("The two bounded source reviews described above", self.document)
+        self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)
+        self.assertIn("publication is not an independent security review", assurance)
+        self.assertIn("Mainline security changes — PR #794", assurance)
 
     def test_unverified_section_does_not_deny_historical_canary_observations(self) -> None:
         unverified_heading = "## Explicitly unverified live-router / deployment evidence"

@@ -159,6 +159,28 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("credentials, environment values, configuration, database data", installation)
         self.assertIn("canary", deployment.casefold())
 
+    def test_latest_published_artifact_is_consistent_across_release_docs(self) -> None:
+        documents = (
+            ROOT / "docs/RELEASES.md",
+            ROOT / "docs/ROADMAP.md",
+            ROOT / "docs/LIVE_TELEMETRY_ACCEPTANCE_REPORT.md",
+            ROOT / "docs/INSTALLATION.md",
+            ROOT / "docs/ROUTEROS_ACCEPTANCE.md",
+        )
+        rendered = "\n".join(document.read_text(encoding="utf-8") for document in documents)
+
+        self.assertIn("fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164", rendered)
+        self.assertIn(
+            "sha256:b3d347184b016851d6e0b43135ee2831ebb2ba7e3dc5f4bca2270e8fa4c5bc10",
+            rendered,
+        )
+        self.assertIn(
+            "sha256:53fa088b3b7eafa110fd95db823f554d524070a9367ab2816879182ebacbc708",
+            rendered,
+        )
+        self.assertIn("PR #793 was not staged", rendered)
+        self.assertIn("not been staged on RouterOS", rendered)
+
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:
         operations = (ROOT / "docs/OPERATIONS.md").read_text(encoding="utf-8")
 
@@ -167,7 +189,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("before restarting\ncontainers", operations)
         self.assertIn("scripts/collect_release_acceptance.py", operations)
         self.assertIn("--phase canary-prepromotion", operations)
-        self.assertIn("private-collected-evidence.json", operations)
+        self.assertIn("private-collected-evidence-prepromotion.json", operations)
+        self.assertIn("private-collected-evidence-postpromotion.json", operations)
         self.assertIn("Run the RouterOS read-only sampler and app collector concurrently", operations)
         self.assertIn("--routeros-report private-routeros-window.json", operations)
         self.assertIn("never promotes or rolls back", operations)
