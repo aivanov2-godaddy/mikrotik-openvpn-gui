@@ -755,13 +755,18 @@ class ReviewReceiptStore:
         now = time.time()
         with self._lock:
             self._purge(now)
-            receipt = self._items.pop(token, None)
-            return bool(
-                receipt
-                and receipt.expires_at > now
-                and hmac.compare_digest(receipt.session_id, session_id)
-                and hmac.compare_digest(receipt.intent_digest, intent_digest)
-            )
+            receipt = self._items.get(token)
+            if (
+                receipt is None
+                or receipt.expires_at <= now
+                or not hmac.compare_digest(receipt.session_id, session_id)
+                or not hmac.compare_digest(receipt.intent_digest, intent_digest)
+            ):
+                return False
+            # Validate ownership and intent before consuming. A denied request
+            # from another session must not burn the issuing session's receipt.
+            self._items.pop(token, None)
+            return True
 
     def _purge(self, now: float) -> None:
         for token, receipt in list(self._items.items()):
