@@ -1,37 +1,39 @@
 # Live telemetry acceptance status
 
-Status: **PR #793 is the latest published and attested mainline image; it was
-not staged or deployed on RouterOS. The latest candidate-bound canary record is
-PR #776 and no candidate-matched 30-minute sample record was verified. A
-read-only inventory at approximately 14:33 UTC on 2026-10-23 showed the PR #788
-ARM64 tag configured on canary and production. A separate read-only RouterOS
-PPP Active Connections check at approximately 14:50 UTC showed one active VPN
-session; a later check at approximately 15:02 UTC showed none. At that time the
-canary dashboard was at its application sign-in page, so the router-side
-session was not correlated with dashboard telemetry. These are dated historical
-observations, not a statement of the current connection state. Readiness is not
-passed; candidate-specific live acceptance is incomplete and production
-promotion remains gated.**
+Status: **PR #794 is the latest published and attested mainline image; no
+post-publication RouterOS staging/deployment is recorded for it. The latest candidate-bound canary
+record remains PR #776 and no candidate-matched 30-minute sample record was
+verified. A read-only inventory at approximately 14:33 UTC on 2026-10-23 showed
+the PR #788 ARM64 tag configured on canary and production; this predates the
+publication of PR #794. A separate read-only RouterOS PPP Active Connections
+check at approximately 14:50 UTC showed one active VPN session; a later check
+at approximately 15:02 UTC showed none. At that time the canary dashboard was
+at its application sign-in page, so the router-side session was not correlated
+with dashboard telemetry. These are dated historical observations, not a
+statement of the current connection state. Readiness is not passed;
+candidate-specific live acceptance is incomplete and production promotion
+remains gated.**
 
 ## Public artifact evidence
 
-PR [#793](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/793)
-merged as `fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`. Main CI run
-[#39941787724](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39941787724)
+PR [#794](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/794)
+merged as `beba66c0f36231511ec1b9cc664f2be39a128750`. Main CI run
+[#39984997001](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39984997001)
 and publisher run
-[#39941787902](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39941787902)
+[#39984997106](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39984997106)
 completed successfully. ARM64/AMD64 image smoke tests passed, and provenance
 and SPDX SBOM attestations verified against the exact source commit and image
-digests; stable-manifest publication succeeded. PR #793 bounds Engine.IO
-polling client state and makes ASGI authorization waits finite and fail-closed.
-Publication did not stage or deploy the image on RouterOS.
+digests; stable-manifest publication and read-back succeeded. PR #794 rejects
+missing, duplicate, or foreign-Origin WebSocket handshakes before Engine.IO
+allocation and removes session-cookie bearer identifiers from the admin-session
+inventory. Publication did not stage or deploy the image on RouterOS.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 — latest published, not staged | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-arm64` | `sha256:b3d347184b016851d6e0b43135ee2831ebb2ba7e3dc5f4bca2270e8fa4c5bc10` |
-| AMD64 / CHR — latest published, not staged | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-amd64` | `sha256:53fa088b3b7eafa110fd95db823f554d524070a9367ab2816879182ebacbc708` |
+| RouterOS ARM64 — latest published; post-publish router state unverified | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-beba66c0f36231511ec1b9cc664f2be39a128750-arm64` | `sha256:1dad53e8e89acab230ae69703cec319a64ce472ca1336c491d7aa13e022f96f5` |
+| AMD64 / CHR — latest published; device state unverified | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-beba66c0f36231511ec1b9cc664f2be39a128750-amd64` | `sha256:dd576d101fe0a16070c27eece09757f5f765c1536703feaa786f43d28f74e26e` |
 
-PR #793 is not a numbered release; v2.7.0 remains the latest formal version.
+PR #794 is not a numbered release; v2.7.0 remains the latest formal version.
 Image publication did not deploy to RouterOS or establish live acceptance.
 
 ### Latest candidate-bound canary artifact — PR #776
@@ -67,14 +69,14 @@ setting matched the expected origin, but the rejected request's origin/header
 shape was not captured; do not weaken origin or CSRF checks while
 investigating. The registry digests above are bound to their tags by the
 verified publisher workflow; RouterOS reports the configured tag, not a
-local OCI digest. PR #793 was not staged by its publication workflow and has
-no candidate-specific live acceptance. The latest recorded read-only RouterOS
+local OCI digest. No post-publication RouterOS staging or candidate-specific
+live acceptance for PR #793 is recorded. The latest recorded read-only RouterOS
 inventory at approximately 14:33 UTC on 2026-10-23 showed canary and production
 configured with immutable ARM64 tag
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7-arm64`
-(source commit PR #788), not the latest published PR #793 tag. This was a
-configured-tag read-back only; no local OCI digest or candidate readiness was
-verified. A later read-only PPP Active Connections check showed one active
+(source commit PR #788), not the then-latest published PR #793 tag. This was a
+configured-tag read-back before PR #794 was published; no local OCI digest or
+candidate readiness was verified. A later read-only PPP Active Connections check showed one active
 session at approximately 14:50 UTC and none at approximately 15:02 UTC. The
 dashboard was signed out during that observation, so no latency, freshness,
 reconnect, or dashboard correlation is claimed. No RouterOS or container
@@ -89,8 +91,8 @@ a gate checklist, not a report of private measurements.
 ## Candidate acceptance gates
 
 The following table is the historical acceptance record for candidate PR #776;
-it is not the current canary image state. PR #793 is the latest published
-candidate, but it has not been staged and has no live acceptance evidence.
+it is not the current canary image state. PR #794 is the latest published
+candidate, but no post-publication staging or live acceptance is recorded.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |

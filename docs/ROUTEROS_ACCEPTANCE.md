@@ -13,16 +13,16 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published mainline runtime is PR #793,
-commit `fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`, published by
-[workflow run #39941787902](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39941787902).
+prove RouterOS compatibility. The latest published mainline runtime is PR #794,
+commit `beba66c0f36231511ec1b9cc664f2be39a128750`, published by
+[workflow run #39984997106](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39984997106).
 Its immutable ARM64/AMD64 tags and digests are recorded in
 [`RELEASES.md`](RELEASES.md#published-images); the RouterOS ARM64 digest is
-`sha256:b3d347184b016851d6e0b43135ee2831ebb2ba7e3dc5f4bca2270e8fa4c5bc10`.
+`sha256:1dad53e8e89acab230ae69703cec319a64ce472ca1336c491d7aa13e022f96f5`.
 Main CI, both architecture builds, runtime smoke, provenance/SBOM verification,
-and stable-manifest read-back passed. PR #793 bounds Engine.IO polling state
-and makes ASGI authorization waits finite and fail-closed. This image has not
-been staged on RouterOS, so it has no hardware acceptance.
+and stable-manifest read-back passed. PR #794 hardens WebSocket Origin checks
+and admin-session inventory. No post-publication staging is recorded for this
+image on RouterOS, so hardware acceptance is unverified.
 
 The latest candidate-bound canary checkpoint is PR #776, commit
 `c4b4b76793b2454e81362867d8654962627de6fa`. RouterOS read-back reported its
@@ -109,7 +109,22 @@ cross-model/version certification is inferred. See the
 [current release record](RELEASES.md#published-images) and
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-## Latest published runtime — PR #793 (not staged)
+## Latest published runtime — PR #794 (post-publication staging unverified)
+
+PR #794 merged as `beba66c0f36231511ec1b9cc664f2be39a128750`. Its immutable
+RouterOS ARM64 image is
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-beba66c0f36231511ec1b9cc664f2be39a128750-arm64`
+with digest
+`sha256:1dad53e8e89acab230ae69703cec319a64ce472ca1336c491d7aa13e022f96f5`.
+The AMD64 tag and digest are in `RELEASES.md`. Main CI run #39984997001 and
+publisher run #39984997106 passed, including both architecture runtime smoke
+tests and provenance/SBOM attestation verification. PR #794 enforces a
+same-origin WebSocket handshake and removes session-cookie bearer identifiers
+from the admin-session inventory. No post-publication staging is recorded for
+this image on RouterOS. Do not treat publication as hardware compatibility or
+acceptance evidence.
+
+## Previously published runtime — PR #793 (RouterOS staging unverified)
 
 PR #793 merged as `fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`. Its immutable
 RouterOS ARM64 image is
@@ -120,7 +135,7 @@ The AMD64 tag and digest are in `RELEASES.md`. Main CI run #39941787724 and
 publisher run #39941787902 passed, including both architecture runtime smoke
 tests and provenance/SBOM attestation verification. PR #793 bounds Engine.IO
 polling clients and ASGI authorization waits and updates release-acceptance
-runbook coverage. This image has not been staged on RouterOS. Do not treat
+runbook coverage. No RouterOS staging for this image is recorded. Do not treat
 publication as hardware
 compatibility or acceptance evidence.
 
@@ -171,9 +186,10 @@ deployment was performed for this candidate. Its
 recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
 security checks, and rollback rehearsal are all **not verified**.
 
-This is historical evidence only. PR #793 is the latest published runtime;
-PR #776 is the latest recorded canary candidate. Use the exact candidate and
-its recorded acceptance status above for any new acceptance run. Do not treat image
+This is historical evidence only. PR #793 was the latest published runtime
+when this checkpoint was written; PR #794 now supersedes it. PR #776 is the
+latest recorded canary candidate. Use the exact candidate and its recorded
+acceptance status above for any new acceptance run. Do not treat image
 publication or startup health as the required 30-minute acceptance window. Do
 not promote until the complete candidate-specific report passes and rollback
 has been rehearsed.

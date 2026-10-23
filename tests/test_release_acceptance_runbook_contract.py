@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OPERATIONS = ROOT / "docs" / "OPERATIONS.md"
-CANDIDATE_SHA = "fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164"
-REDIS_RUN_ID = "39941787724"
+CANDIDATE_SHA = "beba66c0f36231511ec1b9cc664f2be39a128750"
+REDIS_RUN_ID = "39984997001"
 
 
 class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "PR #793 is the latest published candidate, but it has not been staged and has no live acceptance evidence.",
+            "PR #794 is the latest published candidate, but no post-publication staging or live acceptance is recorded.",
             report,
         )
         self.assertNotIn("PR #791 has been published but not staged", report)
