@@ -284,6 +284,25 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
 
+    def test_router_local_stage_updater_mutates_only_the_canary_container(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        mutating_commands = list(
+            re.finditer(r"/container/(add|remove|set|start|stop|update|enable|disable)\b", executable)
+        )
+
+        self.assertTrue(mutating_commands)
+        for command in mutating_commands:
+            with self.subTest(command=command.group(1)):
+                self.assertIn(command.group(1), {"set", "start", "stop", "update"})
+                target = re.match(r"\s+([^\s;{}]+)", executable[command.end() :])
+                self.assertIsNotNone(target, "container mutation must name its target explicitly")
+                self.assertEqual(target.group(1), "$canaryId")
+
     def test_router_local_updater_requires_a_sampled_30_minute_canary_gate(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
             encoding="utf-8"
