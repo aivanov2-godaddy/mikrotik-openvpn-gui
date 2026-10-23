@@ -12,6 +12,7 @@ import asyncio
 import hmac
 import ipaddress
 import json
+import math
 import os
 import socket
 import threading
@@ -39,8 +40,43 @@ Receive = Callable[[], Awaitable[ASGIMessage]]
 _SOCKETIO_ROLE_CHECK_LIMIT = 4
 _SOCKETIO_ROLE_CHECK_SLOTS = threading.BoundedSemaphore(_SOCKETIO_ROLE_CHECK_LIMIT)
 _ASGI_LIVE_BODY_SEND_TIMEOUT_SECONDS = 10.0
+_ASGI_AUTHORIZATION_WAIT_TIMEOUT_DEFAULT_SECONDS = 0.5
+_ASGI_AUTHORIZATION_WAIT_TIMEOUT_MAX_SECONDS = 5.0
+_ASGI_AUTHORIZATION_WAIT_TIMEOUT_ENV = "ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS"
 _SOCKETIO_SESSION_BINDING_TTL_SECONDS = 120.0
 _SOCKETIO_MAX_SESSION_BINDINGS = 4096
+_ASGI_AUTHORIZATION_WAIT_POLL_SECONDS = 0.025
+
+
+def _configured_authorization_wait_timeout() -> float:
+    """Return a finite, short authorization acquisition timeout.
+
+    Invalid, non-finite, or non-positive settings use the safe default; larger
+    finite settings are capped so configuration cannot turn the wait unbounded
+    in practice.
+    """
+    try:
+        configured = float(os.environ[_ASGI_AUTHORIZATION_WAIT_TIMEOUT_ENV])
+    except (KeyError, TypeError, ValueError):
+        return _ASGI_AUTHORIZATION_WAIT_TIMEOUT_DEFAULT_SECONDS
+    if not math.isfinite(configured) or configured <= 0:
+        return _ASGI_AUTHORIZATION_WAIT_TIMEOUT_DEFAULT_SECONDS
+    return min(configured, _ASGI_AUTHORIZATION_WAIT_TIMEOUT_MAX_SECONDS)
+
+
+_ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS = _configured_authorization_wait_timeout()
+
+
+async def _acquire_before_deadline(lock: Any, deadline: float) -> bool:
+    """Try a thread lock/semaphore asynchronously until the finite deadline."""
+    loop = asyncio.get_running_loop()
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return False
+        if lock.acquire(blocking=False):
+            return True
+        await asyncio.sleep(min(_ASGI_AUTHORIZATION_WAIT_POLL_SECONDS, remaining))
 
 
 def _session_id(scope: Mapping[str, Any]) -> str:
@@ -371,15 +407,13 @@ class DashboardHTTPASGI:
             return False
 
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + 30.0
+        deadline = loop.time() + _ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS
         while loop.time() < deadline:
             role_lock = lock_resolver(session_id)
             if role_lock is None:
                 return False
-            while not role_lock.acquire(blocking=False):
-                if loop.time() >= deadline:
-                    return False
-                await asyncio.sleep(0.025)
+            if not await _acquire_before_deadline(role_lock, deadline):
+                return False
 
             cache_is_authoritative = False
             try:
@@ -403,10 +437,10 @@ class DashboardHTTPASGI:
             # Role data is stale. Refresh outside the delivery lock, with the
             # same bounded worker capacity used by the native Socket.IO path,
             # then loop and recheck under the lock before sending.
-            while not _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False):
-                if loop.time() >= deadline:
-                    return False
-                await asyncio.sleep(0.025)
+            if not await _acquire_before_deadline(
+                _SOCKETIO_ROLE_CHECK_SLOTS, deadline
+            ):
+                return False
 
             def refresh_principal() -> Any | None:
                 try:
@@ -862,9 +896,10 @@ class NativeSocketIO:
 
         Fresh local role-cache hits need no worker slot. RouterOS role
         resolution is synchronous, so network checks are bounded per process.
-        Established streams may wait asynchronously for a slot; new connects
-        fail closed when capacity is unavailable. The slot is released when
-        the worker actually finishes, even if its Socket.IO task is cancelled.
+        Established streams may wait asynchronously for a slot up to the
+        configured authorization-wait deadline; timeout fails closed. The slot
+        is released when the worker actually finishes, even if its Socket.IO
+        task is cancelled.
         """
         if not force_role_check:
             cached_lookup = getattr(self.runtime, "cached_principal_for_session", None)
@@ -878,8 +913,11 @@ class NativeSocketIO:
 
         loop = asyncio.get_running_loop()
         if wait_for_capacity:
-            while not _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False):
-                await asyncio.sleep(0.025)
+            deadline = loop.time() + _ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS
+            if not await _acquire_before_deadline(
+                _SOCKETIO_ROLE_CHECK_SLOTS, deadline
+            ):
+                return None
         elif not _SOCKETIO_ROLE_CHECK_SLOTS.acquire(blocking=False):
             return None
 
@@ -997,12 +1035,14 @@ class NativeSocketIO:
         if not callable(lock_for_session):
             return False
 
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS
         while True:
             role_lock = lock_for_session(session_id)
             if role_lock is None:
                 return False
-            while not role_lock.acquire(blocking=False):
-                await asyncio.sleep(0.025)
+            if not await _acquire_before_deadline(role_lock, deadline):
+                return False
             try:
                 cache_lookup = getattr(
                     self.runtime, "cached_principal_for_session", None

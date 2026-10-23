@@ -213,6 +213,18 @@ downgrade keeps only the still-authorized session stream, then an account-disabl
 result closes the stream and rejects reconnect. This is not a physical-router
 or deployed-proxy observation.
 
+Established ASGI authorization waits to acquire role-check capacity or the
+per-session authorization gate fail closed after
+`ASGI_AUTHORIZATION_WAIT_TIMEOUT_SECONDS` (default 0.5 seconds, capped at 5
+seconds; read at process startup, with invalid values using the default).
+`tests/test_asgi_contract.py::ASGIContractTests.test_established_socketio_repeat_connect_fails_closed_on_capacity_timeout`
+verifies saturated-slot failure cleans up an existing subscription, while
+`tests/test_asgi_contract.py::ASGIContractTests.test_live_pump_disconnects_when_session_gate_wait_times_out`
+verifies a held per-session gate disconnects the stream without emitting.
+This deadline covers acquisition only: a running RouterOS lookup retains its
+worker slot until it finishes, and a non-cooperative ASGI send can still delay
+revocation as described below.
+
 The Binary API session stream and interface sampler also enforce the source
 dashboard session. Regression tests verify refusal of the exact RouterOS
 credential pair after source-session revocation, closure before publishing
