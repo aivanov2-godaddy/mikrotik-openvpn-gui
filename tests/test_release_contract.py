@@ -299,9 +299,23 @@ class ReleaseContractTests(unittest.TestCase):
         for command in mutating_commands:
             with self.subTest(command=command.group(1)):
                 self.assertIn(command.group(1), {"set", "start", "stop", "update"})
-                target = re.match(r"\s+([^\s;{}]+)", executable[command.end() :])
+                line_start = executable.rfind("\n", 0, command.start()) + 1
+                line_end = executable.find("\n", command.end())
+                if line_end < 0:
+                    line_end = len(executable)
+                line = executable[line_start:line_end]
+                command_on_line = re.search(
+                    r"/container/(add|remove|set|start|stop|update|enable|disable)\b", line
+                )
+                self.assertIsNotNone(command_on_line)
+                target = re.match(r"\s+([^\s;{}]+)(.*)$", line[command_on_line.end() :])
                 self.assertIsNotNone(target, "container mutation must name its target explicitly")
                 self.assertEqual(target.group(1), "$canaryId")
+                arguments = target.group(2).strip()
+                if command.group(1) == "set":
+                    self.assertRegex(arguments, r"remote-image=\$(image|canaryRestoreImage)")
+                else:
+                    self.assertEqual(arguments, "")
 
     def test_router_local_updater_requires_a_sampled_30_minute_canary_gate(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
