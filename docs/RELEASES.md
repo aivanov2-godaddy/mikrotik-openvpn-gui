@@ -26,9 +26,9 @@ and manifest read-back passed. The exact artifact digests are recorded below.
 On 2026-10-24 the ARM64 candidate was staged on the isolated canary, its exact
 revision/readiness was verified, rollback to the prior canary image passed
 readiness, and the candidate was restored and reverified. Production remains
-on its prior image and was not changed. A fresh 30-sample, one-minute-spaced
-readiness observation is in progress; authenticated live telemetry acceptance
-is not complete. PR #791/#797's updater changes remain repository examples;
+on its prior image and was not changed. The 30-sample, one-minute-spaced
+readiness-only observation completed with zero failures; authenticated live
+telemetry acceptance is not complete. PR #791/#797's updater changes remain repository examples;
 the installed router updater was not run because its source is unreconciled.
 Keep v2.8.0 gated until candidate-specific acceptance passes.
 PR #778 adds
@@ -119,7 +119,8 @@ This is an immutable published mainline image, not a numbered release;
 v2.7.0 remains the latest formal release. Canary staging and rollback
 verification are recorded in `LIVE_TELEMETRY_ACCEPTANCE_REPORT.md` and
 `ROUTEROS_ACCEPTANCE.md`; they do not constitute full live acceptance or
-production promotion. The 30-minute readiness observation is in progress.
+production promotion. The 30-minute readiness-only observation completed
+30/30 checks with zero failures; live acceptance remains incomplete.
 
 ### Previously published mainline image — PR #798 — 2026-10-23
 
@@ -143,9 +144,9 @@ stable manifest was published and read back.
 
 This is an immutable published mainline image, not a numbered release;
 v2.7.0 remains the latest formal release. Publication did not stage or run the
-updater on RouterOS. The current PR #803 canary staging and rollback evidence
-is recorded above; the 30-minute readiness observation and live acceptance are
-still pending. Do not tag or publish v2.8.0 until current candidate-specific
+updater on RouterOS. The current PR #803 canary staging, rollback, and
+30/30 readiness-only observation are recorded above; live acceptance remains
+pending. Do not tag or publish v2.8.0 until current candidate-specific
 acceptance gates pass.
 
 ### Previously published mainline image — PR #797 — 2026-10-23

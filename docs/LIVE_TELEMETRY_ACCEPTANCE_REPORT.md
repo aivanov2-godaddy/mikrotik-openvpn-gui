@@ -6,11 +6,14 @@ the isolated canary; the local readiness endpoint reported `ready`. A manual
 rollback to the previous canary image passed readiness, then PR #803 was
 restored and readiness reverified. Production remains on its prior image and
 was not changed. A new 30-sample, one-minute-spaced readiness observation has
-started but is not complete. The canary dashboard remains at its app sign-in
-form in the available browser view, so authenticated live telemetry, event
-latency/freshness, and reconnect/snapshot recovery are not verified. The
-installed updater remains unreconciled and was not run. Candidate-specific
-acceptance and production promotion remain gated.**
+completed 30/30 successful checks with zero failures against the expected
+candidate readiness revision. This is readiness-only evidence; it does not
+measure resource impact or prove live telemetry acceptance. The canary
+dashboard remains at its app sign-in form in the available browser view, so
+authenticated live telemetry, event latency/freshness, and reconnect/snapshot
+recovery are not verified. The installed updater remains unreconciled and was
+not run. Candidate-specific acceptance and production promotion remain
+gated.**
 
 ## Current candidate checkpoint — PR #803
 
@@ -22,9 +25,10 @@ Publisher, provenance/SBOM, and runtime-smoke checks passed. RouterOS read-back
 confirmed the exact candidate revision on canary. The rollback drill used the
 previous immutable canary image and its matching readiness revision, then
 restored the candidate and verified its readiness again. The production image
-remains unchanged. The 30-minute readiness-only sample series is in progress;
-no application-level live-event acceptance or telemetry/security pass is
-claimed from readiness alone.
+remains unchanged. The readiness-only sample series completed 30/30
+one-minute-spaced checks with zero failures. It does not establish
+application-level live-event acceptance, resource impact, or a telemetry/
+security pass.
 
 ## Public artifact evidence
 
