@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 import unittest
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 from config import OpenVPNTopology
@@ -24,6 +26,62 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_routeros_credentials_are_not_forwarded_to_redirect_target(self) -> None:
+        forwarded_authorization: list[str | None] = []
+        target_url = ""
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(302)
+                self.send_header("Location", target_url)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        class TargetHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                forwarded_authorization.append(self.headers.get("Authorization"))
+                payload = b"[]"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        redirect_server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+        target_server = ThreadingHTTPServer(("127.0.0.1", 0), TargetHandler)
+        target_url = f"http://127.0.0.1:{target_server.server_port}/capture"
+        servers = (redirect_server, target_server)
+        threads = [
+            threading.Thread(target=server.serve_forever, daemon=True)
+            for server in servers
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            client = RouterOSClient(
+                f"http://127.0.0.1:{redirect_server.server_port}/rest"
+            )
+            with self.assertRaises(RouterOSError) as raised:
+                client._request(
+                    "GET",
+                    "/redirect",
+                    RouterOSCredentials("admin", "redirect-test-password"),
+                )
+        finally:
+            for server in servers:
+                server.shutdown()
+                server.server_close()
+            for thread in threads:
+                thread.join(timeout=2)
+
+        self.assertEqual(raised.exception.status, 302)
+        self.assertEqual(forwarded_authorization, [])
+
     def test_routeros_credentials_repr_omits_password(self) -> None:
         credentials = RouterOSCredentials("operator", "router-password-sentinel")
 
@@ -417,11 +475,7 @@ class RouterOSClientTests(unittest.TestCase):
                 {},
                 io.BytesIO(response_body),
             )
-            with patch.object(
-                urllib.request,
-                "urlopen",
-                side_effect=http_error,
-            ):
+            with patch.object(client._opener, "open", side_effect=http_error):
                 with self.assertRaises(RouterOSError) as raised:
                     client.list_ovpn_client_certificates(
                         RouterOSCredentials("admin", "routerpass")

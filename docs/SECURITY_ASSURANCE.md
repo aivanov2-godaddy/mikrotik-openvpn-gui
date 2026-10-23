@@ -81,8 +81,8 @@ in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md).
 | V8.3.2 | PARTIAL | Routine RouterOS account/group changes on active streams are revalidated at up to 15-second intervals; fresh/repeated Socket.IO connects force an immediate role lookup, and ASGI connect/poll/pump lookups run in bounded workers. The ASGI HTTP adapter checks the current principal under the shared session lock and holds it through actual SSE body sends; the Socket.IO ASGI wrapper does the same for native WebSocket and polling output. Stale roles refresh in bounded workers, and cancelled sends drain before unlock. ASGI body/terminal sends and threaded SSE/polling writes time out after 10 seconds; the latter reset the socket timeout after writing. HTTP requests disclosing `audit.read` data also force a fresh check. Tests cover bounded capacity, cancellation, duplicate-cookie selection, simulated blocked threaded/ASGI writes, clock rollback, role downgrade, queued-frame suppression, and send/revocation ordering. Physical-router enforcement, client receipt timing, and deployed latency remain unmeasured. |
 | V8.3.3 | PARTIAL | Current RouterOS-session capabilities are re-derived for live delivery; a complete end-to-end subject-vs-intermediary authorization review remains outstanding. |
 | V8.4.1 | N/A | Multi-tenant architecture is explicitly excluded from the single-router product scope. |
-| V8.4.2 | PARTIAL | App-side RouterOS role revalidation and the Cloudflare Access edge provide separate controls, but deployed configuration, device-posture checks, and contextual risk controls are unverified. |
-| V4.4.1 | EXTERNAL | The public app uses HTTPS, but deployed WebSocket transport/TLS termination has not been independently verified; a Socket.IO status label alone is not proof of WSS. |
+| V8.4.2 | PARTIAL | Application-side RouterOS role revalidation is implemented and tested. Whether a separate Cloudflare Access layer, device-posture checks, or contextual risk controls are configured is unverified deployment evidence. |
+| V4.4.1 | EXTERNAL | Production HTTPS/WSS termination must be verified from deployment evidence; repository and ASGI tests do not establish the public transport, and a Socket.IO status label alone is not proof of WSS. |
 | V4.4.2 | TESTED | Same-origin checks cover the Socket.IO polling path. The ASGI boundary compares a supplied Origin against configured PUBLIC_ORIGIN before Engine.IO, including when forwarded host/proto headers are forged; HTTP and WebSocket regressions cover the denial. Deployed proxy behavior is unverified. |
 | V4.4.3–V4.4.4 | N/A | Live connections use the standard authenticated app session rather than a separate WebSocket token; separate-token acquisition/validation requirements are therefore not applicable to the implemented path. |
 
@@ -613,6 +613,44 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
   `detail`/`message` text, private endpoint names, and transport-specific
   diagnostics are discarded. Synthetic regressions cover both upstream JSON
   error fields and TLS, timeout, and host/IP-bearing transport failures.
+
+## RouterOS credential lifecycle review — 2026-10-23
+
+- RouterOS credentials are held in the authenticated server-side session in
+  process memory; this review found no path that persists the RouterOS
+  password to the metadata database. Logout, expiry, and session rotation clear
+  the session's credential fields, but Python strings and in-flight request
+  copies cannot be reliably zeroed. This remains a host/process-memory risk,
+  not a claim of secure erasure.
+- The separate local immutable-release deployer reads `ROUTEROS_DEPLOY_USERNAME`
+  and `ROUTEROS_DEPLOY_PASSWORD` from its process environment and constructs
+  per-request Basic Authorization headers. The source path does not persist
+  those values locally or include them in its sanitized errors. This does not
+  protect them from host-level environment inspection, process memory, tracing,
+  or crash capture; those controls remain unverified.
+- RouterOS REST calls use certificate verification by default. The explicit
+  insecure-TLS override weakens that guarantee and must remain disabled in
+  production. Redirects are rejected in both the application REST client and
+  local release deployer so an authenticated request cannot forward its Basic
+  Authorization header to a different redirect target. Regressions in
+  `tests.test_routeros.RouterOSClientTests.test_routeros_credentials_are_not_forwarded_to_redirect_target`
+  and `tests.test_deploy_routeros_release.DeploymentTests.test_deployer_credentials_are_not_forwarded_to_redirect_target`
+  start separate local redirect and capture servers and verify the capture
+  endpoint receives no request.
+- The application access logger excludes request paths and peer addresses, but
+  this does not establish the behavior of the reverse proxy, container runtime,
+  RouterOS, or host logging and crash collection. Those layers, effective
+  process-dump controls, router API reachability, and least-privilege RouterOS
+  permissions still require live operational review.
+- Profile diagnostics may report the host and port contained in the submitted
+  client profile to the authenticated caller with the relevant diagnostics
+  capability. Treat those diagnostics and exported operational records as
+  private network data; this review did not establish their handling by
+  external log or webhook destinations.
+
+**Residual-risk decision: OPEN.** No deployment-level credential-memory or
+logging review, independent ASVS review, or named owner risk acceptance is
+recorded here. Do not interpret this source review as a production sign-off.
 
 ## Repository hardening and export privacy — 2026-10-05
 

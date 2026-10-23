@@ -33,6 +33,21 @@ class RouterOSError(RuntimeError):
         self.failure_kind = failure_kind
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Do not forward RouterOS Basic credentials to a redirect target."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class RouterOSCredentials:
     username: str
@@ -182,6 +197,10 @@ class RouterOSClient:
                 self.ssl_context = ssl.create_default_context(cafile=ca_file)
         else:
             self.ssl_context = None
+        self._opener = urllib.request.build_opener(
+            _NoRedirectHandler(),
+            urllib.request.HTTPSHandler(context=self.ssl_context),
+        )
 
     def _request(
         self,
@@ -211,11 +230,7 @@ class RouterOSClient:
             method=method,
         )
         try:
-            with urllib.request.urlopen(
-                request,
-                timeout=self.timeout,
-                context=self.ssl_context,
-            ) as response:
+            with self._opener.open(request, timeout=self.timeout) as response:
                 payload = response.read()
         except urllib.error.HTTPError as error:
             if error.code in {401, 403}:
