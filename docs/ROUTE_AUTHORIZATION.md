@@ -183,9 +183,10 @@ patch. The independent reviewer ran 26 focused tests; the subsequent local app,
 security, and ASGI run passed 158 tests, and hosted CI passed before release.
 
 This internal code review is not an external penetration test or compliance
-assessment. Role-derived authorization for ordinary authenticated reads and
-already-open live streams is rechecked at most every 15 seconds; each new or
-repeated Socket.IO namespace connect forces an immediate RouterOS role lookup.
+assessment. Role-derived authorization for ordinary authenticated reads is
+rechecked at most every 15 seconds; already-open live streams use a separate
+one-second application cache. Each new or repeated Socket.IO namespace connect
+forces an immediate RouterOS role lookup.
 Socket.IO connect, poll, and pump authorization lookups run off the ASGI event
 loop, with at most four in flight per process; checks fail closed when all
 worker slots are occupied. Privileged management actions also force an
@@ -230,13 +231,12 @@ session stream and interface-sampler revocation tests, despite those behaviors
 being implemented and described elsewhere. The evidence map now references the
 credential-refusal, event/snapshot publish denial, sampler post-read denial, and
 reconnect-with-snapshot regressions. The review also confirmed that active HTTP,
-SSE, and Socket.IO role checks use the 15-second session-role cache. Existing
-active-stream role-change tests forced a cache miss, so a deterministic test was
-added to assert a role downgrade is applied on the first check at that cache
-boundary.
-This establishes the repository's configured bound only; physical RouterOS
-response latency and whether a 15-second window meets operational policy remain
-unverified.
+SSE, and Socket.IO role checks used the 15-second session-role cache at the
+source revision reviewed then. Current live streams have a separate one-second
+application cache while ordinary HTTP checks retain 15 seconds. The
+deterministic live-stream regression proves the configured app bound only;
+physical RouterOS response latency and whether RouterOS applies group-policy
+changes promptly remain unverified.
 
 ## Follow-up reconnect review — 2026-10-14
 
@@ -249,16 +249,18 @@ lookup. The current implementation now forces a RouterOS role lookup for both
 initial and repeated namespace connects; a regression leaves the cache warm,
 disables the account, and verifies both connection forms fail closed in
 `test_socketio_connection_forces_routeros_revalidation_with_warm_cache`.
-Already-open streams retain the configured 15-second periodic check. A negative
-wall-clock elapsed time is treated as stale rather than extending the cache;
-the clock-rollback regression verifies this for both forced and periodic
-checks. All ASGI Socket.IO role lookups (fresh/repeated connects, polls, and
-live pump checks) run in worker threads, bounded to four concurrent checks per
-process; saturated slots fail authorization closed without queueing more
-router requests. Cancellation of a pending check keeps its slot occupied until
-the blocking lookup actually finishes. Regressions verify event-loop offload
-for connect/poll/pump paths, fail-closed saturation, and cancellation-safe slot
-release.
+Already-open streams use a separate one-second application role-cache
+interval; this is a freshness threshold, not a one-second polling timer. The
+SSE handler checks on its two-second loop, so an expired cache is refreshed on
+the next loop plus RouterOS REST response time. Socket.IO checks on its
+connect/poll/pump/send paths. A process-wide runtime semaphore caps live
+RouterOS role refreshes across SSE, threaded polling, and ASGI at four
+concurrent checks; stale authorization fails closed when capacity is
+saturated. ASGI also keeps its own bounded worker-thread gate, and a cancelled
+ASGI lookup retains that worker slot until the blocking lookup finishes. A
+negative monotonic elapsed time is treated as stale rather than extending the
+cache. Regressions cover the cache boundary, fail-closed saturation, and
+cancellation-safe ASGI slot release.
 
 The review also found one omitted traceability row in the ASVS evidence map and
 confirmed the in-memory RouterOS-password exposure remains an explicitly

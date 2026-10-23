@@ -4,10 +4,27 @@ from unittest.mock import patch
 from config import RuntimeConfig
 from security import SessionStore
 from telemetry_broker import TelemetryEvent
-from telemetry_runtime import TelemetryRuntime
+from telemetry_runtime import MAX_CONCURRENT_LIVE_ROLE_REFRESHES, TelemetryRuntime
 
 
 class TelemetryRuntimeFreshnessTests(unittest.TestCase):
+    def test_live_role_refresh_capacity_is_shared_across_runtime_instances(self) -> None:
+        sessions = SessionStore()
+
+        def make_runtime() -> TelemetryRuntime:
+            return TelemetryRuntime(
+                sessions=sessions,
+                rest_url="https://127.0.0.1",
+                ca_file=None,
+                insecure_tls=False,
+                api_ssl_port=8729,
+                requested_transport="sse",
+            )
+
+        first = make_runtime()
+        second = make_runtime()
+        self.assertIs(first._live_role_refresh_slots, second._live_role_refresh_slots)
+
     def test_interface_sampler_worker_is_gated_by_requested_transport(self) -> None:
         def runtime_for(transport: str) -> TelemetryRuntime:
             return TelemetryRuntime(
@@ -42,7 +59,7 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
             fallback.start()
         make_thread.assert_not_called()
 
-    def test_live_stream_role_downgrade_is_applied_at_15_second_cache_deadline(self) -> None:
+    def test_live_stream_role_downgrade_is_applied_at_one_second_cache_deadline(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         sessions = SessionStore()
         clock = {"now": 100.0, "monotonic": 100.0}
@@ -71,19 +88,46 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
             )
             routeros_state["role"] = "read_only"
 
-            # A warm cache is permitted only within the documented bound.
-            clock["now"] = 114.999
-            clock["monotonic"] = 114.999
-            self.assertIs(runtime.revalidate_session(session.session_id), session)
+            # A live stream uses a one-second app-side role freshness bound.
+            clock["now"] = 100.999
+            clock["monotonic"] = 100.999
+            self.assertIsNotNone(runtime.principal_for_session(session.session_id))
             self.assertEqual(role_checks, [])
 
-            # At the 15-second boundary, the RouterOS-derived downgrade takes
-            # effect before another live authorization check can pass.
-            clock["now"] = 115.0
-            clock["monotonic"] = 115.0
-            self.assertIs(runtime.revalidate_session(session.session_id), session)
+            # At the one-second boundary, the RouterOS-derived downgrade takes
+            # effect on the first authorization check after the cache expires.
+            clock["now"] = 101.0
+            clock["monotonic"] = 101.0
+            for _ in range(MAX_CONCURRENT_LIVE_ROLE_REFRESHES):
+                self.assertTrue(runtime._live_role_refresh_slots.acquire(blocking=False))
+            try:
+                # Saturated live refresh capacity denies stale authorization,
+                # without revoking a still-valid session or affecting ordinary
+                # request checks that retain their 15-second cache.
+                self.assertIsNone(runtime.principal_for_session(session.session_id))
+                self.assertIs(runtime.revalidate_session(session.session_id), session)
+                self.assertEqual(session.role, "owner")
+                self.assertEqual(role_checks, [])
+            finally:
+                for _ in range(MAX_CONCURRENT_LIVE_ROLE_REFRESHES):
+                    runtime._live_role_refresh_slots.release()
+
+            self.assertIsNotNone(runtime.principal_for_session(session.session_id))
             self.assertEqual(session.role, "read_only")
-            self.assertEqual(role_checks, [115.0])
+            self.assertEqual(role_checks, [101.0])
+
+            # Ordinary authenticated requests keep their separate 15-second
+            # cache, avoiding a global increase in RouterOS role lookups.
+            routeros_state["role"] = None
+            clock["now"] = 115.999
+            clock["monotonic"] = 115.999
+            self.assertIs(runtime.revalidate_session(session.session_id), session)
+            self.assertEqual(role_checks, [101.0])
+
+            clock["now"] = 116.0
+            clock["monotonic"] = 116.0
+            self.assertIsNone(runtime.revalidate_session(session.session_id))
+            self.assertEqual(role_checks, [101.0, 116.0])
 
     def test_binary_credentials_are_refused_after_source_session_revocation(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})

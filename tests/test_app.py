@@ -25,7 +25,12 @@ from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from routeros_binary import RouterOSReply
-from security import LoginRateLimiter, SessionStore, has_capability
+from security import (
+    LIVE_STREAM_ROLE_REVALIDATION_SECONDS,
+    LoginRateLimiter,
+    SessionStore,
+    has_capability,
+)
 from store import MetadataStore
 from templates import ASSET_VERSION, _asset_version, _page, dashboard_page, evaluate_device_posture
 from telemetry_socketio_polling import SocketIOPollingBridge
@@ -1869,10 +1874,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         # real RouterOS-derived role resolver while the polling stream is open.
         self.mock.state.admin_group = "read"
         self.server.context.sessions._role_checked_monotonic[session_id] = 0
-        status, _, packet = self.request(
-            "GET",
-            f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
-            headers={"Cookie": cookie, "Origin": self.config.public_origin},
+        runtime = self.server.context.telemetry_runtime
+        with mock.patch.object(
+            runtime, "revalidate_session", wraps=runtime.revalidate_session
+        ) as revalidate_session:
+            status, _, packet = self.request(
+                "GET",
+                f"/socket.io/?EIO=4&transport=polling&sid={urllib.parse.quote(sid, safe='')}",
+                headers={"Cookie": cookie, "Origin": self.config.public_origin},
+            )
+        self.assertTrue(
+            any(
+                call.kwargs.get("role_revalidation_interval_seconds")
+                == LIVE_STREAM_ROLE_REVALIDATION_SECONDS
+                for call in revalidate_session.call_args_list
+            ),
+            "threaded Socket.IO polling must use the short live-stream role cache",
         )
         self.assertEqual(status, 200, packet.decode("utf-8"))
         self.assertEqual(packet, b"2")
@@ -2093,6 +2110,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             raise RouterOSError("end test stream after role revalidation")
 
         original_get_admin_role = self.server.context.router.get_admin_role
+        runtime = self.server.context.telemetry_runtime
         with (
             mock.patch("app.time.sleep", side_effect=downgrade_then_stop),
             mock.patch.object(
@@ -2105,6 +2123,9 @@ class DashboardIntegrationTests(unittest.TestCase):
                 "get_admin_role",
                 wraps=original_get_admin_role,
             ) as get_admin_role,
+            mock.patch.object(
+                runtime, "revalidate_session", wraps=runtime.revalidate_session
+            ) as revalidate_session,
         ):
             connection.request(
                 "GET",
@@ -2119,6 +2140,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(body.count(b"event: status"), 2)
         self.assertEqual(session.role, "read_only")
         get_admin_role.assert_called_once()
+        live_role_checks = [
+            call
+            for call in revalidate_session.call_args_list
+            if call.kwargs.get("role_revalidation_interval_seconds")
+            == LIVE_STREAM_ROLE_REVALIDATION_SECONDS
+        ]
+        self.assertEqual(len(live_role_checks), 2)
 
     def _managed_device_revoke_request(self) -> tuple[str, str]:
         self.login()
