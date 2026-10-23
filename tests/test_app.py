@@ -750,6 +750,29 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(body, b"0{}")
         self.assertEqual(len(calls), 1)
 
+    def test_socketio_polling_capacity_returns_retryable_service_unavailable(self) -> None:
+        self.login()
+        bridge = SocketIOPollingBridge(
+            self.server.telemetry_runtime.gateway,
+            self.server.telemetry_runtime.principal_for_session,
+            max_clients=1,
+        )
+        self.server.socketio_bridge = bridge
+        headers = {"Cookie": self.cookie, "Origin": self.config.public_origin}
+
+        first_status, _, _ = self.request(
+            "GET", "/socket.io/?EIO=4&transport=polling", headers=headers,
+        )
+        self.assertEqual(first_status, 200)
+
+        status, response_headers, payload = self.request(
+            "GET", "/socket.io/?EIO=4&transport=polling", headers=headers,
+        )
+        self.assertEqual(status, 503, payload.decode("utf-8"))
+        self.assertEqual(response_headers.get("retry-after"), "1")
+        self.assertEqual(len(bridge._clients), 1)
+        self.assertEqual(bridge.gateway.client_count, 0)
+
     def test_socketio_polling_rejects_foreign_origin_before_post_dispatch(self) -> None:
         self.login()
         calls: list[tuple[str, str, bytes]] = []
