@@ -340,6 +340,22 @@ Cloudflare Access, host-memory, or deployed-log checks were performed in this
 run. The external items below therefore remain **NOT VERIFIED**; this update
 does not claim production acceptance or close issue #200.
 
+### Post-merge revalidation — PR #778 — 2026-10-23
+
+PR [#778](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/778)
+adds redacted diagnostics for CSRF Origin/Referer rejection and binds the
+Engine.IO transport SID to the active dashboard session before the handshake
+packet is sent. Regression coverage verifies the send boundary, and the
+diagnostics do not log raw header values. Main CI and the ARM64 publisher
+completed successfully; provenance and SPDX SBOM attestations verified for
+the exact source commit. The published ARM64 image digest is
+`sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832`.
+
+PR #778 has not been staged on RouterOS. Its deployed-origin behavior and
+live logout result are therefore unverified; issue #200 remains open for
+candidate-specific acceptance, physical RouterOS review, the credential-
+memory risk decision, and independent scoped ASVS review.
+
 ### Post-merge revalidation — PR #776 — 2026-10-23
 
 PR [#776](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/776)

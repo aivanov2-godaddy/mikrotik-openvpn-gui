@@ -13,25 +13,27 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published mainline candidate is PR
-#776, commit `c4b4b76793b2454e81362867d8654962627de6fa`, published by
-[workflow run #39867875877](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39867875877).
-Its ARM64 registry digest is
-`sha256:8b5dfa0d2c4fae542e0c560576a91432812823ebe55ecc6bcad7bbfa7c0e922e`;
-the AMD64 digest is
-`sha256:fad2b337196e5fe09d2040acb3353e4acc5fe2d894bc49866a0470369c75d4f9`.
-Main CI, image smoke tests, provenance/SBOM attestations, and stable-manifest
-publication/read-back passed. PR #776 revokes the server-side session before
-the logout audit write. A manual canary update was invoked on 2026-10-23; the
-exact ARM64 tag was read back and RouterOS marked it healthy after start. The
-updater is no longer active and no completed 30-minute sample record was
-verified, so the readiness gate is not passed. A later authenticated dashboard
-observation showed a connected-user change without manual refresh, but event
-latency was not timed. Canary sign-out was rejected by the origin check and did
-not revoke the session; the configured canary origin matched the expected
-value, but the request header shape was not captured. Production remains on its
-prior image. These publication results do not replace candidate-specific
-hardware acceptance. PR #772 and earlier checkpoints below are historical.
+prove RouterOS compatibility. The latest published mainline runtime is PR #778,
+commit `10721ebc7a0a4db2fb8ef82a80783376140e4205`, published by
+[workflow run #39882283500](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39882283500).
+Its RouterOS ARM64 registry digest is
+`sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832`.
+Main CI, the ARM64 image smoke test, and provenance/SPDX SBOM verification
+passed. PR #778 adds redacted CSRF Origin/Referer rejection diagnostics and
+binds Engine.IO SIDs to the active dashboard session before the handshake.
+This image has not been staged on RouterOS, so it has no hardware acceptance.
+
+The latest recorded canary checkpoint is PR #776, commit
+`c4b4b76793b2454e81362867d8654962627de6fa`. RouterOS read-back reported its
+exact ARM64 tag healthy after start, but the persisted pending-candidate record
+did not match the later canary image and no candidate-matched 30-minute sample
+record was verified. A later authenticated dashboard observation showed a
+connected-user change without manual refresh, but event latency was not timed.
+Canary sign-out was rejected by the origin check and did not revoke the session;
+the expected origin was configured, but the rejected request header shape was
+not captured. Production remained on its prior image in the latest recorded
+checkpoint. These observations do not replace candidate-specific hardware
+acceptance. PR #772 and earlier checkpoints below are historical.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -69,8 +71,10 @@ operator-controlled records.
 
 ## Previous candidate status — PR #761
 
-The PR #761 candidate is a prior published image; its exact tag and point-in-
-acceptance and is superseded by the later PR #767, #772, and #776 candidates.
+The PR #761 candidate is a prior published image. It was not deployed to
+RouterOS and has no hardware-acceptance result; later published candidates
+#767, #772, and #776 superseded it before PR #778 became the latest published
+runtime. PR #776 remains the latest recorded canary candidate.
 
 ## Previous candidate status — PR #767
 
@@ -95,7 +99,19 @@ cross-model/version certification is inferred. See the
 [current release record](RELEASES.md#published-images) and
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-## Latest candidate status — PR #776 (healthy startup; acceptance pending)
+## Latest published runtime — PR #778 (not staged)
+
+PR #778 merged as `10721ebc7a0a4db2fb8ef82a80783376140e4205`. Its immutable
+RouterOS ARM64 image is
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-10721ebc7a0a4db2fb8ef82a80783376140e4205-arm64`
+with digest
+`sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832`.
+Main CI run #39882283490 and publisher run #39882283500 passed; the published
+runtime smoke check and provenance/SPDX SBOM verification passed. This image
+has not been staged on RouterOS. Do not treat publication as hardware
+compatibility or acceptance evidence.
+
+## Latest recorded canary status — PR #776 (healthy startup; acceptance pending)
 
 PR #776 merged as
 `c4b4b76793b2454e81362867d8654962627de6fa`. Its immutable ARM64 image is
@@ -107,7 +123,7 @@ The AMD64 image digest is
 Main CI run #39867875857 and publisher run #39867875877 passed. Provenance
 attestations verify against the repository's container workflow and exact
 source commit. The manual canary-only updater was invoked on 2026-10-23;
-read-back confirms the exact tag and healthy startup. The updater is no longer
+the latest recorded read-back confirmed the exact tag and healthy startup. The updater is no longer
 active and no completed 30-minute sample record was verified; readiness is not
 passed. A connected-user change appeared in the open dashboard without manual
 refresh, but exact latency was not timed. A canary sign-out attempt was
@@ -142,8 +158,9 @@ deployment was performed for this candidate. Its
 recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
 security checks, and rollback rehearsal are all **not verified**.
 
-This is historical evidence only. PR #776 is the latest published candidate;
-use its current status above for any new acceptance run. Do not treat image
+This is historical evidence only. PR #778 is the latest published runtime;
+PR #776 is the latest recorded canary candidate. Use the exact candidate and
+its recorded acceptance status above for any new acceptance run. Do not treat image
 publication or startup health as the required 30-minute acceptance window. Do
 not promote until the complete candidate-specific report passes and rollback
 has been rehearsed.

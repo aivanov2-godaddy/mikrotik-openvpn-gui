@@ -19,8 +19,12 @@ private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. The latest published
-mainline candidate is PR #776; its immutable artifacts, CI provenance, and
-redacted canary status are recorded below. PR #776 ensures logout revokes the
+mainline runtime is PR #778; its immutable artifact and CI provenance are
+recorded below. It has not been staged on RouterOS. The latest recorded canary
+read-back is for PR #776, which reported a healthy container but did not pass
+the candidate-matched acceptance window. PR #778 adds redacted diagnostics for
+CSRF Origin/Referer rejections and binds Engine.IO SIDs to the active dashboard
+session before sending the handshake. PR #776 ensures logout revokes the
 session before the audit write, so audit-storage failure cannot preserve an
 authenticated session. It retains PR #772's fail-closed process core-dump
 limit, PR #767's content-hashed static assets, and PR #761's active-session Engine.IO
@@ -84,7 +88,31 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline candidate — PR #776 — 2026-10-23
+### Latest published mainline runtime — PR #778 — 2026-10-23
+
+PR [#778](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/778)
+merged as `10721ebc7a0a4db2fb8ef82a80783376140e4205`. It adds redacted
+CSRF Origin/Referer rejection diagnostics and binds Engine.IO transport SIDs
+to the active dashboard session before the handshake packet is sent. Main CI
+run
+[#39882283490](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39882283490)
+and publisher run
+[#39882283500](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39882283500)
+passed. The publisher smoke-tested the ARM64 image, and the provenance and
+SPDX SBOM attestations verified against the container workflow and exact main
+source commit.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-10721ebc7a0a4db2fb8ef82a80783376140e4205-arm64` | `sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832` |
+
+This image has not been staged on RouterOS. The latest recorded canary
+read-back is still PR #776 below; no #778 hardware acceptance is claimed.
+Production was not changed. This is an immutable published mainline image,
+not a numbered release; v2.7.0 remains the latest formal release. Do not tag
+or publish v2.8.0 until the current candidate-specific acceptance gates pass.
+
+### Latest recorded canary candidate — PR #776 — 2026-10-23
 
 PR [#776](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/776)
 merged as `c4b4b76793b2454e81362867d8654962627de6fa`. The logout path now
@@ -103,17 +131,18 @@ passed. The published ARM64 and AMD64 image attestations verify against the
 
 The stable release manifest asset was published and read back; its SHA-256 is
 `d00f32bb8c77f89232350cadccd15bb181fac6df03de965ce10cff452705833e`.
-On 2026-10-23, the RouterOS canary updater was invoked for the ARM64 tag. A
-read-back confirmed the exact immutable tag and RouterOS reported the container
-healthy after start, but the updater is no longer active and no completed
-30-minute sample record was verified. The readiness gate is not passed. A later
-dashboard observation showed a connected-user change without manual refresh;
-exact latency was not timed. A canary sign-out attempt was rejected by the
-origin check and did not revoke the session; its request header shape remains
-unknown. Production remains on its prior image. CI, image publication, and
-provenance verification do not constitute RouterOS acceptance. The formal
-version remains v2.7.0; do not create v2.8.0 until candidate-specific
-acceptance passes.
+On 2026-10-23, the RouterOS canary updater was invoked for the ARM64 tag. The
+latest recorded read-back confirmed that immutable tag and healthy startup;
+the updater was no longer active and no completed 30-minute sample record was
+verified. The readiness gate is not passed. A later dashboard observation
+showed a connected-user change without manual refresh; exact latency was not
+timed. A canary sign-out attempt was rejected by the origin check and did not
+revoke the session; its request header shape remains unknown. The persisted
+pending-candidate record did not match the later canary image, so it does not
+bind a passing soak to that image. Production remained on its prior image. CI,
+image publication, and provenance verification do not constitute RouterOS
+acceptance. The formal version remains v2.7.0; do not create v2.8.0 until
+candidate-specific acceptance passes.
 
 ### Previously published mainline candidate — PR #772 — 2026-10-19
 
@@ -164,7 +193,7 @@ This candidate was observed on the isolated canary on 2026-10-19, with the
 dashboard and Connections page loading and zero active sessions/devices at the
 check. This point-in-time status is not a 30-minute readiness window,
 live-session acceptance, or rollback rehearsal. PR #772 supersedes it as the
-latest published candidate.
+then-latest published candidate at the time of that checkpoint.
 
 ### Previously published mainline candidate — PR #761 — 2026-10-18
 
@@ -256,7 +285,7 @@ acceptance or RouterOS compatibility result is inferred from CI publication.
 Candidate-specific canary acceptance and rollback rehearsal remain pending;
 the formal version remains v2.7.0.
 
-### Latest published mainline candidate — PR #751 — 2026-10-15
+### Previously published mainline candidate — PR #751 — 2026-10-15
 
 PR [#751](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/751)
 was merged as `e2e64c68167ccb2f7ff06e5e815e47b1981483e9`. Publisher run
@@ -568,8 +597,8 @@ disconnect read-back settling window so a just-terminated session is not
 mistaken for a failed termination. Its publisher run
 [#38449932684](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/38449932684)
 published AMD64 and ARM64 images, verified image and SPDX SBOM attestations, and
-passed published-runtime smoke tests. It has been superseded by PR #709 as the
-latest mainline candidate.
+passed published-runtime smoke tests. PR #709 was the then-current mainline
+candidate at the time of this record; later candidates superseded it.
 
 | Platform | Immutable image tag | Published digest |
 | --- | --- | --- |
