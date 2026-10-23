@@ -620,6 +620,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b'<form method="post" action="/login"', page)
         self.assertIn(b'<button class="primary" type="submit">Connect</button>', page)
 
+    def test_dashboard_uses_same_origin_referrer_policy_for_originless_live_polling(self) -> None:
+        self.login()
+        status, headers, page = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["referrer-policy"], "same-origin")
+        self.assertIn(b"Live ", page)
+
     def test_login_session_cookie_has_required_host_security_and_size_properties(self) -> None:
         body = urllib.parse.urlencode(
             {"username": "admin", "password": "routerpass"}

@@ -778,8 +778,9 @@ source reviews as a production sign-off.
 
 - `POST /login` requires an exact same-origin `Origin`, or an exact same-origin
   `Referer` when Origin is absent or serialized as the opaque value `null`.
-  The login page alone uses `Referrer-Policy: same-origin` so native form
-  submissions can provide this evidence without disclosing referrers cross-site.
+  Login and dashboard documents use `Referrer-Policy: same-origin`: this lets
+  same-origin native form submissions and originless polling GETs provide the
+  required evidence, while suppressing Referer on cross-origin requests.
   Foreign or absent origin evidence returns `403` before RouterOS credential
   verification. Regressions cover foreign Origin precedence, missing evidence,
   same-origin fallback, the opaque-Origin browser case, and the login response

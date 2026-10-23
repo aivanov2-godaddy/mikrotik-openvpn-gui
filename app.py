@@ -1583,11 +1583,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         dashboard_name=self.server.context.config.dashboard_name,
                         router_display_name=self.server.context.config.router_display_name,
                     ),
-                    # Chromium may serialize a same-origin native form POST as
-                    # Origin: null when the page's policy suppresses Referer.
-                    # Permit only a same-origin Referer on this page so the
-                    # origin guard can still validate the browser submission.
-                    extra={"Referrer-Policy": "same-origin"},
                 )
             return
         if path == "/dashboard":
