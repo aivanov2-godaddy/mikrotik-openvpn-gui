@@ -18,17 +18,18 @@ RouterOS state, live measurements, and operator/session details remain in
 private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #793 is the latest
-merged mainline commit and published image; its immutable ARM64/AMD64 artifacts
-and CI provenance are recorded below. Publication did not stage or deploy the
-image on RouterOS. An earlier read-only inventory at approximately 14:19 UTC
+version, v2.8.0, has not been tagged or published. PR #794 is the latest
+merged mainline commit; PR #793 remains the latest published image. Its
+immutable ARM64/AMD64 artifacts and CI provenance are recorded below. That
+publication did not stage or deploy the image on RouterOS. An earlier read-only inventory at approximately 14:19 UTC
 on 2026-10-23 showed the PR #788 ARM64 tag configured on canary and
 production; a later acceptance snapshot at approximately 14:33 UTC is recorded
 in `LIVE_TELEMETRY_ACCEPTANCE_REPORT.md`. These are configured-tag read-backs,
 not digest verification or candidate acceptance. The latest candidate-bound
-canary record remains PR #776, with no
-completed 30-minute acceptance window. PR #791's updater example is not
-included in the container image. PR #778 adds
+canary record remains PR #776, with no completed 30-minute acceptance window.
+PR #791's updater example is not included in the container image. PR #794
+merged additional WebSocket Origin and admin-session revocation-reference
+hardening to source, but it has not yet been published as an image. PR #778 adds
 redacted diagnostics for CSRF Origin/Referer rejections and binds Engine.IO
 SIDs to the active dashboard session before sending the handshake. PR #776
 ensures logout revokes the session before the audit write, so audit-storage
@@ -107,19 +108,29 @@ and publisher run
 passed. The publisher built and smoke-tested ARM64/AMD64 images and verified
 provenance and SPDX SBOM attestations against the exact source commit and
 image digests; stable-manifest publication succeeded.
+merged as `fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`. It bounds Engine.IO
+polling client state (default 128), makes established ASGI authorization waits
+finite and fail-closed, and extends release-acceptance runbook coverage. Main CI
+run [#39941787724](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39941787724)
+and publisher run
+[#39941787902](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39941787902)
+passed. The publisher built and smoke-tested both architectures, recorded
+immutable digests, generated and attested detached SPDX SBOMs, verified
+provenance/SBOM attestations against the source and exact image digests, and
+published/read back the stable manifest.
 
 | Platform | Immutable image tag | Registry digest |
 | --- | --- | --- |
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-arm64` | `sha256:b3d347184b016851d6e0b43135ee2831ebb2ba7e3dc5f4bca2270e8fa4c5bc10` |
-| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-amd64` | `sha256:53fa088b3b7eafa110fd95db823f554d524070a9367ab2816879182ebacbc708` |
+| AMD64 / CHR | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-amd64` | `sha256:53fa088b3b7eafa110fd95db823f554d524070a9367ab2816879182ebacbc708` |
 
-This is an immutable published mainline image, not a numbered release; v2.7.0
-remains the latest formal release. Its publication did not stage or deploy it
-on RouterOS and is not candidate-specific acceptance or production promotion.
-The latest candidate-bound canary record remains PR #776; the later PR #788
-configured-tag read-back does not establish readiness or a passing soak. Do
-not tag or publish v2.8.0 until current candidate-specific acceptance gates
-pass.
+These are immutable published mainline images, not a numbered release; v2.7.0
+remains the latest formal release. Publication did not stage or run the
+updater on RouterOS and is not candidate-specific acceptance or production
+promotion. The latest candidate-bound canary record remains PR #776; the later
+PR #788 configured-tag read-back does not establish readiness or a passing
+soak. Do not tag or publish v2.8.0 until current candidate-specific acceptance
+gates pass.
 
 ### Previously published mainline image — PR #791 — 2026-10-23
 
@@ -131,16 +142,17 @@ image. Main CI run
 [#39925624459](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39925624459)
 and publisher run
 [#39925624510](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39925624510)
-passed. The publisher smoke-tested the ARM64 image and verified provenance and
-SPDX SBOM attestations against the exact source commit and image digest; stable
-manifest publication also succeeded.
+passed; the published image was smoke-tested and its provenance/SBOM
+attestations verified.
 
 | Platform | Immutable image tag | Registry digest |
 | --- | --- | --- |
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0002ce431fd8be0a66801725fbfb371f01ce7567-arm64` | `sha256:a61103b00e34ce5172ca084e6744dba2326fc351e5cca362c9fb7951430e581e` |
 
 This publication did not stage or run the example updater on RouterOS and is
-not candidate-specific acceptance or production promotion.
+not candidate-specific acceptance or production promotion. It has since been
+superseded by PR #793 as the latest published mainline image; it is not a
+numbered release.
 
 ### Previously published mainline image — PR #778 — 2026-10-23
 

@@ -385,6 +385,31 @@ live logout result are therefore unverified; issue #200 remains open for
 candidate-specific acceptance, physical RouterOS review, the credential-
 memory risk decision, and independent scoped ASVS review.
 
+### Published source boundary — PR #793 — 2026-10-23
+
+PR [#793](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/793)
+is the latest published mainline image. Its CI and publisher workflows passed
+for both architectures, including runtime smoke and detached provenance/SBOM
+verification; the exact tags and digests are recorded in
+[`RELEASES.md`](RELEASES.md). The two bounded source reviews described above
+examined PR #791's commit, not the changed source in PR #793. Therefore this
+publication is not an independent security review, deployed-proxy validation,
+or RouterOS acceptance. Issue #200 remains open for those gates.
+
+### Mainline security changes — PR #794 — 2026-10-23
+
+PR [#794](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/794)
+is merged to source but has not yet been published or staged on RouterOS. It
+requires exactly one configured same-origin `Origin` for WebSocket handshakes
+before Engine.IO allocation, retains the session-bound HTTP polling GET
+compatibility path, and uses separate non-authenticating revocation references
+instead of exposing dashboard session-cookie bearers in the admin inventory.
+CI passed the targeted Socket.IO security contract, Python 3.13/3.14 suites,
+pre-commit hooks, secret/dependency checks, browser/accessibility regression,
+and ARM64 image smoke build. This is source-level and CI evidence only; it does
+not establish deployed proxy behavior, session-revocation timing on RouterOS,
+or the independent scoped ASVS review required by issue #200.
+
 ### ASGI live-send cancellation boundary — 2026-10-23
 
 The live-send timeout is cooperative, not a hard transport-abort deadline. On

@@ -3,14 +3,15 @@
 Status: **PR #793 is the latest published and attested mainline image; it was
 not staged or deployed on RouterOS. The latest candidate-bound canary record is
 PR #776 and no candidate-matched 30-minute sample record was verified. A
-read-only inventory at approximately 14:33 UTC on 2026-10-23 still showed the
-PR #788 ARM64 tag configured on canary and production. A separate read-only
-RouterOS PPP Active Connections check at approximately 14:50 UTC showed one
-active VPN session; a later check at approximately 15:02 UTC showed none. The
-canary dashboard remained at its application sign-in page, so the earlier
-session was not correlated with dashboard telemetry. Readiness is not passed;
-candidate-specific live acceptance is incomplete and production promotion
-remains gated.**
+read-only inventory at approximately 14:33 UTC on 2026-10-23 showed the PR #788
+ARM64 tag configured on canary and production. A separate read-only RouterOS
+PPP Active Connections check at approximately 14:50 UTC showed one active VPN
+session; a later check at approximately 15:02 UTC showed none. At that time the
+canary dashboard was at its application sign-in page, so the router-side
+session was not correlated with dashboard telemetry. These are dated historical
+observations, not a statement of the current connection state. Readiness is not
+passed; candidate-specific live acceptance is incomplete and production
+promotion remains gated.**
 
 ## Public artifact evidence
 
@@ -22,13 +23,13 @@ and publisher run
 completed successfully. ARM64/AMD64 image smoke tests passed, and provenance
 and SPDX SBOM attestations verified against the exact source commit and image
 digests; stable-manifest publication succeeded. PR #793 bounds Engine.IO
-polling client state and ASGI authorization waits and updates the acceptance
-runbook. Publication did not stage or deploy the image on RouterOS.
+polling client state and makes ASGI authorization waits finite and fail-closed.
+Publication did not stage or deploy the image on RouterOS.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
 | RouterOS ARM64 — latest published, not staged | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-arm64` | `sha256:b3d347184b016851d6e0b43135ee2831ebb2ba7e3dc5f4bca2270e8fa4c5bc10` |
-| AMD64 — latest published, not staged | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-amd64` | `sha256:53fa088b3b7eafa110fd95db823f554d524070a9367ab2816879182ebacbc708` |
+| AMD64 / CHR — latest published, not staged | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-amd64` | `sha256:53fa088b3b7eafa110fd95db823f554d524070a9367ab2816879182ebacbc708` |
 
 PR #793 is not a numbered release; v2.7.0 remains the latest formal version.
 Image publication did not deploy to RouterOS or establish live acceptance.
@@ -67,19 +68,17 @@ shape was not captured; do not weaken origin or CSRF checks while
 investigating. The registry digests above are bound to their tags by the
 verified publisher workflow; RouterOS reports the configured tag, not a
 local OCI digest. PR #793 was not staged by its publication workflow and has
-no candidate-specific live acceptance. The latest read-only RouterOS inventory
-at approximately 14:33 UTC on 2026-10-23 showed both canary and
-production configured with immutable ARM64 tag
+no candidate-specific live acceptance. The latest recorded read-only RouterOS
+inventory at approximately 14:33 UTC on 2026-10-23 showed canary and production
+configured with immutable ARM64 tag
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7-arm64`
-(source commit PR #788), not the latest published PR #793 tag. This is a
+(source commit PR #788), not the latest published PR #793 tag. This was a
 configured-tag read-back only; no local OCI digest or candidate readiness was
-verified. A read-only RouterOS PPP Active Connections check at approximately
-14:50 UTC on 2026-10-23 showed one active VPN session. A later refresh at
-approximately 15:02 UTC showed zero active sessions. The canary browser
-remained at its application sign-in page, so the earlier observation confirms
-router-side presence only and does not correlate the session with dashboard
-telemetry. The transition time and cause are unknown. No latency, freshness,
-or reconnect result is claimed. No RouterOS or container changes were made.
+verified. A later read-only PPP Active Connections check showed one active
+session at approximately 14:50 UTC and none at approximately 15:02 UTC. The
+dashboard was signed out during that observation, so no latency, freshness,
+reconnect, or dashboard correlation is claimed. No RouterOS or container
+changes were made during these checks.
 
 Public deployment detail here is limited to the redacted canary-stage status
 above. This file contains no router identity, hostnames, addresses, resource
@@ -90,8 +89,8 @@ a gate checklist, not a report of private measurements.
 ## Candidate acceptance gates
 
 The following table is the historical acceptance record for candidate PR #776;
-it is not the current canary image state. PR #793 has been published but not
-staged and has no live acceptance evidence.
+it is not the current canary image state. PR #793 is the latest published
+candidate, but it has not been staged and has no live acceptance evidence.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |

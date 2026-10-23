@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OPERATIONS = ROOT / "docs" / "OPERATIONS.md"
-CANDIDATE_SHA = "8fb7a6d3d64f5d57f5ed5f74cdaae121dc0ad6ee"
-REDIS_RUN_ID = "39931754294"
+CANDIDATE_SHA = "fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164"
+REDIS_RUN_ID = "39941787724"
 
 
 class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
@@ -38,9 +38,18 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
     def test_powershell_examples_keep_evidence_outside_repo_and_avoid_angle_placeholders(self) -> None:
         self.assertIn("VPN_ACCEPTANCE_EVIDENCE_DIR", self.section)
         self.assertIn("$evidenceDir.StartsWith($repoPrefix", self.section)
+        self.assertIn("[IO.FileAttributes]::ReparsePoint", self.section)
+        self.assertIn("while ($cursorPath)", self.section)
+        self.assertGreaterEqual(self.section.count("[IO.FileAttributes]::ReparsePoint"), 2)
         self.assertIn("$env:GH_TOKEN = $ghToken", self.section)
         self.assertIn("Remove-Item Env:GH_TOKEN", self.section)
+        self.assertIn(
+            "Remove-Item Env:VPN_ACCEPTANCE_CANARY_TOKEN, Env:VPN_ACCEPTANCE_PRODUCTION_TOKEN",
+            self.section,
+        )
+        self.assertIn("if ($locationPushed) { Pop-Location }", self.section)
         self.assertIn("gh auth token", self.section)
+        self.assertNotIn("After both collection phases", self.section)
         self.assertIn("process-scoped environment", self.section)
         self.assertIn("never write them to files, reports, or command arguments", self.section)
         blocks = re.findall(r"```powershell\s*\n(.*?)```", self.section, flags=re.DOTALL)
@@ -48,6 +57,37 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
         for block in blocks:
             with self.subTest(block=block[:80]):
                 self.assertNotRegex(block, r"<[^>\r\n]+>")
+
+    def test_promotion_gate_uses_prepromotion_evidence_and_outputs_are_distinct(self) -> None:
+        collect_pre = self.section.index("--phase canary-prepromotion")
+        evaluate_pre = self.section.index("private-acceptance-report-prepromotion.json")
+        promotion_gate = self.section.index("--check-only")
+        collect_post = self.section.index("--phase postpromotion")
+        evaluate_post = self.section.index("private-acceptance-report-postpromotion.json")
+
+        self.assertLess(collect_pre, evaluate_pre)
+        self.assertLess(evaluate_pre, promotion_gate)
+        self.assertLess(promotion_gate, collect_post)
+        self.assertLess(collect_post, evaluate_post)
+        self.assertIn("private-collected-evidence-prepromotion.json", self.section)
+        self.assertIn("private-collected-evidence-postpromotion.json", self.section)
+        self.assertIn("Never use post-promotion evidence as the promotion input.", self.section)
+        self.assertNotIn("private-collected-evidence.json'", self.section)
+
+    def test_latest_published_candidate_is_distinguished_from_recorded_canary(self) -> None:
+        report = " ".join(
+            (ROOT / "docs" / "LIVE_TELEMETRY_ACCEPTANCE_REPORT.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        self.assertIn(
+            "historical acceptance record for candidate PR #776", report
+        )
+        self.assertIn(
+            "PR #793 is the latest published candidate, but it has not been staged and has no live acceptance evidence.",
+            report,
+        )
+        self.assertNotIn("PR #791 has been published but not staged", report)
 
 
 if __name__ == "__main__":

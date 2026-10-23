@@ -13,10 +13,16 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #793 is the latest published mainline runtime;
-its immutable ARM64/AMD64 tags and digests, CI run, and attestation results are
-recorded in [`RELEASES.md`](RELEASES.md#published-images). It has not been
-staged on RouterOS and has no hardware acceptance.
+prove RouterOS compatibility. The latest published mainline runtime is PR #793,
+commit `fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`, published by
+[workflow run #39941787902](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39941787902).
+Its immutable ARM64/AMD64 tags and digests are recorded in
+[`RELEASES.md`](RELEASES.md#published-images); the RouterOS ARM64 digest is
+`sha256:b3d347184b016851d6e0b43135ee2831ebb2ba7e3dc5f4bca2270e8fa4c5bc10`.
+Main CI, both architecture builds, runtime smoke, provenance/SBOM verification,
+and stable-manifest read-back passed. PR #793 bounds Engine.IO polling state
+and makes ASGI authorization waits finite and fail-closed. This image has not
+been staged on RouterOS, so it has no hardware acceptance.
 
 The latest candidate-bound canary checkpoint is PR #776, commit
 `c4b4b76793b2454e81362867d8654962627de6fa`. RouterOS read-back reported its
@@ -106,12 +112,16 @@ cross-model/version certification is inferred. See the
 ## Latest published runtime — PR #793 (not staged)
 
 PR #793 merged as `fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`. Its immutable
-ARM64 and AMD64 tags and registry digests are listed in
-[`RELEASES.md`](RELEASES.md#published-images). Main CI run #39941787724 and
-publisher run #39941787902 passed, including image smoke tests and
-provenance/SPDX SBOM verification. PR #793 bounds Engine.IO polling clients and
-ASGI authorization waits and updates release-acceptance runbook coverage. This
-image has not been staged on RouterOS. Do not treat publication as hardware
+RouterOS ARM64 image is
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164-arm64`
+with digest
+`sha256:b3d347184b016851d6e0b43135ee2831ebb2ba7e3dc5f4bca2270e8fa4c5bc10`.
+The AMD64 tag and digest are in `RELEASES.md`. Main CI run #39941787724 and
+publisher run #39941787902 passed, including both architecture runtime smoke
+tests and provenance/SBOM attestation verification. PR #793 bounds Engine.IO
+polling clients and ASGI authorization waits and updates release-acceptance
+runbook coverage. This image has not been staged on RouterOS. Do not treat
+publication as hardware
 compatibility or acceptance evidence.
 
 ## Latest candidate-bound canary record — PR #776 (healthy startup; acceptance pending)
@@ -161,9 +171,8 @@ deployment was performed for this candidate. Its
 recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
 security checks, and rollback rehearsal are all **not verified**.
 
-This is historical evidence only. At the time, PR #778 was the latest published
-runtime; it has since been superseded by PR #791 and PR #793. PR #776 remains
-the latest candidate-bound canary record. Use the exact candidate and
+This is historical evidence only. PR #793 is the latest published runtime;
+PR #776 is the latest recorded canary candidate. Use the exact candidate and
 its recorded acceptance status above for any new acceptance run. Do not treat image
 publication or startup health as the required 30-minute acceptance window. Do
 not promote until the complete candidate-specific report passes and rollback

@@ -303,9 +303,9 @@ Supply credentials and tokens only through process-scoped environment
 variables; never write them to files, reports, or command arguments.
 
 For candidate source commit
-`8fb7a6d3d64f5d57f5ed5f74cdaae121dc0ad6ee`, the successful main-branch CI run
-ID is `39931754294`. It contains the unexpired
-`redis-recovery-8fb7a6d3d64f5d57f5ed5f74cdaae121dc0ad6ee` artifact from the
+`fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`, the successful main-branch CI run
+ID is `39941787724`. It contains the unexpired
+`redis-recovery-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164` artifact from the
 `redis-integration` job. The collector downloads that exact artifact with the
 authenticated GitHub CLI and verifies the successful main push, candidate
 SHA, workflow, and artifact attestation. This run ID is valid only for that
@@ -315,20 +315,10 @@ more than seven days old. Keep CI logs and Redis payloads out of the release
 report.
 
 The Python collector starts its own `gh` child processes. If those processes
-cannot read the interactive GitHub CLI credential store, set `GH_TOKEN` in the
-current PowerShell session from the authenticated CLI before collection. This
-keeps the token out of command arguments and evidence files; do not print it or
-persist it. After both collection phases (or if stopping early), remove it as
-shown below.
-
-```powershell
-$ghToken = (gh auth token).Trim()
-if ([string]::IsNullOrWhiteSpace($ghToken)) {
-  throw 'GitHub CLI did not return an authenticated token.'
-}
-$env:GH_TOKEN = $ghToken
-Remove-Variable ghToken
-```
+cannot read the interactive GitHub CLI credential store, the collection
+examples below populate `GH_TOKEN` from the authenticated CLI only when it is
+not already set. The `finally` blocks remove a value introduced by the runbook
+without deleting a pre-existing value. Do not print or persist the token.
 
 Capture the isolated canary rollback report with
 `scripts/collect_rollback_acceptance.py`. The collector records authenticated
@@ -360,6 +350,9 @@ requires the joined RouterOS evidence. Set the following non-secret values in
 the PowerShell session from the protected operator run sheet. The evidence
 directory must already exist outside the checkout. Using environment variables
 avoids angle-bracket placeholders, which PowerShell can parse as redirection.
+Complete the non-secret preflight checks before setting either health-token
+environment variable; then provide each short-lived token only immediately
+before its collection block, whose `finally` clears it on success or failure.
 The rollback capture prompts for passwords if the documented read-only
 credential variables are not set; never put token or password values in
 arguments or evidence files.
@@ -389,11 +382,23 @@ if ($evidenceDir.Equals($repoRoot, $pathComparison) -or $evidenceDir.StartsWith(
 if (-not (Test-Path -LiteralPath $evidenceDir -PathType Container)) {
   throw 'Create the private evidence directory before continuing.'
 }
+$cursorPath = $evidenceDir
+while ($cursorPath) {
+  $directory = Get-Item -LiteralPath $cursorPath -Force -ErrorAction Stop
+  if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'VPN_ACCEPTANCE_EVIDENCE_DIR and its parent path must not contain junctions or symbolic links.'
+  }
+  $parentPath = Split-Path -Parent $cursorPath
+  if ([string]::IsNullOrWhiteSpace($parentPath) -or $parentPath -eq $cursorPath) { break }
+  $cursorPath = $parentPath
+}
 $canaryOrigin = $env:VPN_ACCEPTANCE_CANARY_ORIGIN
 $productionOrigin = $env:VPN_ACCEPTANCE_PRODUCTION_ORIGIN
 
-Push-Location -LiteralPath $evidenceDir
+$locationPushed = $false
 try {
+  Push-Location -LiteralPath $evidenceDir
+  $locationPushed = $true
   python (Join-Path $repoRoot 'scripts/collect_rollback_acceptance.py') `
     --output private-rollback-rehearsal.json `
     --candidate-image $env:VPN_ACCEPTANCE_CANDIDATE_IMAGE `
@@ -406,11 +411,22 @@ try {
     throw 'Rollback report capture failed; stop before release collection.'
   }
 
+  $ghTokenAddedByRunbook = $false
+  if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+    $ghToken = (gh auth token).Trim()
+    if ([string]::IsNullOrWhiteSpace($ghToken)) {
+      throw 'GitHub CLI did not return an authenticated token.'
+    }
+    $env:GH_TOKEN = $ghToken
+    $ghTokenAddedByRunbook = $true
+    Remove-Variable ghToken
+  }
+
   python (Join-Path $repoRoot 'scripts/collect_release_acceptance.py') `
     --input private-evidence.json `
-    --output private-collected-evidence.json `
+    --output private-collected-evidence-prepromotion.json `
     --routeros-report private-routeros-window.json `
-    --redis-recovery-run-id 39931754294 `
+    --redis-recovery-run-id 39941787724 `
     --rollback-report private-rollback-rehearsal.json `
     --certificate-lifecycle-report private-certificate-lifecycle.json `
     --stream-observer-report private-stream-observation.json `
@@ -426,27 +442,91 @@ try {
     throw 'Pre-promotion collection failed; do not evaluate or promote this candidate.'
   }
 } finally {
-  Pop-Location
+  if ($locationPushed) { Pop-Location }
+  Remove-Item Env:VPN_ACCEPTANCE_CANARY_TOKEN, Env:VPN_ACCEPTANCE_PRODUCTION_TOKEN -ErrorAction SilentlyContinue
+  if ($ghTokenAddedByRunbook) {
+    Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+    $ghTokenAddedByRunbook = $false
+  }
 }
 ```
 
-The pre-promotion collection keeps production on its recorded prior image.
-After production promotion is observed, run this second collection with the
-same candidate-bound Redis run ID, rollback report, and certificate report.
-The production backup is only read for the post-promotion restore rehearsal.
-Refresh the certificate report if it falls outside the accepted evidence
-window. Use distinct short-lived `health.read` tokens for canary and production;
-pass only their environment-variable names, never their values, and revoke the
-tokens after collection.
+The pre-promotion collection keeps production on its recorded prior image; it
+may make read-only health/readiness and RouterOS state probes against
+production, but it must not modify production. Evaluate this pre-promotion file
+now, before any promotion, and use it for the read-only promotion gate:
 
 ```powershell
-Push-Location -LiteralPath $evidenceDir
+python (Join-Path $repoRoot 'scripts/release_acceptance.py') `
+  --input (Join-Path $evidenceDir 'private-collected-evidence-prepromotion.json') `
+  --output (Join-Path $evidenceDir 'private-acceptance-report-prepromotion.json')
+if ($LASTEXITCODE -ne 0) {
+  throw 'Pre-promotion acceptance failed; do not promote this candidate.'
+}
+
+python -m scripts.promote_routeros_release `
+  --input (Join-Path $evidenceDir 'private-collected-evidence-prepromotion.json') `
+  --canary-ready-url $env:VPN_ACCEPTANCE_CANARY_READY_URL `
+  --production-ready-url $env:VPN_ACCEPTANCE_PRODUCTION_READY_URL `
+  --check-only
+if ($LASTEXITCODE -ne 0) {
+  throw 'Read-only promotion check failed; production must remain on its prior image.'
+}
+```
+
+Only a successful pre-promotion evaluation and `--check-only` result can make
+the candidate eligible for a separate, explicitly authorized production
+promotion. Never use post-promotion evidence as the promotion input. After an
+authorized promotion is observed, collect the independent post-promotion
+acceptance record below. Refresh the candidate-bound Redis run ID and
+certificate report if either is outside its accepted evidence window. Use
+distinct short-lived `health.read` tokens; pass only their environment-variable
+names, never their values.
+
+Before the post-promotion collection, repeat the evidence-directory containment
+and reparse-point check from the earlier setup block. This detects a path that
+was replaced by a junction or symbolic link during the promotion interval.
+
+```powershell
+$evidenceDir = [IO.Path]::GetFullPath($env:VPN_ACCEPTANCE_EVIDENCE_DIR)
+$repoPrefix = $repoRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+if ($evidenceDir.Equals($repoRoot, $pathComparison) -or $evidenceDir.StartsWith($repoPrefix, $pathComparison)) {
+  throw 'VPN_ACCEPTANCE_EVIDENCE_DIR must be outside the repository.'
+}
+if (-not (Test-Path -LiteralPath $evidenceDir -PathType Container)) {
+  throw 'The private evidence directory is no longer available.'
+}
+$cursorPath = $evidenceDir
+while ($cursorPath) {
+  $directory = Get-Item -LiteralPath $cursorPath -Force -ErrorAction Stop
+  if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'VPN_ACCEPTANCE_EVIDENCE_DIR and its parent path must not contain junctions or symbolic links.'
+  }
+  $parentPath = Split-Path -Parent $cursorPath
+  if ([string]::IsNullOrWhiteSpace($parentPath) -or $parentPath -eq $cursorPath) { break }
+  $cursorPath = $parentPath
+}
+
+$locationPushed = $false
 try {
+  Push-Location -LiteralPath $evidenceDir
+  $locationPushed = $true
+  $ghTokenAddedByRunbook = $false
+  if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+    $ghToken = (gh auth token).Trim()
+    if ([string]::IsNullOrWhiteSpace($ghToken)) {
+      throw 'GitHub CLI did not return an authenticated token.'
+    }
+    $env:GH_TOKEN = $ghToken
+    $ghTokenAddedByRunbook = $true
+    Remove-Variable ghToken
+  }
+
   python (Join-Path $repoRoot 'scripts/collect_release_acceptance.py') `
     --input private-evidence.json `
-    --output private-collected-evidence.json `
+    --output private-collected-evidence-postpromotion.json `
     --routeros-report private-routeros-window.json `
-    --redis-recovery-run-id 39931754294 `
+    --redis-recovery-run-id 39941787724 `
     --rollback-report private-rollback-rehearsal.json `
     --certificate-lifecycle-report private-certificate-lifecycle.json `
     --stream-observer-report private-stream-observation.json `
@@ -465,25 +545,29 @@ try {
     throw 'Post-promotion collection failed; do not evaluate this candidate.'
   }
 } finally {
-  Pop-Location
+  if ($locationPushed) { Pop-Location }
+  Remove-Item Env:VPN_ACCEPTANCE_CANARY_TOKEN, Env:VPN_ACCEPTANCE_PRODUCTION_TOKEN -ErrorAction SilentlyContinue
+  if ($ghTokenAddedByRunbook) {
+    Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+    $ghTokenAddedByRunbook = $false
+  }
 }
 ```
 
-After the pre-promotion and post-promotion collection commands have both
-finished, or if you stop before completing them, clear the session token:
+The post-promotion output is for production acceptance only; it cannot
+authorize promotion. Each collection block clears the short-lived health API
+tokens and any `GH_TOKEN` introduced by the runbook in its `finally` block.
+This preserves a pre-existing `GH_TOKEN` and clears temporary credentials on
+success or failure.
 
-```powershell
-Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
-```
-
-Evaluate the post-promotion collected output:
+Evaluate the post-promotion collected output separately:
 
 ```powershell
 python (Join-Path $repoRoot 'scripts/release_acceptance.py') `
-  --input (Join-Path $evidenceDir 'private-collected-evidence.json') `
-  --output (Join-Path $evidenceDir 'private-acceptance-report.json')
+  --input (Join-Path $evidenceDir 'private-collected-evidence-postpromotion.json') `
+  --output (Join-Path $evidenceDir 'private-acceptance-report-postpromotion.json')
 if ($LASTEXITCODE -ne 0) {
-  throw 'Release acceptance failed; do not promote this candidate.'
+  throw 'Post-promotion acceptance failed; production release acceptance remains incomplete.'
 }
 ```
 
@@ -496,8 +580,10 @@ no gap over 120 seconds in each environment; zero health, stale-sample, event
 loss/duplication/order, or Redis delivery failures; and p95/freshness targets
 within limits. It also requires router CPU/memory/storage peaks, Redis status,
 REST fallback, reconnect and snapshot recovery, a SQLite restore rehearsal,
-and an isolated canary rollback drill. Production must remain untouched when
-canary fails. Resource gates are CPU <=80%, memory <=90%, and storage <=90%.
+and an isolated canary rollback drill. Production must remain unmodified when
+canary fails. The pre-promotion collectors may read production readiness,
+health, and RouterOS state, but may not write to it. Resource gates are CPU
+<=80%, memory <=90%, and storage <=90%.
 It emits only release identity, observation window, aggregate measurements,
 and pass/fail evidence. RouterOS resource samples and client-exercise results
 remain operator-supplied evidence; the app collector does not probe RouterOS
@@ -508,23 +594,14 @@ soak. After the full collector and evaluator pass, the local
 `scripts/promote_routeros_release.py` controller re-evaluates the fresh evidence,
 checks the router's current canary and production images, confirms the stage
 record, and rechecks both private
-`/readyz` endpoints. Use `--check-only` first to verify the gate without
-RouterOS writes:
+`/readyz` endpoints. The `--check-only` command shown above must use the
+pre-promotion collection file; it re-evaluates the evidence and live image
+read-backs immediately before any separately authorized promotion.
 
-```powershell
-python -m scripts.promote_routeros_release `
-  --input (Join-Path $evidenceDir 'private-collected-evidence.json') `
-  --canary-ready-url $env:VPN_ACCEPTANCE_CANARY_READY_URL `
-  --production-ready-url $env:VPN_ACCEPTANCE_PRODUCTION_READY_URL `
-  --check-only
-if ($LASTEXITCODE -ne 0) {
-  throw 'Read-only promotion check failed; do not run the write-enabled command.'
-}
-```
-
-Only after the read-only check passes, run the same command without
-`--check-only` to authorize the production image update. RouterOS REST
-credentials are read only from `ROUTEROS_REST_URL`,
+Production promotion is a separate write operation and is not performed by
+the collectors, evaluator, or the `--check-only` gate. Run it only when the
+current release policy and operator authority explicitly permit that exact
+candidate. RouterOS REST credentials are read only from `ROUTEROS_REST_URL`,
 `ROUTEROS_DEPLOY_USERNAME`, and `ROUTEROS_DEPLOY_PASSWORD`; never put them in
 arguments or evidence files. The controller verifies production readiness,
 updates the local last-good journal, and restores the previous immutable image
