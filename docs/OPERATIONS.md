@@ -303,9 +303,9 @@ Supply credentials and tokens only through process-scoped environment
 variables; never write them to files, reports, or command arguments.
 
 For candidate source commit
-`fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`, the successful main-branch CI run
-ID is `39941787724`. It contains the unexpired
-`redis-recovery-fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164` artifact from the
+`beba66c0f36231511ec1b9cc664f2be39a128750`, the successful main-branch CI run
+ID is `39984997001`. It contains the unexpired
+`redis-recovery-beba66c0f36231511ec1b9cc664f2be39a128750` artifact from the
 `redis-integration` job. The collector downloads that exact artifact with the
 authenticated GitHub CLI and verifies the successful main push, candidate
 SHA, workflow, and artifact attestation. This run ID is valid only for that
@@ -426,7 +426,7 @@ try {
     --input private-evidence.json `
     --output private-collected-evidence-prepromotion.json `
     --routeros-report private-routeros-window.json `
-    --redis-recovery-run-id 39941787724 `
+    --redis-recovery-run-id 39984997001 `
     --rollback-report private-rollback-rehearsal.json `
     --certificate-lifecycle-report private-certificate-lifecycle.json `
     --stream-observer-report private-stream-observation.json `
@@ -526,7 +526,7 @@ try {
     --input private-evidence.json `
     --output private-collected-evidence-postpromotion.json `
     --routeros-report private-routeros-window.json `
-    --redis-recovery-run-id 39941787724 `
+    --redis-recovery-run-id 39984997001 `
     --rollback-report private-rollback-rehearsal.json `
     --certificate-lifecycle-report private-certificate-lifecycle.json `
     --stream-observer-report private-stream-observation.json `

@@ -605,7 +605,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("The two bounded source reviews described above", self.document)
         self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)
         self.assertIn("publication is not an independent security review", assurance)
-        self.assertIn("Mainline security changes — PR #794", assurance)
+        self.assertIn("Latest published mainline security changes — PR #794", assurance)
 
     def test_unverified_section_does_not_deny_historical_canary_observations(self) -> None:
         unverified_heading = "## Explicitly unverified live-router / deployment evidence"
