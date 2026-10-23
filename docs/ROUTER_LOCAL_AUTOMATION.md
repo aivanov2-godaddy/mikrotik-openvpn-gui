@@ -105,9 +105,12 @@ production to the same SQLite file: one database must have one writer.
    seconds apart before staging (a minimum 30-minute readiness soak). Each
    response must identify the exact immutable candidate revision. Any failed,
    incomplete, or mismatched response rejects the canary, restores its
-   last-known-good image, records the failure locally, and leaves production
-   untouched. The script rejects settings below the minimum sample count or
-   cadence before it changes even the canary.
+   last-known-good image, then verifies both the restored immutable image tag
+   and `/readyz` revision before reporting rollback verified. A failed
+   restoration or read-back is logged as an operator-action-required failure;
+   it records the rejected candidate locally and leaves production untouched.
+   The script rejects settings below the minimum sample count or cadence
+   before it changes even the canary.
 7. This readiness soak is a minimum canary guard, not the complete release
    acceptance report: it does not collect telemetry latency/freshness percentiles,
    Redis delivery history, RouterOS resource samples, API reconnect/snapshot
