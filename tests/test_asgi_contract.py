@@ -4166,6 +4166,58 @@ class ASGIContractTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_socketio_polling_sid_is_bound_before_handshake_body_is_sent(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        session_id = "session-a"
+        engine_sid = "engine-sid"
+
+        class ActiveSessions:
+            @staticmethod
+            def get(candidate_session_id: str, *, touch: bool, wait_for_role_check_lock: bool):
+                return object() if candidate_session_id == session_id else None
+
+        async def authorized_send(_session_id, message, send):
+            await send(message)
+            return True
+
+        async def engineio_app(_scope, _receive, send) -> None:
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({
+                "type": "http.response.body",
+                "body": f'0{{"sid":"{engine_sid}"}}'.encode("ascii"),
+            })
+
+        adapter = SimpleNamespace(
+            _send_authorized_live_message=authorized_send,
+            server=SimpleNamespace(
+                telemetry_runtime=SimpleNamespace(sessions=ActiveSessions())
+            ),
+        )
+        gate = SocketIOLiveSendASGI(engineio_app, adapter)
+        binding_visible_during_send: list[bool] = []
+
+        async def send(message: dict[str, object]) -> None:
+            if message.get("type") == "http.response.body":
+                binding_visible_during_send.append(
+                    gate._session_matches_engine_sid(engine_sid, session_id)
+                )
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.disconnect"}
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/socket.io/",
+            "query_string": b"EIO=4&transport=polling",
+            "headers": [
+                (b"cookie", f"__Host-vpn_session={session_id}".encode("ascii")),
+            ],
+        }
+        asyncio.run(gate(scope, receive, send))
+        self.assertEqual(binding_visible_during_send, [True])
+
     def test_socketio_engine_sid_rejects_unknown_malformed_and_expired_ids(self) -> None:
         from asgi import SocketIOLiveSendASGI
 

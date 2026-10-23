@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, _certificate_remaining_seconds, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, _certificate_remaining_seconds, _origin_header_relation, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from routeros_binary import RouterOSReply
@@ -59,6 +59,34 @@ class ContainerImageTargetTests(unittest.TestCase):
         self.assertFalse(result["supported"])
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["image_suffix"])
+
+
+class OriginHeaderRelationTests(unittest.TestCase):
+    def test_origin_header_relation_returns_only_bounded_classes(self) -> None:
+        expected = "https://dashboard.example.test"
+        cases = (
+            ([], False, "absent"),
+            ([], True, "absent"),
+            (["https://dashboard.example.test", "https://attacker.example"], False, "duplicate"),
+            (["https://dashboard.example.test/a", "https://attacker.example/b"], True, "duplicate"),
+            (["null"], False, "null"),
+            ([" null "], False, "null"),
+            (["HTTPS://DASHBOARD.EXAMPLE.TEST:443"], False, "same"),
+            (["https://dashboard.example.test "], False, "other"),
+            (["https://attacker.example"], False, "other"),
+            (["not an origin"], False, "invalid"),
+            (["https://dashboard.example.test:invalid"], False, "invalid"),
+            (["https://dashboard.example.test/private?secret=fixture"], True, "same"),
+            (["https://attacker.example/private?secret=fixture"], True, "other"),
+            (["not a referer"], True, "invalid"),
+        )
+
+        for values, is_referer, expected_relation in cases:
+            with self.subTest(values=len(values), is_referer=is_referer):
+                self.assertEqual(
+                    _origin_header_relation(values, expected, referer=is_referer),
+                    expected_relation,
+                )
 
 
 class StaticAssetVersionTests(unittest.TestCase):
@@ -1015,6 +1043,27 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
         self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
 
+    def test_logout_logs_trailing_space_origin_as_nonmatching(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            status, _, payload = self.request(
+                "POST",
+                "/logout",
+                body=body,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": f"{self.config.public_origin} ",
+                },
+            )
+
+        self.assertEqual(status, 403, payload.decode())
+        self.assertIn("origin_count=1 origin_relation=other", output.getvalue())
+        self.assertNotIn(self.config.public_origin, output.getvalue())
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+
     def test_logout_revokes_live_access_when_audit_write_fails(self) -> None:
         self.login()
         sid, cookie = self.connect_socketio_polling()
@@ -1084,6 +1133,30 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"origin", payload.lower())
         self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
         self.assertEqual(self.mock.state.mutation_requests, before_routeros_mutations)
+
+    def test_logout_logs_opaque_origin_and_foreign_referer_without_raw_values(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        body = urllib.parse.urlencode({"csrf": self.csrf}).encode()
+
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            status, _, payload = self.request(
+                "POST",
+                "/logout",
+                body=body,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "null",
+                    "Referer": "https://attacker.example/private?token=fixture-secret",
+                },
+            )
+
+        self.assertEqual(status, 403, payload.decode())
+        self.assertIn("origin_count=1 origin_relation=null", output.getvalue())
+        self.assertIn("referer_count=1 referer_relation=other", output.getvalue())
+        self.assertNotIn("attacker.example", output.getvalue())
+        self.assertNotIn("fixture-secret", output.getvalue())
+        self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
 
     def test_logout_rejects_duplicate_csrf_headers_even_with_valid_body_token(self) -> None:
         self.login()

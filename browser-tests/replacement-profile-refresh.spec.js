@@ -20,7 +20,6 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
-  await page.waitForLoadState('networkidle');
 });
 
 test('replacement profile issuance refreshes its result without recreating the live stream', async ({ page }) => {
