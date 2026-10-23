@@ -729,6 +729,12 @@ class SocketIOLiveSendASGI:
         if scope_type == "websocket":
             authorization_failed = False
 
+            async def bind_engine_sid_then_send(message: ASGIMessage) -> None:
+                engine_sid = self._engine_sid_from_packet(message)
+                if engine_sid is not None:
+                    self._bind_engine_sid(engine_sid, session_id)
+                await send(message)
+
             async def gated_send(message: ASGIMessage) -> None:
                 nonlocal authorization_failed
                 message_type = message.get("type")
@@ -740,12 +746,9 @@ class SocketIOLiveSendASGI:
                     allowed = await self.http_adapter._send_authorized_live_message(
                         session_id,
                         message,
-                        send,
+                        bind_engine_sid_then_send,
                     )
                     if allowed:
-                        engine_sid = self._engine_sid_from_packet(message)
-                        if engine_sid is not None:
-                            self._bind_engine_sid(engine_sid, session_id)
                         return
                     authorization_failed = True
                     if self._safe_socketio_control_packet(message):
@@ -757,6 +760,12 @@ class SocketIOLiveSendASGI:
             return
 
         response_status = 0
+
+        async def bind_engine_sid_then_send(message: ASGIMessage) -> None:
+            engine_sid = self._engine_sid_from_packet(message)
+            if engine_sid is not None:
+                self._bind_engine_sid(engine_sid, session_id)
+            await send(message)
 
         async def gated_send(message: ASGIMessage) -> None:
             nonlocal response_status
@@ -771,12 +780,9 @@ class SocketIOLiveSendASGI:
                 allowed = await self.http_adapter._send_authorized_live_message(
                     session_id,
                     message,
-                    send,
+                    bind_engine_sid_then_send,
                 )
                 if allowed:
-                    engine_sid = self._engine_sid_from_packet(message)
-                    if engine_sid is not None:
-                        self._bind_engine_sid(engine_sid, session_id)
                     return
                 safe_payload = self._safe_polling_control_payload(
                     message.get("body", b"")

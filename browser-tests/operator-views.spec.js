@@ -56,7 +56,6 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
-  await page.waitForLoadState('networkidle');
 });
 
 for (const view of views) {
@@ -336,7 +335,6 @@ for (const theme of accessibilityThemes) {
         await page.getByRole('link', { name: view.name, exact: true }).click();
       }
       await expect(page.getByRole('heading', { name: view.heading, exact: true })).toBeVisible();
-      await page.waitForLoadState('networkidle');
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

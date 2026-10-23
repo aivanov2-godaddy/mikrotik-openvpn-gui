@@ -66,6 +66,13 @@ read-only roles; an HTTP POST alone does not make a route a RouterOS mutation.
 Treat profile-share links as secrets despite their short lifetime. Do not paste
 them into support logs or issue reports.
 
+For native Socket.IO/Engine.IO, every transport request requires an active
+dashboard session and the configured same-origin boundary. A new Engine.IO SID
+is bound to that dashboard session before its handshake packet is sent to the
+client; subsequent polling or WebSocket requests must present the same bound
+session. Regression coverage checks binding at the downstream ASGI send boundary
+and exercises a real HTTP Engine.IO handshake.
+
 ## Capability-protected route families
 
 | Capability | Route families | Notes |

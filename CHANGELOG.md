@@ -81,6 +81,8 @@ semantic-version style release tags.
 
 - Log only header counts and coarse origin relations when CSRF origin checks
   reject a request; raw Origin/Referer values, URLs, and tokens are never logged.
+- Bind Engine.IO transport SIDs to the active dashboard session before sending
+  handshake packets, preserving the authorization lock across the downstream send.
 - Reject foreign origins on live telemetry transports and close delivery after
   session revocation or capability changes.
 - Add regression coverage for API field allowlists, credential redaction,
