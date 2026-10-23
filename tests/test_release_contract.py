@@ -240,6 +240,7 @@ class ReleaseContractTests(unittest.TestCase):
             "pending-state-read",
             "state-directory-probe",
             "canary-lifecycle",
+            "canary-restore-image-validation",
             "canary-readiness",
             "canary-soak",
             "pending-state-write",
@@ -375,6 +376,50 @@ class ReleaseContractTests(unittest.TestCase):
                 else:
                     self.assertEqual(arguments, "")
 
+    def test_router_local_rollback_verifier_checks_restored_image_and_revision(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        helper_start = executable.index(":local verifyCanaryRestore do={")
+        helper_end = executable.index("\n:global vpnGuiImmutableUpdateLock", helper_start)
+        verifier = executable[helper_start:helper_end]
+
+        self.assertIn(":onerror restoreImageError,restoreImageAttributes in={", verifier)
+        self.assertIn("[/container/get $canaryId remote-image]", verifier)
+        self.assertIn(":if ($restoredImage != $restoreImage)", verifier)
+        self.assertIn("[$fetchReady $endpoint $transport $restoreCommit]", verifier)
+        self.assertIn(":for attempt from=1 to=$attempts do={", verifier)
+        self.assertIn(":if (!$revisionReady) do={ :return \"readiness-failed\" }", verifier)
+        self.assertIn(':return "verified"', verifier)
+        self.assertEqual(
+            set(re.findall(r':return "([a-z-]+)"', verifier)),
+            {"image-read-failed", "image-mismatch", "readiness-failed", "verified"},
+        )
+        self.assertNotIn(":log", verifier)
+        self.assertNotIn("$restoreImageError", verifier)
+        self.assertNotIn("$restoreImageAttributes", verifier)
+
+    def test_router_local_rollback_target_is_validated_immutable_before_canary_mutation(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        validation_at = executable.index(':set updaterStep "canary-restore-image-validation"')
+        first_mutation_at = executable.index("/container/stop $canaryId")
+        validation = executable[validation_at:first_mutation_at]
+
+        self.assertLess(validation_at, first_mutation_at)
+        self.assertIn('[:pick $canaryRestoreImage 0 $prefixLength] != $imagePrefix', validation)
+        self.assertIn('[:pick $canaryRestoreImage ($prefixLength + 40) $expectedLength] != "-arm64"', validation)
+        self.assertIn('[:pick $canaryRestoreImage $prefixLength ($prefixLength + 40)]', validation)
+        self.assertIn(':for restoreIndex from=0 to=39 do={', validation)
+        self.assertIn('[:find $hex $restoreCharacter] = nil', validation)
+
     def test_router_local_updater_requires_a_sampled_30_minute_canary_gate(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
             encoding="utf-8"
@@ -415,21 +460,50 @@ class ReleaseContractTests(unittest.TestCase):
         )
 
         cases = (
-            ("canary lifecycle failed; step=", "canary-rollback-lifecycle", "canary lifecycle gate failed"),
-            ("canary readiness failed; step=", "canary-rollback-readiness", "canary readiness gate failed"),
-            ("canary soak failed; step=", "canary-rollback-soak", "canary readiness soak failed"),
+            (
+                "canary lifecycle failed; step=",
+                "canary-rollback-lifecycle",
+                "canary lifecycle gate failed",
+                "canary-rollback-lifecycle-verification",
+            ),
+            (
+                "canary readiness failed; step=",
+                "canary-rollback-readiness",
+                "canary readiness gate failed",
+                "canary-rollback-readiness-verification",
+            ),
+            (
+                "canary soak failed; step=",
+                "canary-rollback-soak",
+                "canary readiness soak failed",
+                "canary-rollback-soak-verification",
+            ),
         )
-        for failure_message, rollback_step, terminal_error in cases:
+        for failure_message, rollback_step, terminal_error, verification_step in cases:
             with self.subTest(rollback_step=rollback_step):
                 block_start = executable.index(failure_message)
                 block_end = executable.index(f'"{terminal_error}"', block_start)
                 block = executable[block_start:block_end]
+                verification_call = block.index(
+                    ":set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit"
+                )
+                success_message = block.index(f"canary rollback verified; step={rollback_step}")
+                failure_diagnostic = block.index("rollback verification failed; step=")
+                journal_write = block.index(":do { $recordFailure $image } on-error={")
+
+                self.assertLess(verification_call, success_message)
+                self.assertLess(verification_call, failure_diagnostic)
+                self.assertLess(success_message, journal_write)
+                self.assertLess(failure_diagnostic, journal_write)
+                self.assertIn(':if ($rollbackVerification = "verified") do={', block)
                 self.assertLess(
                     block.index(f':set updaterStep "{rollback_step}"'),
-                    block.index(":do { $recordFailure $image } on-error={"),
+                    journal_write,
                 )
+                self.assertIn(f':set updaterStep "{verification_step}"', block)
                 self.assertIn("rollback starting; step=\" . $updaterStep", block)
                 self.assertIn('rollback failed; step=" . $updaterStep . "; details redacted', block)
+                self.assertIn("details redacted; operator action required", block)
                 self.assertIn("step=failure-state-write; details redacted", block)
 
     def test_gated_promoter_rechecks_acceptance_before_router_mutation(self) -> None:
