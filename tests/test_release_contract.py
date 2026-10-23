@@ -205,8 +205,14 @@ class ReleaseContractTests(unittest.TestCase):
             "candidate-validation",
             "readiness-configuration",
             "failure-state-read",
-            "container-lookup",
-            "container-state-read",
+            "canary-container-lookup",
+            "production-container-lookup",
+            "canary-container-count-check",
+            "production-container-count-check",
+            "production-image-read",
+            "production-image-validation",
+            "production-noop-check",
+            "canary-image-read",
             "pending-state-read",
             "state-directory-probe",
             "canary-lifecycle",
@@ -246,6 +252,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn(':local stateDirectory "disk1/vpn-dashboard"', executable)
         self.assertIn(':local pendingFile ($stateDirectory . "/routeros-update-pending.txt")', executable)
         self.assertIn('router-local state directory probe failed; no container changed', executable)
+
         self.assertIn('($stateDirectory . "/vpn-gui-write-check-"', executable)
         self.assertNotIn('"/.vpn-gui-write-check-"', executable)
         for step in (
@@ -283,6 +290,39 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("ghcr.io/CHANGE-ME/mikrotik-openvpn-gui", updater)
         self.assertNotIn(":import", executable)
         self.assertNotIn(":parse", executable)
+
+    def test_router_local_updater_labels_each_canary_lifecycle_operation(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        operations = (
+            ("canary-stop", "/container/stop $canaryId"),
+            ("canary-image-set", "/container/set $canaryId remote-image=$image"),
+            ("canary-image-update", "/container/update $canaryId"),
+            ("canary-start", "/container/start $canaryId"),
+            ("canary-rollback-stop", "/container/stop $canaryId"),
+            ("canary-rollback-image-set", "/container/set $canaryId remote-image=$canaryRestoreImage"),
+            ("canary-rollback-image-update", "/container/update $canaryId"),
+            ("canary-rollback-start", "/container/start $canaryId"),
+            ("canary-rollback-readiness-stop", "/container/stop $canaryId"),
+            ("canary-rollback-readiness-image-set", "/container/set $canaryId remote-image=$canaryRestoreImage"),
+            ("canary-rollback-readiness-image-update", "/container/update $canaryId"),
+            ("canary-rollback-readiness-start", "/container/start $canaryId"),
+            ("canary-rollback-soak-stop", "/container/stop $canaryId"),
+            ("canary-rollback-soak-image-set", "/container/set $canaryId remote-image=$canaryRestoreImage"),
+            ("canary-rollback-soak-image-update", "/container/update $canaryId"),
+            ("canary-rollback-soak-start", "/container/start $canaryId"),
+        )
+
+        for step, command in operations:
+            with self.subTest(step=step):
+                marker = executable.index(f':set updaterStep "{step}"')
+                next_marker = executable.find(":set updaterStep", marker + 1)
+                command_at = executable.index(command, marker)
+                self.assertTrue(next_marker < 0 or command_at < next_marker)
 
     def test_router_local_stage_updater_mutates_only_the_canary_container(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
@@ -364,7 +404,8 @@ class ReleaseContractTests(unittest.TestCase):
                     block.index(f':set updaterStep "{rollback_step}"'),
                     block.index(":do { $recordFailure $image } on-error={"),
                 )
-                self.assertIn(f"step={rollback_step}; details redacted", block)
+                self.assertIn("rollback starting; step=\" . $updaterStep", block)
+                self.assertIn('rollback failed; step=" . $updaterStep . "; details redacted', block)
                 self.assertIn("step=failure-state-write; details redacted", block)
 
     def test_gated_promoter_rechecks_acceptance_before_router_mutation(self) -> None:
