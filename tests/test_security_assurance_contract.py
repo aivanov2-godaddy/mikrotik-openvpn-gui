@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import json
 import re
 import unittest
 from pathlib import Path
+
+from app import DashboardHandler
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +65,101 @@ def _load_asvs_control_fixture() -> dict[str, object]:
     if not isinstance(fixture, dict):
         raise AssertionError("ASVS control fixture must be a JSON object")
     return fixture
+
+
+def _documented_route_patterns(document: str) -> dict[str, set[str]]:
+    """Return method-bound route patterns from the route inventory tables."""
+    patterns = {method: set() for method in ("GET", "POST", "PATCH", "DELETE")}
+    route_column: int | None = None
+    path_pattern = re.compile(
+        r"/(?:api|metrics|healthz|readyz|dashboard|login|logout|share)"
+        r"(?:/(?:\{[^}]+\}|[^/\s`;|,]+))*|/(?=\s|$)"
+    )
+    token_pattern = re.compile(
+        r"(?P<method>GET|POST|PATCH|DELETE)\b|(?P<path>"
+        + path_pattern.pattern
+        + r")"
+    )
+
+    for line in document.splitlines():
+        if line.startswith("| Route |"):
+            route_column = 0
+            continue
+        if line.startswith("| Capability |"):
+            route_column = 1
+            continue
+        if line.startswith("## "):
+            route_column = None
+            continue
+        if route_column is None or not line.startswith("|"):
+            continue
+
+        cells = line.split("|")
+        if len(cells) <= route_column + 1:
+            continue
+        current_method: str | None = None
+        for span in re.findall(r"`([^`]+)`", cells[route_column + 1]):
+            for token in token_pattern.finditer(span):
+                if token.group("method"):
+                    current_method = token.group("method")
+                elif current_method and token.group("path"):
+                    patterns[current_method].add(token.group("path").rstrip(".;"))
+
+    return patterns
+
+
+def _documented_route_regex(route: str) -> str:
+    """Translate a route family token into a regex for its documented paths."""
+    pieces: list[str] = []
+    index = 0
+    while index < len(route):
+        if route[index] == "{":
+            closing = route.find("}", index + 1)
+            if closing < 0:
+                pieces.append(re.escape(route[index]))
+                index += 1
+                continue
+            options = route[index + 1:closing].split(",")
+            if len(options) == 1:
+                pieces.append("[^/]+")
+            else:
+                pieces.append("(?:" + "|".join(re.escape(option) for option in options) + ")")
+            index = closing + 1
+        elif route[index] == "*":
+            pieces.append(".*")
+            index += 1
+        else:
+            pieces.append(re.escape(route[index]))
+            index += 1
+    return "".join(pieces)
+
+
+def _representative_dispatch_paths(pattern: str) -> set[str]:
+    """Choose valid representative paths for every branch in a dispatch regex."""
+    paths = [""]
+    index = 0
+    for match in re.finditer(r"\(([^()]*)\)", pattern):
+        literal = pattern[index:match.start()]
+        paths = [path + literal for path in paths]
+        group = match.group(1)
+        if "|" in group:
+            choices = group.split("|")
+        elif group == r"[^/]+":
+            choices = ["sample"]
+        elif group == r"\d+":
+            choices = ["1"]
+        elif group == r"[A-Za-z0-9_-]{1,64}":
+            choices = ["template-1"]
+        elif group == r"[A-Za-z0-9_-]{8,96}":
+            choices = ["token-12345678"]
+        elif group == r"[A-Za-z0-9_-]{32,64}":
+            choices = ["s" * 32]
+        else:
+            raise AssertionError(f"unclassified route regex capture: ({group})")
+        paths = [path + choice for path in paths for choice in choices]
+        index = match.end()
+    suffix = pattern[index:]
+    return {path + suffix for path in paths}
 
 
 def _expand_asvs_control_cell(cell: str) -> list[str]:
@@ -261,6 +359,76 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("foreign `Origin`", route_document)
         self.assertIn("`Origin: null`", route_document)
 
+    def test_route_document_is_reconciled_to_security_sensitive_dispatch_forms(self) -> None:
+        route_document = ROUTE_AUTHORIZATION_DOCUMENT.read_text(encoding="utf-8")
+        documented = _documented_route_patterns(route_document)
+        dispatch_examples: dict[str, set[str]] = {
+            method: set() for method in ("GET", "POST", "PATCH", "DELETE")
+        }
+        primary_session_paths = {
+            "GET": {"/", "/healthz", "/readyz", "/login", "/dashboard"},
+            "POST": {"/login", "/logout"},
+            "PATCH": set(),
+            "DELETE": set(),
+        }
+
+        for method in dispatch_examples:
+            source = inspect.getsource(getattr(DashboardHandler, f"do_{method}"))
+            literal_path_routes = set(re.findall(r'path == "(/[^"]*)"', source))
+            all_api_strings = set(re.findall(r'["\'](/api/[^"\']+)', source))
+            literal_api_routes = set(re.findall(r'path == "(/api/[^\"]+)"', source))
+            api_patterns = set(
+                re.findall(r're\.fullmatch\(r"(/api/[^\"]+)"\s*,\s*path\)', source)
+            )
+            self.assertEqual(
+                all_api_strings,
+                literal_api_routes | api_patterns,
+                f"{method} API dispatch syntax must be classified before route-doc coverage",
+            )
+
+            dispatch_examples[method].update(literal_api_routes)
+            self.assertTrue(
+                primary_session_paths[method].issubset(literal_path_routes),
+                f"{method} primary entry paths must remain literal dispatches before route-doc coverage",
+            )
+            dispatch_examples[method].update(primary_session_paths[method])
+            dispatch_examples[method].update(
+                re.findall(r'path == "(/metrics)"', source)
+            )
+            for pattern in api_patterns:
+                dispatch_examples[method].update(_representative_dispatch_paths(pattern))
+            if method == "GET":
+                share_patterns = re.findall(
+                    r're\.fullmatch\(r"(/share/[^\"]+)"\s*,\s*path\)', source
+                )
+                dispatch_examples[method].update(
+                    path
+                    for pattern in share_patterns
+                    for path in _representative_dispatch_paths(pattern)
+                )
+
+        for method, examples in dispatch_examples.items():
+            for path in examples:
+                with self.subTest(method=method, path=path):
+                    self.assertTrue(
+                        any(
+                            re.fullmatch(_documented_route_regex(pattern), path)
+                            for pattern in documented[method]
+                        ),
+                        f"{method} {path} is implemented but absent from the authorization inventory",
+                    )
+
+        for method, patterns in documented.items():
+            for pattern in patterns:
+                with self.subTest(method=method, documented_family=pattern):
+                    self.assertTrue(
+                        any(
+                            re.fullmatch(_documented_route_regex(pattern), path)
+                            for path in dispatch_examples[method]
+                        ),
+                        f"{method} {pattern} is documented but has no current dispatch",
+                    )
+
     def test_partial_asvs_statuses_match_the_bounded_evidence(self) -> None:
         rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
         for control in ("V7.4.2", "V7.4.5", "V7.5.2", "V8.1.1", "V8.1.3–V8.1.4"):
@@ -270,7 +438,8 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("does not proactively invalidate every session", rows["V7.4.2"][2])
         self.assertIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
         self.assertIn("There is no terminate-all action", rows["V7.5.2"][2])
-        self.assertIn("not yet mechanically reconciled against every route", rows["V8.1.1"][2])
+        self.assertIn("CI now mechanically reconciles every literal/regex", rows["V8.1.1"][2])
+        self.assertIn("does not independently prove every authorization decision is correct", rows["V8.1.1"][2])
         self.assertIn("resolved client IP", rows["V8.1.3–V8.1.4"][2])
 
     def test_documented_contextual_login_limit_matches_runtime_defaults(self) -> None:
