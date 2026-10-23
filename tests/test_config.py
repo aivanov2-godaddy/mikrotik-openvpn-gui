@@ -56,6 +56,41 @@ class RuntimeConfigTests(unittest.TestCase):
                 {"WEBHOOK_URL": "http://events.example.test", "WEBHOOK_SIGNING_SECRET": "0123456789abcdef0123456789abcdef"}
             )
 
+    def test_runtime_config_repr_redacts_secrets_and_sensitive_endpoints(self) -> None:
+        config = RuntimeConfig.from_environ(
+            {
+                "ROUTEROS_REST_URL": "https://192.0.2.20:8443/rest",
+                "WEBHOOK_URL": "https://events.example.test/ingest?token=private-query-token",
+                "WEBHOOK_SIGNING_SECRET": "private-webhook-signing-secret-0123456789",
+                "REDIS_STREAM_URL": "redis://publisher:private-redis-password@redis.example.test:6379/0",
+                "OVPN_PPP_PROFILE": "private-vpn-profile",
+                "OVPN_SERVER_NAME": "private-vpn-server",
+                "OVPN_CA_NAME": "private-vpn-ca",
+                "OVPN_HOST": "vpn.private.example",
+                "OVPN_SERVER_IDENTITY": "vpn.private.example",
+                "VPN_LAN_CIDR": "10.80.0.0/24",
+                "VPN_ROUTER_DNS": "10.80.0.1",
+            }
+        )
+
+        rendered = repr(config)
+
+        for sensitive_value in (
+            "192.0.2.20",
+            "private-query-token",
+            "private-webhook-signing-secret-0123456789",
+            "private-redis-password",
+            "publisher@redis.example.test",
+            "private-vpn-profile",
+            "private-vpn-server",
+            "private-vpn-ca",
+            "vpn.private.example",
+            "10.80.0.0/24",
+            "10.80.0.1",
+        ):
+            with self.subTest(value=sensitive_value):
+                self.assertNotIn(sensitive_value, rendered)
+
     def test_explicit_topology_is_normalized_and_complete_for_profiles(self) -> None:
         config = RuntimeConfig.from_environ(
             {

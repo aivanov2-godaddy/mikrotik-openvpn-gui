@@ -10,7 +10,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
 from urllib.parse import urlsplit
 
@@ -293,25 +293,25 @@ class OpenVPNTopology:
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     public_origin: str
-    routeros_rest_url: str
-    routeros_ca_file: str | None
+    routeros_rest_url: str = field(repr=False)
+    routeros_ca_file: str | None = field(repr=False)
     routeros_insecure_tls: bool
     database_path: str
     trust_cloudflare: bool
-    trusted_proxy_sources: tuple[str, ...]
+    trusted_proxy_sources: tuple[str, ...] = field(repr=False)
     trusted_proxy_header: str | None
     access_layer_label: str
     dashboard_name: str
     router_display_name: str
     history_retention_days: int
-    webhook_url: str | None
-    webhook_secret: str | None
-    redis_stream_url: str | None
+    webhook_url: str | None = field(repr=False)
+    webhook_secret: str | None = field(repr=False)
+    redis_stream_url: str | None = field(repr=False)
     redis_stream_key: str
     redis_stream_maxlen: int
     live_transport: str
     routeros_api_ssl_port: int
-    topology: OpenVPNTopology
+    topology: OpenVPNTopology = field(repr=False)
 
     @classmethod
     def from_environ(cls, values: Mapping[str, str] | None = None) -> "RuntimeConfig":

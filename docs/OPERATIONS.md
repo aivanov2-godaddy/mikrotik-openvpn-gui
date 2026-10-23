@@ -43,10 +43,19 @@ remains a separate service and is enabled only when `REDIS_STREAM_URL` is set.
 After completing the migration in [REDIS_ROTATION.md](REDIS_ROTATION.md), the
 publisher URL must use the dedicated `vpn-dashboard` ACL identity, restricted
 to its stream key and publish commands; do not use the shared `default` user.
-The Redis Streams sink currently forwards sanitized audit/outbox events (not
-the dashboard's live RouterOS telemetry). Delivery is at-least-once and bounded
-by `REDIS_STREAM_MAXLEN`; consumers must deduplicate by `event_id`. Keep Redis
-on a private network, enable authentication, and persist its data directory.
+The Redis Streams sink currently forwards minimized audit/outbox events (not
+the dashboard's live RouterOS telemetry). Remote webhook and Redis payloads use
+schema v2: `schema_version`, `event`, a UUIDv4 `event_id`, and, when valid, the
+coarse action category, approved status value, and creation timestamp. Actor names, targets,
+source addresses, free-form details, credentials, and live VPN telemetry stay
+out of remote payloads; the full audit record remains in the protected local
+SQLite store. This intentionally narrows the previously described outbound
+payload; consumers must not depend on the omitted identity/detail fields.
+Delivery is at-least-once and bounded by `REDIS_STREAM_MAXLEN`; consumers must
+deduplicate by `event_id`. Keep Redis on a private network, enable
+authentication, and persist its data directory. Use `rediss://` when Redis
+traffic crosses a network boundary that is not already protected by an
+isolated trusted transport.
 The authenticated Prometheus `/metrics` endpoint reports aggregate outbox
 backlog/age, retries, last successful delivery, and Redis publish outcomes. A
 Redis availability value of `-1` means no publish has yet tested the connection;
