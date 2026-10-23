@@ -550,7 +550,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "new 30-sample, one-minute-spaced readiness observation has started but is not complete",
+            "completed 30/30 successful checks with zero failures against the expected candidate readiness revision",
             report,
         )
         self.assertIn("canary dashboard remains at its app sign-in form", report)

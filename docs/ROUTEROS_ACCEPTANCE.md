@@ -26,12 +26,13 @@ On 2026-10-24, the exact PR #803 ARM64 tag and readiness revision were read
 back on the isolated canary. A manual rollback to the prior canary image
 passed readiness at the matching prior revision; the PR #803 candidate was
 then restored and readiness reverified. Production remains on its prior image
-and was not changed. A fresh 30-sample, one-minute-spaced readiness observation
-is in progress, not complete. The canary dashboard remains at the application
-sign-in form in the available browser view, so authenticated event latency,
-traffic freshness, reconnect/snapshot recovery, and session authorization are
-not verified. Readiness and rollback checks alone do not constitute full
-hardware acceptance or production promotion.
+and was not changed. The 30-sample, one-minute-spaced readiness-only
+observation completed with zero failures against the expected candidate
+revision. The canary dashboard remains at the application sign-in form in the
+available browser view, so authenticated event latency, traffic freshness,
+reconnect/snapshot recovery, and session authorization are not verified.
+Readiness and rollback checks alone do not constitute full hardware acceptance
+or production promotion.
 
 The installed RouterOS updater differs from the reviewed repository template
 and was not executed. Its original generic `invalid request` is no longer
