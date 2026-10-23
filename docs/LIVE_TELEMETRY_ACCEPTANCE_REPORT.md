@@ -1,28 +1,32 @@
 # Live telemetry acceptance status
 
-Status: **PR #778 is the latest published and attested runtime, but it has not
-been staged on RouterOS. The latest recorded canary read-back is for PR #776
-and reported healthy startup; its pending-candidate record did not match that
-image and no candidate-matched 30-minute sample record was verified. The
-readiness gate is not passed. Candidate-specific live acceptance is
-incomplete; production promotion remains gated.**
+Status: **PR #791 is the latest published and attested mainline image; this
+publication did not stage or run its updater example on RouterOS. The latest
+documented canary read-back is for PR #776 and reported healthy startup; its
+pending-candidate record did not match that image and no candidate-matched
+30-minute sample record was verified. The readiness gate is not passed.
+Candidate-specific live acceptance is incomplete; production promotion
+remains gated.**
 
 ## Public artifact evidence
 
-PR [#778](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/778)
-merged as `10721ebc7a0a4db2fb8ef82a80783376140e4205`. Main CI run
-[#39882283490](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39882283490)
+PR [#791](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/791)
+merged as `0002ce431fd8be0a66801725fbfb371f01ce7567`. Main CI run
+[#39925624459](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39925624459)
 and publisher run
-[#39882283500](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39882283500)
-completed successfully. The ARM64 image smoke test passed, and its provenance
-and SPDX SBOM attestations verified against the container workflow and exact
-main source commit. PR #778 adds redacted CSRF Origin/Referer rejection
-diagnostics and binds Engine.IO transport SIDs to the active dashboard session
-before the handshake is sent.
+[#39925624510](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39925624510)
+completed successfully. The ARM64 image smoke test passed, and provenance and
+SPDX SBOM attestations verified against the exact source commit and image
+digest; stable-manifest publication succeeded. PR #791 adds step-level failure
+diagnostics to the example RouterOS updater and regression tests. The example
+is not copied into the container image.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 — latest published, not staged | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-10721ebc7a0a4db2fb8ef82a80783376140e4205-arm64` | `sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832` |
+| RouterOS ARM64 — latest published, not staged | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0002ce431fd8be0a66801725fbfb371f01ce7567-arm64` | `sha256:a61103b00e34ce5172ca084e6744dba2326fc351e5cca362c9fb7951430e581e` |
+
+PR #791 is not a numbered release; v2.7.0 remains the latest formal version.
+This image publication did not deploy to RouterOS or establish live acceptance.
 
 ### Latest recorded canary artifact — PR #776
 
@@ -57,9 +61,9 @@ setting matched the expected origin, but the rejected request's origin/header
 shape was not captured; do not weaken origin or CSRF checks while
 investigating. The registry digests above are bound to their tags by the
 verified publisher workflow; RouterOS reports the configured tag, not a
-local OCI digest. PR #778 has not been staged and has no candidate-specific
-live acceptance. Production remains on its prior image in the latest recorded
-checkpoint. No production promotion is claimed.
+local OCI digest. PR #791 was not staged by its publication workflow and has
+no candidate-specific live acceptance. The current production image was not
+re-verified by this report; no production promotion is claimed.
 
 Public deployment detail here is limited to the redacted canary-stage status
 above. This file contains no router identity, hostnames, addresses, resource
@@ -69,8 +73,8 @@ a gate checklist, not a report of private measurements.
 
 ## Candidate acceptance gates
 
-The gates below describe the latest recorded canary candidate, PR #776. PR
-#778 has not been staged and has no live acceptance evidence.
+The gates below describe the latest documented canary candidate, PR #776. PR
+#791 has been published but not staged and has no live acceptance evidence.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |
