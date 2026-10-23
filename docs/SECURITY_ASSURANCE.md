@@ -648,6 +648,36 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
   private network data; this review did not establish their handling by
   external log or webhook destinations.
 
+## Independent internal source review — 2026-10-23
+
+A separate read-only reviewer examined the authentication, session/live-stream,
+origin, and RouterOS credential-handling paths at merged source commit
+`8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7`. No Critical or High source-level
+finding was identified within that bounded review; this is not proof that no
+such issue exists outside the reviewed paths.
+
+- The documented in-memory credential trade-off is confirmed: RouterOS
+  passwords are ordinary Python strings while an authenticated session or
+  in-flight request needs them. Clearing references on teardown does not
+  securely erase copies from process memory. Host-level memory access, dump
+  collection, and external logging remain unverified.
+- RouterOS role changes are revalidated using a short-lived cache. The existing
+  partial status is appropriate: a downgrade can remain effective only after
+  that session's next role refresh, and disabling an account does not
+  proactively invalidate every other session.
+- Read-only SSE/Socket.IO handshakes retain compatibility with clients that omit
+  `Origin`; explicit foreign or duplicate origins are rejected, Socket.IO
+  control POSTs require origin evidence, and mutating HTTP routes require CSRF
+  protection. No bypass was demonstrated in the source review; actual
+  proxy/browser behavior remains an external acceptance check.
+- Focused local validation passed 147 tests across
+  `test_security_assurance_contract`, `test_security`, and
+  `test_asgi_contract`. The merged commit's required GitHub CI also passed.
+
+This internal review is narrower than a requirement-by-requirement independent
+ASVS assessment and is not a penetration test, deployment review, or compliance
+attestation. It does not change the **Residual-risk decision: OPEN** below.
+
 **Residual-risk decision: OPEN.** No deployment-level credential-memory or
 logging review, independent ASVS review, or named owner risk acceptance is
 recorded here. Do not interpret this source review as a production sign-off.
