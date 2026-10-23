@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
@@ -101,12 +103,63 @@ class DeploymentTests(unittest.TestCase):
             {},
             io.BytesIO(secret.encode()),
         )
-        with patch("scripts.deploy_routeros_release.urllib.request.urlopen", side_effect=error):
+        with patch.object(client._opener, "open", side_effect=error):
             with self.assertRaises(DeploymentError) as raised:
                 client.request("POST", "/container/print")
 
         self.assertIn("failed (400)", str(raised.exception))
         self.assertNotIn(secret, str(raised.exception))
+
+    def test_deployer_credentials_are_not_forwarded_to_redirect_target(self) -> None:
+        forwarded_authorization: list[str | None] = []
+        target_url = ""
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(302)
+                self.send_header("Location", target_url)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        class TargetHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                forwarded_authorization.append(self.headers.get("Authorization"))
+                payload = b"[]"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        redirect_server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+        target_server = ThreadingHTTPServer(("127.0.0.1", 0), TargetHandler)
+        target_url = f"http://127.0.0.1:{target_server.server_port}/capture"
+        servers = (redirect_server, target_server)
+        threads = [
+            threading.Thread(target=server.serve_forever, daemon=True)
+            for server in servers
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            client = RouterOSRest(settings())
+            client.base_url = f"http://127.0.0.1:{redirect_server.server_port}"
+            with self.assertRaises(DeploymentError) as raised:
+                client.request("GET", "/redirect")
+        finally:
+            for server in servers:
+                server.shutdown()
+                server.server_close()
+            for thread in threads:
+                thread.join(timeout=2)
+
+        self.assertIn("failed (302)", str(raised.exception))
+        self.assertEqual(forwarded_authorization, [])
 
     def test_routeros_commands_use_plural_numbers_selector(self) -> None:
         client = RouterOSRest(settings())

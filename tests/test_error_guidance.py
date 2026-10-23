@@ -88,7 +88,7 @@ class RouterOSErrorGuidanceTests(unittest.TestCase):
         )
         for raised, expected_kind in cases:
             with self.subTest(expected_kind=expected_kind):
-                with patch("routeros.urllib.request.urlopen", side_effect=raised):
+                with patch.object(client._opener, "open", side_effect=raised):
                     with self.assertRaises(RouterOSError) as caught:
                         client._request("GET", "/system/resource", credentials)
                 self.assertEqual(caught.exception.failure_kind, expected_kind)
@@ -110,7 +110,7 @@ class RouterOSErrorGuidanceTests(unittest.TestCase):
             def read(self):
                 return b"raw-router-data-marker"
 
-        with patch("routeros.urllib.request.urlopen", return_value=InvalidJsonResponse()):
+        with patch.object(client._opener, "open", return_value=InvalidJsonResponse()):
             with self.assertRaises(RouterOSError) as caught:
                 client._request("GET", "/system/resource", credentials)
         self.assertEqual(caught.exception.failure_kind, "invalid_response")
@@ -132,7 +132,7 @@ class RouterOSErrorGuidanceTests(unittest.TestCase):
                     {},
                     io.BytesIO(body),
                 )
-                with patch("routeros.urllib.request.urlopen", side_effect=error):
+                with patch.object(client._opener, "open", side_effect=error):
                     with self.assertRaises(RouterOSError) as caught:
                         client._request("GET", "/system/resource", credentials)
 

@@ -242,6 +242,18 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
                 self.assertIn(row[1], VALID_MATRIX_STATUSES)
                 self.assertTrue(row[2], "each matrix status must have scoped evidence")
 
+    def test_external_deployment_controls_are_not_claimed_as_verified(self) -> None:
+        matrix = _assurance_matrix(self.document)
+        findings = {
+            control: row[2]
+            for row in matrix[1:]
+            for control in _expand_asvs_control_cell(row[0])
+        }
+
+        self.assertIn("configured is unverified deployment evidence", findings["V8.4.2"])
+        self.assertIn("must be verified from deployment evidence", findings["V4.4.1"])
+        self.assertIn("Residual-risk decision: OPEN", self.document)
+
     def test_scoped_asvs_matrix_covers_its_declared_control_set(self) -> None:
         matrix = _assurance_matrix(self.document)
         fixture_controls = _load_asvs_control_fixture()["control_ids"]
@@ -527,6 +539,12 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
     def test_routeros_credential_memory_tradeoff_is_not_claimed_as_resolved(self) -> None:
         self.assertIn("Risk decision status: unresolved.", self.document)
         self.assertIn("no second password store is introduced", self.document)
+
+    def test_local_release_deployer_credential_risks_are_scoped(self) -> None:
+        self.assertIn("ROUTEROS_DEPLOY_USERNAME", self.document)
+        self.assertIn("ROUTEROS_DEPLOY_PASSWORD", self.document)
+        self.assertIn("host-level environment inspection", self.document)
+        self.assertIn("those controls remain unverified", self.document)
 
 
 if __name__ == "__main__":

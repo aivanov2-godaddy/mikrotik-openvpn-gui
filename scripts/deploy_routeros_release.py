@@ -47,6 +47,21 @@ class DeploymentError(RuntimeError):
     """Raised when a guarded RouterOS deployment gate fails."""
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Do not forward RouterOS Basic credentials to a redirect target."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class DeploymentSettings:
     rest_url: str
@@ -93,6 +108,10 @@ class RouterOSRest:
             self.ssl_context = ssl.create_default_context(cadata=settings.ca_pem)
         else:
             self.ssl_context = ssl.create_default_context()
+        self._opener = urllib.request.build_opener(
+            _NoRedirectHandler(),
+            urllib.request.HTTPSHandler(context=self.ssl_context),
+        )
 
     def request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         safe_path = "/" + path.lstrip("/")
@@ -109,7 +128,7 @@ class RouterOSRest:
             method=method,
         )
         try:
-            with urllib.request.urlopen(request, context=self.ssl_context, timeout=self.timeout) as response:
+            with self._opener.open(request, timeout=self.timeout) as response:
                 payload = response.read().decode("utf-8")
         except urllib.error.HTTPError as error:
             status = error.code
