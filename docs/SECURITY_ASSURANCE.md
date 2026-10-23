@@ -396,7 +396,33 @@ examined PR #791's commit, not the changed source in PR #793. Therefore this
 publication is not an independent security review, deployed-proxy validation,
 or RouterOS acceptance. Issue #200 remains open for those gates.
 
-### Latest published mainline security changes — PR #794 — 2026-10-23
+### Latest published mainline security changes — PR #798 — 2026-10-23
+
+PR [#798](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/798)
+merged as `041a9d2ac7581dac18911c236cbbb3aee4280273`. It narrows originless
+Socket.IO polling GET compatibility to requests carrying exactly one same-origin
+`Referer`, rejected before Engine.IO SID allocation when evidence is absent,
+duplicate, malformed, or foreign. The global `Referrer-Policy: same-origin`
+allows the same-origin browser fallback while suppressing cross-origin
+referrers. Regression coverage includes app and ASGI request boundaries and a
+rendered Chromium assertion that same-origin polling carries the dashboard
+Referer. Main CI run
+[#40000779522](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40000779522)
+and publisher run
+[#40000779533](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40000779533)
+passed both architecture builds, runtime smoke, provenance/SBOM verification,
+and stable-manifest read-back. The published RouterOS ARM64 digest is
+`sha256:b41ad2cde73efe9f465d583430e4801b75335b18c92b9a364ec21149c69ab601`;
+the AMD64 digest is
+`sha256:bf2c211397f30940cb72ab199f2d575b42372341491a934b1260bdd9a12fba6c`.
+Required PR checks passed: Python 3.13/3.14, pre-commit, the
+desktop/tablet/mobile browser and accessibility suite, ARM64 smoke, CodeQL,
+secret/dependency checks, the Socket.IO security contract, and Redis recovery.
+Publication is artifact evidence only; no RouterOS staging or deployment is
+recorded for this change. Reverse-proxy behavior and the independent scoped
+ASVS review remain unverified, so issue #200 stays open.
+
+### Previously published mainline security changes — PR #794 — 2026-10-23
 
 PR [#794](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/794)
 is merged and published; no post-publication RouterOS staging is recorded.

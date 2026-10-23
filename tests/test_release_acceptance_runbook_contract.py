@@ -84,7 +84,7 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "PR #794 is the latest published candidate, but no post-publication staging or live acceptance is recorded.",
+            "PR #798 is the latest published candidate, but no post-publication staging or live acceptance is recorded.",
             report,
         )
         self.assertNotIn("PR #791 has been published but not staged", report)

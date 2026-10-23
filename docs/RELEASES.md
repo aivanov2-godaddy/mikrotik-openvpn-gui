@@ -18,18 +18,22 @@ RouterOS state, live measurements, and operator/session details remain in
 private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #794 is the latest
-merged mainline commit and latest published image. Its immutable ARM64/AMD64
-artifacts and CI provenance are recorded below. That publication did not stage
-or deploy the image on RouterOS. An earlier read-only inventory at approximately 14:19 UTC
+version, v2.8.0, has not been tagged or published. PR #798 is the latest
+merged mainline commit and published image
+(`041a9d2ac7581dac18911c236cbbb3aee4280273`). Its immutable ARM64/AMD64
+artifacts and CI provenance are recorded below. Publication did not stage or
+deploy the image on RouterOS. An earlier read-only inventory at approximately
+14:19 UTC
 on 2026-10-23 showed the PR #788 ARM64 tag configured on canary and
 production; a later acceptance snapshot at approximately 14:33 UTC is recorded
 in `LIVE_TELEMETRY_ACCEPTANCE_REPORT.md`. These are configured-tag read-backs,
 not digest verification or candidate acceptance. The latest candidate-bound
 canary record remains PR #776, with no completed 30-minute acceptance window.
-PR #791's updater example is not included in the container image. PR #794
-merged and published additional WebSocket Origin and admin-session
-revocation-reference hardening; no post-publication RouterOS staging is recorded.
+PR #791 and #797 update the repository's example RouterOS updater but do not
+install or run it on the router. PR #798 adds same-origin Referer evidence for
+originless polling GET and preserves that evidence with a same-origin referrer
+policy. Its CI and publication passed; no post-publication RouterOS staging is
+recorded.
 PR #778 adds
 redacted diagnostics for CSRF Origin/Referer rejections and binds Engine.IO
 SIDs to the active dashboard session before sending the handshake. PR #776
@@ -96,7 +100,62 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline image — PR #794 — 2026-10-23
+### Latest published mainline image — PR #798 — 2026-10-23
+
+PR [#798](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/798)
+merged as `041a9d2ac7581dac18911c236cbbb3aee4280273`. It requires one
+same-origin `Referer` before allocating Engine.IO state for an originless
+Socket.IO polling GET, preserves that browser evidence with
+`Referrer-Policy: same-origin`, and covers the fallback in server and rendered
+browser tests. Main CI run
+[#40000779522](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40000779522)
+and publisher run
+[#40000779533](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40000779533)
+passed. Both architecture images were built and smoke-tested; provenance and
+SBOM attestations were verified against the source and image digests, and the
+stable manifest was published and read back.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-041a9d2ac7581dac18911c236cbbb3aee4280273-arm64` | `sha256:b41ad2cde73efe9f465d583430e4801b75335b18c92b9a364ec21149c69ab601` |
+| AMD64 / CHR | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-041a9d2ac7581dac18911c236cbbb3aee4280273-amd64` | `sha256:bf2c211397f30940cb72ab199f2d575b42372341491a934b1260bdd9a12fba6c` |
+
+This is an immutable published mainline image, not a numbered release;
+v2.7.0 remains the latest formal release. Publication did not stage or run the
+updater on RouterOS; no post-publication RouterOS staging/deployment is
+recorded. The latest candidate-bound canary record remains PR #776; the PR
+#788 configured-tag read-back does not establish readiness or a passing soak.
+Do not tag or publish v2.8.0 until current candidate-specific acceptance gates
+pass.
+
+### Previously published mainline image — PR #797 — 2026-10-23
+
+PR [#797](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/797)
+merged as `6ca0ebbfab7781c2113555db491b60f5072c4630`. Its CI run
+[#39997529192](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39997529192)
+and publisher run
+[#39997529273](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39997529273)
+passed. Both architecture images were built and smoke-tested; provenance and
+SBOM attestations were verified against the source and image digests, and the
+stable manifest was published and read back. PR #797 improves rollback
+verification in the checked-in RouterOS updater example; it does not install
+or execute that updater on RouterOS.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-6ca0ebbfab7781c2113555db491b60f5072c4630-arm64` | `sha256:de7df62309d9340e49958117a3b04d0c21991c708384abd27343435fc8704380` |
+| AMD64 / CHR | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-6ca0ebbfab7781c2113555db491b60f5072c4630-amd64` | `sha256:759b8aaa1cd2cd7e37f2b148669caf6cafc1361ff3ca0d2451b30b9349d1090a` |
+
+These are immutable published mainline images, not a numbered release;
+v2.7.0 remains the latest formal release. Publication did not stage or run the
+updater on RouterOS and is not candidate-specific acceptance or production
+promotion; no post-publication RouterOS staging/deployment is recorded. The
+latest candidate-bound canary record remains PR #776; the PR
+#788 configured-tag read-back does not establish readiness or a passing soak.
+Do not tag or publish v2.8.0 until current candidate-specific acceptance gates
+pass.
+
+### Previously published mainline image — PR #794 — 2026-10-23
 
 PR [#794](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/794)
 merged as `beba66c0f36231511ec1b9cc664f2be39a128750`. It rejects missing,
@@ -170,9 +229,9 @@ attestations verified.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0002ce431fd8be0a66801725fbfb371f01ce7567-arm64` | `sha256:a61103b00e34ce5172ca084e6744dba2326fc351e5cca362c9fb7951430e581e` |
 
 This publication did not stage or run the example updater on RouterOS and is
-not candidate-specific acceptance or production promotion. It has since been
-superseded first by PR #793 and then by PR #794 as the latest published mainline image; it is not a
-numbered release.
+not candidate-specific acceptance or production promotion. PR #793 and then
+PR #794 superseded it at the time; PR #798 is the latest published mainline
+image now. It is not a numbered release.
 
 ### Previously published mainline image — PR #778 — 2026-10-23
 
@@ -192,8 +251,9 @@ source commit.
 | --- | --- | --- |
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-10721ebc7a0a4db2fb8ef82a80783376140e4205-arm64` | `sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832` |
 
-No RouterOS staging for this image is recorded; it has been superseded as the
-latest published image by PR #794. PR #776 below remains the latest
+No RouterOS staging for this image is recorded. It was superseded by PR #794
+at the time of that earlier record; PR #798 is the latest published image
+now. PR #776 below remains the latest
 candidate-bound canary record; the later PR #788 configured-tag inventory is
 not readiness or hardware acceptance. No #778 hardware acceptance is claimed.
 Production was not changed. This is an immutable published mainline image,

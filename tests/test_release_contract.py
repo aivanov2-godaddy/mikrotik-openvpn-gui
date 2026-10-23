@@ -169,17 +169,18 @@ class ReleaseContractTests(unittest.TestCase):
         )
         rendered = "\n".join(document.read_text(encoding="utf-8") for document in documents)
 
-        self.assertIn("beba66c0f36231511ec1b9cc664f2be39a128750", rendered)
+        self.assertIn("041a9d2ac7581dac18911c236cbbb3aee4280273", rendered)
+        self.assertIn("6ca0ebbfab7781c2113555db491b60f5072c4630", rendered)
         self.assertIn(
-            "sha256:1dad53e8e89acab230ae69703cec319a64ce472ca1336c491d7aa13e022f96f5",
+            "sha256:b41ad2cde73efe9f465d583430e4801b75335b18c92b9a364ec21149c69ab601",
             rendered,
         )
         self.assertIn(
-            "sha256:dd576d101fe0a16070c27eece09757f5f765c1536703feaa786f43d28f74e26e",
+            "sha256:bf2c211397f30940cb72ab199f2d575b42372341491a934b1260bdd9a12fba6c",
             rendered,
         )
         self.assertIn("no post-publication RouterOS staging/deployment is recorded", rendered)
-        self.assertIn("PR #794", rendered)
+        self.assertIn("PR #798", rendered)
         self.assertIn("No post-publication staging is recorded for", rendered)
 
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:
