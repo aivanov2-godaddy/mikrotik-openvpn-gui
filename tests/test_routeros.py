@@ -163,6 +163,31 @@ class RouterOSClientTests(unittest.TestCase):
             with self.subTest(record=record), patch.object(client, "_request", return_value=[record]):
                 self.assertEqual(client.get_admin_role(credentials), "read_only")
 
+    def test_admin_role_lookup_requires_explicit_enabled_status(self) -> None:
+        client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
+        credentials = RouterOSCredentials("admin", "routerpass")
+        records = (
+            {"name": "admin", "group": "full"},
+            {"name": "admin", "group": "full", "disabled": ""},
+            {"name": "admin", "group": "full", "disabled": "unknown"},
+            {"name": "admin", "group": "full", "disabled": "maybe"},
+            {"name": "admin", "group": "full", "disabled": "yes"},
+            {"name": "admin", "group": "full", "disabled": "true"},
+        )
+
+        for record in records:
+            with self.subTest(record=record), patch.object(client, "_request", return_value=[record]):
+                self.assertIsNone(client.get_admin_role(credentials))
+
+    def test_admin_role_lookup_accepts_routeros_enabled_status_encodings(self) -> None:
+        client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
+        credentials = RouterOSCredentials("admin", "routerpass")
+
+        for status in ("no", "false"):
+            record = {"name": "admin", "group": "full", "disabled": status}
+            with self.subTest(status=status), patch.object(client, "_request", return_value=[record]):
+                self.assertEqual(client.get_admin_role(credentials), "owner")
+
     def test_rate_profile_change_requires_reviewed_state_and_exact_readback(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)

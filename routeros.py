@@ -319,7 +319,8 @@ class RouterOSClient:
             (item for item in records if str(item.get("name", "")) == credentials.username),
             None,
         )
-        if record is None or str(record.get("disabled", "no")).strip().casefold() in {"yes", "true", "1"}:
+        disabled_status = str(record.get("disabled", "")).strip().casefold() if record is not None else ""
+        if record is None or disabled_status not in {"no", "false"}:
             return None
         raw_group = record.get("group")
         if not isinstance(raw_group, str) or not raw_group.strip():
