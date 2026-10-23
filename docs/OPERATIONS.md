@@ -56,6 +56,12 @@ deduplicate by `event_id`. Keep Redis on a private network, enable
 authentication, and persist its data directory. Use `rediss://` when Redis
 traffic crosses a network boundary that is not already protected by an
 isolated trusted transport.
+Before rolling back to an application version that predates schema v2,
+temporarily disable outbound integrations by unsetting `WEBHOOK_URL`,
+`WEBHOOK_SIGNING_SECRET`, and `REDIS_STREAM_URL`; older versions can forward the
+broader legacy event shape from the durable outbox. Preserve the local SQLite
+outbox, restore a version with the v2 allowlist, then re-enable integrations
+after confirming downstream consumers accept the minimized schema.
 The authenticated Prometheus `/metrics` endpoint reports aggregate outbox
 backlog/age, retries, last successful delivery, and Redis publish outcomes. A
 Redis availability value of `-1` means no publish has yet tested the connection;
