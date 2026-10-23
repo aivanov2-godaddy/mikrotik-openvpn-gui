@@ -147,7 +147,7 @@ populated environment file.
 | `REDIRECT_PORT` | No | HTTP redirect listener; defaults to `8081` |
 | `DROP_PRIVILEGES` | Yes | Keep `true` so the app drops to an unprivileged UID/GID |
 | `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
-| `WEBHOOK_URL` | Optional | HTTPS endpoint for sanitized, signed audit events; disabled unless paired with `WEBHOOK_SIGNING_SECRET` |
+| `WEBHOOK_URL` | Optional | HTTPS endpoint for minimized, signed audit events (schema v2); disabled unless paired with `WEBHOOK_SIGNING_SECRET` |
 | `WEBHOOK_SIGNING_SECRET` | Optional | At least 32 characters; used only to calculate `X-VPN-Dashboard-Signature` and never displayed or audited |
 | `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL; enables optional Redis Streams fan-out and requires the Redis image extra |
 | `REDIS_STREAM_KEY` | No | Bounded Redis stream name; defaults to `vpn-dashboard.events` |

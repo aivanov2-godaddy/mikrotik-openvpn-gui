@@ -133,11 +133,17 @@ and [`/ip/service` reference](https://manual.mikrotik.com/docs/cli-reference/ip/
 
 Change History records successful and failed sign-ins, the role assigned to a
 session, denied capabilities (`role.denied`), and dashboard-session revocation
-(`session.revoked`). Events include only a safe actor, route/target, role,
-capability, source address, result, and a coarse reason. Passwords, session
-cookies/tokens, private keys, certificates, and profile contents are rejected
-by the audit sanitizer and are never written to SQLite or sent to an audit
-webhook.
+(`session.revoked`). Local audit records may include the actor, target,
+source-address, role/capability, result, and a coarse reason; they remain in
+the protected SQLite database. Remote webhook and Redis events use the
+minimized schema v2 documented in [Operations](OPERATIONS.md): event ID,
+action/status classifications, and timestamp only. Actor names, targets,
+source addresses, and free-form details are not sent to remote sinks.
+The local audit sanitizer removes structured detail keys that identify common
+credentials; it does not scan arbitrary text values for secret material.
+Handlers must not place passwords, session cookies/tokens, private keys,
+certificates, or profile contents in actor, target, or free-form audit fields.
+Remote schema v2 omits those fields and free-form details entirely.
 
 ## Build and release integrity
 
