@@ -80,6 +80,195 @@ for (const view of views) {
   });
 }
 
+test('Connections history keeps search and status filters during streamed row updates', async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 600 });
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: 'Find a connection' });
+  const status = page.getByRole('combobox', { name: 'Connection status' });
+  const viewport = page.locator('[data-connection-history] .responsive-table');
+
+  await search.fill('sample-user');
+  await status.selectOption('ended');
+  const initialScroll = await viewport.evaluate((element) => {
+    element.scrollLeft = 80;
+    return element.scrollLeft;
+  });
+  expect(initialScroll).toBeGreaterThan(0);
+
+  await page.evaluate(() => {
+    window.renderConnectionHistory([
+      {
+        id: 'ux-active', session_id: 'ux-active', vpn_user: 'sample-user',
+        source_address: '192.0.2.10', vpn_address: '10.8.0.10', encoding: 'AES-256-GCM',
+        connected_at: 1791028800, last_seen_at: 1791028860, rx_bytes: 100, tx_bytes: 200,
+      },
+      {
+        id: 'ux-ended', session_id: 'ux-ended', vpn_user: 'sample-user',
+        source_address: '192.0.2.11', vpn_address: '10.8.0.11', encoding: 'AES-256-GCM',
+        connected_at: 1791025200, disconnected_at: 1791027000, last_seen_at: 1791027000,
+        rx_bytes: 300, tx_bytes: 400,
+      },
+    ]);
+  });
+
+  const active = page.locator('[data-connection-row][data-router-session-id="ux-active"]');
+  const ended = page.locator('[data-connection-row][data-router-session-id="ux-ended"]');
+  await expect(active).toHaveClass(/is-filtered-out/);
+  await expect(ended).not.toHaveClass(/is-filtered-out/);
+  await expect(viewport).toHaveJSProperty('scrollLeft', initialScroll);
+
+  await search.fill('no-such-connection');
+  await expect(ended).toHaveClass(/is-filtered-out/);
+  await search.fill('sample-user');
+  await status.selectOption('active');
+  await expect(active).not.toHaveClass(/is-filtered-out/);
+  await expect(ended).toHaveClass(/is-filtered-out/);
+
+  const reconciled = await page.evaluate(() => {
+    window.reconcileConnectionHistory([]);
+    const row = document.querySelector('[data-connection-row][data-router-session-id="ux-active"]');
+    return { live: row?.dataset.historyLive, filtered: row?.classList.contains('is-filtered-out') };
+  });
+  expect(reconciled).toEqual({ live: 'false', filtered: true });
+
+  const savedViewState = await page.evaluate(() => {
+    const users = [...document.querySelectorAll('.user-card')].map((card) => ({
+      name: card.dataset.userName,
+      disabled: card.dataset.userDisabled === 'true',
+      comment: card.dataset.userComment,
+      email: card.dataset.userEmail,
+      controls: { max_sessions: Number(card.dataset.userMaxSessions) || 5 },
+    }));
+    // Match the real roster-change path that schedules a safe page sync.
+    window.updateDashboard({
+      users: [...users, { name: 'ux-roster-change' }],
+      sessions: [], connections: [], alerts: [],
+      telemetry: { state: 'healthy', transport: 'sse' },
+    });
+    return JSON.parse(sessionStorage.getItem('vpn-dashboard-live-view-state'));
+  });
+  expect(savedViewState.connectionSearch).toBe('sample-user');
+  expect(savedViewState.connectionStatus).toBe('active');
+  await expect(page).toHaveURL(/dashboard#live-sessions$/);
+  await expect(search).toHaveValue('sample-user');
+  await expect(status).toHaveValue('active');
+  await expect(viewport).toHaveJSProperty('scrollLeft', initialScroll);
+});
+
+test('VPN user status filters track streamed sessions and selection survives automatic sync', async ({ page }, testInfo) => {
+  const isMobile = testInfo.project.name === 'mobile-390';
+  await page.setViewportSize({ width: isMobile ? 390 : 1200, height: 300 });
+  await page.getByRole('link', { name: 'VPN Users', exact: true }).click();
+  const firstCard = page.locator('.user-card').first();
+  const userName = await firstCard.getAttribute('data-user-name');
+  const status = page.locator('[data-bulk-status]');
+  await status.selectOption('online');
+
+  await page.evaluate((name) => {
+    const session = {
+      id: 'ux-live-session', name, encoding: 'AES-256-GCM',
+      rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0,
+      vpn_address: '10.8.0.99', source_address: '192.0.2.99', uptime: '00:00:01',
+    };
+    window.updateLiveSnapshot({ sessions: [session] });
+  }, userName);
+  await expect(firstCard).not.toHaveClass(/is-filtered-out/);
+  await expect(firstCard.locator('[data-connection-status]')).toContainText('Connected');
+
+  await page.evaluate(() => {
+    const users = [...document.querySelectorAll('.user-card')].map((card) => ({
+      name: card.dataset.userName,
+      disabled: card.dataset.userDisabled === 'true',
+      comment: card.dataset.userComment,
+      email: card.dataset.userEmail,
+      controls: { max_sessions: Number(card.dataset.userMaxSessions) || 5 },
+    }));
+    // This response represents a REST poll that began before the stream update.
+    window.updateDashboard({
+      users, sessions: [], connections: [], alerts: [],
+      telemetry: { state: 'healthy', transport: 'sse' },
+    }, 0);
+  });
+  await expect(firstCard).not.toHaveClass(/is-filtered-out/);
+  await expect(firstCard.locator('[data-connection-status]')).toContainText('Connected');
+
+  const selection = firstCard.locator('[data-user-select]');
+  await selection.check();
+  await expect(page.locator('[data-bulk-selection]')).toHaveText('1 selected');
+  await expect(page.locator('[data-bulk-action-controls]')).toBeVisible();
+
+  await page.evaluate(() => window.setActiveSessionsStale(true));
+  await expect(firstCard).toHaveAttribute('data-user-connection-stale', 'true');
+  await expect(firstCard.locator('[data-connection-status]')).toContainText('Status delayed');
+  await expect(firstCard.locator('[data-connection-status]')).toBeDisabled();
+  await expect(firstCard).toHaveClass(/is-filtered-out/);
+  await expect(selection).toBeChecked();
+
+  await page.evaluate((name) => window.updateLiveSnapshot({
+    sessions: [{
+      id: 'ux-live-session', name, encoding: 'AES-256-GCM',
+      rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0,
+      vpn_address: '10.8.0.99', source_address: '192.0.2.99', uptime: '00:00:02',
+    }],
+  }), userName);
+  await expect(firstCard).not.toHaveClass(/is-filtered-out/);
+  await expect(firstCard.locator('[data-connection-status]')).toContainText('Connected');
+
+  await page.evaluate(() => window.updateLiveSnapshot({ sessions: [] }));
+  await expect(firstCard).toHaveClass(/is-filtered-out/);
+  await expect(page.locator('[data-user-filter-empty]')).toBeVisible();
+  await expect(selection).toBeChecked();
+
+  await page.evaluate((name) => window.updateLiveSnapshot({
+    sessions: [{
+      id: 'ux-live-session', name, encoding: 'AES-256-GCM',
+      rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0,
+      vpn_address: '10.8.0.99', source_address: '192.0.2.99', uptime: '00:00:03',
+    }],
+  }), userName);
+  await expect(firstCard).not.toHaveClass(/is-filtered-out/);
+  await page.locator('[data-user-search]').fill(userName);
+  await status.selectOption('online');
+  const scrollBefore = await page.evaluate((mobile) => {
+    const content = document.querySelector('.workspace-content');
+    if (mobile) {
+      window.scrollTo(0, 120);
+      return window.scrollY;
+    }
+    content.scrollTop = content.scrollHeight;
+    return content.scrollTop;
+  }, isMobile);
+  expect(scrollBefore).toBeGreaterThan(0);
+  const savedViewState = await page.evaluate(() => {
+    const users = [...document.querySelectorAll('.user-card')].map((card) => ({
+      name: card.dataset.userName,
+      disabled: card.dataset.userDisabled === 'true',
+      comment: card.dataset.userComment,
+      email: card.dataset.userEmail,
+      controls: { max_sessions: Number(card.dataset.userMaxSessions) || 5 },
+    }));
+    // A roster delta exercises updateDashboard's actual automatic-sync branch.
+    window.updateDashboard({
+      users: [...users, { name: 'ux-roster-change' }],
+      sessions: [], connections: [], alerts: [],
+      telemetry: { state: 'healthy', transport: 'sse' },
+    });
+    return JSON.parse(sessionStorage.getItem('vpn-dashboard-live-view-state'));
+  });
+  expect(savedViewState.userStatus).toBe('online');
+  expect(isMobile ? savedViewState.scrollY : savedViewState.workspaceScrollTop).toBeGreaterThan(100);
+  await expect(page).toHaveURL(/dashboard#vpn-users$/);
+  await expect(page.locator('[data-user-search]')).toHaveValue(userName);
+  await expect(page.locator('[data-bulk-status]')).toHaveValue('online');
+  await expect(page.locator('.user-card').first().locator('[data-user-select]')).toBeChecked();
+  await expect(page.locator('[data-bulk-selection]')).toHaveText('1 selected');
+  await expect(page.locator('[data-bulk-action-controls]')).toBeVisible();
+  const scrollAfter = await page.evaluate((mobile) => (
+    mobile ? window.scrollY : document.querySelector('.workspace-content').scrollTop
+  ), isMobile);
+  expect(scrollAfter).toBeGreaterThan(isMobile ? 0 : 100);
+});
+
 test('Device Profiles CRL configuration refreshes automatically only while its view is open', async ({ page }) => {
   let requests = 0;
   let available = true;

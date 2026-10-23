@@ -363,6 +363,8 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .connection-badge i { width: 7px; height: 7px; border-radius: 50%; background: #68757d; }
 .connection-badge.online { color: #bdebd5; }
 .connection-badge.online i { background: var(--green); }
+.connection-badge.stale { color: var(--amber); }
+.connection-badge.stale i { background: var(--amber); }
 .profile-count { display: grid; }
 .profile-count strong { color: #e3e9ec; font-size: 15px; }
 .profile-count span { color: #91a0a9; font-size: 10px; }
@@ -394,11 +396,15 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 /* Bulk operations are review-first and store only non-secret metadata. */
 .bulk-operations-panel { margin-bottom: 8px; }
 .bulk-controls, .bulk-action-row, .saved-view-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
+.bulk-action-row[hidden] { display: none !important; }
 .bulk-controls label, .bulk-action-row label, .saved-view-row label { display: grid; min-width: 150px; gap: 3px; color: #aebbc2; font-size: 10px; font-weight: 600; }
 .bulk-action-row [data-bulk-reason-input][hidden] { display: none !important; }
 .bulk-controls label span, .bulk-action-row label span, .saved-view-row label span { color: #84949e; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
 .bulk-controls button, .bulk-action-row button, .saved-view-row button { min-height: 30px; }
 .bulk-action-row input, .saved-view-row input, .bulk-action-row select, .bulk-controls select, .saved-view-row select { min-height: 30px; }
+.saved-view-tools > summary { padding: 7px 10px; color: var(--muted); cursor: pointer; font-size: 11px; user-select: none; }
+.saved-view-tools[open] > summary { border-bottom: 1px solid var(--line-soft); color: var(--text); }
+.saved-view-tools .saved-view-row { border-bottom: 0; }
 .bulk-review { display: grid; gap: 5px; margin: 0 10px 8px; padding: 8px; border: 1px solid #406176; background: #20323d; }
 .bulk-review[hidden] { display: none !important; }
 .bulk-review > strong, .bulk-review > small { display: block; }
@@ -582,6 +588,9 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .history-panel { margin-top: 8px; }
 .connection-history-table { min-width: 920px; }
 .compact-search { width: min(230px, 34vw); height: 28px; }
+.compact-filter { display: flex; align-items: center; }
+.compact-filter select { min-height: 28px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .history-details { display: grid; min-width: 190px; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .history-details li { display: flex; justify-content: space-between; gap: 8px; }
 .history-details span { color: #75838c; font-size: 11px; }
