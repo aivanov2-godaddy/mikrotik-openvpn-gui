@@ -546,10 +546,14 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "at approximately 14:50 UTC showed one active VPN session", report
+            "2026-10-24 its exact immutable ARM64 tag and revision were staged/read back on the isolated canary",
+            report,
         )
-        self.assertIn("later check at approximately 15:02 UTC showed none", report)
-        self.assertIn("was not correlated with dashboard telemetry", report)
+        self.assertIn(
+            "new 30-sample, one-minute-spaced readiness observation has started but is not complete",
+            report,
+        )
+        self.assertIn("canary dashboard remains at its app sign-in form", report)
 
     def test_documented_contextual_login_limit_matches_runtime_defaults(self) -> None:
         limiter_module = ast.parse((ROOT / "security.py").read_text(encoding="utf-8"))
@@ -600,14 +604,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("external log layers", unverified)
         self.assertIn("Complete an independent, requirement-by-requirement ASVS review", unverified)
 
-    def test_pr793_publication_is_not_misrepresented_as_independent_review(self) -> None:
+    def test_latest_publication_is_not_misrepresented_as_independent_review(self) -> None:
         roadmap = " ".join((ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8").split())
         assurance = " ".join(self.document.split())
         self.assertIn(
             "Two bounded, read-only source reviews against PR #791's commit",
             roadmap,
         )
-        self.assertIn("PR #798 is merged and published as", roadmap)
+        self.assertIn("PR #803 is the latest published candidate", roadmap)
+        self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
         self.assertIn("The two bounded source reviews described above", self.document)
         self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)

@@ -167,21 +167,26 @@ class ReleaseContractTests(unittest.TestCase):
             ROOT / "docs/INSTALLATION.md",
             ROOT / "docs/ROUTEROS_ACCEPTANCE.md",
         )
-        rendered = "\n".join(document.read_text(encoding="utf-8") for document in documents)
+        rendered = " ".join(
+            "\n".join(document.read_text(encoding="utf-8") for document in documents).split()
+        )
 
-        self.assertIn("041a9d2ac7581dac18911c236cbbb3aee4280273", rendered)
-        self.assertIn("6ca0ebbfab7781c2113555db491b60f5072c4630", rendered)
+        self.assertIn("e12d1708e81959f02c182659dc5bb35a82229fef", rendered)
         self.assertIn(
-            "sha256:b41ad2cde73efe9f465d583430e4801b75335b18c92b9a364ec21149c69ab601",
+            "sha256:d0fe3c7c19cd49db9499e645e4d31467cc264d8575b74da59d4beffc9967250c",
             rendered,
         )
         self.assertIn(
-            "sha256:bf2c211397f30940cb72ab199f2d575b42372341491a934b1260bdd9a12fba6c",
+            "sha256:d36b00322a4bcc9ba0cca21af2ef0a5b18a4b6f351f989d423df5dcf1fe86f63",
             rendered,
         )
-        self.assertIn("no post-publication RouterOS staging/deployment is recorded", rendered)
+        self.assertIn(
+            "Manual canary staging and rollback now have candidate-bound readiness evidence",
+            rendered,
+        )
+        self.assertIn("30-sample, one-minute-spaced readiness observation", rendered)
+        self.assertIn("Production remains on its prior image", rendered)
         self.assertIn("PR #798", rendered)
-        self.assertIn("No post-publication staging is recorded for", rendered)
 
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:
         operations = (ROOT / "docs/OPERATIONS.md").read_text(encoding="utf-8")

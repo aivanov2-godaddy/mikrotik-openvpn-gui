@@ -14,35 +14,30 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest merged and published mainline image is
-PR #798, commit `041a9d2ac7581dac18911c236cbbb3aee4280273`, published by
-[workflow run #40000779533](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40000779533).
+PR #803, commit `e12d1708e81959f02c182659dc5bb35a82229fef`, published by
+[workflow run #40022645478](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40022645478).
 Its immutable ARM64/AMD64 tags and digests are recorded in
 [`RELEASES.md`](RELEASES.md#published-images); the RouterOS ARM64 digest is
-`sha256:b41ad2cde73efe9f465d583430e4801b75335b18c92b9a364ec21149c69ab601`.
-Main CI, both architecture builds, runtime smoke, provenance/SBOM verification,
-and stable-manifest read-back passed. PR #798 adds the originless polling
-Referer gate and browser-policy regression. No post-publication staging is
-recorded for this image on RouterOS, so hardware acceptance is unverified.
+`sha256:d0fe3c7c19cd49db9499e645e4d31467cc264d8575b74da59d4beffc9967250c`.
+Main CI, CodeQL, both architecture builds, runtime smoke, provenance/SBOM
+verification, and stable-manifest read-back passed.
 
-The latest candidate-bound canary checkpoint is PR #776, commit
-`c4b4b76793b2454e81362867d8654962627de6fa`. RouterOS read-back reported its
-exact ARM64 tag healthy after start, but the persisted pending-candidate record
-did not match the later canary image and no candidate-matched 30-minute sample
-record was verified. A later authenticated dashboard observation showed a
-connected-user change without manual refresh, but event latency was not timed.
-Canary sign-out was rejected by the origin check and did not revoke the session;
-the expected origin was configured, but the rejected request header shape was
-not captured. A later read-only inventory at approximately 14:33 UTC on
-2026-10-23 showed both containers configured with the PR #788 ARM64 tag. A
-separate RouterOS PPP Active Connections check at approximately 14:50 UTC
-showed one active VPN session; a later refresh at approximately 15:02 UTC
-showed no active sessions. The canary browser remained at sign-in. This
-confirms only the earlier router-side client presence; it does not correlate
-the session with dashboard telemetry. The transition time and cause are
-unknown. This is tag read-back, not candidate readiness or acceptance. These
-observations do not replace
-candidate-specific hardware acceptance. PR #772 and earlier checkpoints below
-are historical.
+On 2026-10-24, the exact PR #803 ARM64 tag and readiness revision were read
+back on the isolated canary. A manual rollback to the prior canary image
+passed readiness at the matching prior revision; the PR #803 candidate was
+then restored and readiness reverified. Production remains on its prior image
+and was not changed. A fresh 30-sample, one-minute-spaced readiness observation
+is in progress, not complete. The canary dashboard remains at the application
+sign-in form in the available browser view, so authenticated event latency,
+traffic freshness, reconnect/snapshot recovery, and session authorization are
+not verified. Readiness and rollback checks alone do not constitute full
+hardware acceptance or production promotion.
+
+The installed RouterOS updater differs from the reviewed repository template
+and was not executed. Its original generic `invalid request` is no longer
+present in retained logs, so the failing statement remains unknown. Do not run
+that installed updater until its source and promotion behavior are reconciled.
+PR #772 and earlier deployment checkpoints below are historical.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
