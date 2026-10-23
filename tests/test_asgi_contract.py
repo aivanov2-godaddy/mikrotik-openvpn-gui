@@ -4010,6 +4010,8 @@ class ASGIContractTests(unittest.TestCase):
         import http.client
         import socketio
         import uvicorn
+        from websockets.asyncio.client import connect as websocket_connect
+        from websockets.exceptions import InvalidStatus
 
         from asgi import NativeSocketIO, SocketIOLiveSendASGI, TrustedProxySchemeASGI
         from telemetry_gateway import TelemetryPrincipal
@@ -4115,6 +4117,44 @@ class ASGIContractTests(unittest.TestCase):
                     engine_sid, original.session_id
                 ))
 
+                # A valid polling SID is not authority to upgrade from a
+                # foreign browser origin. Reject before Engine.IO sees it.
+                websocket_url = (
+                    f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket&sid={engine_sid}"
+                )
+                with self.assertRaises(InvalidStatus) as rejected_upgrade:
+                    async with websocket_connect(
+                        websocket_url,
+                        origin="https://attacker.example",
+                        additional_headers={
+                            "Cookie": f"__Host-vpn_session={original.session_id}"
+                        },
+                        proxy=None,
+                    ):
+                        self.fail("foreign-origin WebSocket upgrade unexpectedly succeeded")
+                self.assertEqual(rejected_upgrade.exception.response.status_code, 403)
+                self.assertEqual(engineio_requests, 1)
+
+                # The matching public origin must still complete a genuine
+                # Engine.IO probe and upgrade with the same bound SID.
+                async with websocket_connect(
+                    websocket_url,
+                    origin="https://vpn.example.test",
+                    additional_headers={
+                        "Cookie": f"__Host-vpn_session={original.session_id}",
+                        "X-Forwarded-Host": "vpn.example.test",
+                        "X-Forwarded-Proto": "https",
+                    },
+                    proxy=None,
+                ) as upgraded_websocket:
+                    await upgraded_websocket.send("2probe")
+                    self.assertEqual(
+                        await asyncio.wait_for(upgraded_websocket.recv(), timeout=5),
+                        "3probe",
+                    )
+                    await upgraded_websocket.send("5")
+                self.assertEqual(engineio_requests, 2)
+
                 # Engine.IO accepts slash-delimited path suffixes. The wrapper
                 # must reject a different valid dashboard session before the
                 # polling request reaches Engine.IO.
@@ -4125,7 +4165,7 @@ class ASGIContractTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 403)
                 self.assertEqual(response_body, b"")
-                self.assertEqual(engineio_requests, 1)
+                self.assertEqual(engineio_requests, 2)
                 self.assertTrue(socketio_gate._session_matches_engine_sid(
                     engine_sid, original.session_id
                 ))
@@ -4143,7 +4183,7 @@ class ASGIContractTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 200)
                 self.assertTrue(handshake.startswith(b"0{"), handshake)
-                self.assertEqual(engineio_requests, 2)
+                self.assertEqual(engineio_requests, 3)
 
                 # Forwarded host/proto cannot make a foreign browser Origin
                 # authoritative, even when Engine.IO would accept that pair.
@@ -4159,8 +4199,156 @@ class ASGIContractTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 403)
                 self.assertEqual(response_body, b"")
-                self.assertEqual(engineio_requests, 2)
+                self.assertEqual(engineio_requests, 3)
             finally:
+                server.should_exit = True
+                await asyncio.wait_for(server_task, timeout=5)
+
+        asyncio.run(exercise())
+
+    def test_native_socketio_websocket_stops_after_role_revocation_and_denies_reconnect(self) -> None:
+        if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn", "websockets")):
+            self.skipTest("native Socket.IO runtime dependencies are not installed")
+
+        from websockets.asyncio.client import connect as websocket_connect
+        from websockets.exceptions import InvalidStatus
+        import socketio
+        import uvicorn
+
+        from asgi import NativeSocketIO, SocketIOLiveSendASGI, TrustedProxySchemeASGI
+        from routeros_binary import RouterOSReply
+        from telemetry_runtime import TelemetryRuntime
+
+        async def exercise() -> None:
+            sessions = SessionStore(idle_seconds=60, absolute_seconds=300)
+            role_state = {"role": "owner"}
+            role_refresh_started = threading.Event()
+            release_role_refresh = threading.Event()
+
+            def resolve_role(_session) -> str | None:
+                if role_state["role"] is None:
+                    role_refresh_started.set()
+                    release_role_refresh.wait(timeout=5)
+                return role_state["role"]
+
+            runtime = TelemetryRuntime(
+                sessions=sessions,
+                rest_url="https://router.example.test",
+                ca_file=None,
+                insecure_tls=False,
+                api_ssl_port=8729,
+                requested_transport="sse",
+                role_resolver=resolve_role,
+            )
+            session = sessions.create("operator", "test-only-password", role="owner")
+            self.assertIsNotNone(
+                runtime.principal_for_session(session.session_id, force_role_check=True)
+            )
+            # Seed one real broker event so the websocket proves it can receive
+            # authorized telemetry before authorization changes.
+            initial_events = runtime.broker.apply(
+                RouterOSReply("re", {".id": "ppp-test", "name": "test-user"})
+            )
+            runtime.gateway.publish(initial_events)
+
+            native = NativeSocketIO(runtime)
+            dashboard_server = SimpleNamespace(
+                telemetry_runtime=runtime,
+                context=SimpleNamespace(public_origin="http://127.0.0.1"),
+            )
+            http_adapter = DashboardHTTPASGI(dashboard_server)
+            engineio_application = socketio.ASGIApp(
+                native.server, other_asgi_app=http_adapter, socketio_path="socket.io"
+            )
+            application = TrustedProxySchemeASGI(
+                SocketIOLiveSendASGI(engineio_application, http_adapter),
+                ("127.0.0.1",),
+            )
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(128)
+            listener.setblocking(False)
+            port = listener.getsockname()[1]
+            server = uvicorn.Server(
+                uvicorn.Config(application, log_level="critical", lifespan="off")
+            )
+            server_task = asyncio.create_task(server.serve(sockets=[listener]))
+            url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
+            headers = {"Cookie": f"__Host-vpn_session={session.session_id}"}
+            websocket = None
+            try:
+                deadline = asyncio.get_running_loop().time() + 5
+                while not server.started and not server_task.done():
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("test ASGI server did not start")
+                    await asyncio.sleep(0.01)
+                websocket = await websocket_connect(url, additional_headers=headers, proxy=None)
+                engine_open = await asyncio.wait_for(websocket.recv(), timeout=5)
+                self.assertTrue(str(engine_open).startswith("0{"), engine_open)
+                await websocket.send("40/telemetry,")
+
+                received: list[dict[str, object]] = []
+                deadline = asyncio.get_running_loop().time() + 5
+                while not received:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("Socket.IO websocket did not deliver its authorized test event")
+                    packet = await asyncio.wait_for(websocket.recv(), timeout=5)
+                    for frame in str(packet).split("\x1e"):
+                        if not frame.startswith("42/telemetry,"):
+                            continue
+                        event_name, payload = json.loads(frame[len("42/telemetry,"):])
+                        if event_name == "vpn.session.connected":
+                            received.append(payload)
+                self.assertEqual(received[0]["payload"]["name"], "test-user")
+
+                # Simulate a RouterOS account losing its streaming capability
+                # after the initial successful role check. Aging the warm cache
+                # by 16 seconds crosses the production 15-second bound without
+                # a wall-clock sleep.
+                role_state["role"] = None
+                with sessions._lock:
+                    sessions._role_checked_monotonic[session.session_id] = time.monotonic() - 16
+                refresh_started = await asyncio.wait_for(
+                    asyncio.to_thread(role_refresh_started.wait, 5), timeout=6
+                )
+                self.assertTrue(refresh_started)
+                blocked_events = runtime.broker.apply(
+                    RouterOSReply(
+                        "re",
+                        {".id": "ppp-after-revocation", "name": "must-not-leak"},
+                    )
+                )
+                runtime.gateway.publish(blocked_events)
+                release_role_refresh.set()
+                disconnect_packet = ""
+                deadline = asyncio.get_running_loop().time() + 5
+                while "41/telemetry," not in disconnect_packet:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("Socket.IO namespace remained connected after role revocation")
+                    disconnect_packet = str(await asyncio.wait_for(websocket.recv(), timeout=5))
+                self.assertIsNone(sessions.get(session.session_id, touch=False))
+                self.assertEqual(native.metrics()["active_connections"], 0)
+                await asyncio.sleep(0.1)
+                self.assertEqual(len(received), 1)
+
+                # Reconnect with the old cookie must fail at the real websocket
+                # handshake; no telemetry is delivered after the live stream
+                # was terminated.
+                await websocket.close()
+                websocket = None
+                with self.assertRaises(InvalidStatus) as denied_reconnect:
+                    async with websocket_connect(
+                        url, additional_headers=headers, proxy=None
+                    ):
+                        self.fail("stale session unexpectedly reconnected")
+                self.assertEqual(denied_reconnect.exception.response.status_code, 403)
+                self.assertEqual(len(received), 1)
+                self.assertEqual(native.metrics()["active_connections"], 0)
+            finally:
+                release_role_refresh.set()
+                if websocket is not None:
+                    await websocket.close()
                 server.should_exit = True
                 await asyncio.wait_for(server_task, timeout=5)
 
