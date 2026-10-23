@@ -83,7 +83,7 @@ in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md).
 | V8.4.1 | N/A | Multi-tenant architecture is explicitly excluded from the single-router product scope. |
 | V8.4.2 | PARTIAL | Application-side RouterOS role revalidation is implemented and tested. Whether a separate Cloudflare Access layer, device-posture checks, or contextual risk controls are configured is unverified deployment evidence. |
 | V4.4.1 | EXTERNAL | Production HTTPS/WSS termination must be verified from deployment evidence; repository and ASGI tests do not establish the public transport, and a Socket.IO status label alone is not proof of WSS. |
-| V4.4.2 | TESTED | Same-origin checks cover the Socket.IO polling path. The ASGI boundary compares a supplied Origin against configured PUBLIC_ORIGIN before Engine.IO, including when forwarded host/proto headers are forged; HTTP and WebSocket regressions cover the denial. Deployed proxy behavior is unverified. |
+| V4.4.2 | PARTIAL | Supplied foreign or duplicate Origin fields are rejected at the ASGI boundary before Engine.IO, and Engine.IO retains same-origin validation. An absent Origin is allowed through the explicit boundary for non-browser compatibility; the current regressions do not pin that case. No browser-origin bypass was confirmed in the bounded source review, but this evidence does not establish the ASVS allowlist check for every handshake. Deployed proxy behavior is also unverified. |
 | V4.4.3–V4.4.4 | N/A | Live connections use the standard authenticated app session rather than a separate WebSocket token; separate-token acquisition/validation requirements are therefore not applicable to the implemented path. |
 
 The ASGI send-boundary regressions additionally verify that Engine.IO SIDs
@@ -661,15 +661,18 @@ such issue exists outside the reviewed paths.
   in-flight request needs them. Clearing references on teardown does not
   securely erase copies from process memory. Host-level memory access, dump
   collection, and external logging remain unverified.
-- RouterOS role changes are revalidated using a short-lived cache. The existing
-  partial status is appropriate: a downgrade can remain effective only after
-  that session's next role refresh, and disabling an account does not
+- RouterOS role/account changes are revalidated using a 15-second cache. An
+  external downgrade or disable may therefore take up to that interval to
+  affect an already-open stream. This is a source-level freshness bound, not
+  measured physical-router revocation latency; disabling an account does not
   proactively invalidate every other session.
 - Read-only SSE/Socket.IO handshakes retain compatibility with clients that omit
   `Origin`; explicit foreign or duplicate origins are rejected, Socket.IO
   control POSTs require origin evidence, and mutating HTTP routes require CSRF
-  protection. No bypass was demonstrated in the source review; actual
-  proxy/browser behavior remains an external acceptance check.
+  protection. The explicit ASGI boundary allows an absent `Origin` through for
+  non-browser compatibility, and existing tests do not pin that case. No
+  browser-origin bypass was demonstrated; actual proxy/browser behavior
+  remains an external acceptance check.
 - Focused local validation passed 147 tests across
   `test_security_assurance_contract`, `test_security`, and
   `test_asgi_contract`. The merged commit's required GitHub CI also passed.
@@ -678,9 +681,29 @@ This internal review is narrower than a requirement-by-requirement independent
 ASVS assessment and is not a penetration test, deployment review, or compliance
 attestation. It does not change the **Residual-risk decision: OPEN** below.
 
+Two follow-up independent, read-only reviews examined the ASVS evidence
+mapping and the SSE/Socket.IO authorization paths at source commit
+`0002ce431fd8be0a66801725fbfb371f01ce7567`; neither found a confirmed
+authorization bypass in its reviewed paths. They confirmed the 15-second
+role-revalidation bound and identified that V4.4.2 had been marked TESTED even
+though an absent WebSocket `Origin` is permitted and that case is not covered
+by a regression. The matrix now marks V4.4.2 PARTIAL until the compatibility
+decision and absent-Origin behavior are explicitly established. These remain
+bounded source reviews, not a complete independent ASVS assessment or
+deployment sign-off.
+
+The 15-second runtime deadline itself is covered by
+`tests/test_telemetry_runtime.py::TelemetryRuntimeFreshnessTests.test_live_stream_role_downgrade_is_applied_at_15_second_cache_deadline`
+using a controlled monotonic clock. Existing Socket.IO and native-WebSocket
+integration tests instead force the role cache stale before checking a live
+stream. A regression that leaves an established stream open and observes it
+naturally cross the 15-second deadline remains useful follow-up coverage; no
+physical-router revocation latency has been measured.
+
 **Residual-risk decision: OPEN.** No deployment-level credential-memory or
-logging review, independent ASVS review, or named owner risk acceptance is
-recorded here. Do not interpret this source review as a production sign-off.
+logging review, complete independent requirement-by-requirement ASVS review,
+or named owner risk acceptance is recorded here. Do not interpret bounded
+source reviews as a production sign-off.
 
 ## Repository hardening and export privacy — 2026-10-05
 
