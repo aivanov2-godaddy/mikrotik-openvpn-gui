@@ -41,6 +41,13 @@ network. It must accept only the configured GHCR package prefix and a complete
 architecture-qualified SHA tag, lock concurrent runs, validate a separate
 canary, and retain a local last-known-good production tag.
 
+Operators can compare a local updater export with the reviewed repository
+template using `scripts/compare_routeros_updater.py`. This check is offline and
+read-only: it does not connect to RouterOS or execute the supplied script, and
+it emits only hashes, exact-match/change-count evidence, and coarse boolean
+risk flags for markers added relative to the reviewed template. Those flags are
+heuristic and do not replace source review.
+
 The public manifest is an approval pointer, not a substitute for repository
 integrity. Protect the public default branch, release workflow, package
 visibility, and maintainer accounts because anyone able to publish a release

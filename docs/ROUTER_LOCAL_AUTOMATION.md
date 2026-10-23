@@ -146,6 +146,39 @@ that local failure marker before retrying it. The example also keeps a bounded
 `routeros-update-history.log` on the router's external storage for review and
 incident recovery; it never uploads this journal to GitHub.
 
+## Offline updater-script comparison
+
+Before installing a locally exported updater, compare that file with the
+reviewed repository template using the offline CLI:
+
+```powershell
+python scripts/compare_routeros_updater.py "C:\secure\routeros-updater.rsc"
+```
+
+The command reads the supplied local file and
+`scripts/routeros/immutable-release-updater.rsc.example`. It makes no network
+requests, does not contact or invoke RouterOS, does not execute either script,
+and does not modify either file. Standard output is one JSON object containing
+the reference and candidate SHA-256 hashes, a byte-exact match result, a
+changed-line count (removed plus added lines), and four boolean risk flags for
+credential, private-key, destructive-operation, and fetch/download markers
+added relative to the reviewed template. A replacement line counts as one
+removed and one added line. Errors are JSON objects with stable error codes; they omit paths,
+source text, and exception details. Exit code `0` means exact match, `1` means
+different bytes, and `2` means the input or comparison could not be processed.
+Inputs are limited to 1 MiB and 2,048 lines. Risk flags report additional
+marker counts in the candidate relative to the reviewed template, so existing
+fetch, cleanup, or credential-related words in the reviewed updater do not
+light the flags by themselves.
+
+These hashes identify the local byte content only; they do not prove that a
+file came from a trusted router, is installed on a device, or is safe to run.
+Risk flags are simple marker-count comparisons, not a complete RouterOS parser
+or security review. An added marker can match comments or harmless text, and a
+false flag does not prove that the script has no sensitive or destructive
+behavior. Review every change manually before any separate installation or
+execution step. Use a file on local storage; UNC and URL inputs are rejected.
+
 Before the updater changes canary, it runs the same journal helper against a
 short-lived probe in the configured local state directory, including both
 create and multiline update/read-back. The example defaults to
