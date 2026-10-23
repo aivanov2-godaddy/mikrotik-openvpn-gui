@@ -734,12 +734,23 @@ class SocketIOLiveSendASGI:
             "public_origin",
             None,
         )
+        method = str(scope.get("method", "")).upper()
         # Engine.IO may derive its allowed origin from forwarded host/proto
         # headers. They are not an authority for this browser origin boundary.
-        if len(origins) > 1 or (origins and (
-            not isinstance(public_origin, str)
+        # Browser WebSocket handshakes must carry exactly one Origin so the
+        # configured public origin can be checked before Engine.IO allocation.
+        # Only HTTP GET polling retains missing-Origin compatibility; other
+        # HTTP methods still require origin evidence before Engine.IO dispatch.
+        missing_required_origin = not origins and (
+            scope_type == "websocket"
+            or (scope_type == "http" and method != "GET")
+        )
+        invalid_supplied_origin = bool(origins) and (
+            len(origins) > 1
+            or not isinstance(public_origin, str)
             or not _same_origin(origins[0], public_origin)
-        )):
+        )
+        if missing_required_origin or invalid_supplied_origin:
             if scope_type == "websocket":
                 await self._reject_websocket(send)
             else:

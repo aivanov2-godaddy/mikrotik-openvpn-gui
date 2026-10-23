@@ -53,7 +53,7 @@ The deterministic regression coverage is in `tests/test_automation.py`.
 These endpoints change dashboard-local state rather than RouterOS:
 
 - `POST /api/admin/api-tokens` and `DELETE /api/admin/api-tokens/{id}` create or revoke a scoped dashboard token.
-- `DELETE /api/admin/sessions/{id}` revokes a dashboard login, not an OpenVPN tunnel.
+- `DELETE /api/admin/sessions/{revocation_ref}` revokes a dashboard login, not an OpenVPN tunnel. The opaque reference is not a cookie or an authentication credential.
 - `POST /api/bulk/views` and `DELETE /api/bulk/views/{id}` save or remove a filter view.
 - `POST /api/alerts/{id}/ack` acknowledges a dashboard alert.
 - `POST /api/policy-templates` and `PATCH /api/policy-templates/{id}` create or edit a local template; only its

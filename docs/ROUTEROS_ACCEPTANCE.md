@@ -13,17 +13,12 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published mainline runtime is PR #778,
-commit `10721ebc7a0a4db2fb8ef82a80783376140e4205`, published by
-[workflow run #39882283500](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39882283500).
-Its RouterOS ARM64 registry digest is
-`sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832`.
-Main CI, the ARM64 image smoke test, and provenance/SPDX SBOM verification
-passed. PR #778 adds redacted CSRF Origin/Referer rejection diagnostics and
-binds Engine.IO SIDs to the active dashboard session before the handshake.
-This image has not been staged on RouterOS, so it has no hardware acceptance.
+prove RouterOS compatibility. PR #793 is the latest published mainline runtime;
+its immutable ARM64/AMD64 tags and digests, CI run, and attestation results are
+recorded in [`RELEASES.md`](RELEASES.md#published-images). It has not been
+staged on RouterOS and has no hardware acceptance.
 
-The latest recorded canary checkpoint is PR #776, commit
+The latest candidate-bound canary checkpoint is PR #776, commit
 `c4b4b76793b2454e81362867d8654962627de6fa`. RouterOS read-back reported its
 exact ARM64 tag healthy after start, but the persisted pending-candidate record
 did not match the later canary image and no candidate-matched 30-minute sample
@@ -31,9 +26,17 @@ record was verified. A later authenticated dashboard observation showed a
 connected-user change without manual refresh, but event latency was not timed.
 Canary sign-out was rejected by the origin check and did not revoke the session;
 the expected origin was configured, but the rejected request header shape was
-not captured. Production remained on its prior image in the latest recorded
-checkpoint. These observations do not replace candidate-specific hardware
-acceptance. PR #772 and earlier checkpoints below are historical.
+not captured. A later read-only inventory at approximately 14:33 UTC on
+2026-10-23 showed both containers configured with the PR #788 ARM64 tag. A
+separate RouterOS PPP Active Connections check at approximately 14:50 UTC
+showed one active VPN session; a later refresh at approximately 15:02 UTC
+showed no active sessions. The canary browser remained at sign-in. This
+confirms only the earlier router-side client presence; it does not correlate
+the session with dashboard telemetry. The transition time and cause are
+unknown. This is tag read-back, not candidate readiness or acceptance. These
+observations do not replace
+candidate-specific hardware acceptance. PR #772 and earlier checkpoints below
+are historical.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 
@@ -74,7 +77,8 @@ operator-controlled records.
 The PR #761 candidate is a prior published image. It was not deployed to
 RouterOS and has no hardware-acceptance result; later published candidates
 #767, #772, and #776 superseded it before PR #778 became the latest published
-runtime. PR #776 remains the latest recorded canary candidate.
+runtime. At that checkpoint, PR #776 was the latest candidate-bound canary
+record.
 
 ## Previous candidate status — PR #767
 
@@ -99,19 +103,18 @@ cross-model/version certification is inferred. See the
 [current release record](RELEASES.md#published-images) and
 [acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
-## Latest published runtime — PR #778 (not staged)
+## Latest published runtime — PR #793 (not staged)
 
-PR #778 merged as `10721ebc7a0a4db2fb8ef82a80783376140e4205`. Its immutable
-RouterOS ARM64 image is
-`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-10721ebc7a0a4db2fb8ef82a80783376140e4205-arm64`
-with digest
-`sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832`.
-Main CI run #39882283490 and publisher run #39882283500 passed; the published
-runtime smoke check and provenance/SPDX SBOM verification passed. This image
-has not been staged on RouterOS. Do not treat publication as hardware
+PR #793 merged as `fbcbe96ff9fc56ffa5b0f750b8e72d59fbeeb164`. Its immutable
+ARM64 and AMD64 tags and registry digests are listed in
+[`RELEASES.md`](RELEASES.md#published-images). Main CI run #39941787724 and
+publisher run #39941787902 passed, including image smoke tests and
+provenance/SPDX SBOM verification. PR #793 bounds Engine.IO polling clients and
+ASGI authorization waits and updates release-acceptance runbook coverage. This
+image has not been staged on RouterOS. Do not treat publication as hardware
 compatibility or acceptance evidence.
 
-## Latest recorded canary status — PR #776 (healthy startup; acceptance pending)
+## Latest candidate-bound canary record — PR #776 (healthy startup; acceptance pending)
 
 PR #776 merged as
 `c4b4b76793b2454e81362867d8654962627de6fa`. Its immutable ARM64 image is
@@ -158,8 +161,9 @@ deployment was performed for this candidate. Its
 recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
 security checks, and rollback rehearsal are all **not verified**.
 
-This is historical evidence only. PR #778 is the latest published runtime;
-PR #776 is the latest recorded canary candidate. Use the exact candidate and
+This is historical evidence only. At the time, PR #778 was the latest published
+runtime; it has since been superseded by PR #791 and PR #793. PR #776 remains
+the latest candidate-bound canary record. Use the exact candidate and
 its recorded acceptance status above for any new acceptance run. Do not treat image
 publication or startup health as the required 30-minute acceptance window. Do
 not promote until the complete candidate-specific report passes and rollback

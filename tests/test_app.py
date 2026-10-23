@@ -613,9 +613,38 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 401, payload.decode())
 
     def test_login_page_uses_same_origin_referrer_policy_for_form_submission(self) -> None:
-        status, headers, _ = self.request("GET", "/login")
+        status, headers, page = self.request("GET", "/login")
         self.assertEqual(status, 200)
         self.assertEqual(headers["referrer-policy"], "same-origin")
+        self.assertNotIn("set-cookie", headers)
+        self.assertIn(b'<form method="post" action="/login"', page)
+        self.assertIn(b'<button class="primary" type="submit">Connect</button>', page)
+
+    def test_login_session_cookie_has_required_host_security_and_size_properties(self) -> None:
+        body = urllib.parse.urlencode(
+            {"username": "admin", "password": "routerpass"}
+        ).encode()
+        status, headers, payload = self.request(
+            "POST",
+            "/login",
+            body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
+        )
+
+        self.assertEqual(status, 303)
+        set_cookie = headers["set-cookie"]
+        self.assertTrue(set_cookie.startswith("__Host-vpn_session="))
+        self.assertIn("Path=/", set_cookie)
+        self.assertNotIn("Domain=", set_cookie)
+        self.assertIn("Secure", set_cookie)
+        self.assertIn("HttpOnly", set_cookie)
+        self.assertIn("SameSite=Strict", set_cookie)
+        cookie_pair = set_cookie.split(";", 1)[0]
+        self.assertLess(len(cookie_pair.encode("ascii")), 4096)
+        self.assertNotIn(cookie_pair.split("=", 1)[1].encode("ascii"), payload)
 
     def test_access_logs_omit_bearer_share_tokens_and_peer_addresses(self) -> None:
         token = "x" * 40
@@ -1602,7 +1631,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.server.socketio_bridge.gateway.client_count, 1)
         queued_marker = self.queue_socketio_test_event(sid)
 
-        path = f"/api/admin/sessions/{urllib.parse.quote(target.session_id, safe='')}"
+        path = f"/api/admin/sessions/{urllib.parse.quote(target.revocation_ref, safe='')}"
         status, _, payload = self.json_request("DELETE", path, {"password": "routerpass"})
         self.assertEqual(status, 200, payload.decode("utf-8"))
         self.assertIsNone(self.server.context.sessions.get(target.session_id, touch=False))
@@ -3580,12 +3609,12 @@ class DashboardIntegrationTests(unittest.TestCase):
             expires_at=2_000_000_000,
         )
 
-        # Query parameters cannot opt a sessions.read-only caller into raw
-        # bearer session identifiers; identifier disclosure is server-side
-        # and requires session.manage.
+        # Query parameters cannot opt a sessions.read-only caller into
+        # revocation references; that projection is server-side and requires
+        # session.manage.
         status, _, payload = self.request(
             "GET",
-            "/api/admin/sessions?include_identifiers=true",
+            "/api/admin/sessions?include_revocation_refs=true",
             headers={"Authorization": f"Bearer {viewer_token}", "Cookie": ""},
         )
         self.assertEqual(status, 200)
@@ -3624,12 +3653,22 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         owner_response = json.loads(payload)
-        disclosed_ids = {item["id"] for item in owner_response["sessions"]}
-        self.assertIn(owner.session_id, disclosed_ids)
+        disclosed_refs = {item["id"] for item in owner_response["sessions"]}
+        self.assertIn(owner.revocation_ref, disclosed_refs)
+        self.assertNotIn(owner.session_id, json.dumps(owner_response))
+        reference_cookie = f"{owner_cookie.split('=', 1)[0]}={owner.revocation_ref}"
+        status, _, payload = self.request(
+            "GET",
+            "/api/admin/sessions",
+            headers={"Cookie": reference_cookie},
+        )
+        self.assertEqual(status, 401, payload.decode("utf-8"))
+        self.assertNotIn(owner.revocation_ref, payload.decode("utf-8"))
 
-    def test_admin_session_identifier_projection_matches_all_routeros_roles(self) -> None:
+    def test_admin_session_revocation_reference_projection_matches_all_routeros_roles(self) -> None:
         role_groups = ("owner", "security-operator", "operator", "audit", "read")
-        issued_session_ids: set[str] = set()
+        issued_session_refs: set[str] = set()
+        issued_cookie_bearers: set[str] = set()
 
         for group in role_groups:
             with self.subTest(group=group):
@@ -3637,7 +3676,12 @@ class DashboardIntegrationTests(unittest.TestCase):
                 self.cookie = ""
                 self.csrf = ""
                 self.login()
-                issued_session_ids.add(self.cookie.split("=", 1)[1])
+                issued_cookie_bearers.add(self.cookie.split("=", 1)[1])
+                issued_session_refs.add(
+                    self.server.context.sessions.get(
+                        self.cookie.split("=", 1)[1], touch=False
+                    ).revocation_ref
+                )
 
                 status, _, payload = self.request("GET", "/api/admin/sessions")
                 self.assertEqual(status, 200, payload.decode("utf-8"))
@@ -3650,14 +3694,13 @@ class DashboardIntegrationTests(unittest.TestCase):
                 self.assertTrue(response["sessions"])
                 self.assertEqual(
                     projected_ids,
-                    issued_session_ids if may_manage_sessions else set(),
+                    issued_session_refs if may_manage_sessions else set(),
                 )
-                if not may_manage_sessions:
-                    serialized = payload.decode("utf-8")
-                    for session_id in issued_session_ids:
-                        self.assertNotIn(session_id, serialized)
+                serialized = payload.decode("utf-8")
+                for session_id in issued_cookie_bearers:
+                    self.assertNotIn(session_id, serialized)
 
-    def test_warm_role_downgrade_hides_admin_session_ids_from_api(self) -> None:
+    def test_warm_role_downgrade_hides_admin_session_references_from_api_and_dashboard(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
         session = self.server.context.sessions.get(session_id, touch=False)
@@ -3667,11 +3710,20 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, owner_payload = self.request("GET", "/api/admin/sessions")
         self.assertEqual(status, 200)
-        self.assertIn(session_id.encode("ascii"), owner_payload)
-        self.assertIn(other_session.session_id.encode("ascii"), owner_payload)
+        self.assertIn(session.revocation_ref.encode("ascii"), owner_payload)
+        self.assertIn(other_session.revocation_ref.encode("ascii"), owner_payload)
+        self.assertNotIn(session_id.encode("ascii"), owner_payload)
+        self.assertNotIn(other_session.session_id.encode("ascii"), owner_payload)
+        status, _, owner_dashboard = self.request(
+            "GET", "/dashboard", headers={"Cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(session.revocation_ref.encode("ascii"), owner_dashboard)
+        self.assertNotIn(session_id.encode("ascii"), owner_dashboard)
+        self.assertNotIn(other_session.session_id.encode("ascii"), owner_dashboard)
 
         # The ordinary 15-second role cache remains warm. The read-only role
-        # retains sessions.read, but must lose raw session IDs immediately.
+        # retains sessions.read, but must lose revocation references immediately.
         self.mock.state.admin_group = "read"
         status, _, payload = self.request("GET", "/api/admin/sessions")
 
@@ -3683,6 +3735,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(any(row["username"] == "admin" for row in response["sessions"]))
         self.assertNotIn(session_id.encode("ascii"), payload)
         self.assertNotIn(other_session.session_id.encode("ascii"), payload)
+        status, _, downgraded_dashboard = self.request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertNotIn(session.revocation_ref.encode("ascii"), downgraded_dashboard)
+        self.assertNotIn(session_id.encode("ascii"), downgraded_dashboard)
+        self.assertNotIn(other_session.session_id.encode("ascii"), downgraded_dashboard)
 
     def test_routeros_role_lookup_failure_revokes_session_before_admin_sessions_response(self) -> None:
         self.login()
@@ -3764,16 +3821,25 @@ class DashboardIntegrationTests(unittest.TestCase):
         unrelated_session = self.server.context.sessions.create(
             "admin", "routerpass", role="owner",
         )
-        path = f"/api/admin/sessions/{urllib.parse.quote(other_session.session_id, safe='')}"
+        path = f"/api/admin/sessions/{urllib.parse.quote(other_session.revocation_ref, safe='')}"
 
         status, _, _ = self.json_request("DELETE", path, csrf=False)
         self.assertEqual(status, 403)
         self.assertIsNotNone(self.server.context.sessions.get(other_session.session_id, touch=False))
 
-        current_path = f"/api/admin/sessions/{urllib.parse.quote(current_session_id, safe='')}"
+        current_session = self.server.context.sessions.get(current_session_id, touch=False)
+        self.assertIsNotNone(current_session)
+        current_path = f"/api/admin/sessions/{urllib.parse.quote(current_session.revocation_ref, safe='')}"
         status, _, payload = self.json_request("DELETE", current_path)
         self.assertEqual(status, 400)
         self.assertIn(b"current session cannot be revoked", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
+
+        bearer_path = f"/api/admin/sessions/{urllib.parse.quote(current_session_id, safe='')}"
+        status, _, payload = self.json_request(
+            "DELETE", bearer_path, {"password": "routerpass"},
+        )
+        self.assertEqual(status, 404, payload.decode("utf-8"))
         self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
 
         status, _, payload = self.json_request("DELETE", path)
@@ -3802,7 +3868,7 @@ class DashboardIntegrationTests(unittest.TestCase):
     def test_admin_session_reauthentication_is_rate_limited(self) -> None:
         self.login()
         target = self.server.context.sessions.create("admin", "routerpass", role="owner")
-        path = f"/api/admin/sessions/{urllib.parse.quote(target.session_id, safe='')}"
+        path = f"/api/admin/sessions/{urllib.parse.quote(target.revocation_ref, safe='')}"
 
         for _ in range(5):
             status, _, _ = self.json_request("DELETE", path, {"password": "wrong-password"})
@@ -4458,6 +4524,37 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
+    def test_api_token_cannot_open_dashboard_or_reach_routeros(self) -> None:
+        token = "vpt_" + "d" * 48
+        self.server.context.store.create_api_token(
+            token_id="dashboard-html-token",
+            token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            label="dashboard route denial",
+            actor="viewer",
+            capabilities=["health.read"],
+            expires_at=2_000_000_000,
+        )
+        before_router_reads = list(self.mock.state.rest_reads)
+
+        with mock.patch.object(
+            self.server.context.router,
+            "verify_credentials",
+            side_effect=AssertionError("API-token principal reached RouterOS verification"),
+        ) as verify_credentials:
+            status, _, payload = self.request(
+                "GET",
+                "/dashboard",
+                headers={"Authorization": f"Bearer {token}", "Cookie": ""},
+            )
+
+        self.assertEqual(status, 403, payload.decode("utf-8"))
+        self.assertEqual(
+            json.loads(payload),
+            {"error": "This endpoint requires an authenticated RouterOS dashboard session"},
+        )
+        verify_credentials.assert_not_called()
+        self.assertEqual(self.mock.state.rest_reads, before_router_reads)
+
     def test_routeros_group_downgrade_takes_effect_on_existing_dashboard_session(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
@@ -4531,7 +4628,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertNotIn(b"warm-role-audit-marker", audit_payload)
 
-    def test_warm_role_downgrade_hides_admin_session_ids_from_dashboard(self) -> None:
+    def test_warm_role_downgrade_hides_admin_session_references_from_dashboard(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
         session = self.server.context.sessions.get(session_id, touch=False)
@@ -4540,8 +4637,10 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         status, _, owner_page = self.request("GET", "/dashboard")
         self.assertEqual(status, 200)
-        self.assertIn(session_id.encode("ascii"), owner_page)
-        self.assertIn(other_session.session_id.encode("ascii"), owner_page)
+        self.assertIn(session.revocation_ref.encode("ascii"), owner_page)
+        self.assertIn(other_session.revocation_ref.encode("ascii"), owner_page)
+        self.assertNotIn(session_id.encode("ascii"), owner_page)
+        self.assertNotIn(other_session.session_id.encode("ascii"), owner_page)
 
         self.mock.state.admin_group = "read"
         original_revalidate = self.server.telemetry_runtime.revalidate_session
@@ -4555,6 +4654,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(session.role, "read_only")
         self.assertIn(b"Active administrator sessions", page)
+        self.assertNotIn(session.revocation_ref.encode("ascii"), page)
+        self.assertNotIn(other_session.revocation_ref.encode("ascii"), page)
         self.assertNotIn(session_id.encode("ascii"), page)
         self.assertNotIn(other_session.session_id.encode("ascii"), page)
         forced_role_checks = [
