@@ -289,45 +289,203 @@ records. Run it before a release with:
 python -m unittest tests.test_security.SecurityTests.test_sqlite_wal_checkpoint_and_backup_are_consistent
 ```
 
-For release acceptance, copy the schema shown by
+### Release acceptance evidence
+
+Copy the schema shown by
 [`release-acceptance-evidence.example.json`](release-acceptance-evidence.example.json)
 to a private local file and fill only the RouterOS/operator-exercise evidence.
 Do not enter deployment health, image-digest, or telemetry claims by hand; the
 read-only collector owns those fields. SQLite restore flags are also not
 operator input: supply local consistent backup paths to the collector, which
-performs and records the restore rehearsal. Keep all private evidence and
-backup files outside the repository.
+performs and records the restore rehearsal. Keep every evidence file, report,
+backup, and token outside the repository in an operator-controlled directory.
+
+For candidate source commit
+`8fb7a6d3d64f5d57f5ed5f74cdaae121dc0ad6ee`, the successful main-branch CI run
+ID is `39931754294`. It contains the unexpired
+`redis-recovery-8fb7a6d3d64f5d57f5ed5f74cdaae121dc0ad6ee` artifact from the
+`redis-integration` job. The collector downloads that exact artifact with the
+authenticated GitHub CLI and verifies the successful main push, candidate
+SHA, workflow, and artifact attestation. This run ID is valid only for that
+candidate and the report freshness window; select a new successful main-push
+run with the matching artifact when the candidate changes or the evidence is
+more than seven days old. Keep CI logs and Redis payloads out of the release
+report.
+
+The Python collector starts its own `gh` child processes. If those processes
+cannot read the interactive GitHub CLI credential store, set `GH_TOKEN` in the
+current PowerShell session from the authenticated CLI before collection. This
+keeps the token out of command arguments and evidence files; do not print it or
+persist it. After both collection phases (or if stopping early), remove it as
+shown below.
+
+```powershell
+$ghToken = (gh auth token).Trim()
+if ([string]::IsNullOrWhiteSpace($ghToken)) {
+  throw 'GitHub CLI did not return an authenticated token.'
+}
+$env:GH_TOKEN = $ghToken
+Remove-Variable ghToken
+```
+
+Capture the isolated canary rollback report with
+`scripts/collect_rollback_acceptance.py`. The collector records authenticated
+RouterOS Binary API and REST read-backs plus independent `/readyz` checks; the
+operator performs the ordered rollback stages on canary only. The collector
+does not issue RouterOS commands or modify production. It writes a redacted,
+candidate-bound report to the private evidence directory. Do not hand-author
+its timestamps or checkpoint values; see
+[`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#redis-recovery-ci-and-canary-rollback-evidence)
+for the capture procedure and limits.
+
+Prepare `private-certificate-lifecycle.json` as a separate redacted,
+operator-attested report from the controlled canary lifecycle exercise. Use
+[`certificate-lifecycle-acceptance.example.json`](certificate-lifecycle-acceptance.example.json)
+only as the synthetic schema shape, never as evidence. Record the actual
+ordered read-backs for replacement testing, failed-renewal rollback, RouterOS
+revocation, fresh/loaded CRL, existing-session outcome, fresh-connection
+rejection, and dashboard status distinction. Its immutable candidate image,
+OCI digest, and timestamps must match the release collection. The validator
+checks this operator attestation and emits an allow-listed projection; it does
+not independently observe the certificate actions. Do not include certificate
+subjects or serials, usernames, addresses, profile bytes, private keys,
+credentials, screenshots with identifying content, or raw logs.
+
 Run the RouterOS read-only sampler and app collector concurrently so their
 30-minute windows align, then pass the joined app-collector output—not the
 example or uncollected input—to the evaluator. A passing release report now
-requires the joined RouterOS evidence. The pre-promotion phase keeps production
-on its recorded prior image:
+requires the joined RouterOS evidence. Set the following non-secret values in
+the PowerShell session from the protected operator run sheet. The evidence
+directory must already exist outside the checkout. Using environment variables
+avoids angle-bracket placeholders, which PowerShell can parse as redirection.
+The rollback capture prompts for passwords if the documented read-only
+credential variables are not set; never put token or password values in
+arguments or evidence files.
 
 ```powershell
-python scripts/collect_release_acceptance.py `
-  --input private-evidence.json `
-  --output private-collected-evidence.json `
-  --routeros-report private-routeros-window.json `
-  --stream-observer-report private-stream-observation.json `
-  --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
-  --canary-url https://<approved-canary-origin> `
-  --production-url https://<approved-production-origin> `
-  --canary-sqlite-backup private-canary-backup.sqlite3 `
-  --canary-metrics-url https://<approved-canary-origin> `
-  --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
-  --duration-seconds 1800 --interval-seconds 60 `
-  --phase canary-prepromotion
-python scripts/release_acceptance.py `
-  --input private-collected-evidence.json `
-  --output private-acceptance-report.json
+$requiredVariables = @(
+  'VPN_ACCEPTANCE_EVIDENCE_DIR',
+  'VPN_ACCEPTANCE_CANARY_ORIGIN',
+  'VPN_ACCEPTANCE_PRODUCTION_ORIGIN',
+  'VPN_ACCEPTANCE_CANDIDATE_IMAGE',
+  'VPN_ACCEPTANCE_CANDIDATE_DIGEST',
+  'VPN_ACCEPTANCE_PREVIOUS_CANARY_IMAGE',
+  'VPN_ACCEPTANCE_PRODUCTION_IMAGE'
+)
+foreach ($name in $requiredVariables) {
+  if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+    throw "Set $name in this PowerShell session before continuing."
+  }
+}
+$repoRoot = [IO.Path]::GetFullPath((git rev-parse --show-toplevel).Trim())
+$evidenceDir = [IO.Path]::GetFullPath($env:VPN_ACCEPTANCE_EVIDENCE_DIR)
+$pathComparison = [StringComparison]::OrdinalIgnoreCase
+$repoPrefix = $repoRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+if ($evidenceDir.Equals($repoRoot, $pathComparison) -or $evidenceDir.StartsWith($repoPrefix, $pathComparison)) {
+  throw 'VPN_ACCEPTANCE_EVIDENCE_DIR must be outside the repository.'
+}
+if (-not (Test-Path -LiteralPath $evidenceDir -PathType Container)) {
+  throw 'Create the private evidence directory before continuing.'
+}
+$canaryOrigin = $env:VPN_ACCEPTANCE_CANARY_ORIGIN
+$productionOrigin = $env:VPN_ACCEPTANCE_PRODUCTION_ORIGIN
+
+Push-Location -LiteralPath $evidenceDir
+try {
+  python (Join-Path $repoRoot 'scripts/collect_rollback_acceptance.py') `
+    --output private-rollback-rehearsal.json `
+    --candidate-image $env:VPN_ACCEPTANCE_CANDIDATE_IMAGE `
+    --candidate-digest $env:VPN_ACCEPTANCE_CANDIDATE_DIGEST `
+    --previous-canary-image $env:VPN_ACCEPTANCE_PREVIOUS_CANARY_IMAGE `
+    --production-image $env:VPN_ACCEPTANCE_PRODUCTION_IMAGE `
+    --canary-url $canaryOrigin `
+    --production-url $productionOrigin
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Rollback report capture failed; stop before release collection.'
+  }
+
+  python (Join-Path $repoRoot 'scripts/collect_release_acceptance.py') `
+    --input private-evidence.json `
+    --output private-collected-evidence.json `
+    --routeros-report private-routeros-window.json `
+    --redis-recovery-run-id 39931754294 `
+    --rollback-report private-rollback-rehearsal.json `
+    --certificate-lifecycle-report private-certificate-lifecycle.json `
+    --stream-observer-report private-stream-observation.json `
+    --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
+    --canary-url $canaryOrigin `
+    --production-url $productionOrigin `
+    --canary-sqlite-backup private-canary-backup.sqlite3 `
+    --canary-metrics-url $canaryOrigin `
+    --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
+    --duration-seconds 1800 --interval-seconds 60 `
+    --phase canary-prepromotion
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Pre-promotion collection failed; do not evaluate or promote this candidate.'
+  }
+} finally {
+  Pop-Location
+}
 ```
 
-After production promotion is observed, collect again with
-`--phase postpromotion`, both metrics origins, and separately scoped canary and
-production `health.read` API-token environment variables, and both private
-SQLite backup paths. Use distinct short-lived tokens, never put their values in
-command-line arguments or files, and revoke them after collection. See
-[`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window)
+The pre-promotion collection keeps production on its recorded prior image.
+After production promotion is observed, run this second collection with the
+same candidate-bound Redis run ID, rollback report, and certificate report.
+The production backup is only read for the post-promotion restore rehearsal.
+Refresh the certificate report if it falls outside the accepted evidence
+window. Use distinct short-lived `health.read` tokens for canary and production;
+pass only their environment-variable names, never their values, and revoke the
+tokens after collection.
+
+```powershell
+Push-Location -LiteralPath $evidenceDir
+try {
+  python (Join-Path $repoRoot 'scripts/collect_release_acceptance.py') `
+    --input private-evidence.json `
+    --output private-collected-evidence.json `
+    --routeros-report private-routeros-window.json `
+    --redis-recovery-run-id 39931754294 `
+    --rollback-report private-rollback-rehearsal.json `
+    --certificate-lifecycle-report private-certificate-lifecycle.json `
+    --stream-observer-report private-stream-observation.json `
+    --telemetry-acceptance-input private-telemetry-acceptance.ndjson `
+    --canary-url $canaryOrigin `
+    --production-url $productionOrigin `
+    --canary-sqlite-backup private-canary-backup.sqlite3 `
+    --production-sqlite-backup private-production-backup.sqlite3 `
+    --canary-metrics-url $canaryOrigin `
+    --production-metrics-url $productionOrigin `
+    --canary-api-token-env VPN_ACCEPTANCE_CANARY_TOKEN `
+    --production-api-token-env VPN_ACCEPTANCE_PRODUCTION_TOKEN `
+    --duration-seconds 1800 --interval-seconds 60 `
+    --phase postpromotion
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Post-promotion collection failed; do not evaluate this candidate.'
+  }
+} finally {
+  Pop-Location
+}
+```
+
+After the pre-promotion and post-promotion collection commands have both
+finished, or if you stop before completing them, clear the session token:
+
+```powershell
+Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+```
+
+Evaluate the post-promotion collected output:
+
+```powershell
+python (Join-Path $repoRoot 'scripts/release_acceptance.py') `
+  --input (Join-Path $evidenceDir 'private-collected-evidence.json') `
+  --output (Join-Path $evidenceDir 'private-acceptance-report.json')
+if ($LASTEXITCODE -ne 0) {
+  throw 'Release acceptance failed; do not promote this candidate.'
+}
+```
+
+See [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md#collect-a-bounded-app-health-window)
 for secure token handling and the full procedure.
 
 The v2 validator requires the same full immutable image tag and OCI digest in
@@ -353,10 +511,13 @@ RouterOS writes:
 
 ```powershell
 python -m scripts.promote_routeros_release `
-  --input private-collected-evidence.json `
-  --canary-ready-url http://<private-canary-ip>:8080/readyz `
-  --production-ready-url http://<private-production-ip>:8080/readyz `
+  --input (Join-Path $evidenceDir 'private-collected-evidence.json') `
+  --canary-ready-url $env:VPN_ACCEPTANCE_CANARY_READY_URL `
+  --production-ready-url $env:VPN_ACCEPTANCE_PRODUCTION_READY_URL `
   --check-only
+if ($LASTEXITCODE -ne 0) {
+  throw 'Read-only promotion check failed; do not run the write-enabled command.'
+}
 ```
 
 Only after the read-only check passes, run the same command without
