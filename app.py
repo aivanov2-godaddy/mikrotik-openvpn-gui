@@ -172,6 +172,34 @@ def _same_origin(left: str, right: str) -> bool:
     return parsed_left is not None and parsed_left == normalized(right)
 
 
+def _origin_header_relation(values: list[str], expected_origin: str, *, referer: bool = False) -> str:
+    """Classify origin-like headers for logs without retaining their values."""
+    if not values:
+        return "absent"
+    if len(values) > 1:
+        return "duplicate"
+    value = values[0]
+    if value.strip().casefold() == "null":
+        return "null"
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        if (
+            parsed.scheme.casefold() not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return "invalid"
+        # Force validation of a malformed port before classifying it as foreign.
+        _ = parsed.port
+        if not referer and (parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+            return "invalid"
+    except ValueError:
+        return "invalid"
+    serialized_origin = f"{parsed.scheme}://{parsed.netloc}" if referer else value
+    return "same" if _same_origin(serialized_origin, expected_origin) else "other"
+
+
 def operations_timeline(
     audit: list[dict[str, Any]],
     deployments: list[dict[str, Any]],
@@ -1022,6 +1050,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             origins and not _same_origin(origins[0], self.server.context.public_origin)
             and not opaque_origin_with_verified_referer
         ):
+            referers = self.headers.get_all("Referer", [])
+            print(
+                "security event=csrf_origin_rejected "
+                f"origin_count={len(origins)} "
+                f"origin_relation={_origin_header_relation(origins, self.server.context.public_origin)} "
+                f"referer_count={len(referers)} "
+                f"referer_relation={_origin_header_relation(referers, self.server.context.public_origin, referer=True)}",
+                flush=True,
+            )
             self._json({"error": "Request origin is not allowed"}, status=HTTPStatus.FORBIDDEN)
             return False
         csrf_headers = self.headers.get_all("X-CSRF-Token", [])

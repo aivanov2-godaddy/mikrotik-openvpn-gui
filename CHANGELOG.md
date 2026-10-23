@@ -79,6 +79,8 @@ semantic-version style release tags.
 
 ### Security
 
+- Log only header counts and coarse origin relations when CSRF origin checks
+  reject a request; raw Origin/Referer values, URLs, and tokens are never logged.
 - Reject foreign origins on live telemetry transports and close delivery after
   session revocation or capability changes.
 - Add regression coverage for API field allowlists, credential redaction,

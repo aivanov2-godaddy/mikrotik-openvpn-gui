@@ -17,7 +17,11 @@ value and a valid token with a foreign Origin; both cases must return `403`
 without RouterOS mutations or non-audit persistent-state changes. The logout
 route has its own valid-token/foreign- and duplicate-Origin regressions. This
 does not prove that the deployed proxy preserves or sanitizes origin headers
-correctly.
+correctly. Rejected CSRF-origin requests emit a bounded diagnostic containing
+only the Origin/Referer header counts and coarse relations (`same`, `other`,
+`null`, `invalid`, `duplicate`, or `absent`). Raw header values, URLs, cookies,
+CSRF tokens, and request identities are not included; this diagnostic helps
+separate deployed proxy/header-shape cases without relaxing the guard.
 `DashboardIntegrationTests.test_api_dispatch_has_exhaustive_role_capability_inventory`
 maintains a separate capability declaration and valid-CSRF request example for
 every literal/regex API dispatch form. It checks all five dashboard roles:
