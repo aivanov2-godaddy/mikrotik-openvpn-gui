@@ -110,7 +110,10 @@ class SecurityTests(unittest.TestCase):
         store = SessionStore()
         with mock.patch(
             "security.secrets.token_urlsafe",
-            side_effect=("session-one", "csrf-one", "auth-ref-one", "session-two", "csrf-two", "auth-ref-two"),
+            side_effect=(
+                "session-one", "csrf-one", "revoke-one", "auth-ref-one",
+                "session-two", "csrf-two", "revoke-two", "auth-ref-two",
+            ),
         ) as token:
             first = store.create("admin", "secret")
             second = store.create("admin", "secret")
@@ -118,10 +121,14 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(first.session_id, "session-one")
         self.assertEqual(second.session_id, "session-two")
         self.assertNotEqual(first.session_id, second.session_id)
+        self.assertEqual((first.revocation_ref, second.revocation_ref), ("revoke-one", "revoke-two"))
         self.assertNotEqual(first.authorization_ref, second.authorization_ref)
         self.assertEqual(
             token.call_args_list,
-            [mock.call(32), mock.call(32), mock.call(24), mock.call(32), mock.call(32), mock.call(24)],
+            [
+                mock.call(32), mock.call(32), mock.call(24), mock.call(24),
+                mock.call(32), mock.call(32), mock.call(24), mock.call(24),
+            ],
         )
 
     def test_session_reauthentication_rotates_tokens_atomically_at_account_limit(self) -> None:
@@ -130,12 +137,14 @@ class SecurityTests(unittest.TestCase):
             "admin", "old-password", role="owner", source_address="192.0.2.5",
             user_agent="dashboard-test", now=100,
         )
+        original_revocation_ref = original.revocation_ref
 
         rotated = store.rotate(original.session_id, "new-password", role="read_only", now=110)
 
         self.assertIsNotNone(rotated)
         assert rotated is not None
         self.assertNotEqual(rotated.session_id, original.session_id)
+        self.assertNotEqual(rotated.revocation_ref, original_revocation_ref)
         self.assertNotEqual(rotated.csrf_token, original.csrf_token)
         self.assertEqual(rotated.password, "new-password")
         self.assertEqual(rotated.role, "read_only")
@@ -143,8 +152,14 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual((rotated.source_address, rotated.user_agent), ("192.0.2.5", "dashboard-test"))
         self.assertEqual((original.password, original.csrf_token), ("", ""))
         self.assertEqual(original.authorization_ref, "")
+        self.assertEqual(original.revocation_ref, "")
         self.assertIsNone(store.get(original.session_id, now=110, touch=False))
         self.assertIs(store.get(rotated.session_id, now=110, touch=False), rotated)
+        self.assertFalse(store.revoke_by_reference(original_revocation_ref))
+        self.assertEqual(
+            store.snapshot(include_revocation_refs=True, now=110)[0]["id"],
+            rotated.revocation_ref,
+        )
         self.assertEqual(len(store.active(now=110)), 1)
 
     def test_session_rotation_fails_closed_for_expired_or_non_routeros_sessions(self) -> None:
@@ -345,16 +360,22 @@ class SecurityTests(unittest.TestCase):
     def test_session_purge_expires_at_idle_and_absolute_boundaries(self) -> None:
         idle_store = SessionStore(idle_seconds=10, absolute_seconds=100)
         idle_session = idle_store.create("idle-admin", "secret", now=100)
+        idle_reference = idle_session.revocation_ref
         self.assertEqual(idle_store.purge(now=110), 1)
         self.assertEqual((idle_session.password, idle_session.csrf_token), ("", ""))
         self.assertEqual(idle_session.authorization_ref, "")
+        self.assertEqual(idle_session.revocation_ref, "")
+        self.assertFalse(idle_store.revoke_by_reference(idle_reference))
         self.assertIsNone(idle_store.get(idle_session.session_id, now=110, touch=False))
 
         absolute_store = SessionStore(idle_seconds=100, absolute_seconds=30)
         absolute_session = absolute_store.create("absolute-admin", "secret", now=200)
+        absolute_reference = absolute_session.revocation_ref
         self.assertEqual(absolute_store.purge(now=230), 1)
         self.assertEqual((absolute_session.password, absolute_session.csrf_token), ("", ""))
         self.assertEqual(absolute_session.authorization_ref, "")
+        self.assertEqual(absolute_session.revocation_ref, "")
+        self.assertFalse(absolute_store.revoke_by_reference(absolute_reference))
         self.assertIsNone(absolute_store.get(absolute_session.session_id, now=230, touch=False))
 
     def test_read_only_session_revalidation_does_not_extend_idle_timeout(self) -> None:
@@ -589,16 +610,23 @@ class SecurityTests(unittest.TestCase):
         second = store.create("auditor", "another-secret", now=110, role="auditor")
         snapshot = store.snapshot(current_session_id=first.session_id, now=120)
         self.assertEqual(len(snapshot), 2)
-        first_view = next(item for item in snapshot if item["id_hash"] == hashlib.sha256(first.session_id.encode()).hexdigest()[:16])
+        first_view = next(item for item in snapshot if item["id_hash"] == hashlib.sha256(first.revocation_ref.encode()).hexdigest()[:16])
         self.assertTrue(first_view["current"])
         self.assertEqual(first_view["id"], "")
         self.assertNotIn(first.session_id, str(snapshot))
-        identified = store.snapshot(current_session_id=first.session_id, now=120, include_identifiers=True)
-        self.assertEqual(next(item for item in identified if item["id"] == first.session_id)["id"], first.session_id)
+        identified = store.snapshot(current_session_id=first.session_id, now=120, include_revocation_refs=True)
+        first_reference = next(item["id"] for item in identified if item["username"] == "admin")
+        self.assertEqual(first_reference, first.revocation_ref)
+        self.assertNotEqual(first_reference, first.session_id)
+        self.assertNotIn(first.session_id, str(identified))
         self.assertNotIn("password", str(snapshot).lower())
-        self.assertTrue(store.revoke(second.session_id))
+        second_reference = second.revocation_ref
+        self.assertTrue(store.revoke_by_reference(second_reference))
+        self.assertFalse(store.revoke_by_reference(second_reference))
         self.assertEqual((second.password, second.csrf_token), ("", ""))
         self.assertEqual(second.authorization_ref, "")
+        self.assertEqual(second.revocation_ref, "")
+        self.assertFalse(store.revoke_by_reference("invalid-reference"))
         self.assertFalse(store.revoke(second.session_id))
 
     def test_telemetry_dispatch_is_atomic_with_session_revocation(self) -> None:

@@ -1615,7 +1615,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({
                 "sessions": self.server.context.sessions.snapshot(
                     current_session_id=session.session_id,
-                    include_identifiers=self._capability_allowed(session, "session.manage"),
+                    include_revocation_refs=self._capability_allowed(session, "session.manage"),
                 ),
                 "idle_timeout_seconds": self.server.context.sessions.idle_seconds,
                 "absolute_timeout_seconds": self.server.context.sessions.absolute_seconds,
@@ -2122,6 +2122,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         session = self._require_session()
         if not session:
             return
+        if not self._require_routeros_session(session):
+            return
         credentials = self._credentials(session)
         try:
             router = self.server.context.router.verify_credentials(credentials)
@@ -2213,7 +2215,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 sessions=active_sessions,
                 admin_sessions=self.server.context.sessions.snapshot(
                     current_session_id=session.session_id,
-                    include_identifiers=self._capability_allowed(session, "session.manage"),
+                    include_revocation_refs=self._capability_allowed(session, "session.manage"),
                 ),
                 devices=self.server.context.store.active_devices(),
                 connections=self.server.context.store.recent_connections(50),
@@ -2596,11 +2598,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         self._json({"ok": True})
 
-    def _revoke_admin_session(self, session_id: str) -> None:
+    def _revoke_admin_session(self, revocation_ref: str) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "session.manage"):
             return
-        if hmac.compare_digest(session.session_id, session_id):
+        if hmac.compare_digest(
+            session.revocation_ref.encode("utf-8"), revocation_ref.encode("utf-8")
+        ):
             self._json({"error": "The current session cannot be revoked from itself"}, status=HTTPStatus.BAD_REQUEST)
             return
         if not self._require_routeros_session(session):
@@ -2622,7 +2626,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action="admin-session.reauth.rate_limited",
                 target="administrator-session",
                 status="denied",
-                details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+                details={"session_ref_hash": hashlib.sha256(revocation_ref.encode("utf-8")).hexdigest()[:16]},
             )
             self._json({"error": "Too many authentication attempts. Try again later."}, status=HTTPStatus.TOO_MANY_REQUESTS)
             return
@@ -2638,7 +2642,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 action="admin-session.reauth.failed" if rejected else "admin-session.reauth.unavailable",
                 target="administrator-session",
                 status="denied" if rejected else "unavailable",
-                details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+                details={"session_ref_hash": hashlib.sha256(revocation_ref.encode("utf-8")).hexdigest()[:16]},
             )
             if rejected:
                 self._json({"error": "Authentication failed. The administrator session was not revoked."}, status=HTTPStatus.UNAUTHORIZED)
@@ -2654,7 +2658,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             action="admin-session.reauth.success",
             target="administrator-session",
             status="success",
-            details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+            details={"session_ref_hash": hashlib.sha256(revocation_ref.encode("utf-8")).hexdigest()[:16]},
         )
 
         # The RouterOS account's effective role can change while step-up is in
@@ -2666,7 +2670,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if refreshed is None or not self._session_has_capability(refreshed, "session.manage"):
             self._json({"error": "Authentication or session-management permission changed; no session was revoked"}, status=HTTPStatus.FORBIDDEN)
             return
-        if not self.server.context.sessions.revoke(session_id):
+        if not self.server.context.sessions.revoke_by_reference(revocation_ref):
             self._json({"error": "Administrator session was not found or already expired"}, status=HTTPStatus.NOT_FOUND)
             return
         self.server.context.store.audit(
@@ -2674,7 +2678,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             action="admin-session.revoke",
             target="administrator-session",
             status="success",
-            details={"session_id_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]},
+            details={"session_ref_hash": hashlib.sha256(revocation_ref.encode("utf-8")).hexdigest()[:16]},
         )
         self._json({"ok": True})
 

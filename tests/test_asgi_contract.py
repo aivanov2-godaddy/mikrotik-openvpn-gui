@@ -137,6 +137,109 @@ class ASGIContractTests(unittest.TestCase):
             [403],
         )
 
+    def test_socketio_asgi_rejects_missing_origin_for_websocket_handshake_and_reconnect(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        sessions = SessionStore()
+        active_session = sessions.create("operator", "test-only-router-password", role="owner")
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+        delegated: list[str] = []
+
+        async def inner(scope, _receive, _send) -> None:
+            delegated.append(scope["type"])
+
+        application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
+        application._session_bindings["active-engine-sid"] = (
+            active_session.session_id,
+            time.monotonic(),
+        )
+
+        async def exercise() -> list[list[dict[str, object]]]:
+            attempts: list[list[dict[str, object]]] = []
+            for query in (
+                b"EIO=4&transport=websocket",
+                b"EIO=4&transport=websocket&sid=active-engine-sid",
+            ):
+                messages: list[dict[str, object]] = []
+                scope = {
+                    "type": "websocket",
+                    "method": "GET",
+                    "path": "/socket.io/",
+                    "query_string": query,
+                    "headers": [
+                        (b"host", b"vpn.example.test"),
+                        (
+                            b"cookie",
+                            f"__Host-vpn_session={active_session.session_id}".encode("ascii"),
+                        ),
+                    ],
+                }
+
+                async def receive() -> dict[str, object]:
+                    return {"type": "websocket.connect"}
+
+                async def send(message: dict[str, object]) -> None:
+                    messages.append(message)
+
+                await application(scope, receive, send)
+                attempts.append(messages)
+            return attempts
+
+        attempts = asyncio.run(exercise())
+
+        self.assertEqual(delegated, [])
+        self.assertEqual(len(attempts), 2)
+        for messages in attempts:
+            self.assertEqual(messages, [{"type": "websocket.close", "code": 1008}])
+        self.assertIsNotNone(sessions.get(active_session.session_id, touch=False))
+
+    def test_socketio_asgi_rejects_missing_origin_for_http_post(self) -> None:
+        from asgi import SocketIOLiveSendASGI
+
+        sessions = SessionStore()
+        active_session = sessions.create("operator", "test-only-router-password", role="owner")
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+        delegated: list[str] = []
+
+        async def inner(scope, _receive, _send) -> None:
+            delegated.append(scope["type"])
+
+        application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/socket.io/",
+            "query_string": b"EIO=4&transport=polling",
+            "headers": [
+                (b"host", b"vpn.example.test"),
+                (
+                    b"cookie",
+                    f"__Host-vpn_session={active_session.session_id}".encode("ascii"),
+                ),
+            ],
+        }
+        messages: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        asyncio.run(application(scope, receive, send))
+
+        self.assertEqual(delegated, [])
+        self.assertEqual(
+            [message.get("status") for message in messages if message.get("type") == "http.response.start"],
+            [403],
+        )
+
     def test_socketio_asgi_rejects_duplicate_origins_for_http_and_websocket(self) -> None:
         from asgi import SocketIOLiveSendASGI
 
@@ -183,7 +286,7 @@ class ASGIContractTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
-    def test_socketio_asgi_rejects_foreign_origin_despite_forged_forwarded_host(self) -> None:
+    def test_socketio_asgi_rejects_foreign_origin_on_bound_sid_despite_forged_forwarded_host(self) -> None:
         from asgi import SocketIOLiveSendASGI
 
         sessions = SessionStore()
@@ -198,15 +301,24 @@ class ASGIContractTests(unittest.TestCase):
             telemetry_runtime=SimpleNamespace(sessions=sessions),
         )
         application = SocketIOLiveSendASGI(inner, DashboardHTTPASGI(server))
+        application._session_bindings["active-engine-sid"] = (
+            session.session_id,
+            time.monotonic(),
+        )
 
         async def exercise() -> None:
             for scope_type in ("http", "websocket"):
+                transport_query = (
+                    b"EIO=4&transport=polling&sid=active-engine-sid"
+                    if scope_type == "http"
+                    else b"EIO=4&transport=websocket&sid=active-engine-sid"
+                )
                 messages: list[dict[str, object]] = []
                 scope = {
                     "type": scope_type,
                     "method": "GET",
                     "path": "/socket.io/",
-                    "query_string": b"EIO=4&transport=polling",
+                    "query_string": transport_query,
                     "headers": [
                         (b"host", b"vpn.example.test"),
                         (b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii")),
@@ -320,6 +432,9 @@ class ASGIContractTests(unittest.TestCase):
             listener.listen(128)
             listener.setblocking(False)
             port = listener.getsockname()[1]
+            http_adapter.server.context = SimpleNamespace(
+                public_origin=f"http://127.0.0.1:{port}"
+            )
             server = uvicorn.Server(uvicorn.Config(application, log_level="critical", lifespan="off"))
             server_task = asyncio.create_task(server.serve(sockets=[listener]))
 
@@ -348,7 +463,10 @@ class ASGIContractTests(unittest.TestCase):
                 cookie = f"__Host-vpn_session={session.session_id}"
                 async with websockets.connect(
                     ws_url,
-                    additional_headers={"Cookie": cookie},
+                    additional_headers={
+                        "Cookie": cookie,
+                        "Origin": f"http://127.0.0.1:{port}",
+                    },
                     open_timeout=5,
                     ping_interval=None,
                 ) as ws:
@@ -515,6 +633,9 @@ class ASGIContractTests(unittest.TestCase):
             listener.listen(128)
             listener.setblocking(False)
             port = listener.getsockname()[1]
+            http_adapter.server.context = SimpleNamespace(
+                public_origin=f"http://127.0.0.1:{port}"
+            )
             server = uvicorn.Server(uvicorn.Config(application, log_level="critical", lifespan="off"))
             server_task = asyncio.create_task(server.serve(sockets=[listener]))
 
@@ -543,7 +664,10 @@ class ASGIContractTests(unittest.TestCase):
                 ws_url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
                 async with websockets.connect(
                     ws_url,
-                    additional_headers={"Cookie": cookie},
+                    additional_headers={
+                        "Cookie": cookie,
+                        "Origin": f"http://127.0.0.1:{port}",
+                    },
                     open_timeout=5,
                     ping_interval=None,
                 ) as ws:
@@ -601,7 +725,10 @@ class ASGIContractTests(unittest.TestCase):
                 with self.assertRaises(websockets.exceptions.InvalidStatus) as denied:
                     async with websockets.connect(
                         ws_url,
-                        additional_headers={"Cookie": cookie},
+                        additional_headers={
+                            "Cookie": cookie,
+                            "Origin": f"http://127.0.0.1:{port}",
+                        },
                         open_timeout=5,
                         ping_interval=None,
                     ):
@@ -688,6 +815,9 @@ class ASGIContractTests(unittest.TestCase):
             listener.listen(128)
             listener.setblocking(False)
             port = listener.getsockname()[1]
+            http_adapter.server.context = SimpleNamespace(
+                public_origin=f"http://127.0.0.1:{port}"
+            )
             config = uvicorn.Config(application, log_level="critical", lifespan="off")
             server = uvicorn.Server(config)
             server_task = asyncio.create_task(server.serve(sockets=[listener]))
@@ -715,7 +845,10 @@ class ASGIContractTests(unittest.TestCase):
 
                 async with websockets.connect(
                     ws_url,
-                    additional_headers={"Cookie": cookie},
+                    additional_headers={
+                        "Cookie": cookie,
+                        "Origin": f"http://127.0.0.1:{port}",
+                    },
                     open_timeout=5,
                     ping_interval=None,
                 ) as ws:
@@ -778,7 +911,10 @@ class ASGIContractTests(unittest.TestCase):
                     with self.assertRaises(websockets.exceptions.InvalidStatus) as denied:
                         async with websockets.connect(
                             ws_url,
-                            additional_headers={"Cookie": cookie},
+                            additional_headers={
+                                "Cookie": cookie,
+                                "Origin": f"http://127.0.0.1:{port}",
+                            },
                             open_timeout=5,
                             ping_interval=None,
                         ):
@@ -3923,7 +4059,10 @@ class ASGIContractTests(unittest.TestCase):
                 return TelemetryPrincipal.from_session(current) if current else None
 
         runtime = Runtime()
-        http_adapter = DashboardHTTPASGI(SimpleNamespace(telemetry_runtime=runtime))
+        http_adapter = DashboardHTTPASGI(SimpleNamespace(
+            telemetry_runtime=runtime,
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+        ))
         send_started = asyncio.Event()
         release_send = asyncio.Event()
         revoke_finished = asyncio.Event()
@@ -3948,7 +4087,10 @@ class ASGIContractTests(unittest.TestCase):
         scope = {
             "type": "websocket",
             "path": "/socket.io/extra",
-            "headers": [(b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii"))],
+            "headers": [
+                (b"cookie", f"__Host-vpn_session={session.session_id}".encode("ascii")),
+                (b"origin", b"https://vpn.example.test"),
+            ],
         }
 
         async def exercise() -> None:
@@ -4167,7 +4309,10 @@ class ASGIContractTests(unittest.TestCase):
 
         adapter = SimpleNamespace(
             _send_authorized_live_message=authorized_send,
-            server=SimpleNamespace(telemetry_runtime=SimpleNamespace(sessions=ActiveSessions())),
+            server=SimpleNamespace(
+                telemetry_runtime=SimpleNamespace(sessions=ActiveSessions()),
+                context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            ),
         )
         gate = SocketIOLiveSendASGI(inner, adapter)
         sent: list[dict[str, object]] = []
@@ -4182,7 +4327,8 @@ class ASGIContractTests(unittest.TestCase):
                 "path": "/socket.io/",
                 "query_string": b"EIO=4&transport=polling",
                 "headers": [
-                    (b"cookie", f"__Host-vpn_session={cookie_session_id}".encode("ascii"))
+                    (b"cookie", f"__Host-vpn_session={cookie_session_id}".encode("ascii")),
+                    (b"origin", b"https://vpn.example.test"),
                 ],
             }
 
@@ -4419,7 +4565,7 @@ class ASGIContractTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
-    def test_native_socketio_websocket_stops_after_role_revocation_and_denies_reconnect(self) -> None:
+    def test_native_socketio_websocket_revalidates_at_natural_deadline_and_denies_reconnect(self) -> None:
         if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn", "websockets")):
             self.skipTest("native Socket.IO runtime dependencies are not installed")
 
@@ -4437,8 +4583,10 @@ class ASGIContractTests(unittest.TestCase):
             role_state = {"role": "owner"}
             role_refresh_started = threading.Event()
             release_role_refresh = threading.Event()
+            role_check_times: list[float] = []
 
             def resolve_role(_session) -> str | None:
+                role_check_times.append(time.monotonic())
                 if role_state["role"] is None:
                     role_refresh_started.set()
                     release_role_refresh.wait(timeout=5)
@@ -4489,6 +4637,10 @@ class ASGIContractTests(unittest.TestCase):
             server_task = asyncio.create_task(server.serve(sockets=[listener]))
             url = f"ws://127.0.0.1:{port}/socket.io/?EIO=4&transport=websocket"
             headers = {"Cookie": f"__Host-vpn_session={session.session_id}"}
+            http_adapter.server.context = SimpleNamespace(
+                public_origin=f"http://127.0.0.1:{port}"
+            )
+            headers["Origin"] = f"http://127.0.0.1:{port}"
             websocket = None
             try:
                 deadline = asyncio.get_running_loop().time() + 5
@@ -4515,17 +4667,17 @@ class ASGIContractTests(unittest.TestCase):
                             received.append(payload)
                 self.assertEqual(received[0]["payload"]["name"], "test-user")
 
-                # Simulate a RouterOS account losing its streaming capability
-                # after the initial successful role check. Aging the warm cache
-                # by 16 seconds crosses the production 15-second bound without
-                # a wall-clock sleep.
+                # Simulate RouterOS no longer resolving this account to an
+                # authorized role (for example, a disabled or removed user).
+                # Keep the real monotonic clock and leave the live stream open
+                # until it naturally crosses the 15-second revalidation bound.
+                last_role_check_at = role_check_times[-1]
                 role_state["role"] = None
-                with sessions._lock:
-                    sessions._role_checked_monotonic[session.session_id] = time.monotonic() - 16
                 refresh_started = await asyncio.wait_for(
-                    asyncio.to_thread(role_refresh_started.wait, 5), timeout=6
+                    asyncio.to_thread(role_refresh_started.wait, 22), timeout=23
                 )
                 self.assertTrue(refresh_started)
+                self.assertGreaterEqual(role_check_times[-1] - last_role_check_at, 15.0)
                 blocked_events = runtime.broker.apply(
                     RouterOSReply(
                         "re",

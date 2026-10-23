@@ -242,6 +242,41 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
                 self.assertIn(row[1], VALID_MATRIX_STATUSES)
                 self.assertTrue(row[2], "each matrix status must have scoped evidence")
 
+    def test_session_cookie_assurance_matches_non_authenticating_inventory_reference(self) -> None:
+        matrix = {
+            row[0]: row
+            for row in _assurance_matrix(self.document)[1:]
+        }
+        cookie_control = matrix["V3.3.4"]
+        self.assertEqual(cookie_control[1], "TESTED")
+        self.assertIn("cookie bearer is returned only in `Set-Cookie`", cookie_control[2])
+        self.assertIn("non-authenticating revocation reference", cookie_control[2])
+
+        endpoint = next(
+            line for line in self.document.splitlines()
+            if line.startswith("| `GET /api/admin/sessions` |")
+        )
+        self.assertIn("cookie bearer is never included", endpoint)
+        self.assertIn("reference is not accepted as a session cookie", endpoint)
+
+    def test_cookie_and_session_controls_name_their_direct_regressions(self) -> None:
+        rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
+        for control in ("V3.3.1", "V3.3.2", "V3.3.3", "V3.3.5"):
+            with self.subTest(control=control):
+                self.assertIn(
+                    "test_login_session_cookie_has_required_host_security_and_size_properties",
+                    rows[control][2],
+                )
+        self.assertIn("test_admin_session_response_fields_are_capability_gated_at_http_boundary", rows["V3.3.4"][2])
+        self.assertIn("test_admin_session_revocation_reference_projection_matches_all_routeros_roles", rows["V3.3.4"][2])
+        self.assertIn("test_login_page_uses_same_origin_referrer_policy_for_form_submission", rows["V7.6.2"][2])
+
+    def test_logout_access_is_tested_at_the_rendered_operator_view_boundary(self) -> None:
+        rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
+        self.assertEqual(rows["V7.4.4"][1], "TESTED")
+        self.assertIn("shared Sign out stays visible and keyboard reachable on every operator view", rows["V7.4.4"][2])
+        self.assertIn("no human usability study is claimed", rows["V7.4.4"][2])
+
     def test_external_deployment_controls_are_not_claimed_as_verified(self) -> None:
         matrix = _assurance_matrix(self.document)
         findings = {
@@ -443,9 +478,21 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
 
     def test_partial_asvs_statuses_match_the_bounded_evidence(self) -> None:
         rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
-        for control in ("V7.4.2", "V7.4.5", "V7.5.2", "V8.1.1", "V8.1.3–V8.1.4"):
+        for control in (
+            "V7.4.2",
+            "V7.4.5",
+            "V7.5.2",
+            "V8.1.1",
+            "V8.1.3–V8.1.4",
+            "V4.4.2",
+        ):
             with self.subTest(control=control):
                 self.assertEqual(rows[control][1], "PARTIAL")
+
+        websocket_origin_finding = rows["V4.4.2"][2]
+        self.assertIn("require exactly one Origin", websocket_origin_finding)
+        self.assertIn("HTTP polling GET may omit Origin", websocket_origin_finding)
+        self.assertIn("Deployed proxy behavior is unverified", websocket_origin_finding)
 
         self.assertIn("does not proactively invalidate every session", rows["V7.4.2"][2])
         self.assertIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
@@ -453,6 +500,47 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("CI now mechanically reconciles every literal/regex", rows["V8.1.1"][2])
         self.assertIn("does not independently prove every authorization decision is correct", rows["V8.1.1"][2])
         self.assertIn("resolved client IP", rows["V8.1.3–V8.1.4"][2])
+
+    def test_delayed_live_role_revocation_is_reported_as_an_asvs_gap(self) -> None:
+        rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
+        role_change = rows["V8.3.2"]
+
+        self.assertEqual(role_change[1], "GAP")
+        self.assertIn("15-second stream-role cache", role_change[2])
+        self.assertIn("group's policies", role_change[2])
+        self.assertIn("up to 10 minutes later", role_change[2])
+        self.assertIn("not verified on the deployed RouterOS 7.24.5", role_change[2])
+        self.assertIn("Effective authorization on an already-open stream may therefore remain stale", role_change[2])
+        self.assertIn("no immediate RouterOS change notification", role_change[2])
+        self.assertIn("would not prevent information leakage", role_change[2])
+
+        self.assertIn("user-record change (applied on the next request)", self.document)
+        self.assertIn("policy edit (applied when the REST server renews its API login", self.document)
+        self.assertIn("https://manual.mikrotik.com/docs/developer-guides/rest-api/", self.document)
+
+    def test_websocket_origin_review_separates_merged_code_from_followup_evidence(self) -> None:
+        self.assertIn(
+            "reviewed merged source at `8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7`",
+            self.document,
+        )
+        self.assertIn(
+            "that merged source still permits a WebSocket handshake with no",
+            self.document,
+        )
+        self.assertIn("this follow-up adds a requirement", self.document)
+        self.assertIn("This change is not", self.document)
+        self.assertIn("V4.4.2 stays PARTIAL pending deployed proxy", self.document)
+
+    def test_live_report_marks_prior_candidate_gate_results_as_historical(self) -> None:
+        report = (ROOT / "docs" / "LIVE_TELEMETRY_ACCEPTANCE_REPORT.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "historical acceptance record for candidate PR #776", report
+        )
+        self.assertIn("approximately 14:50 UTC showed one", report)
+        self.assertIn("approximately 15:02 UTC showed zero active sessions", report)
+        self.assertIn("does not correlate the session with", report)
 
     def test_documented_contextual_login_limit_matches_runtime_defaults(self) -> None:
         limiter_module = ast.parse((ROOT / "security.py").read_text(encoding="utf-8"))

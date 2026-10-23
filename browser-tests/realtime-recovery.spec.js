@@ -646,6 +646,11 @@ test('stops telemetry after session revocation and denies reconnect with stale a
       return payload.sessions.find((session) => session.user_agent === userAgent)?.id || '';
     }, marker);
     expect(targetSessionId).not.toBe('');
+    const cookieValues = [
+      ...(await targetContext.cookies()).map((cookie) => cookie.value),
+      ...(await adminContext.cookies()).map((cookie) => cookie.value),
+    ];
+    expect(cookieValues).not.toContain(targetSessionId);
     const revokeButton = adminPage.locator(
       `[data-admin-session-row][data-session-id="${targetSessionId}"] [data-admin-session-revoke]`,
     );
@@ -666,7 +671,11 @@ test('stops telemetry after session revocation and denies reconnect with stale a
     await expect(reauthentication).toBeVisible();
     await reauthentication.getByLabel('RouterOS password').fill('routerpass');
     await reauthentication.getByRole('button', { name: 'Verify and revoke session' }).click();
-    expect((await revocation).status()).toBe(200);
+    const revoked = await revocation;
+    expect(revoked.status()).toBe(200);
+    const revocationPath = new URL(revoked.url()).pathname;
+    expect(decodeURIComponent(revocationPath.split('/').at(-1))).toBe(targetSessionId);
+    for (const cookieValue of cookieValues) expect(revocationPath).not.toContain(cookieValue);
     await expect(reauthentication).toBeHidden();
     await deniedReconnect;
     const framesAfterRevocation = await targetPage.evaluate(() => window.__authorizationStreamFrames.length);

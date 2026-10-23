@@ -112,6 +112,9 @@ class Session:
     csrf_token: str = field(repr=False)
     created_at: float
     last_seen: float
+    revocation_ref: str = field(
+        default_factory=lambda: secrets.token_urlsafe(24), repr=False
+    )
     authorization_ref: str = field(
         default_factory=lambda: secrets.token_urlsafe(24), repr=False
     )
@@ -141,6 +144,7 @@ class SessionStore:
         self.absolute_seconds = absolute_seconds
         self.max_sessions_per_account = max_sessions_per_account
         self._sessions: dict[str, Session] = {}
+        self._revocation_sessions: dict[str, str] = {}
         self._lock = threading.RLock()
         self._role_checked_monotonic: dict[str, float] = {}
         self._role_check_locks: dict[str, threading.Lock] = {}
@@ -233,6 +237,8 @@ class SessionStore:
             session.password = ""
             session.csrf_token = ""
             session.authorization_ref = ""
+            self._revocation_sessions.pop(session.revocation_ref, None)
+            session.revocation_ref = ""
         self._role_checked_monotonic.pop(session_id, None)
         self._role_check_locks.pop(session_id, None)
         self._invalidating.discard(session_id)
@@ -293,6 +299,7 @@ class SessionStore:
             if account_sessions >= self.max_sessions_per_account:
                 raise ConcurrentSessionLimitReached
             self._sessions[session.session_id] = session
+            self._revocation_sessions[session.revocation_ref] = session.session_id
             self._role_checked_monotonic[session.session_id] = monotonic_current
         return session
 
@@ -492,6 +499,7 @@ class SessionStore:
                 )
                 self._drop_session_locked(session_id)
                 self._sessions[replacement.session_id] = replacement
+                self._revocation_sessions[replacement.revocation_ref] = replacement.session_id
                 self._role_checked_monotonic[replacement.session_id] = monotonic_current
                 return replacement
         finally:
@@ -702,41 +710,56 @@ class SessionStore:
         *,
         current_session_id: str = "",
         now: float | None = None,
-        include_identifiers: bool = False,
+        include_revocation_refs: bool = False,
     ) -> list[dict[str, object]]:
-        """Return safe administrator-session metadata without credentials.
+        """Return session metadata without exposing cookie bearer identifiers.
 
-        Raw session IDs are bearer material, so they are included only for a
-        caller that has an explicit session-management capability. Everyone
-        else receives a short stable hash suitable for inventory/audit views.
+        A separately generated reference is included only for callers with an
+        explicit session-management capability. It selects a target for a
+        privileged revoke operation but is never accepted for authentication.
+        Other callers receive a short stable hash for inventory/audit views.
         """
         current = time.time() if now is None else now
         sessions = self.active(current)
         monotonic_current = time.monotonic()
         result: list[dict[str, object]] = []
-        for session in sessions:
-            if now is None:
-                idle_elapsed = monotonic_current - session.last_seen_monotonic
-                absolute_elapsed = monotonic_current - session.created_monotonic
-            else:
-                idle_elapsed = current - session.last_seen
-                absolute_elapsed = current - session.created_at
-            result.append({
-                "id": session.session_id if include_identifiers else "",
-                "id_hash": hashlib.sha256(session.session_id.encode("utf-8")).hexdigest()[:16],
-                "username": session.username,
-                "role": normalize_role(session.role),
-                "created_at": int(session.created_at),
-                "last_seen": int(session.last_seen),
-                "idle_seconds": max(0, int(idle_elapsed)),
-                "idle_remaining": max(0, int(self.idle_seconds - idle_elapsed)),
-                "absolute_remaining": max(0, int(self.absolute_seconds - absolute_elapsed)),
-                "source_address": session.source_address or "unknown",
-                "user_agent": session.user_agent or "unknown",
-                "auth_method": session.auth_method,
-                "current": bool(session.session_id and session.session_id == current_session_id),
-            })
+        with self._lock:
+            for session in sessions:
+                if (
+                    self._sessions.get(session.session_id) is not session
+                    or session.session_id in self._invalidating
+                ):
+                    continue
+                if now is None:
+                    idle_elapsed = monotonic_current - session.last_seen_monotonic
+                    absolute_elapsed = monotonic_current - session.created_monotonic
+                else:
+                    idle_elapsed = current - session.last_seen
+                    absolute_elapsed = current - session.created_at
+                result.append({
+                    "id": session.revocation_ref if include_revocation_refs else "",
+                    "id_hash": hashlib.sha256(session.revocation_ref.encode("utf-8")).hexdigest()[:16],
+                    "username": session.username,
+                    "role": normalize_role(session.role),
+                    "created_at": int(session.created_at),
+                    "last_seen": int(session.last_seen),
+                    "idle_seconds": max(0, int(idle_elapsed)),
+                    "idle_remaining": max(0, int(self.idle_seconds - idle_elapsed)),
+                    "absolute_remaining": max(0, int(self.absolute_seconds - absolute_elapsed)),
+                    "source_address": session.source_address or "unknown",
+                    "user_agent": session.user_agent or "unknown",
+                    "auth_method": session.auth_method,
+                    "current": bool(session.session_id and session.session_id == current_session_id),
+                })
         return result
+
+    def revoke_by_reference(self, revocation_ref: str) -> bool:
+        """Revoke the session selected by a non-authenticating reference."""
+        if not isinstance(revocation_ref, str) or not revocation_ref:
+            return False
+        with self._lock:
+            session_id = self._revocation_sessions.get(revocation_ref)
+        return self.revoke(session_id) if session_id else False
 
     def revoke(self, session_id: str) -> bool:
         """Revoke one dashboard session after any authorized emit completes."""
