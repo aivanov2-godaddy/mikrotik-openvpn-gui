@@ -1,4 +1,4 @@
-"""Small, shared privacy boundary for outbound integration payloads."""
+"""Small, shared privacy boundary for audit persistence and outbound payloads."""
 
 from __future__ import annotations
 
@@ -98,6 +98,34 @@ def sanitize_payload(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return str(value)[:_MAX_STRING_LENGTH]
+
+
+def sanitize_audit_details(value: Any) -> Any:
+    """Sanitize durable audit details without persisting operator free text.
+
+    Free-form rationales may contain credentials, personal information, or
+    private network details. Keep only whether a rationale was supplied; the
+    original text remains available only in the request/review flow.
+    """
+    sanitized = sanitize_payload(value)
+
+    def redact(item: Any) -> Any:
+        if isinstance(item, Mapping):
+            result: dict[str, Any] = {}
+            for key, nested in item.items():
+                name = str(key)[:128]
+                if "rationale" in name.casefold():
+                    result["rationale_recorded"] = bool(
+                        nested.strip() if isinstance(nested, str) else nested
+                    )
+                else:
+                    result[name] = redact(nested)
+            return result
+        if isinstance(item, list):
+            return [redact(nested) for nested in item]
+        return item
+
+    return redact(sanitized)
 
 
 def sanitize_integration_event(value: Any) -> dict[str, Any]:

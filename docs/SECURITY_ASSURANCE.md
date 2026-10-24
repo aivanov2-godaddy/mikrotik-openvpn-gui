@@ -819,6 +819,33 @@ logging review, complete independent requirement-by-requirement ASVS review,
 or named owner risk acceptance is recorded here. Do not interpret bounded
 source reviews as a production sign-off.
 
+## Bounded source review and audit-rationale minimization — 2026-10-24
+
+Three separate read-only reviewers examined the authentication/session and
+live-delivery paths, telemetry authorization and payload projection, and
+secrets/audit/Redis/SQLite/deployer handling at source commit
+`95643475f7b24be36c914791d07713625973b5f7`. They did not access GitHub,
+Cloudflare, RouterOS, or deployed runtime state. No concrete HTTP authorization
+or CSRF bypass was identified in the reviewed paths. The review is bounded and
+does not establish ASVS conformance, deployment behavior, or absence of other
+defects.
+
+The review found that operator-supplied free-text rationale was included in
+local audit rows and the SQLite integration outbox. The candidate change now
+stores only `rationale_recorded` and never the submitted text, so audit exports
+and outbox retries inherit the same minimized representation. The review also
+found that `DeploymentSettings`' default dataclass representation included its
+password; the candidate marks that field `repr=False`. Regression tests cover
+both boundaries. These fixes require the candidate's CI and merge before being
+treated as mainline behavior.
+
+The following remain open: exhaustive field-level authorization review,
+RouterOS-side role-change freshness, live telemetry/reconnect acceptance,
+deployed Redis and SQLite recovery, credential-memory/log/dump review, exact
+candidate-to-router reconciliation, and named owner residual-risk acceptance.
+The current browser and device state were not used as evidence in this source
+review.
+
 ## Repository hardening and export privacy — 2026-10-05
 
 - `POST /login` requires an exact same-origin `Origin`, or an exact same-origin

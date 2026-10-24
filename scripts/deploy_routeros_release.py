@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 if __package__ in {None, ""}:
@@ -66,7 +66,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 class DeploymentSettings:
     rest_url: str
     username: str
-    password: str
+    password: str = field(repr=False)
     container_name: str
     release_image: str
     timeout_seconds: int = 600

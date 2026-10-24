@@ -5332,7 +5332,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             item for item in self.server.context.store.recent_audit()
             if item["action"] == "user.create" and item["target"] == "maria"
         )
-        self.assertEqual(json.loads(create_audit["details"])["rationale"], create_request["reason"])
+        self.assertTrue(json.loads(create_audit["details"])["rationale_recorded"])
 
         users = {
             item["name"]: item
@@ -5388,7 +5388,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"dhcp-option DNS 1.1.1.1", second_profile)
         self.assertEqual(len(self.server.context.store.devices_for_user("maria")), 2)
         profile_audit = self.server.context.store.recent_audit(1)[0]
-        self.assertEqual(json.loads(profile_audit["details"])["rationale"], preview["reason"])
+        self.assertTrue(json.loads(profile_audit["details"])["rationale_recorded"])
         self.server.context.store.save_policy_template(
             template_id="template-reviewed", name="Reviewed", description="test",
             group_name="Test", controls={"policy": "full-tunnel"},
@@ -5426,9 +5426,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(self.mock.state.certificates["*CA"].get("revoked") in (None, "no"))
         self.assertTrue(all(self.mock.state.certificates[item]["revoked"] for item in ("*C1", "*C2")))
         self.assertTrue(all(item["revoked_at"] for item in self.server.context.store.devices_for_user("maria", include_revoked=True)))
-        self.assertEqual(
-            json.loads(self.server.context.store.recent_audit(1)[0]["details"])["rationale"],
-            deletion_review["reason"],
+        self.assertTrue(
+            json.loads(self.server.context.store.recent_audit(1)[0]["details"])["rationale_recorded"]
         )
 
     def test_user_creation_review_excludes_secrets_and_rejects_taken_username(self) -> None:
@@ -5897,7 +5896,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         audit = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(audit["status"], "failed")
-        self.assertEqual(json.loads(audit["details"])["rationale"], "Different profile issuance reason")
+        self.assertTrue(json.loads(audit["details"])["rationale_recorded"])
 
     def test_profile_checkpoint_failure_prevents_certificate_mutation_and_delivery(self) -> None:
         self.login()
@@ -7121,10 +7120,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             item for item in self.server.context.store.recent_audit()
             if item["action"] == "user.duplicate" and item["target"] == "user-one-copy"
         )
-        self.assertEqual(
-            json.loads(duplicate_audit["details"])["rationale"],
-            duplicate_request["reason"],
-        )
+        self.assertTrue(json.loads(duplicate_audit["details"])["rationale_recorded"])
 
         session_id = next(iter(self.mock.state.active_sessions))
         termination_review = self.preview_session_termination(session_id)
@@ -7145,7 +7141,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             item for item in self.server.context.store.recent_audit()
             if item["action"] == "session.terminate"
         )
-        self.assertEqual(json.loads(termination_audit["details"])["rationale"], termination_review["reason"])
+        self.assertTrue(json.loads(termination_audit["details"])["rationale_recorded"])
 
     def test_session_termination_reason_is_bound_to_review_and_audited(self) -> None:
         self.login()
@@ -7904,7 +7900,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("*1", self.mock.state.users)
         audit = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(audit["status"], "failed")
-        self.assertEqual(json.loads(audit["details"])["rationale"], "Different administrator rationale")
+        self.assertTrue(json.loads(audit["details"])["rationale_recorded"])
 
     def test_user_delete_rejects_stale_managed_certificate_set(self) -> None:
         self._managed_device_revoke_request()
@@ -8130,8 +8126,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(result["disabled"])
         self.assertEqual(result["disconnected"], 1)
         self.assertEqual(result["remaining"], 0)
-        self.assertEqual(
-            json.loads(self.server.context.store.recent_audit(1)[0]["details"])["rationale"], preview["reason"],
+        self.assertTrue(
+            json.loads(self.server.context.store.recent_audit(1)[0]["details"])["rationale_recorded"]
         )
         self.assertFalse(self.mock.state.active_sessions)
         disabled = next(item for item in self.mock.state.users.values() if item["name"] == "user-two")
@@ -8219,7 +8215,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         audit = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(audit["status"], "failed")
-        self.assertEqual(json.loads(audit["details"])["rationale"], "Different administrator rationale")
+        self.assertTrue(json.loads(audit["details"])["rationale_recorded"])
 
     def test_user_suspend_reconciles_lost_patch_response_from_routeros_readback(self) -> None:
         self.login()
@@ -8440,7 +8436,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertFalse(self.mock.state.active_sessions)
         self.assertTrue(all(item["disabled"] == "yes" for item in self.mock.state.users.values()))
         bulk_audit = next(item for item in self.server.context.store.recent_audit(10) if item["action"] == "bulk.suspend")
-        self.assertEqual(json.loads(bulk_audit["details"])["rationale"], preview["reason"])
+        self.assertTrue(json.loads(bulk_audit["details"])["rationale_recorded"])
 
     def test_bulk_destructive_action_binds_rationale_before_routeros_mutation(self) -> None:
         self.login()
@@ -8897,7 +8893,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("policy_template.apply", [item["action"] for item in self.server.context.store.recent_audit(10)])
         apply_audit = next(item for item in self.server.context.store.recent_audit(10)
                            if item["action"] == "policy_template.apply")
-        self.assertEqual(json.loads(apply_audit["details"])["rationale"], rationale)
+        self.assertTrue(json.loads(apply_audit["details"])["rationale_recorded"])
         status, _, _ = self.json_request(
             "POST", f"/api/policy-templates/{template['id']}/apply",
             {"user_ids": [target["id"]], "reason": rationale,
