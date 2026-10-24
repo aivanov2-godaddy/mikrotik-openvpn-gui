@@ -2324,6 +2324,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/auth/reauthenticate":
             self._reauthenticate()
             return
+        if path == "/api/auth/sessions/revoke-others":
+            self._revoke_own_other_sessions()
+            return
         if path == "/logout":
             self._logout()
             return
@@ -2743,6 +2746,98 @@ class DashboardHandler(BaseHTTPRequestHandler):
             details={"session_ref_hash": hashlib.sha256(revocation_ref.encode("utf-8")).hexdigest()[:16]},
         )
         self._json({"ok": True})
+
+    def _revoke_own_other_sessions(self) -> None:
+        session = self._require_session(api=True)
+        if not session or not self._require_csrf(session):
+            return
+        if not self._login_origin_allowed() or session.auth_method != "routeros":
+            self._json({"error": "A RouterOS-authenticated same-origin session is required"}, status=HTTPStatus.FORBIDDEN)
+            return
+        try:
+            data = self._read_json()
+            password = data.get("password")
+            confirmation = data.get("confirmation")
+            if not isinstance(confirmation, str) or not hmac.compare_digest(
+                confirmation, "SIGN OUT MY OTHER SESSIONS"
+            ):
+                raise ValueError("Type SIGN OUT MY OTHER SESSIONS to confirm this action")
+            if not isinstance(password, str) or not password or len(password) > 256:
+                raise ValueError("Enter your RouterOS password to confirm this action")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        identity = self._client_ip()
+        reservation = self.server.context.limiter.reserve(identity)
+        if reservation is None:
+            self.server.context.store.audit(
+                actor=session.username,
+                action="session.revoke-others.reauth.rate_limited",
+                target="dashboard-sessions",
+                status="denied",
+                details={"scope": "own-account-other-sessions"},
+            )
+            self._json({"error": "Too many authentication attempts. Try again later."}, status=HTTPStatus.TOO_MANY_REQUESTS)
+            return
+        try:
+            self.server.context.router.verify_credentials(
+                RouterOSCredentials(session.username, password)
+            )
+        except RouterOSError as error:
+            rejected = error.status == HTTPStatus.UNAUTHORIZED
+            self.server.context.limiter.finish(reservation, failed=True if rejected else None)
+            self.server.context.store.audit(
+                actor=session.username,
+                action=(
+                    "session.revoke-others.reauth.failed"
+                    if rejected else "session.revoke-others.reauth.unavailable"
+                ),
+                target="dashboard-sessions",
+                status="denied" if rejected else "unavailable",
+                details={"scope": "own-account-other-sessions"},
+            )
+            if rejected:
+                self._json({"error": "Authentication failed. No other sessions were signed out."}, status=HTTPStatus.UNAUTHORIZED)
+            else:
+                self._json({"error": "RouterOS could not verify the password right now. No other sessions were signed out."}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        except Exception:
+            self.server.context.limiter.finish(reservation, failed=None)
+            raise
+        self.server.context.limiter.finish(reservation, failed=False)
+        self.server.context.store.audit(
+            actor=session.username,
+            action="session.revoke-others.reauth.success",
+            target="dashboard-sessions",
+            status="success",
+            details={"scope": "own-account-other-sessions"},
+        )
+
+        refreshed = self.server.telemetry_runtime.revalidate_session(
+            session.session_id,
+            force_role_check=True,
+        )
+        if (
+            refreshed is None
+            or refreshed.auth_method != "routeros"
+            or refreshed.username.casefold() != session.username.casefold()
+        ):
+            self._json({"error": "Authentication changed; no other sessions were signed out"}, status=HTTPStatus.FORBIDDEN)
+            return
+
+        revoked_count = self.server.context.sessions.revoke_account_sessions_except(
+            session.username,
+            session.session_id,
+        )
+        self.server.context.store.audit(
+            actor=session.username,
+            action="session.revoke-others",
+            target="dashboard-sessions",
+            status="success",
+            details={"scope": "own-account-other-sessions", "revoked_count": revoked_count},
+        )
+        self._json({"ok": True, "revoked_count": revoked_count})
 
     def _break_glass_plan(self) -> None:
         session = self._require_session(api=True)

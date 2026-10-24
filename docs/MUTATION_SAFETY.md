@@ -54,6 +54,7 @@ These endpoints change dashboard-local state rather than RouterOS:
 
 - `POST /api/admin/api-tokens` and `DELETE /api/admin/api-tokens/{id}` create or revoke a scoped dashboard token.
 - `DELETE /api/admin/sessions/{revocation_ref}` revokes a dashboard login, not an OpenVPN tunnel. The opaque reference is not a cookie or an authentication credential.
+- `POST /api/auth/sessions/revoke-others` signs out only the authenticated RouterOS account's other dashboard logins. It preserves the caller and does not affect VPN tunnels or API tokens; CSRF, same-origin, typed confirmation, fresh password verification, and session revalidation are required.
 - `POST /api/bulk/views` and `DELETE /api/bulk/views/{id}` save or remove a filter view.
 - `POST /api/alerts/{id}/ack` acknowledges a dashboard alert.
 - `POST /api/policy-templates` and `PATCH /api/policy-templates/{id}` create or edit a local template; only its

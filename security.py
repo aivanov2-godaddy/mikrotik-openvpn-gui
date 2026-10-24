@@ -912,6 +912,64 @@ class SessionStore:
     async def revoke_account_sessions_async(self, username: str) -> int:
         return await asyncio.to_thread(self.revoke_account_sessions, username)
 
+    def revoke_account_sessions_except(self, username: str, keep_session_id: str) -> int:
+        """Revoke the account's other RouterOS dashboard sessions atomically."""
+        if not isinstance(username, str) or not isinstance(keep_session_id, str):
+            return 0
+        username_key = username.strip().casefold()
+        if not username_key or not keep_session_id:
+            return 0
+
+        self._acquire_sync_lock(self._session_set_lock)
+        try:
+            with self._lock:
+                candidates = sorted(
+                    session_id
+                    for session_id, session in self._sessions.items()
+                    if session_id != keep_session_id
+                    and session.auth_method == "routeros"
+                    and session.username.casefold() == username_key
+                )
+                locks = [
+                    self._role_check_locks.setdefault(session_id, threading.Lock())
+                    for session_id in candidates
+                ]
+                acquired_in_loop = self._acquire_role_check_locks_in_event_loop(locks)
+                if acquired_in_loop is not None:
+                    try:
+                        self._invalidating.update(candidates)
+                        current = [key for key in candidates if key in self._sessions]
+                        for session_id in current:
+                            self._drop_session_locked(session_id)
+                        return len(current)
+                    finally:
+                        for check_lock in reversed(acquired_in_loop):
+                            check_lock.release()
+                self._invalidating.update(candidates)
+
+            acquired: list[threading.Lock] = []
+            try:
+                for check_lock in locks:
+                    check_lock.acquire()
+                    acquired.append(check_lock)
+                with self._lock:
+                    current = [key for key in candidates if key in self._sessions]
+                    for session_id in current:
+                        self._drop_session_locked(session_id)
+                    return len(current)
+            finally:
+                for check_lock in reversed(acquired):
+                    check_lock.release()
+        finally:
+            self._session_set_lock.release()
+
+    async def revoke_account_sessions_except_async(
+        self, username: str, keep_session_id: str
+    ) -> int:
+        return await asyncio.to_thread(
+            self.revoke_account_sessions_except, username, keep_session_id
+        )
+
     def revoke_all_except(self, session_id: str) -> int:
         self._acquire_sync_lock(self._session_set_lock)
         try:

@@ -738,6 +738,23 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(store.revoke_by_reference("invalid-reference"))
         self.assertFalse(store.revoke(second.session_id))
 
+    def test_revoke_account_sessions_except_is_casefold_scoped_and_preserves_caller(self) -> None:
+        store = SessionStore()
+        caller = store.create("Admin", "secret", role="owner")
+        same_account = store.create("admin", "secret", role="owner")
+        another_same_account = store.create("ADMIN", "secret", role="administrator")
+        other_account = store.create("auditor", "secret", role="auditor")
+
+        revoked = store.revoke_account_sessions_except("admin", caller.session_id)
+
+        self.assertEqual(revoked, 2)
+        self.assertIsNotNone(store.get(caller.session_id, touch=False))
+        self.assertIsNone(store.get(same_account.session_id, touch=False))
+        self.assertIsNone(store.get(another_same_account.session_id, touch=False))
+        self.assertIsNotNone(store.get(other_account.session_id, touch=False))
+        self.assertEqual((same_account.password, another_same_account.password), ("", ""))
+        self.assertEqual(store.revoke_account_sessions_except("admin", caller.session_id), 0)
+
     def test_telemetry_dispatch_is_atomic_with_session_revocation(self) -> None:
         store = SessionStore()
         session = store.create("admin", "secret")

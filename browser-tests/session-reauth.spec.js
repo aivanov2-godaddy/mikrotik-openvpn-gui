@@ -47,6 +47,46 @@ test('failed re-authentication clears password and preserves the live dashboard 
   await expectNoDocumentReload(page, originalDocument, navigations);
 });
 
+test('self-service sign-out preserves the current session and requires typed confirmation', async ({ page }) => {
+  const navigations = { count: 0 };
+  await signIn(page);
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.count += 1;
+  });
+  const originalDocument = await page.evaluate(() => window.__documentInstance);
+
+  await page.getByRole('button', { name: 'Sign out my other sessions' }).click();
+  const dialog = page.locator('#admin-session-reauth-dialog');
+  await expect(page.locator('[data-own-session-count]')).toContainText('other dashboard session');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('only dashboard logins for your RouterOS account');
+  await expect(dialog).toContainText('VPN tunnels are not disconnected');
+  await dialog.getByLabel('Type SIGN OUT MY OTHER SESSIONS').fill('wrong phrase');
+  await dialog.getByLabel('RouterOS password').fill('routerpass');
+  const rejected = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/auth/sessions/revoke-others'
+  ));
+  await dialog.getByRole('button', { name: 'Verify and sign out my other sessions' }).click();
+  expect((await rejected).status()).toBe(400);
+  await expect(dialog.getByRole('status')).toContainText('Type SIGN OUT MY OTHER SESSIONS');
+
+  await dialog.getByLabel('Type SIGN OUT MY OTHER SESSIONS').fill('SIGN OUT MY OTHER SESSIONS');
+  await dialog.getByLabel('RouterOS password').fill('routerpass');
+  const accepted = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/auth/sessions/revoke-others'
+  ));
+  await dialog.getByRole('button', { name: 'Verify and sign out my other sessions' }).click();
+  expect((await accepted).status()).toBe(200);
+  await expect(dialog).toBeHidden();
+  await expect(dialog.getByLabel('RouterOS password')).toHaveValue('');
+  expect(await page.evaluate(async () => (
+    await fetch('/api/telemetry', { credentials: 'same-origin' })
+  ).status)).toBe(200);
+  await expectNoDocumentReload(page, originalDocument, navigations);
+});
+
 test('successful re-authentication adopts rotated CSRF and keeps the page in place', async ({ page }) => {
   const navigations = { count: 0 };
   await signIn(page);
