@@ -170,6 +170,9 @@ test('a healthy Socket.IO heartbeat keeps quiet telemetry from appearing delayed
 });
 
 test('falls back to SSE when the connected Socket.IO upstream reports degraded health', async ({ page }) => {
+  // Keep unrelated periodic REST snapshots from the shared test router from
+  // replacing the synthetic fallback event (mobile runs are slower).
+  await page.route('**/api/status', (route) => route.abort());
   await page.addInitScript(() => {
     window.__degradedFallbackSockets = [];
     window.__degradedFallbackSources = [];

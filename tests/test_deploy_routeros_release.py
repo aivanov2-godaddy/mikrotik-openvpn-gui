@@ -93,6 +93,18 @@ def settings(image: str = NEW_IMAGE) -> DeploymentSettings:
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_deployment_settings_repr_redacts_password(self) -> None:
+        secret = "deployment-password-sentinel"
+        configured = DeploymentSettings(
+            rest_url="https://router.example.test/rest",
+            username="deployer",
+            password=secret,
+            container_name="vpn-dashboard",
+            release_image=NEW_IMAGE,
+        )
+
+        self.assertNotIn(secret, repr(configured))
+
     def test_routeros_error_body_is_not_returned_to_logs(self) -> None:
         client = RouterOSRest(settings())
         secret = "environment-secret-must-not-be-logged"

@@ -115,11 +115,12 @@ The public image reports the requested ``LIVE_TRANSPORT`` value and the
 effective transport from ``/api/telemetry``. ``rest`` keeps SSE as the active
 stream; ``binary`` and ``auto`` attach the read-only Binary API supervisor,
 interface sampler, and authenticated Socket.IO gateway while retaining SSE
-and REST fallback behavior. The deployed router has passed the canary and is
-running the immutable Binary API image in both canary and production. A
-long-duration resource and reconnect report is still required for formal
-acceptance; the report template is intentionally pending until that evidence
-is collected from the deployed router.
+and REST fallback behavior. This architecture plan is not deployment evidence
+and does not assert that the Binary API image is currently running in either
+environment. Use the dated, candidate-bound
+``LIVE_TELEMETRY_ACCEPTANCE_REPORT.md`` for verified image and router
+read-back; production promotion remains gated on the required resource,
+reconnect, and live-session evidence.
 
 The gateway also exposes a bounded rolling sample of enqueue-to-authorized-poll
 delay as `delivery_queue_age_seconds` and

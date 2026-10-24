@@ -547,14 +547,14 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "2026-10-24 its immutable ARM64 tag was read back on the isolated canary",
+            "older PR #806 image, observed on 2026-10-24",
             report,
         )
         self.assertIn(
             "No candidate-specific rollback drill has been completed for #806",
             report,
         )
-        self.assertIn("canary dashboard still displays its application sign-in form", report)
+        self.assertIn("canary dashboard was at its application sign-in form", report)
 
     def test_documented_contextual_login_limit_matches_runtime_defaults(self) -> None:
         limiter_module = ast.parse((ROOT / "security.py").read_text(encoding="utf-8"))
@@ -612,7 +612,8 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "Two bounded, read-only source reviews against PR #791's commit",
             roadmap,
         )
-        self.assertIn("PR #806 is the latest published candidate", roadmap)
+        self.assertIn("PR #810 is the latest published mainline image", roadmap)
+        self.assertIn("The last recorded canary stage is PR #806", roadmap)
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
         self.assertIn("The two bounded source reviews described above", self.document)

@@ -63,19 +63,27 @@ class IntegrationTests(unittest.TestCase):
             store = MetadataStore(str(Path(directory) / "dashboard.db"))
             observed = []
             store.set_audit_hook(observed.append)
+            rationale = "fake-secret-sentinel-not-a-real-credential"
             store.audit(
                 actor="private-operator",
                 action="user.delete",
                 target="private-vpn-user",
                 status="success",
-                details={"rationale": "private operator rationale", "source_address": "192.0.2.55"},
+                details={"rationale": rationale, "source_address": "192.0.2.55"},
             )
 
             local_event = store.pending_integration_events()[0]["payload"]
             self.assertEqual(local_event["actor"], "private-operator")
             self.assertEqual(observed[0]["target"], "private-vpn-user")
-            self.assertEqual(local_event["details"]["rationale"], "private operator rationale")
+            self.assertTrue(local_event["details"]["rationale_recorded"])
+            self.assertNotIn("rationale", local_event["details"])
+            self.assertNotIn(rationale, json.dumps(local_event))
+            self.assertNotIn(rationale, json.dumps(observed[0]))
             self.assertEqual(local_event["details"]["source_address"], "192.0.2.55")
+
+            audit_details = json.loads(store.recent_audit(1)[0]["details"])
+            self.assertTrue(audit_details["rationale_recorded"])
+            self.assertNotIn(rationale, json.dumps(audit_details))
 
             client = FakeRedis()
             RedisStreamPublisher("redis://localhost", client=client).publish(local_event)
@@ -121,7 +129,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn("private-operator", json.dumps(payload))
         self.assertNotIn("private-vpn-user", json.dumps(payload))
         self.assertNotIn("192.0.2.55", json.dumps(payload))
-        self.assertNotIn("private operator rationale", json.dumps(payload))
+        self.assertNotIn("fake-secret-sentinel-not-a-real-credential", json.dumps(payload))
 
     def test_redis_outage_retry_preserves_event_id_and_records_aggregate_health(self):
         client = FakeRedis()

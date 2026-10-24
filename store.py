@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from event_safety import sanitize_payload
+from event_safety import sanitize_audit_details, sanitize_payload
 
 
 _monotonic = time.monotonic
@@ -1202,7 +1202,7 @@ class MetadataStore:
         status: str,
         details: dict[str, Any] | None = None,
     ) -> None:
-        sanitized = sanitize_payload(details or {})
+        sanitized = sanitize_audit_details(details or {})
         if not isinstance(sanitized, dict):
             sanitized = {}
         event_id = str(uuid.uuid4())

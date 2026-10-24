@@ -1,20 +1,26 @@
 # Live telemetry acceptance status
 
-Status: **PR #806 is the latest published mainline image. On 2026-10-24 its
-immutable ARM64 tag was read back on the isolated canary; RouterOS reported
-the container healthy and its embedded revision matched merge commit
-`79816625e493f9581e7389b95760403ac6c9a327`. The registry digest is
+Status: **PR #810 (`95643475f7b24be36c914791d07713625973b5f7`) is the latest
+published mainline image. Its immutable ARM64 image digest is
+`sha256:0c1bbd0cb695345541acab775ab58465088ba3f09fd0a435ff44ea3354f58e92`.
+The [publisher workflow (run 40113226393)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40113226393)
+passed, but [main CI (run 40113226379)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40113226379)
+failed the `mobile-390` rendered-browser SSE-fallback test. Therefore this image is
+published but not acceptance-cleared and has not been staged or promoted by
+this work. The last recorded canary read-back is the older PR #806 image,
+observed on 2026-10-24; its immutable ARM64 digest was
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
-Sparse read-only samples over approximately nine minutes showed healthy
-readiness, 0.6–0.8% CPU, and 38.6 MiB memory. No 30-minute soak or
-candidate-specific rollback rehearsal has passed. Production remains on its
-prior image and was not changed. The canary dashboard still displays its application
-sign-in form in the latest browser observation, so authenticated live events,
-event latency/freshness, and reconnect/snapshot recovery are not verified. The
-installed updater remains unreconciled and was not run. Candidate-specific
-acceptance and production promotion remain gated.**
+That point-in-time read-back showed a healthy container and matching embedded
+revision. Sparse samples over approximately nine minutes showed 0.6–0.8% CPU
+and 38.6 MiB memory, but no 30-minute soak or candidate-specific rollback
+rehearsal has passed. The canary dashboard was at its application sign-in form
+in that observation, so authenticated live events, latency/freshness, and
+reconnect/snapshot recovery remain unverified. This session obtained no fresh
+router read-back and makes no PR #810 production-deployment claim. The installed
+updater remains unreconciled and was not run. Candidate-specific acceptance
+and production promotion remain gated.**
 
-## Current candidate checkpoint — PR #806
+## Last recorded canary checkpoint — PR #806
 
 PR [#806](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/806)
 merged as `79816625e493f9581e7389b95760403ac6c9a327`. CI, CodeQL, ARM64 image
