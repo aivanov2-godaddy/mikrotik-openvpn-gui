@@ -154,6 +154,10 @@ Clone or download this repository on an administrator workstation, then run:
 python install_routeros.py --interactive --output routeros-install.rsc
 ```
 
+The plan is written only to the explicit output file; terminal output contains
+no router addresses, object names, or storage paths. Protect the plan file as
+operationally sensitive.
+
 Choose `arm64`, enter only non-secret values, select the immutable commit SHA,
 and review the resulting file in a text editor. The wizard is intentionally
 offline and review-only.

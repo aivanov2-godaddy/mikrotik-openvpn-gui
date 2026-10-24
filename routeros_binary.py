@@ -9,7 +9,6 @@ later, separately reviewable change.
 
 from __future__ import annotations
 
-import hashlib
 import socket
 import ssl
 import threading
@@ -192,10 +191,11 @@ class RouterOSBinaryConnection:
         timeout: float = 10.0,
         insecure_tls: bool = False,
     ) -> None:
+        if insecure_tls:
+            raise RouterOSBinaryError("TLS certificate verification cannot be disabled for RouterOS Binary API")
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.insecure_tls = insecure_tls
         self.ca_file = ca_file
         self._socket: socket.socket | ssl.SSLSocket | None = None
         self._state_lock = threading.RLock()
@@ -206,29 +206,23 @@ class RouterOSBinaryConnection:
         if self._socket is not None:
             return
         raw = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        if self.insecure_tls:
-            context = ssl._create_unverified_context()  # noqa: SLF001 - explicit test-only option
-        else:
-            context = ssl.create_default_context(cafile=self.ca_file)
+        context = ssl.create_default_context(cafile=self.ca_file)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         wrapped = context.wrap_socket(raw, server_hostname=self.host)
         wrapped.settimeout(self.timeout)
         self._socket = wrapped
         replies = self._request(["/login", f"=name={username}", f"=password={password}"])
-        # RouterOS v6 and some compatibility modes return a challenge from the
-        # first login request.  Complete that legacy handshake without ever
-        # exposing the password to callers or logs.  RouterOS v7 normally
-        # completes the one-step request and therefore has no ``ret`` value.
+        # The legacy challenge response is an MD5-based RouterOS v6 protocol.
+        # This application targets RouterOS 7 and fails closed rather than
+        # downgrading authentication when a legacy router responds.
         challenge = next(
             (reply.attributes.get("ret") for reply in replies if reply.kind == "done"),
             None,
         )
         if challenge:
-            self._request(
-                [
-                    "/login",
-                    f"=name={username}",
-                    f"=response={challenge_response(password, challenge)}",
-                ]
+            self.close()
+            raise RouterOSBinaryError(
+                "RouterOS returned an unsupported legacy login challenge; RouterOS 7 authentication is required"
             )
 
     def close(self) -> None:
@@ -318,13 +312,3 @@ class RouterOSBinaryConnection:
                 if reply.kind == "done":
                     return
                 yield reply
-
-
-def challenge_response(password: str, challenge_hex: str) -> str:
-    """Return the legacy RouterOS two-step login response."""
-    try:
-        challenge = bytes.fromhex(challenge_hex)
-    except ValueError as error:
-        raise RouterOSBinaryError("RouterOS returned an invalid login challenge") from error
-    digest = hashlib.md5(b"\x00" + password.encode("utf-8") + challenge).hexdigest()
-    return digest

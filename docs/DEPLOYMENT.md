@@ -88,8 +88,11 @@ the production configuration only after redacting credentials. Run the target
 image there, validate RouterOS REST TLS and a disposable VPN account, then stop
 the canary before promoting the same immutable tag to production.
 
-The offline `deploy_routeros_canary.py` helper prints a reviewable RouterOS
-configuration plan; it has no network or apply mode:
+The offline `deploy_routeros_canary.py` helper writes a reviewable RouterOS
+configuration plan only to the required `--output` file; stdout contains only a
+generic completion message. The plan includes router addresses, object names,
+and storage paths, so protect the file as operationally sensitive. The helper
+has no network or apply mode:
 
 ```powershell
 python deploy_routeros_canary.py --help

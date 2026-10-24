@@ -1,11 +1,13 @@
+import ssl
 import threading
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 from routeros_binary import (
     RouterOSBinaryError,
     RouterOSBinaryConnection,
     SentenceReader,
-    challenge_response,
     decode_length,
     decode_words,
     encode_length,
@@ -66,7 +68,7 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
             def close(self) -> None:
                 return None
 
-        connection = RouterOSBinaryConnection("router.example", insecure_tls=True)
+        connection = RouterOSBinaryConnection("router.example")
         fake = FakeSocket(encode_sentence(["!re", "=.id=*1"]) + encode_sentence(["!done"]))
         connection._socket = fake  # noqa: SLF001 - exercise buffered reader behavior
         self.assertEqual(connection._read_sentence(), [b"!re", b"=.id=*1"])  # noqa: SLF001
@@ -87,7 +89,7 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
             def close(self) -> None:
                 self.closed.set()
 
-        connection = RouterOSBinaryConnection("router.example", insecure_tls=True)
+        connection = RouterOSBinaryConnection("router.example")
         fake = BlockingSocket()
         connection._socket = fake  # noqa: SLF001 - exercise close/read concurrency
         failures = []
@@ -123,7 +125,7 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
             def close(self) -> None:
                 return None
 
-        connection = RouterOSBinaryConnection("router.example", insecure_tls=True)
+        connection = RouterOSBinaryConnection("router.example")
         fake = FakeSocket()
         connection._socket = fake  # noqa: SLF001 - exercise the read-only command boundary
         replies = connection.execute("/interface/print", query=(".proplist=.id,name",))
@@ -131,11 +133,49 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         self.assertIn(b"/interface/print", fake.sent)
         self.assertNotIn(b"/interface/add", fake.sent)
 
-    def test_legacy_challenge_response(self) -> None:
-        self.assertEqual(
-            challenge_response("password", "00112233445566778899aabbccddeeff"),
-            "d0a8f0f594fc4d13cf44a9fd3ea65963",
-        )
+    def test_insecure_tls_cannot_be_enabled(self) -> None:
+        with self.assertRaisesRegex(RouterOSBinaryError, "certificate verification cannot be disabled"):
+            RouterOSBinaryConnection("router.example", insecure_tls=True)
+
+    def test_connection_uses_verified_tls_with_tls12_minimum(self) -> None:
+        connection = RouterOSBinaryConnection("router.example")
+        raw_socket = mock.Mock()
+        wrapped_socket = mock.Mock()
+        context = mock.Mock()
+        context.wrap_socket.return_value = wrapped_socket
+        done = SimpleNamespace(kind="done", attributes={})
+
+        with (
+            mock.patch("routeros_binary.socket.create_connection", return_value=raw_socket),
+            mock.patch("routeros_binary.ssl.create_default_context", return_value=context) as create_context,
+            mock.patch.object(connection, "_request", return_value=[done]),
+        ):
+            connection.connect("admin", "password")
+
+        create_context.assert_called_once_with(cafile=None)
+        self.assertEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+        context.wrap_socket.assert_called_once_with(raw_socket, server_hostname="router.example")
+        connection.close()
+
+    def test_legacy_routeros_challenge_fails_closed_without_downgrade(self) -> None:
+        connection = RouterOSBinaryConnection("router.example")
+        raw_socket = mock.Mock()
+        wrapped_socket = mock.Mock()
+        context = mock.Mock()
+        context.wrap_socket.return_value = wrapped_socket
+        challenge = SimpleNamespace(kind="done", attributes={"ret": "00112233445566778899aabbccddeeff"})
+
+        with (
+            mock.patch("routeros_binary.socket.create_connection", return_value=raw_socket),
+            mock.patch("routeros_binary.ssl.create_default_context", return_value=context),
+            mock.patch.object(connection, "_request", return_value=[challenge]) as request,
+        ):
+            with self.assertRaisesRegex(RouterOSBinaryError, "unsupported legacy login challenge"):
+                connection.connect("admin", "password")
+
+        request.assert_called_once()
+        wrapped_socket.close.assert_called_once()
+        self.assertIsNone(connection._socket)  # noqa: SLF001 - verify fail-closed cleanup
 
 
 if __name__ == "__main__":

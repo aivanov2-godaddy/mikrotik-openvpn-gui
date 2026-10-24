@@ -53,6 +53,48 @@ def test_runtime_config() -> RuntimeConfig:
     )
 
 
+class EmailValidationTests(unittest.TestCase):
+    def test_email_validation_accepts_normalized_ascii_and_idn_addresses(self) -> None:
+        self.assertEqual(DashboardHandler._validate_email(" Alice+vpn@Example.TEST "), "alice+vpn@example.test")
+        self.assertEqual(DashboardHandler._validate_email("owner@bücher.example"), "owner@bücher.example")
+
+    def test_email_validation_rejects_invalid_and_adversarial_shapes(self) -> None:
+        invalid = (
+            "",
+            "missing-at.example",
+            "two@@example.test",
+            "user@invalid",
+            "user@.example.test",
+            "user@example..test",
+            "user@-example.test",
+            "user@example-.test",
+            "user name@example.test",
+            "a@" + "a." * 126,
+            "a@" + "a" * 253,
+        )
+        for address in invalid:
+            with self.subTest(address_length=len(address)):
+                with self.assertRaisesRegex(ValueError, "valid email"):
+                    DashboardHandler._validate_email(address)
+
+
+class ResponseHeaderValidationTests(unittest.TestCase):
+    def test_extra_header_controls_are_rejected_before_response_bytes(self) -> None:
+        for extra in (
+            {"X-Test": "safe\r\nX-Injected: yes"},
+            {"X-Test\r\nX-Injected": "yes"},
+        ):
+            handler = DashboardHandler.__new__(DashboardHandler)
+            handler._session_touch_candidate = None
+            handler.send_response = mock.Mock()
+            handler.send_header = mock.Mock()
+            handler.end_headers = mock.Mock()
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "Invalid response header"):
+                handler._headers(200, "text/plain; charset=utf-8", 0, extra=extra)
+            handler.send_response.assert_not_called()
+            handler.send_header.assert_not_called()
+
+
 class ContainerImageTargetTests(unittest.TestCase):
     def test_supported_router_architectures_map_to_published_suffixes(self) -> None:
         self.assertEqual(container_image_target("arm64")["image_suffix"], "arm64")
@@ -9031,6 +9073,28 @@ class RedirectTests(unittest.TestCase):
             self.assertEqual(response.status, 308)
             self.assertEqual(response.getheader("Location"), "https://dashboard.example.test/dashboard")
             connection.close()
+
+            malicious = RedirectHandler.__new__(RedirectHandler)
+            malicious.path = "/dashboard\r\nX-Injected: yes"
+            malicious.send_error = mock.Mock()
+            malicious.do_GET()
+            malicious.send_error.assert_called_once_with(400)
+
+            encoded = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            encoded.request("GET", "/dashboard%0d%0aX-Injected%3a%20yes")
+            response = encoded.getresponse()
+            response.read()
+            self.assertEqual(response.status, 308)
+            self.assertEqual(
+                response.getheader("Location"),
+                "https://dashboard.example.test/dashboard%0d%0aX-Injected%3a%20yes",
+            )
+            self.assertEqual(
+                sum(1 for name, _ in response.getheaders() if name.lower() == "location"),
+                1,
+            )
+            self.assertNotIn("X-Injected", {name for name, _ in response.getheaders()})
+            encoded.close()
         finally:
             server.shutdown()
             server.server_close()

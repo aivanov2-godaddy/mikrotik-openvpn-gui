@@ -63,11 +63,23 @@ from telemetry_gateway import redact_session
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.@-]{1,64}$")
-EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+_HTTP_HEADER_TOKEN_CHARS = frozenset("!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 POLICY_VALUES = {"full-tunnel", "lan-only", "internet-only"}
 DNS_VALUES = {"router", "cloudflare"}
 EXPIRY_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
+
+
+def _validated_response_headers(extra: dict[str, str] | None) -> list[tuple[str, str]]:
+    """Reject malformed headers before any part of the HTTP response is written."""
+    validated: list[tuple[str, str]] = []
+    for key, value in (extra or {}).items():
+        if not isinstance(key, str) or not key or any(char not in _HTTP_HEADER_TOKEN_CHARS for char in key):
+            raise ValueError("Invalid response header")
+        if not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("Invalid response header")
+        validated.append((key, value))
+    return validated
 SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
 BULK_ACTIONS = {"suspend", "revoke", "tag"}
 BULK_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,31}$")
@@ -878,6 +890,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         *,
         extra: dict[str, str] | None = None,
     ) -> None:
+        safe_extra_headers = _validated_response_headers(extra)
         self.send_response(status)
         session_id = self._session_touch_candidate
         self._session_touch_candidate = None
@@ -889,7 +902,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         for key, value in SECURITY_HEADERS.items():
             self.send_header(key, value)
-        for key, value in (extra or {}).items():
+        for key, value in safe_extra_headers:
             self.send_header(key, value)
         self.end_headers()
 
@@ -1245,7 +1258,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _validate_email(value: str) -> str:
         cleaned = value.strip().lower()
-        if len(cleaned) > 254 or not EMAIL_PATTERN.fullmatch(cleaned):
+        if (
+            len(cleaned) > 254
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in cleaned)
+            or cleaned.count("@") != 1
+        ):
+            raise ValueError("Enter a valid email address")
+        local, domain = cleaned.split("@", 1)
+        if (
+            not local
+            or len(local) > 64
+            or local.startswith(".")
+            or local.endswith(".")
+            or ".." in local
+            or not domain
+            or "." not in domain
+        ):
+            raise ValueError("Enter a valid email address")
+        try:
+            ascii_domain = domain.encode("idna").decode("ascii")
+        except UnicodeError as error:
+            raise ValueError("Enter a valid email address") from error
+        labels = ascii_domain.split(".")
+        if any(
+            not label
+            or len(label) > 63
+            or label.startswith("-")
+            or label.endswith("-")
+            or any(not (char.isascii() and (char.isalnum() or char == "-")) for char in label)
+            for label in labels
+        ):
             raise ValueError("Enter a valid email address")
         return cleaned
 
@@ -6689,7 +6731,15 @@ class RedirectHandler(BaseHTTPRequestHandler):
     public_origin = "http://localhost"
 
     def do_GET(self) -> None:
-        target = self.public_origin.rstrip("/") + urllib.parse.urlsplit(self.path).path
+        request_target = self.path
+        if any(ord(char) < 32 or ord(char) == 127 for char in request_target):
+            self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+        path = urllib.parse.urlsplit(request_target).path
+        if any(ord(char) < 32 or ord(char) == 127 for char in path):
+            self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+        target = self.public_origin.rstrip("/") + path
         self.send_response(HTTPStatus.PERMANENT_REDIRECT)
         self.send_header("Location", target)
         self.send_header("Content-Length", "0")

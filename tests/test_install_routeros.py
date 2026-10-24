@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import io
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 
-from install_routeros import InstallationSettings, render_install_plan
+from install_routeros import InstallationSettings, main as render_install_main, render_install_plan
 
 
 def settings(**changes: str) -> InstallationSettings:
@@ -32,6 +36,51 @@ def settings(**changes: str) -> InstallationSettings:
 
 
 class InstallationWizardTests(unittest.TestCase):
+    def test_cli_writes_operational_plan_only_to_explicit_file(self) -> None:
+        values = settings()
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "install-plan.rsc"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            arguments = [
+                "--owner", values.owner,
+                "--commit", values.commit,
+                "--architecture", values.architecture,
+                "--public-origin", values.public_origin,
+                "--routeros-rest-url", values.routeros_rest_url,
+                "--routeros-rest-san", values.routeros_rest_san,
+                "--external-root", values.external_root,
+                "--bridge", values.bridge,
+                "--veth", values.veth,
+                "--container-address", values.container_address,
+                "--gateway", values.gateway,
+                "--ovpn-ppp-profile", values.ovpn_ppp_profile,
+                "--ovpn-server-name", values.ovpn_server_name,
+                "--ovpn-ca-name", values.ovpn_ca_name,
+                "--ovpn-host", values.ovpn_host,
+                "--vpn-lan-cidr", values.vpn_lan_cidr,
+                "--vpn-router-dns", values.vpn_router_dns,
+                "--output", str(output_path),
+            ]
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = render_install_main(arguments)
+
+            self.assertEqual(status, 0)
+            self.assertNotIn("router.example.com", stdout.getvalue())
+            self.assertNotIn("172.31.250.2", stdout.getvalue())
+            self.assertNotIn(str(output_path), stdout.getvalue())
+            self.assertEqual(stderr.getvalue(), "")
+            plan = output_path.read_text(encoding="utf-8")
+            self.assertIn("router.example.com", plan)
+            self.assertIn("172.31.250.2", plan)
+            self.assertIn("/container/add", plan)
+
+    def test_cli_requires_an_explicit_output_file(self) -> None:
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+            render_install_main([])
+        self.assertEqual(error.exception.code, 2)
+
     def test_plan_is_explicit_immutable_and_never_applies(self) -> None:
         plan = render_install_plan(settings())
         self.assertIn("example-owner/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64", plan)

@@ -221,7 +221,12 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--vpn-router-dns")
     command.add_argument("--repository", default="mikrotik-openvpn-gui")
     command.add_argument("--trusted-proxy-sources", default="")
-    command.add_argument("--output", type=Path, help="Write the review-only .rsc plan to this path")
+    command.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Write the operationally sensitive review-only .rsc plan to this path",
+    )
     return command
 
 
@@ -275,11 +280,11 @@ def main(argv: list[str] | None = None) -> int:
         plan = render_install_plan(InstallationSettings(**values))
     except ValueError as error:
         parser().error(str(error))
-    if output:
+    try:
         output.write_text(plan, encoding="utf-8", newline="\n")
-        print(f"Wrote review-only plan to {output}")
-    else:
-        print(plan, end="")
+    except OSError:
+        command.error("Could not write the review-only plan to the requested output file")
+    print("Wrote review-only installation plan to the requested output file.")
     return 0
 
 
