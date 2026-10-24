@@ -2122,9 +2122,27 @@ document.addEventListener('click', async (event) => {
     if (!sessionId) return;
     const form = $('#admin-session-reauth-form');
     form.dataset.sessionId = sessionId;
+    delete form.dataset.revokeOthers;
     form.reset();
+    $('#admin-session-reauth-confirmation-field').hidden = true;
+    $('#admin-session-reauth-confirmation').required = false;
+    $('#admin-session-reauth-title').textContent = 'Revoke administrator session';
+    $('#admin-session-reauth-description').textContent = 'Confirm your RouterOS account password to end this dashboard login.';
+    $('#admin-session-reauth-submit').textContent = 'Verify and revoke session';
     openDialog('admin-session-reauth-dialog');
     $('#admin-session-reauth-password')?.focus();
+  } else if (button.matches('[data-own-session-revoke-others]')) {
+    const form = $('#admin-session-reauth-form');
+    delete form.dataset.sessionId;
+    form.dataset.revokeOthers = 'true';
+    form.reset();
+    $('#admin-session-reauth-confirmation-field').hidden = false;
+    $('#admin-session-reauth-confirmation').required = true;
+    $('#admin-session-reauth-title').textContent = 'Sign out my other sessions?';
+    $('#admin-session-reauth-description').textContent = 'This affects only dashboard logins for your RouterOS account.';
+    $('#admin-session-reauth-submit').textContent = 'Verify and sign out my other sessions';
+    openDialog('admin-session-reauth-dialog');
+    $('#admin-session-reauth-confirmation')?.focus();
   } else if (button.matches('[data-open-session-reauth]')) {
     const form = $('#session-reauthenticate-form');
     form?.reset();
@@ -3007,6 +3025,15 @@ function renderAdminSessions(payload) {
   const body = $('[data-admin-session-list]');
   if (!body) return;
   const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+  const currentSession = sessions.find((item) => item.current);
+  const ownOtherCount = currentSession
+    ? sessions.filter((item) => !item.current
+      && String(item.username || '').toLowerCase() === String(currentSession.username || '').toLowerCase()).length
+    : 0;
+  const ownSessionCount = $('[data-own-session-count]');
+  if (ownSessionCount) {
+    ownSessionCount.textContent = `${ownOtherCount} other dashboard session${ownOtherCount === 1 ? '' : 's'} for your RouterOS account. This leaves the current login and every VPN tunnel active.`;
+  }
   body.replaceChildren(...(sessions.length ? sessions.map((item) => {
     const row = node('tr');
     row.dataset.adminSessionRow = '';
@@ -3052,17 +3079,25 @@ $('#admin-session-reauth-form')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const password = form.elements.password.value;
   const sessionId = form.dataset.sessionId || '';
-  if (!sessionId || !password) return;
+  const revokeOthers = form.dataset.revokeOthers === 'true';
+  const confirmation = form.elements.confirmation.value;
+  if ((!sessionId && !revokeOthers) || !password) return;
   setBusy(form, true);
-  setStatus(form, 'Verifying your RouterOS sign-in before revoking the selected dashboard session…');
+  setStatus(form, revokeOthers
+    ? 'Verifying your RouterOS sign-in before ending other dashboard sessions…'
+    : 'Verifying your RouterOS sign-in before revoking the selected dashboard session…');
   try {
-    await resultOrError(await api(`/api/admin/sessions/${encodeURIComponent(sessionId)}`, {
-      method: 'DELETE', body: { password },
+    await resultOrError(await api(revokeOthers
+      ? '/api/auth/sessions/revoke-others'
+      : `/api/admin/sessions/${encodeURIComponent(sessionId)}`, {
+      method: revokeOthers ? 'POST' : 'DELETE',
+      body: revokeOthers ? { password, confirmation } : { password },
     }));
     form.reset();
     delete form.dataset.sessionId;
+    delete form.dataset.revokeOthers;
     form.closest('dialog')?.close();
-    toast('Administrator session revoked.');
+    toast(revokeOthers ? 'Your other dashboard sessions were signed out.' : 'Administrator session revoked.');
     loadAdminSessions();
   } catch (error) {
     form.elements.password.value = '';

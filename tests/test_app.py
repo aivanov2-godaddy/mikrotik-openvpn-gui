@@ -3191,6 +3191,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         write_routes = (
             "/api/auth/reauthenticate", "/api/users", "/api/users/preview", "/api/users/test-user/preview", "/api/bulk/preview",
+            "/api/auth/sessions/revoke-others",
             "/api/bulk/apply", "/api/bulk/views", "/api/setup-plan",
             "/api/openvpn-foundation-plan", "/api/admin/api-tokens",
             "/api/admin/break-glass/plan", "/api/network/segment-plan",
@@ -3526,6 +3527,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         # have separate rows because their required capability is action-bound.
         route_cases = [
             ("POST", literal("/api/auth/reauthenticate"), "/api/auth/reauthenticate", (), {}),
+            ("POST", literal("/api/auth/sessions/revoke-others"), "/api/auth/sessions/revoke-others", (), {}),
             ("GET", literal("/api/events"), "/api/events", ("sessions.read",), {}),
             ("GET", literal("/api/telemetry"), "/api/telemetry", (), {}),
             ("GET", literal("/api/admin/sessions"), "/api/admin/sessions", ("sessions.read",), {}),
@@ -4082,6 +4084,124 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 429)
         self.assertNotIn(b"routerpass", payload)
         self.assertIsNotNone(self.server.context.sessions.get(target.session_id, touch=False))
+
+    def test_own_other_session_revocation_is_account_scoped_csrf_protected_and_audited(self) -> None:
+        self.login()
+        current_session_id = self.cookie.split("=", 1)[1]
+        other_same_account = self.server.context.sessions.create(
+            "ADMIN", "routerpass", role="owner",
+        )
+        other_account = self.server.context.sessions.create(
+            "auditor", "another-password", role="audit",
+        )
+        path = "/api/auth/sessions/revoke-others"
+        def own_session_request(value: dict[str, Any], *, csrf: bool = True):
+            headers = {
+                "Content-Type": "application/json",
+                "Origin": self.config.public_origin,
+            }
+            if csrf:
+                headers["X-CSRF-Token"] = self.csrf
+            return self.request("POST", path, body=json.dumps(value).encode(), headers=headers)
+
+        status, _, _ = own_session_request(
+            {"password": "routerpass", "confirmation": "SIGN OUT MY OTHER SESSIONS"},
+            csrf=False,
+        )
+        self.assertEqual(status, 403)
+        self.assertIsNotNone(self.server.context.sessions.get(other_same_account.session_id, touch=False))
+
+        status, _, payload = own_session_request(
+            {"password": "routerpass", "confirmation": "wrong"},
+        )
+        self.assertEqual(status, 400, payload.decode("utf-8"))
+        self.assertIsNotNone(self.server.context.sessions.get(other_same_account.session_id, touch=False))
+
+        status, _, payload = own_session_request(
+            {"password": "incorrect", "confirmation": "SIGN OUT MY OTHER SESSIONS"},
+        )
+        self.assertEqual(status, 401, payload.decode("utf-8"))
+        self.assertNotIn(b"incorrect", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(other_same_account.session_id, touch=False))
+
+        status, _, payload = own_session_request(
+            {"password": "routerpass", "confirmation": "SIGN OUT MY OTHER SESSIONS"},
+        )
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        self.assertEqual(json.loads(payload)["revoked_count"], 1)
+        self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
+        self.assertIsNone(self.server.context.sessions.get(other_same_account.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(other_account.session_id, touch=False))
+        audit = self.server.context.store.recent_audit(10)
+        self.assertTrue(any(item["action"] == "session.revoke-others" for item in audit))
+        self.assertNotIn(current_session_id, json.dumps(audit))
+        self.assertNotIn(other_same_account.session_id, json.dumps(audit))
+        self.assertNotIn("routerpass", json.dumps(audit))
+
+    def test_own_other_session_revocation_reauthentication_is_rate_limited(self) -> None:
+        self.login()
+        other = self.server.context.sessions.create("admin", "routerpass", role="owner")
+        path = "/api/auth/sessions/revoke-others"
+        body = {"password": "wrong-password", "confirmation": "SIGN OUT MY OTHER SESSIONS"}
+        headers = {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": self.csrf,
+            "Origin": self.config.public_origin,
+        }
+
+        for _ in range(5):
+            status, _, _ = self.request("POST", path, body=json.dumps(body).encode(), headers=headers)
+            self.assertEqual(status, 401)
+        status, _, payload = self.request(
+            "POST", path,
+            body=json.dumps({"password": "routerpass", "confirmation": "SIGN OUT MY OTHER SESSIONS"}).encode(),
+            headers=headers,
+        )
+        self.assertEqual(status, 429)
+        self.assertNotIn(b"routerpass", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(other.session_id, touch=False))
+
+    def test_own_other_session_revocation_does_not_revoke_a_concurrently_rotated_caller(self) -> None:
+        self.login()
+        current_session_id = self.cookie.split("=", 1)[1]
+        peer_session = self.server.context.sessions.create("admin", "routerpass", role="owner")
+        runtime = self.server.telemetry_runtime
+        original_revalidate = runtime.revalidate_session
+        rotated_sessions = []
+
+        def rotate_after_revalidation(session_id: str, *, force_role_check: bool = False):
+            result = original_revalidate(session_id, force_role_check=force_role_check)
+            if result is not None and force_role_check:
+                rotated = self.server.context.sessions.rotate(
+                    session_id,
+                    "routerpass",
+                    role=result.role,
+                )
+                rotated_sessions.append(rotated)
+            return result
+
+        with mock.patch.object(runtime, "revalidate_session", side_effect=rotate_after_revalidation):
+            status, _, payload = self.request(
+                "POST",
+                "/api/auth/sessions/revoke-others",
+                body=json.dumps({
+                    "password": "routerpass",
+                    "confirmation": "SIGN OUT MY OTHER SESSIONS",
+                }).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": self.csrf,
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 409, payload.decode("utf-8"))
+        self.assertIsNone(self.server.context.sessions.get(current_session_id, touch=False))
+        self.assertEqual(len(rotated_sessions), 1)
+        replacement = rotated_sessions[0]
+        self.assertIsNotNone(replacement)
+        self.assertIsNotNone(self.server.context.sessions.get(replacement.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(peer_session.session_id, touch=False))
 
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
         self.login()
