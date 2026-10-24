@@ -936,7 +936,10 @@ function updateTelemetryIndicator(status = {}) {
     ? socketIoHealth
     : status;
   const state = String(effective.state || 'healthy');
-  const transport = String(status.transport || realtimeTransport || 'sse').toUpperCase();
+  // Use the browser's selected transport. A REST poll that began before a
+  // degraded-socket handoff may still report the server's preferred transport
+  // and must not relabel an active SSE fallback as Socket.IO.
+  const transport = String(realtimeTransport || status.transport || 'sse').toUpperCase();
   const age = Number(effective.event_age_seconds);
   const streamConnected = effective.stream_connected === true;
   const stale = state === 'stale' || state === 'error'
@@ -1708,12 +1711,23 @@ function connectSocketIO() {
       upgrade: nativeWebSocket,
     });
     socketIoSource = socket;
-    socket.on('connect', () => {
+    const onCurrentSocket = (event, callback) => socket.on(event, (...args) => {
+      // Closing a degraded socket can still deliver queued callbacks. Once a
+      // fallback is selected, ignore those frames so they cannot overwrite the
+      // recovered SSE snapshot or restore a misleading Socket.IO indicator.
+      if (socketIoSource !== socket) return;
+      callback(...args);
+    });
+    onCurrentSocket('connect', () => {
       socketIoHealth = { state: 'pending', stream_connected: false, receivedAt: Date.now() };
       updateTelemetryIndicator({ transport: 'socketio' });
     });
-    socket.on('telemetry.health', (health) => {
+    onCurrentSocket('telemetry.health', (health) => {
       if (!health || typeof health !== 'object') return;
+      if (health.state === 'degraded' && health.stream_connected !== true) {
+        fallbackSocketToSse(socket);
+        return;
+      }
       const state = health.state === 'healthy'
         ? 'healthy'
         : health.state === 'connecting' ? 'pending' : 'error';
@@ -1724,27 +1738,37 @@ function connectSocketIO() {
       };
       updateTelemetryIndicator({ transport: 'socketio' });
     });
-    socket.on('disconnect', () => {
+    onCurrentSocket('disconnect', () => {
       socketIoHealth = { state: 'stale', stream_connected: false, receivedAt: Date.now() };
       updateTelemetryIndicator({ transport: 'socketio' });
     });
-    socket.on('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
-    socket.on('vpn.session.connected', () => pollStatus());
-    socket.on('vpn.session.updated', () => pollStatus());
-    socket.on('vpn.session.disconnected', () => pollStatus());
-    socket.on('connect_error', () => {
-      socket.close();
-      socketIoSource = null;
-      socketIoHealth = null;
-      realtimeTransport = 'sse';
-      scheduleRealtimeReconnect();
-    });
+    onCurrentSocket('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
+    onCurrentSocket('vpn.session.connected', () => pollStatus());
+    onCurrentSocket('vpn.session.updated', () => pollStatus());
+    onCurrentSocket('vpn.session.disconnected', () => pollStatus());
+    onCurrentSocket('connect_error', () => fallbackSocketToSse(socket));
     return true;
   } catch (_) {
     socketIoSource = null;
     realtimeTransport = 'sse';
     return false;
   }
+}
+
+function fallbackSocketToSse(socket) {
+  if (socketIoSource !== socket) return;
+  // Retire the socket before closing it so its queued disconnect/health/data
+  // callbacks are ignored by the identity guard above.
+  socketIoSource = null;
+  socketIoHealth = null;
+  realtimeTransport = 'sse';
+  try { socket.close(); } catch (_) { /* the authenticated SSE fallback still runs */ }
+  if (!window.EventSource) {
+    updateTelemetryIndicator({ state: 'error', transport: 'sse' });
+    return;
+  }
+  updateTelemetryIndicator({ state: 'pending', transport: 'sse' });
+  connectRealtime();
 }
 
 async function detectRealtimeTransport() {

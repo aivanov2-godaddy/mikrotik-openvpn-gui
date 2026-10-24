@@ -169,6 +169,107 @@ test('a healthy Socket.IO heartbeat keeps quiet telemetry from appearing delayed
     .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
 });
 
+test('falls back to SSE when the connected Socket.IO upstream reports degraded health', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__degradedFallbackSockets = [];
+    window.__degradedFallbackSources = [];
+    window.EventSource = class DegradedFallbackEventSource {
+      constructor(url) {
+        this.url = url;
+        this.handlers = new Map();
+        this.closed = false;
+        window.__degradedFallbackSources.push(this);
+      }
+
+      addEventListener(name, callback) { this.handlers.set(name, callback); }
+      close() { this.closed = true; }
+      emit(name, payload) { this.handlers.get(name)?.({ data: JSON.stringify(payload) }); }
+    };
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true, socketio_engine: 'asgi' }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: `window.io = () => {
+      const handlers = new Map();
+      const socket = {
+        handlers,
+        closed: false,
+        on(name, callback) { handlers.set(name, callback); return socket; },
+        close() { this.closed = true; },
+        emit(name, payload) { handlers.get(name)?.(payload); },
+      };
+      window.__degradedFallbackSockets.push(socket);
+      return socket;
+    };`,
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect.poll(() => page.evaluate(() => (
+    window.__degradedFallbackSockets[0]?.handlers.has('telemetry.health')
+  ))).toBe(true);
+
+  await page.evaluate(() => window.__degradedFallbackSockets[0].emit('telemetry.health', {
+    state: 'healthy', stream_connected: true,
+  }));
+  await expect(page.locator('[data-live-indicator]'))
+    .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
+  await expect(page.locator('[data-view="live-sessions"]')).toBeVisible();
+
+  const navigations = [];
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.push(frame.url());
+  });
+  await page.evaluate(() => window.__degradedFallbackSockets[0].emit('telemetry.health', {
+    state: 'degraded', stream_connected: false,
+  }));
+
+  await expect.poll(() => page.evaluate(() => ({
+    socketClosed: window.__degradedFallbackSockets[0]?.closed,
+    sourceCount: window.__degradedFallbackSources.length,
+    sourceUrl: window.__degradedFallbackSources[0]?.url,
+  }))).toEqual({ socketClosed: true, sourceCount: 1, sourceUrl: '/api/events' });
+  await expect(page.locator('[data-live-indicator]'))
+    .toHaveText(['Connecting · SSE', 'Connecting · SSE']);
+
+  await page.evaluate(() => window.__degradedFallbackSources[0].emit('status', {
+    sessions: [{
+      id: 'fallback-session', name: 'fallback-user', encoding: 'AES-256-GCM',
+      vpn_address: '10.8.0.99', source_address: '192.0.2.99', uptime: '1m',
+      rx_bytes: 1024, tx_bytes: 2048, rx_packets: 10, tx_packets: 20,
+    }],
+  }));
+  await expect(page.getByText('fallback-user', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-live-indicator]'))
+    .toHaveText(['Live · SSE', 'Live · SSE']);
+
+  // A queued callback from the retired socket must not overwrite the SSE view.
+  await page.evaluate(() => {
+    window.__degradedFallbackSockets[0].emit('telemetry.health', {
+      state: 'healthy', stream_connected: true,
+    });
+    window.__degradedFallbackSockets[0].emit('telemetry.snapshot', {
+      payload: { sessions: [{
+        id: 'retired-session', name: 'retired-socket-user', uptime: '1m',
+        rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0,
+      }] },
+    });
+  });
+  await expect(page.getByText('fallback-user', { exact: true })).toBeVisible();
+  await expect(page.getByText('retired-socket-user', { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-live-indicator]'))
+    .toHaveText(['Live · SSE', 'Live · SSE']);
+  expect(await page.evaluate(() => window.__degradedFallbackSources.length)).toBe(1);
+  expect(navigations).toEqual([]);
+});
+
 test('an incomplete Socket.IO snapshot preserves counters while an authoritative zero remains visible', async ({ page }) => {
   await page.addInitScript(() => {
     window.__liveTestSocket = {
