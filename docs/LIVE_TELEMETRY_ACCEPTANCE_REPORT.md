@@ -1,14 +1,17 @@
 # Live telemetry acceptance status
 
-Status: **PR #810 (`95643475f7b24be36c914791d07713625973b5f7`) is the latest
-published mainline image. Its immutable ARM64 image digest is
-`sha256:0c1bbd0cb695345541acab775ab58465088ba3f09fd0a435ff44ea3354f58e92`.
-The [publisher workflow (run 40113226393)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40113226393)
-passed, but [main CI (run 40113226379)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40113226379)
-failed the `mobile-390` rendered-browser SSE-fallback test. Therefore this image is
-published but not acceptance-cleared and has not been staged or promoted by
-this work. The last recorded canary read-back is the older PR #806 image,
-observed on 2026-10-24; its immutable ARM64 digest was
+Status: **PR #811 (`0f031789939f48e37c42bf258987fb23a9069192`) is the latest
+published mainline image. Main CI (run 40117101238), CodeQL (run 40117101744),
+and publisher (run 40117101217) passed. The publisher verified detached
+provenance and SPDX SBOM attestations, smoke-tested both architectures, and
+read back the stable immutable manifest. PR #811 fixes the earlier PR #810
+`mobile-390` SSE-fallback regression; the current rendered-browser suite passed.
+The immutable ARM64 and AMD64 tags and digests are recorded in
+[`RELEASES.md`](RELEASES.md).
+
+This image is published but not acceptance-cleared and was not staged or
+promoted by this work. The last recorded canary read-back is the older PR #806
+image, observed on 2026-10-24; its immutable ARM64 digest was
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
 That point-in-time read-back showed a healthy container and matching embedded
 revision. Sparse samples over approximately nine minutes showed 0.6–0.8% CPU
@@ -16,7 +19,8 @@ and 38.6 MiB memory, but no 30-minute soak or candidate-specific rollback
 rehearsal has passed. The canary dashboard was at its application sign-in form
 in that observation, so authenticated live events, latency/freshness, and
 reconnect/snapshot recovery remain unverified. This session obtained no fresh
-router read-back and makes no PR #810 production-deployment claim. The installed
+router read-back, made no RouterOS change, and makes no PR #811 deployment
+claim. The installed
 updater remains unreconciled and was not run. Candidate-specific acceptance
 and production promotion remain gated.**
 
