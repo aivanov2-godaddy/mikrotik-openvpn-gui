@@ -198,7 +198,8 @@ def validate_stream_acceptance(
             or counts["disconnects"] < counts["reconnects"]
             or counts["snapshot_count"] != event_counts.get("telemetry.snapshot", 0)
         ) or (
-            counts["reconnect_snapshot_count"] is None or counts["reconnect_snapshot_count"] < 1
+            counts["reconnect_snapshot_count"] is None
+            or counts["reconnect_snapshot_count"] != counts["reconnects"]
             or counts["reconnect_snapshot_count"] > counts["snapshot_count"]
         ):
             failed.append("stream_reconnect_snapshot_missing")

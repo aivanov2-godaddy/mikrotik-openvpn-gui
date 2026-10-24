@@ -272,7 +272,7 @@ class TelemetryStreamObserverTests(unittest.TestCase):
             <= set(report["failed_gates"])
         )
 
-    def test_reconnect_starts_a_new_sequence_epoch(self) -> None:
+    def test_reconnect_preserves_sequence_baseline_and_detects_missing_frames(self) -> None:
         recorder = TelemetryStreamRecorder()
         recorder.on_connect()
         recorder.record(
@@ -292,7 +292,7 @@ class TelemetryStreamObserverTests(unittest.TestCase):
             {
                 "protocol_version": 1,
                 "event": "telemetry.snapshot",
-                "sequence": 1,
+                "sequence": 23,
                 "router_timestamp": 1001,
                 "payload": {"sessions": []},
             },
@@ -302,9 +302,10 @@ class TelemetryStreamObserverTests(unittest.TestCase):
         self.assertEqual(report["reconnects"], 1)
         self.assertEqual(report["snapshot_count"], 2)
         self.assertEqual(report["reconnect_snapshot_count"], 1)
-        self.assertEqual(report["sequence_gaps"], 0)
+        self.assertEqual(report["sequence_gaps"], 2)
         self.assertEqual(report["duplicate_sequences"], 0)
         self.assertEqual(report["out_of_order_sequences"], 0)
+        self.assertIn("event_sequence_gap", report["failed_gates"])
 
 
 if __name__ == "__main__":
