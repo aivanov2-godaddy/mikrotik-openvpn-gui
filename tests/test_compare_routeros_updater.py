@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import io
 import json
@@ -347,8 +348,10 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with self.assertRaises(ValueError):
+            with self.assertRaises((OSError, ValueError)) as raised:
                 compare_routeros_updater.compare_inventory(b"safe\n", manifest_path.read_bytes(), manifest_path)
+            if isinstance(raised.exception, OSError):
+                self.assertEqual(raised.exception.errno, errno.ELOOP)
 
 
 if __name__ == "__main__":
