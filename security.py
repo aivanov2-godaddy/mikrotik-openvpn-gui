@@ -35,6 +35,10 @@ MAX_SESSIONS_PER_ACCOUNT = 8
 class ConcurrentSessionLimitReached(ValueError):
     """Raised when an account already has its maximum active dashboard sessions."""
 
+
+class SessionAuthorizationChanged(RuntimeError):
+    """Raised when account authorization changed while a login was in flight."""
+
 # Dashboard roles are deliberately derived from the authenticated RouterOS
 # account.  They are capabilities, not another password database, so the
 # router remains the source of truth for identity and account membership.
@@ -150,6 +154,8 @@ class SessionStore:
         self._role_checked_monotonic: dict[str, float] = {}
         self._role_check_locks: dict[str, threading.Lock] = {}
         self._invalidating: set[str] = set()
+        self._invalidating_usernames: set[str] = set()
+        self._account_revocation_generations: dict[str, int] = {}
         # Serializes mutations that can introduce a new session ID against
         # bulk revocation, so a concurrent rotate/login cannot escape it.
         self._session_set_lock = threading.Lock()
@@ -244,6 +250,29 @@ class SessionStore:
         self._role_check_locks.pop(session_id, None)
         self._invalidating.discard(session_id)
 
+    def _session_is_invalidating_locked(
+        self, session_id: str, session: Session
+    ) -> bool:
+        return (
+            session_id in self._invalidating
+            or session.username.casefold() in self._invalidating_usernames
+        )
+
+    def _mark_account_invalidating_locked(self, username_key: str) -> None:
+        if username_key not in self._invalidating_usernames:
+            self._account_revocation_generations[username_key] = (
+                self._account_revocation_generations.get(username_key, 0) + 1
+            )
+        self._invalidating_usernames.add(username_key)
+
+    def account_revocation_generation(self, username: str) -> int:
+        """Return the generation a newly authenticated login must bind to."""
+        if not isinstance(username, str):
+            return 0
+        username_key = username.strip().casefold()
+        with self._lock:
+            return self._account_revocation_generations.get(username_key, 0)
+
     def create(
         self,
         username: str,
@@ -252,6 +281,7 @@ class SessionStore:
         role: str = "owner",
         source_address: str = "",
         user_agent: str = "",
+        expected_account_revocation_generation: int | None = None,
     ) -> Session:
         self._acquire_sync_lock(self._session_set_lock)
         try:
@@ -262,6 +292,7 @@ class SessionStore:
                 role=role,
                 source_address=source_address,
                 user_agent=user_agent,
+                expected_account_revocation_generation=expected_account_revocation_generation,
             )
         finally:
             self._session_set_lock.release()
@@ -274,6 +305,7 @@ class SessionStore:
         role: str = "owner",
         source_address: str = "",
         user_agent: str = "",
+        expected_account_revocation_generation: int | None = None,
     ) -> Session:
         current = time.time() if now is None else now
         monotonic_current = time.monotonic()
@@ -293,6 +325,20 @@ class SessionStore:
         )
         self.purge(current)
         with self._lock:
+            username_key = username.strip().casefold()
+            if (
+                username_key in self._invalidating_usernames
+                or (
+                    expected_account_revocation_generation is not None
+                    and self._account_revocation_generations.get(username_key, 0)
+                    != expected_account_revocation_generation
+                )
+            ):
+                session.password = ""
+                session.csrf_token = ""
+                session.authorization_ref = ""
+                session.revocation_ref = ""
+                raise SessionAuthorizationChanged
             account_sessions = sum(
                 existing.username.casefold() == username.casefold()
                 for existing in self._sessions.values()
@@ -317,7 +363,7 @@ class SessionStore:
             return None
         with self._lock:
             session = self._sessions.get(session_id)
-            if session is None or session_id in self._invalidating:
+            if session is None or self._session_is_invalidating_locked(session_id, session):
                 return None
             current = time.time() if now is None else now
             monotonic_current = time.monotonic()
@@ -333,7 +379,7 @@ class SessionStore:
         if role_check_lock_held:
             with self._lock:
                 session = self._sessions.get(session_id)
-                if session is None or session_id in self._invalidating:
+                if session is None or self._session_is_invalidating_locked(session_id, session):
                     return None
                 current = time.time() if now is None else now
                 monotonic_current = time.monotonic()
@@ -352,7 +398,7 @@ class SessionStore:
         try:
             with self._lock:
                 session = self._sessions.get(session_id)
-                if session is None or session_id in self._invalidating:
+                if session is None or self._session_is_invalidating_locked(session_id, session):
                     return None
                 current = time.time() if now is None else now
                 monotonic_current = time.monotonic()
@@ -377,7 +423,7 @@ class SessionStore:
             return False
         try:
             session = self._sessions.get(session_id)
-            if session is None or session_id in self._invalidating:
+            if session is None or self._session_is_invalidating_locked(session_id, session):
                 return False
             return not self._is_expired(session, time.time(), time.monotonic())
         finally:
@@ -401,7 +447,7 @@ class SessionStore:
             session = self._sessions.get(session_id)
             if session is None:
                 return True, None
-            if session_id in self._invalidating:
+            if self._session_is_invalidating_locked(session_id, session):
                 return True, None
             current = time.time() if now is None else now
             monotonic_current = time.monotonic()
@@ -429,7 +475,8 @@ class SessionStore:
         if not session_id:
             return None
         with self._lock:
-            if session_id not in self._sessions:
+            session = self._sessions.get(session_id)
+            if session is None:
                 return None
             return self._role_check_locks.setdefault(session_id, threading.Lock())
 
@@ -536,7 +583,7 @@ class SessionStore:
         with self._lock:
             if (
                 self._sessions.get(session_id) is not session
-                or session_id in self._invalidating
+                or self._session_is_invalidating_locked(session_id, session)
             ):
                 return None
             checked_monotonic = self._role_checked_monotonic.get(
@@ -553,6 +600,7 @@ class SessionStore:
 
         if not acquired:
             self._acquire_sync_lock(check_lock)
+        invalidating_username = ""
         try:
             session = self.get(
                 session_id,
@@ -564,6 +612,11 @@ class SessionStore:
                 return session
             monotonic_current = time.monotonic()
             with self._lock:
+                if (
+                    self._sessions.get(session_id) is not session
+                    or self._session_is_invalidating_locked(session_id, session)
+                ):
+                    return None
                 checked_monotonic = self._role_checked_monotonic.get(
                     session_id, session.created_monotonic
                 )
@@ -589,7 +642,9 @@ class SessionStore:
                 return None
             checked_monotonic = time.monotonic()
             if resolved_role is None:
-                self.destroy(session_id, role_check_lock_held=True)
+                invalidating_username = session.username.casefold()
+                with self._lock:
+                    self._mark_account_invalidating_locked(invalidating_username)
                 return None
 
             current_role = normalize_role(session.role)
@@ -604,13 +659,15 @@ class SessionStore:
             with self._lock:
                 if (
                     self._sessions.get(session_id) is not session
-                    or session_id in self._invalidating
+                    or self._session_is_invalidating_locked(session_id, session)
                 ):
                     return None
                 self._role_checked_monotonic[session_id] = checked_monotonic
             return session
         finally:
             check_lock.release()
+            if invalidating_username:
+                self.revoke_account_sessions(invalidating_username)
 
     def destroy(self, session_id: str, *, role_check_lock_held: bool = False) -> None:
         check_lock = None
@@ -672,7 +729,11 @@ class SessionStore:
         current = time.time() if now is None else now
         self.purge(current)
         with self._lock:
-            return list(self._sessions.values())
+            return [
+                session
+                for session_id, session in self._sessions.items()
+                if not self._session_is_invalidating_locked(session_id, session)
+            ]
 
     def dispatch_if_active_authorization_ref(
         self, authorization_ref: str, dispatch: Callable[[], None]
@@ -697,7 +758,7 @@ class SessionStore:
                         session.authorization_ref.encode("utf-8"), reference
                     )
                 ):
-                    if session_id in self._invalidating:
+                    if self._session_is_invalidating_locked(session_id, session):
                         return False
                     if self._is_expired(session, current, monotonic_current):
                         self._drop_session_locked(session_id)
@@ -728,7 +789,7 @@ class SessionStore:
             for session in sessions:
                 if (
                     self._sessions.get(session.session_id) is not session
-                    or session.session_id in self._invalidating
+                    or self._session_is_invalidating_locked(session.session_id, session)
                 ):
                     continue
                 if now is None:
@@ -777,6 +838,79 @@ class SessionStore:
                 return existed
         finally:
             check_lock.release()
+
+    def revoke_account_sessions(self, username: str) -> int:
+        """Revoke every active RouterOS dashboard session for one account.
+
+        The account is denied from the moment invalidation begins. Session-set
+        locking prevents a concurrent login or rotation from escaping the
+        sweep, and each per-session delivery lock drains already-authorized
+        live sends before credentials are dropped.
+        """
+        if not isinstance(username, str):
+            return 0
+        username_key = username.strip().casefold()
+        if not username_key:
+            return 0
+
+        self._acquire_sync_lock(self._session_set_lock)
+        try:
+            with self._lock:
+                self._mark_account_invalidating_locked(username_key)
+                candidates = sorted(
+                    session_id
+                    for session_id, session in self._sessions.items()
+                    if session.auth_method == "routeros"
+                    and session.username.casefold() == username_key
+                )
+                self._invalidating.update(candidates)
+                check_locks = [
+                    self._role_check_locks.setdefault(session_id, threading.Lock())
+                    for session_id in candidates
+                ]
+                acquired_in_loop = self._acquire_role_check_locks_in_event_loop(
+                    check_locks
+                )
+                if acquired_in_loop is not None:
+                    try:
+                        current = [
+                            session_id
+                            for session_id, session in self._sessions.items()
+                            if session.auth_method == "routeros"
+                            and session.username.casefold() == username_key
+                        ]
+                        for session_id in current:
+                            self._drop_session_locked(session_id)
+                        self._invalidating_usernames.discard(username_key)
+                        return len(current)
+                    finally:
+                        for check_lock in reversed(acquired_in_loop):
+                            check_lock.release()
+
+            acquired: list[threading.Lock] = []
+            try:
+                for check_lock in check_locks:
+                    check_lock.acquire()
+                    acquired.append(check_lock)
+                with self._lock:
+                    current = [
+                        session_id
+                        for session_id, session in self._sessions.items()
+                        if session.auth_method == "routeros"
+                        and session.username.casefold() == username_key
+                    ]
+                    for session_id in current:
+                        self._drop_session_locked(session_id)
+                    self._invalidating_usernames.discard(username_key)
+                    return len(current)
+            finally:
+                for check_lock in reversed(acquired):
+                    check_lock.release()
+        finally:
+            self._session_set_lock.release()
+
+    async def revoke_account_sessions_async(self, username: str) -> int:
+        return await asyncio.to_thread(self.revoke_account_sessions, username)
 
     def revoke_all_except(self, session_id: str) -> int:
         self._acquire_sync_lock(self._session_set_lock)

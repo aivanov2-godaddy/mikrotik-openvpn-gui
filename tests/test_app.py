@@ -2251,6 +2251,48 @@ class DashboardIntegrationTests(unittest.TestCase):
             "login.concurrent_session_limit",
         )
 
+    def test_login_authenticated_before_account_disable_cannot_escape_session_sweep(self) -> None:
+        self.login()
+        existing_session_id = self.cookie.split("=", 1)[1]
+
+        def observe_disable_then_return_stale_role(_credentials):
+            self.assertIsNone(
+                self.server.context.sessions.revalidate_role(
+                    existing_session_id,
+                    lambda _session: None,
+                    interval_seconds=0,
+                )
+            )
+            # Model an already-authenticated login completing with a stale
+            # RouterOS role result after another request observed disablement.
+            return "owner"
+
+        body = urllib.parse.urlencode(
+            {"username": "admin", "password": "routerpass"}
+        ).encode()
+        with mock.patch.object(
+            self.server.context.router,
+            "get_admin_role",
+            side_effect=observe_disable_then_return_stale_role,
+        ):
+            status, headers, payload = self.request(
+                "POST",
+                "/login",
+                body=body,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 401, payload.decode())
+        self.assertNotIn("set-cookie", headers)
+        self.assertEqual(self.server.context.sessions.active(), [])
+        self.assertEqual(
+            self.server.context.store.recent_audit(1)[0]["action"],
+            "login.failure",
+        )
+
     def test_status_projects_operational_records_to_allowlisted_fields(self) -> None:
         self.login()
         session = {
@@ -4792,9 +4834,44 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"revoked-audit-marker", payload)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
 
-    def test_disabled_routeros_account_revokes_existing_live_session(self) -> None:
+    def test_disabled_warm_routeros_account_cannot_read_admin_session_inventory(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]
+        owner = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(owner)
+        peer = self.server.context.sessions.create(
+            owner.username,
+            owner.password,
+            role=owner.role,
+            source_address="SENSITIVE-PEER-ADDRESS-SENTINEL",
+            user_agent="SENSITIVE-PEER-AGENT-SENTINEL",
+        )
+
+        # The ordinary request authentication remains inside its role-cache
+        # interval; the inventory route must force a fresh role check before
+        # returning metadata about any session for this account.
+        self.mock.state.admin_disabled = True
+        status, _, payload = self.request(
+            "GET", "/api/admin/sessions", headers={"Cookie": self.cookie}
+        )
+
+        self.assertEqual(status, 401)
+        self.assertNotIn(b"SENSITIVE-PEER-ADDRESS-SENTINEL", payload)
+        self.assertNotIn(b"SENSITIVE-PEER-AGENT-SENTINEL", payload)
+        self.assertNotIn(peer.session_id.encode("ascii"), payload)
+        self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertIsNone(self.server.context.sessions.get(peer.session_id, touch=False))
+        self.assertEqual(owner.password, "")
+        self.assertEqual(peer.password, "")
+
+    def test_disabled_routeros_account_revokes_all_existing_live_sessions(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        peer = self.server.context.sessions.create(
+            session.username, session.password, role=session.role
+        )
         self.mock.state.admin_disabled = True
         self.server.context.sessions._role_checked_monotonic[session_id] = 0
 
@@ -4802,6 +4879,11 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertIsNone(principal)
         self.assertIsNone(self.server.context.sessions.get(session_id, touch=False))
+        self.assertIsNone(
+            self.server.context.sessions.get(peer.session_id, touch=False)
+        )
+        self.assertEqual(session.password, "")
+        self.assertEqual(peer.password, "")
 
     def test_auth_audit_events_are_detailed_but_secret_free(self) -> None:
         bad_login = urllib.parse.urlencode({"username": "admin", "password": "wrong"}).encode()

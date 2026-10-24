@@ -14,6 +14,7 @@ from unittest import mock
 from security import (
     ConcurrentSessionLimitReached,
     LoginRateLimiter,
+    SessionAuthorizationChanged,
     SessionStore,
     csrf_matches,
     has_capability,
@@ -585,6 +586,114 @@ class SecurityTests(unittest.TestCase):
                 )
             )
             self.assertIsNone(changed_store.get(changed.session_id, now=116, touch=False))
+
+    def test_disabled_routeros_account_revokes_all_casefold_matching_sessions(self) -> None:
+        store = SessionStore()
+        disabled_account = store.create("admin", "first-secret", role="owner")
+        second_session = store.create("ADMIN", "second-secret", role="read_only")
+        unrelated = store.create("auditor", "other-secret", role="auditor")
+
+        self.assertIsNone(
+            store.revalidate_role(
+                disabled_account.session_id,
+                lambda _session: None,
+                interval_seconds=0,
+            )
+        )
+
+        self.assertIsNone(store.get(disabled_account.session_id, touch=False))
+        self.assertIsNone(store.get(second_session.session_id, touch=False))
+        self.assertEqual(disabled_account.password, "")
+        self.assertEqual(second_session.password, "")
+        self.assertIs(store.get(unrelated.session_id, touch=False), unrelated)
+        self.assertEqual(store.active(), [unrelated])
+        self.assertEqual(store._invalidating_usernames, set())
+
+    def test_disabled_account_generation_blocks_stale_authenticated_session_insert(self) -> None:
+        store = SessionStore()
+        existing = store.create("admin", "existing-secret", role="owner")
+        generation = store.account_revocation_generation("ADMIN")
+
+        self.assertIsNone(
+            store.revalidate_role(
+                existing.session_id,
+                lambda _session: None,
+                interval_seconds=0,
+            )
+        )
+        self.assertEqual(store.account_revocation_generation("admin"), generation + 1)
+        with self.assertRaises(SessionAuthorizationChanged):
+            store.create(
+                "admin",
+                "stale-login-secret",
+                expected_account_revocation_generation=generation,
+            )
+
+        # A later login may proceed only after it observes the new generation
+        # and independently completes fresh RouterOS authentication.
+        fresh = store.create(
+            "ADMIN",
+            "fresh-login-secret",
+            expected_account_revocation_generation=(
+                store.account_revocation_generation("admin")
+            ),
+        )
+        self.assertIs(store.get(fresh.session_id, touch=False), fresh)
+
+    def test_role_refresh_cache_fast_path_honors_concurrent_account_invalidation(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "router-secret", role="owner")
+        original_get = store.get
+        invalidation_started = False
+
+        def get_then_start_invalidation(*args, **kwargs):
+            nonlocal invalidation_started
+            current = original_get(*args, **kwargs)
+            if current is session and not invalidation_started:
+                invalidation_started = True
+                with store._lock:
+                    store._mark_account_invalidating_locked("admin")
+            return current
+
+        with mock.patch.object(store, "get", side_effect=get_then_start_invalidation):
+            refreshed = store.revalidate_role(
+                session.session_id,
+                lambda _session: self.fail("warm cache should not bypass invalidation"),
+            )
+
+        self.assertIsNone(refreshed)
+        self.assertFalse(store.is_active_nonblocking(session.session_id))
+
+    def test_disabled_account_blocks_peer_session_until_live_send_drains(self) -> None:
+        store = SessionStore()
+        disabled_account = store.create("admin", "first-secret", role="owner")
+        peer = store.create("admin", "peer-secret", role="owner")
+        peer_lock = store.role_check_lock(peer.session_id)
+        self.assertIsNotNone(peer_lock)
+        assert peer_lock is not None
+        peer_lock.acquire()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            refresh = executor.submit(
+                store.revalidate_role,
+                disabled_account.session_id,
+                lambda _session: None,
+                interval_seconds=0,
+            )
+            try:
+                deadline = time.monotonic() + 1
+                while store.is_active_nonblocking(peer.session_id) and time.monotonic() < deadline:
+                    time.sleep(0.001)
+                self.assertFalse(store.is_active_nonblocking(peer.session_id))
+                self.assertFalse(refresh.done())
+                self.assertEqual(peer.password, "peer-secret")
+            finally:
+                peer_lock.release()
+
+            self.assertIsNone(refresh.result(timeout=1))
+
+        self.assertIsNone(store.get(peer.session_id, touch=False))
+        self.assertEqual(peer.password, "")
 
     def test_routeros_role_lookup_error_revokes_session(self) -> None:
         for role in ("owner", "read_only"):
