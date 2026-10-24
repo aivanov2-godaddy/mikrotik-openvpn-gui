@@ -11,19 +11,23 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-Formal release **v2.7.0** remains the latest numbered release. PR #810
-(`95643475f7b24be36c914791d07713625973b5f7`) is the latest merged mainline
-commit and published image; its immutable ARM64 image digest is
-`sha256:0c1bbd0cb695345541acab775ab58465088ba3f09fd0a435ff44ea3354f58e92`.
-The [publisher workflow (run 40113226393)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40113226393)
-passed, but [main CI (run 40113226379)](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40113226379)
-failed the `mobile-390` rendered-browser SSE-fallback test. The image is
-published, not acceptance-cleared: do not stage or promote PR #810 until that
-regression is resolved and its required checks pass. Artifact details are recorded in
-[`RELEASES.md`](RELEASES.md).
+Formal release **v2.7.0** remains the latest numbered release. PR #811
+(`0f031789939f48e37c42bf258987fb23a9069192`) is the latest merged mainline
+commit and published image. Main CI (run 40117101238), CodeQL (run
+40117101744), and the publisher (run 40117101217) passed. The publisher
+verified detached provenance and SPDX SBOM attestations, smoke-tested both
+architectures, and read back the stable immutable manifest. The earlier
+`mobile-390` SSE-fallback regression on PR #810 was fixed and the rendered
+browser suite now passes. Immutable per-architecture tags and digests are
+recorded in [`RELEASES.md`](RELEASES.md).
+
+PR #811 is published but not acceptance-cleared and was not staged by this
+work. No RouterOS change or fresh device read-back is claimed. Keep canary
+staging and production promotion gated on the remaining updater reconciliation,
+deployed security review, and candidate-bound live acceptance.
 
 The last recorded RouterOS canary read-back, on 2026-10-24, was PR #806—not the
-newer PR #810 image. The exact PR #806 ARM64 tag was read back on the isolated canary;
+newer PR #811 image. The exact PR #806 ARM64 tag was read back on the isolated canary;
 RouterOS reported the container healthy and the embedded revision matched the
 merge commit. Sparse read-only samples over approximately nine minutes showed
 healthy readiness, 0.6–0.8% CPU, and 38.6 MiB memory. This is not the required
@@ -70,7 +74,7 @@ pass.
 | Complete | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201), [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202), [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | RouterOS least-privilege diagnostics, mutation safety, SBOM/provenance and compatibility policy |
 | Closed in GitHub — implementation; device/certificate acceptance remains | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. PR #702 adds a collapsed, read-only CRL configuration observation to Device Profiles without restoring the removed overview alert. PR #705 hardens cleanup of temporary RouterOS profile-export artifacts. PR #707 gates retirement on testing the replacement identity; PR #718 adds fail-closed checkpoint-failure coverage; PR #722 rejects stale, malformed, missing-expiry, and wrong-CA CRL snapshots. PR #730 requires both the stored RouterOS certificate ID and normalized fingerprint to match for a read-only inventory match. PR #737 adds a candidate-bound, operator-attested certificate-lifecycle evidence gate; its merge does not itself prove a successful live lifecycle test. The GitHub issue is closed, but candidate/device-backed CRL freshness, staged renewal and retirement, fresh-connect rejection, active-session behavior, read-back, and canary rollback evidence remain release gates tracked by #205. Profile recovery issues a new identity rather than re-downloading a retained private key. |
 | Complete — acceptance tooling; live gates remain | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Closed by PR #709. The bounded read-only collector and SQLite restore verifier are implemented. Candidate-matched live soak, deployment, and rollback evidence remain release gates tracked by #205 (device/certificate acceptance) and #200 (security assurance); closing this implementation issue does not claim device acceptance. |
-| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | The last recorded canary staging/read-back is PR #806; sparse point samples show healthy readiness, 0.6–0.8% CPU, and 38.6 MiB memory, but no 30-minute soak has passed. Newer published PR #810 has not been staged and currently has a failing mobile browser check. No PR #810 production deployment or fresh production read-back is claimed. Still required: complete independent scoped ASVS assessment; authenticated live-session, revocation/reconnect, freshness and soak evidence; candidate-bound resource data; event/counter integrity, Binary API/REST parity, deployed Redis/SQLite recovery; physical RouterOS permission and credential-memory/log/dump review; candidate-specific rollback rehearsal; and the named owner risk decision. Live streams now use a one-second application role cache; ordinary requests retain 15 seconds. Neither app-side interval is a verified RouterOS-side revocation bound. See SECURITY_ASSURANCE.md and LIVE_TELEMETRY_ACCEPTANCE_REPORT.md. |
+| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | The last recorded canary staging/read-back is PR #806; sparse point samples show healthy readiness, 0.6–0.8% CPU, and 38.6 MiB memory, but no 30-minute soak has passed. Newer published PR #811 passed main CI, including the rendered mobile browser regression, but has not been staged. This work made no RouterOS change or fresh device read-back. Still required: complete independent scoped ASVS assessment; authenticated live-session, revocation/reconnect, freshness and soak evidence; candidate-bound resource data; event/counter integrity, Binary API/REST parity, deployed Redis/SQLite recovery; physical RouterOS permission and credential-memory/log/dump review; candidate-specific rollback rehearsal; and the named owner risk decision. Live streams now use a one-second application role cache; ordinary requests retain 15 seconds. Neither app-side interval is a verified RouterOS-side revocation bound. See SECURITY_ASSURANCE.md and LIVE_TELEMETRY_ACCEPTANCE_REPORT.md. |
 | Open — updater reconciliation / safe staging | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | Manual canary-only staging of PR #806 and exact revision/healthy-readiness read-back are verified. A candidate-specific rollback rehearsal and the required 30-minute soak have not been completed. The installed updater still differs from reviewed source and was not run; the original failure source remains unknown. Authenticated live acceptance remains open. |
 | Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Close only after remaining device/certificate acceptance (tracked here despite #194's GitHub closure), #200 security review, and candidate-specific live acceptance gates pass; include the #199 collector/restore evidence in the candidate report. |
 
@@ -79,8 +83,9 @@ before writing the audit event. PR #778 added redacted origin-rejection
 diagnostics and Engine.IO handshake SID binding. PR #791 and #797 improve the
 checked-in example RouterOS updater; neither installs nor executes it. PR #794
 added WebSocket Origin and admin-session revocation-reference hardening. PR
-#798 adds evidence-gated originless polling and browser coverage; PR #810 is
-the latest published mainline image, but its mobile browser check is failing.
+#798 adds evidence-gated originless polling and browser coverage; PR #811 is
+the latest published mainline image. Its required main-branch checks pass, but
+it has not been staged and does not satisfy the live acceptance gates.
 The last recorded canary stage is PR #806. Manual canary staging and point-sample
 readiness evidence do not close the deployed-security and device-acceptance
 gates in #200 and #205.
