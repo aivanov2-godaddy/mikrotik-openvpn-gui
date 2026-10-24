@@ -221,7 +221,7 @@ test('falls back to SSE when the connected Socket.IO upstream reports degraded h
   await expect(page.locator('[data-live-indicator]'))
     .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
   await page.getByRole('link', { name: 'Connections', exact: true }).click();
-  await expect(page.locator('[data-view="connections"]')).toBeVisible();
+  await expect(page.locator('[data-view="live-sessions"]')).toBeVisible();
 
   const navigations = [];
   page.on('framenavigated', (frame) => {
