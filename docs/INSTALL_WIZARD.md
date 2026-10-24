@@ -23,6 +23,10 @@ Run the prompt-driven wizard from a clone of the repository:
 python install_routeros.py --interactive --output routeros-install.rsc
 ```
 
+The generated plan is written only to the explicit `--output` path; terminal
+output does not include its router addresses, object names, or storage paths.
+Protect the plan file as operationally sensitive.
+
 It asks for the GitHub owner and immutable commit, supported architecture,
 dashboard/REST TLS names, storage path, container network, existing OpenVPN
 objects, and VPN network settings. The default public repository is

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+from pathlib import Path
 import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -314,6 +315,12 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--trust-cloudflare", action="store_true")
     parser.add_argument("--trusted-proxy-source", action="append", default=[])
+    parser.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="Write the operationally sensitive review-only .rsc plan to this path",
+    )
     return parser
 
 
@@ -346,7 +353,11 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ValueError as error:
         parser.error(str(error))
-    print(plan, end="")
+    try:
+        arguments.output.write_text(plan, encoding="utf-8", newline="\n")
+    except OSError:
+        parser.error("Could not write the review-only plan to the requested output file")
+    print("Wrote review-only canary plan to the requested output file.")
     return 0
 
 

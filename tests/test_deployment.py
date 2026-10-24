@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import ipaddress
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
@@ -133,44 +134,56 @@ class DeploymentPolicyTests(unittest.TestCase):
 
     def test_canary_cli_passes_the_openvpn_topology_to_the_plan(self) -> None:
         settings = self.canary_settings()
-        output = io.StringIO()
-        with redirect_stdout(output):
-            status = render_canary_main(
-                [
-                    "--owner",
-                    settings.owner,
-                    "--commit",
-                    settings.commit,
-                    "--public-origin",
-                    settings.public_origin,
-                    "--routeros-rest-url",
-                    settings.routeros_rest_url,
-                    "--routeros-rest-san",
-                    settings.routeros_rest_san,
-                    "--external-root",
-                    settings.external_root,
-                    "--bridge",
-                    settings.bridge,
-                    "--canary-address",
-                    settings.canary_address,
-                    "--gateway",
-                    settings.gateway,
-                    "--ovpn-ppp-profile",
-                    settings.ovpn_ppp_profile,
-                    "--ovpn-server-name",
-                    settings.ovpn_server_name,
-                    "--ovpn-ca-name",
-                    settings.ovpn_ca_name,
-                    "--ovpn-host",
-                    settings.ovpn_host,
-                    "--vpn-lan-cidr",
-                    settings.vpn_lan_cidr,
-                    "--vpn-router-dns",
-                    settings.vpn_router_dns,
-                ]
-            )
-        self.assertEqual(status, 0)
-        self.assertIn('key=OVPN_HOST value="ovpn.example.com"', output.getvalue())
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "canary-plan.rsc"
+            output = io.StringIO()
+            error = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(error):
+                status = render_canary_main(
+                    [
+                        "--owner",
+                        settings.owner,
+                        "--commit",
+                        settings.commit,
+                        "--public-origin",
+                        settings.public_origin,
+                        "--routeros-rest-url",
+                        settings.routeros_rest_url,
+                        "--routeros-rest-san",
+                        settings.routeros_rest_san,
+                        "--external-root",
+                        settings.external_root,
+                        "--bridge",
+                        settings.bridge,
+                        "--canary-address",
+                        settings.canary_address,
+                        "--gateway",
+                        settings.gateway,
+                        "--ovpn-ppp-profile",
+                        settings.ovpn_ppp_profile,
+                        "--ovpn-server-name",
+                        settings.ovpn_server_name,
+                        "--ovpn-ca-name",
+                        settings.ovpn_ca_name,
+                        "--ovpn-host",
+                        settings.ovpn_host,
+                        "--vpn-lan-cidr",
+                        settings.vpn_lan_cidr,
+                        "--vpn-router-dns",
+                        settings.vpn_router_dns,
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+            self.assertEqual(status, 0)
+            self.assertEqual(error.getvalue(), "")
+            self.assertNotIn("router.example.internal", output.getvalue())
+            self.assertNotIn("192.0.2.6", output.getvalue())
+            self.assertNotIn(str(output_path), output.getvalue())
+            plan = output_path.read_text(encoding="utf-8")
+            self.assertIn('key=OVPN_HOST value="ovpn.example.com"', plan)
+            self.assertIn("router.example.internal", plan)
+            self.assertIn("192.0.2.6", plan)
 
     def test_canary_plan_rejects_unsafe_or_unverified_inputs(self) -> None:
         settings = self.canary_settings()

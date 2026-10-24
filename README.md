@@ -163,6 +163,12 @@ populated environment file.
 | `VPN_ROUTER_DNS` | Yes for RouterOS-DNS profiles | Router DNS server written into generated profiles |
 | `DASHBOARD_NAME`, `ROUTER_DISPLAY_NAME` | No | Optional presentation labels; generic defaults are used |
 
+The Binary API always verifies the router certificate and hostname and enforces
+TLS 1.2 or newer. It rejects the legacy MD5 challenge login used by older
+RouterOS releases; Binary API mode requires the documented RouterOS 7
+one-step authentication. Setting `ROUTEROS_INSECURE_TLS=true` never weakens
+Binary API TLS and causes that connection to fail closed.
+
 Read-only router status remains available without the `OVPN_*` settings. User
 and profile actions fail closed until the OpenVPN topology is configured.
 
