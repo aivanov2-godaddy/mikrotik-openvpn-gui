@@ -94,6 +94,20 @@ class ResponseHeaderValidationTests(unittest.TestCase):
             handler.send_response.assert_not_called()
             handler.send_header.assert_not_called()
 
+    def test_final_header_write_strips_line_breaks_as_defense_in_depth(self) -> None:
+        handler = DashboardHandler.__new__(DashboardHandler)
+        handler._session_touch_candidate = None
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        unsafe_extra = {"X-Test": "safe\r\nX-Injected: yes"}
+
+        with mock.patch("app._validated_response_headers", return_value=list(unsafe_extra.items())):
+            handler._headers(200, "text/plain; charset=utf-8", 0, extra=unsafe_extra)
+
+        handler.send_header.assert_any_call("X-Test", "safeX-Injected: yes")
+        self.assertFalse(any("\r" in call.args[1] or "\n" in call.args[1] for call in handler.send_header.call_args_list))
+
 
 class ContainerImageTargetTests(unittest.TestCase):
     def test_supported_router_architectures_map_to_published_suffixes(self) -> None:
