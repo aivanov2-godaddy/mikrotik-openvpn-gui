@@ -903,6 +903,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         for key, value in SECURITY_HEADERS.items():
             self.send_header(key, value)
         for key, value in safe_extra_headers:
+            # Keep newline removal at the HTTP sink as a defense in depth.
+            value = value.replace("\n", "").replace("\r", "")
             self.send_header(key, value)
         self.end_headers()
 
@@ -6739,7 +6741,8 @@ class RedirectHandler(BaseHTTPRequestHandler):
         if any(ord(char) < 32 or ord(char) == 127 for char in path):
             self.send_error(HTTPStatus.BAD_REQUEST)
             return
-        target = self.public_origin.rstrip("/") + path
+        # Keep newline removal at the HTTP sink as a defense in depth.
+        target = (self.public_origin.rstrip("/") + path).replace("\n", "").replace("\r", "")
         self.send_response(HTTPStatus.PERMANENT_REDIRECT)
         self.send_header("Location", target)
         self.send_header("Content-Length", "0")
