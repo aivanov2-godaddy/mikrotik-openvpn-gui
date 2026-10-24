@@ -500,7 +500,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             websocket_origin_finding,
         )
 
-        self.assertIn("does not proactively invalidate every session", rows["V7.4.2"][2])
+        self.assertIn("RouterOS supplies no account-disable push event", rows["V7.4.2"][2])
         self.assertIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
         self.assertIn("There is no terminate-all action", rows["V7.5.2"][2])
         self.assertIn("CI now mechanically reconciles every literal/regex", rows["V8.1.1"][2])

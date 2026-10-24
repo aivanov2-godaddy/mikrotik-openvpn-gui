@@ -41,6 +41,7 @@ from security import (
     LoginRateLimiter,
     LIVE_STREAM_ROLE_REVALIDATION_SECONDS,
     SECURITY_HEADERS,
+    SessionAuthorizationChanged,
     Session,
     SessionStore,
     SENSITIVE_ACTION_STEP_UP_SECONDS,
@@ -1147,20 +1148,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return capability in session.capabilities
         return has_capability(session.role, capability)
 
+    def _revalidated_routeros_session(self, session: Session) -> Session | None:
+        """Force one current RouterOS role check per session for this request."""
+        if session.auth_method != "routeros":
+            return session
+        refreshed_sessions = getattr(self, "_sensitive_role_sessions_this_request", None)
+        if not isinstance(refreshed_sessions, dict):
+            refreshed_sessions = {}
+            self._sensitive_role_sessions_this_request = refreshed_sessions
+        session_id = session.session_id
+        if session_id not in refreshed_sessions:
+            refreshed_sessions[session_id] = self.server.telemetry_runtime.revalidate_session(
+                session_id,
+                force_role_check=True,
+            )
+        refreshed_session = refreshed_sessions[session_id]
+        return refreshed_session if isinstance(refreshed_session, Session) else None
+
     def _capability_allowed(self, session: Session, capability: str) -> bool:
         """Check a capability without emitting an error response."""
         if capability in {"audit.read", "session.manage"} and session.auth_method == "routeros":
-            refreshed_sessions = getattr(self, "_sensitive_role_sessions_this_request", None)
-            if not isinstance(refreshed_sessions, dict):
-                refreshed_sessions = {}
-                self._sensitive_role_sessions_this_request = refreshed_sessions
-            session_id = session.session_id
-            if session_id not in refreshed_sessions:
-                refreshed_sessions[session_id] = self.server.telemetry_runtime.revalidate_session(
-                    session_id,
-                    force_role_check=True,
-                )
-            refreshed_session = refreshed_sessions[session_id]
+            refreshed_session = self._revalidated_routeros_session(session)
             return refreshed_session is not None and self._session_has_capability(
                 refreshed_session,
                 capability,
@@ -1606,7 +1614,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/admin/sessions":
             session = self._require_session(api=True)
-            if not session or not self._require_capability(session, "sessions.read"):
+            if not session:
+                return
+            session = self._revalidated_routeros_session(session)
+            if session is None:
+                self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            if not self._require_capability(session, "sessions.read"):
                 return
             self._json({
                 "sessions": self.server.context.sessions.snapshot(
@@ -3714,6 +3728,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             form = self._read_form()
             username = self._validate_username(form.get("username", ""))
+            account_revocation_generation = (
+                self.server.context.sessions.account_revocation_generation(username)
+            )
             password = form.get("password", "")
             if not password:
                 raise ValueError("Password is required")
@@ -3753,7 +3770,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 role=role,
                 source_address=identity,
                 user_agent=self.headers.get("User-Agent", ""),
+                expected_account_revocation_generation=account_revocation_generation,
             )
+        except SessionAuthorizationChanged:
+            self.server.context.limiter.finish(reservation, failed=False)
+            self.server.context.store.audit(
+                actor=username,
+                action="login.failure", target="dashboard", status="denied",
+                details={"source": identity, "auth_method": "routeros", "reason": "authorization_changed"},
+            )
+            self._html(
+                login_page(
+                    "MikroTik authentication failed.",
+                    dashboard_name=self.server.context.config.dashboard_name,
+                    router_display_name=self.server.context.config.router_display_name,
+                ),
+                status=HTTPStatus.UNAUTHORIZED,
+            )
+            return
         except ConcurrentSessionLimitReached:
             self.server.context.limiter.finish(reservation, failed=False)
             limit = self.server.context.sessions.max_sessions_per_account
