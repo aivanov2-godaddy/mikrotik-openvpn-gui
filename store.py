@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from event_safety import sanitize_audit_details, sanitize_payload
+from event_safety import sanitize_audit_details
 
 
 _monotonic = time.monotonic
