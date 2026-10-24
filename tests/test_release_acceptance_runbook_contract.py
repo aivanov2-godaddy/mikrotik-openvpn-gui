@@ -84,7 +84,7 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "PR #803 is currently staged on the canary with readiness/rollback verification recorded above, but full live acceptance remains incomplete.",
+            "PR #806 is staged on the canary with healthy revision read-back recorded above, but its 30-minute soak, rollback, and full live acceptance remain incomplete.",
             report,
         )
         self.assertNotIn("PR #791 has been published but not staged", report)
