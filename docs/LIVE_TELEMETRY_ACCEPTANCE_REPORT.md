@@ -1,34 +1,34 @@
 # Live telemetry acceptance status
 
-Status: **PR #803 is the latest published and attested mainline image. On
-2026-10-24 its exact immutable ARM64 tag and revision were staged/read back on
-the isolated canary; the local readiness endpoint reported `ready`. A manual
-rollback to the previous canary image passed readiness, then PR #803 was
-restored and readiness reverified. Production remains on its prior image and
-was not changed. A new 30-sample, one-minute-spaced readiness observation has
-completed 30/30 successful checks with zero failures against the expected
-candidate readiness revision. This is readiness-only evidence; it does not
-measure resource impact or prove live telemetry acceptance. The canary
-dashboard remains at its app sign-in form in the available browser view, so
-authenticated live telemetry, event latency/freshness, and reconnect/snapshot
-recovery are not verified. The installed updater remains unreconciled and was
-not run. Candidate-specific acceptance and production promotion remain
-gated.**
+Status: **PR #806 is the latest published mainline image. On 2026-10-24 its
+immutable ARM64 tag was read back on the isolated canary; RouterOS reported
+the container healthy and its embedded revision matched merge commit
+`79816625e493f9581e7389b95760403ac6c9a327`. The registry digest is
+`sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
+Sparse read-only samples over approximately nine minutes showed healthy
+readiness, 0.6–0.8% CPU, and 38.6 MiB memory. No 30-minute soak or
+candidate-specific rollback rehearsal has passed. Production remains on its
+prior image and was not changed. The canary dashboard still displays its application
+sign-in form in the latest browser observation, so authenticated live events,
+event latency/freshness, and reconnect/snapshot recovery are not verified. The
+installed updater remains unreconciled and was not run. Candidate-specific
+acceptance and production promotion remain gated.**
 
-## Current candidate checkpoint — PR #803
+## Current candidate checkpoint — PR #806
 
-PR [#803](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/803)
-is commit `e12d1708e81959f02c182659dc5bb35a82229fef`. The immutable ARM64
+PR [#806](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/806)
+merged as `79816625e493f9581e7389b95760403ac6c9a327`. CI, CodeQL, ARM64 image
+build, Redis recovery integration, rendered-browser/accessibility regression,
+secret-pattern checks, and dependency audit passed. The immutable ARM64
 registry digest is
-`sha256:d0fe3c7c19cd49db9499e645e4d31467cc264d8575b74da59d4beffc9967250c`.
-Publisher, provenance/SBOM, and runtime-smoke checks passed. RouterOS read-back
-confirmed the exact candidate revision on canary. The rollback drill used the
-previous immutable canary image and its matching readiness revision, then
-restored the candidate and verified its readiness again. The production image
-remains unchanged. The readiness-only sample series completed 30/30
-one-minute-spaced checks with zero failures. It does not establish
-application-level live-event acceptance, resource impact, or a telemetry/
-security pass.
+`sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
+RouterOS read-back confirmed the exact candidate revision and healthy
+readiness on canary. Sparse point samples are not a 30-minute soak and do not
+prove sustained resource impact. No candidate-specific rollback drill has
+been completed for #806. Production remains unchanged. The current browser
+observation is the application sign-in form, so authenticated live-event
+acceptance, event-age/freshness, reconnect/snapshot recovery, and session
+authorization are unverified.
 
 ## Public artifact evidence
 
@@ -46,8 +46,8 @@ did not stage or deploy the image on RouterOS.
 
 | Platform | Immutable tag | Registry digest |
 | --- | --- | --- |
-| RouterOS ARM64 — latest published; post-publish router state unverified | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-041a9d2ac7581dac18911c236cbbb3aee4280273-arm64` | `sha256:b41ad2cde73efe9f465d583430e4801b75335b18c92b9a364ec21149c69ab601` |
-| AMD64 / CHR — latest published; device state unverified | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-041a9d2ac7581dac18911c236cbbb3aee4280273-amd64` | `sha256:bf2c211397f30940cb72ab199f2d575b42372341491a934b1260bdd9a12fba6c` |
+| RouterOS ARM64 — previous published image; superseded by PR #806 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-041a9d2ac7581dac18911c236cbbb3aee4280273-arm64` | `sha256:b41ad2cde73efe9f465d583430e4801b75335b18c92b9a364ec21149c69ab601` |
+| AMD64 / CHR — previous published image; superseded by PR #806 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-041a9d2ac7581dac18911c236cbbb3aee4280273-amd64` | `sha256:bf2c211397f30940cb72ab199f2d575b42372341491a934b1260bdd9a12fba6c` |
 
 PR #798 is not a numbered release; v2.7.0 remains the latest formal version.
 Image publication did not deploy to RouterOS or establish live acceptance.
@@ -55,7 +55,7 @@ Image publication did not deploy to RouterOS or establish live acceptance.
 ### Historical candidate-bound canary artifact — PR #776
 
 PR [#776](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/776)
-(`c4b4b76793b2454e81362867d8654962627de6fa`) is the latest candidate-bound
+(`c4b4b76793b2454e81362867d8654962627de6fa`) is a historical candidate-bound
 canary record. Main CI run
 [#39867875857](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/39867875857)
 and publisher run
@@ -107,9 +107,9 @@ a gate checklist, not a report of private measurements.
 ## Candidate acceptance gates
 
 The following table is the historical acceptance record for candidate PR #776;
-it is not the current canary image state. PR #803 is currently staged on the
-canary with readiness/rollback verification recorded above, but full live
-acceptance remains incomplete.
+it is not the current canary image state. PR #806 is staged on the canary with
+healthy revision read-back recorded above, but its 30-minute soak, rollback,
+and full live acceptance remain incomplete.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |

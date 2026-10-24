@@ -14,25 +14,27 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest merged and published mainline image is
-PR #803, commit `e12d1708e81959f02c182659dc5bb35a82229fef`, published by
-[workflow run #40022645478](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40022645478).
-Its immutable ARM64/AMD64 tags and digests are recorded in
-[`RELEASES.md`](RELEASES.md#published-images); the RouterOS ARM64 digest is
-`sha256:d0fe3c7c19cd49db9499e645e4d31467cc264d8575b74da59d4beffc9967250c`.
-Main CI, CodeQL, both architecture builds, runtime smoke, provenance/SBOM
-verification, and stable-manifest read-back passed.
+PR #806, commit `79816625e493f9581e7389b95760403ac6c9a327`. Its immutable
+ARM64 tag and digest are recorded in [`RELEASES.md`](RELEASES.md#published-images);
+the canary ARM64 digest is
+`sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
+CI, CodeQL, ARM64 image build, Redis recovery integration, rendered-browser /
+accessibility regression, secret-pattern checks, and dependency audit passed.
 
-On 2026-10-24, the exact PR #803 ARM64 tag and readiness revision were read
-back on the isolated canary. A manual rollback to the prior canary image
-passed readiness at the matching prior revision; the PR #803 candidate was
-then restored and readiness reverified. Production remains on its prior image
-and was not changed. The 30-sample, one-minute-spaced readiness-only
-observation completed with zero failures against the expected candidate
-revision. The canary dashboard remains at the application sign-in form in the
-available browser view, so authenticated event latency, traffic freshness,
-reconnect/snapshot recovery, and session authorization are not verified.
-Readiness and rollback checks alone do not constitute full hardware acceptance
-or production promotion.
+On 2026-10-24, the exact PR #806 ARM64 tag and embedded revision were read back
+on the isolated canary; RouterOS reported healthy readiness. Sparse point
+samples over approximately nine minutes showed 0.6–0.8% CPU and 38.6 MiB
+memory. These samples do not satisfy the 30-minute soak requirement. No
+candidate-specific rollback rehearsal has been completed for #806. Production
+remains on its prior image and was not changed. The latest browser observation
+shows the canary app sign-in form, so authenticated event latency, traffic
+freshness, reconnect/snapshot recovery, and session authorization are not
+verified. Readiness and point samples alone do not constitute full hardware
+acceptance or production promotion.
+
+The PR #803 canary staging, rollback, and readiness-only observation described
+in older records are historical and do not transfer acceptance evidence to
+PR #806.
 
 The installed RouterOS updater differs from the reviewed repository template
 and was not executed. Its original generic `invalid request` is no longer

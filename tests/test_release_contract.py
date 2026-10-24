@@ -171,9 +171,9 @@ class ReleaseContractTests(unittest.TestCase):
             "\n".join(document.read_text(encoding="utf-8") for document in documents).split()
         )
 
-        self.assertIn("e12d1708e81959f02c182659dc5bb35a82229fef", rendered)
+        self.assertIn("79816625e493f9581e7389b95760403ac6c9a327", rendered)
         self.assertIn(
-            "sha256:d0fe3c7c19cd49db9499e645e4d31467cc264d8575b74da59d4beffc9967250c",
+            "sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce",
             rendered,
         )
         self.assertIn(
@@ -181,10 +181,10 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Manual canary staging and rollback now have candidate-bound readiness evidence",
+            "No #806 rollback rehearsal or 30-minute soak has passed",
             rendered,
         )
-        self.assertIn("30-sample, one-minute-spaced readiness observation", rendered)
+        self.assertIn("Sparse point samples over approximately nine minutes", rendered)
         self.assertIn("Production remains on its prior image", rendered)
         self.assertIn("PR #798", rendered)
 
