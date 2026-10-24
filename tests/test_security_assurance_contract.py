@@ -612,7 +612,10 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "Two bounded, read-only source reviews against PR #791's commit",
             roadmap,
         )
-        self.assertIn("PR #811 is the latest published mainline image", roadmap)
+        self.assertIn(
+            "PR #815 (`42ce550652f8134f3f0e3ed4ca37c3a3df413624`) is the latest merged mainline source and verified published image.",
+            roadmap,
+        )
         self.assertIn("The last recorded canary stage is PR #806", roadmap)
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)

@@ -171,6 +171,15 @@ class ReleaseContractTests(unittest.TestCase):
             "\n".join(document.read_text(encoding="utf-8") for document in documents).split()
         )
 
+        self.assertIn("42ce550652f8134f3f0e3ed4ca37c3a3df413624", rendered)
+        self.assertIn(
+            "sha256:d51572f37e09623cdc3e2990038f1a8ed39abc2de3dfd9beb50251c03168f4df",
+            rendered,
+        )
+        self.assertIn(
+            "sha256:1331b647c516ebab3e3ef2c69b00456c440f9fc69e9a5dd335431a7db35faef6",
+            rendered,
+        )
         self.assertIn("79816625e493f9581e7389b95760403ac6c9a327", rendered)
         self.assertIn(
             "sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce",

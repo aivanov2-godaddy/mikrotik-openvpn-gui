@@ -13,10 +13,12 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest merged and published mainline image is
-PR #806, commit `79816625e493f9581e7389b95760403ac6c9a327`. Its immutable
-ARM64 tag and digest are recorded in [`RELEASES.md`](RELEASES.md#published-images);
-the canary ARM64 digest is
+prove RouterOS compatibility. The latest verified published mainline image is
+PR #815, commit `42ce550652f8134f3f0e3ed4ca37c3a3df413624`. Its publisher
+verified detached provenance/SBOM, both architecture smoke tests, and the
+stable manifest read-back; its immutable ARM64 tag and digest are recorded in
+[`RELEASES.md`](RELEASES.md#published-images). The last recorded canary ARM64
+digest is
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
 CI, CodeQL, ARM64 image build, Redis recovery integration, rendered-browser /
 accessibility regression, secret-pattern checks, and dependency audit passed.

@@ -831,13 +831,16 @@ does not establish ASVS conformance, deployment behavior, or absence of other
 defects.
 
 The review found that operator-supplied free-text rationale was included in
-local audit rows and the SQLite integration outbox. The candidate change now
-stores only `rationale_recorded` and never the submitted text, so audit exports
-and outbox retries inherit the same minimized representation. The review also
+local audit rows and the SQLite integration outbox. The follow-up now stores
+only `rationale_recorded` and never the submitted text, so audit exports and
+outbox retries inherit the same minimized representation. The review also
 found that `DeploymentSettings`' default dataclass representation included its
-password; the candidate marks that field `repr=False`. Regression tests cover
-both boundaries. These fixes require the candidate's CI and merge before being
-treated as mainline behavior.
+password; the follow-up marks that field `repr=False`. Regression tests cover
+both boundaries. As of 2026-10-25, both protections are present in merged
+mainline commit `42ce550652f8134f3f0e3ed4ca37c3a3df413624`, and main CI run
+40138240586 passed. Publisher run 40138240583 also passed, verifying the
+published ARM64/AMD64 artifacts and their attestations. These results verify
+repository and artifact behavior only—not the deployed runtime.
 
 The following remain open: exhaustive field-level authorization review,
 RouterOS-side role-change freshness, live telemetry/reconnect acceptance,
