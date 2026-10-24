@@ -2830,6 +2830,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             session.username,
             session.session_id,
         )
+        if revoked_count is None:
+            self.server.context.store.audit(
+                actor=session.username,
+                action="session.revoke-others.stale-session",
+                target="dashboard-sessions",
+                status="denied",
+                details={"scope": "own-account-other-sessions"},
+            )
+            self._json(
+                {"error": "The dashboard session changed; no other sessions were signed out. Try again."},
+                status=HTTPStatus.CONFLICT,
+            )
+            return
         self.server.context.store.audit(
             actor=session.username,
             action="session.revoke-others",

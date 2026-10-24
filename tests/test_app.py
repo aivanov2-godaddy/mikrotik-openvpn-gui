@@ -4161,6 +4161,48 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"routerpass", payload)
         self.assertIsNotNone(self.server.context.sessions.get(other.session_id, touch=False))
 
+    def test_own_other_session_revocation_does_not_revoke_a_concurrently_rotated_caller(self) -> None:
+        self.login()
+        current_session_id = self.cookie.split("=", 1)[1]
+        peer_session = self.server.context.sessions.create("admin", "routerpass", role="owner")
+        runtime = self.server.telemetry_runtime
+        original_revalidate = runtime.revalidate_session
+        rotated_sessions = []
+
+        def rotate_after_revalidation(session_id: str, *, force_role_check: bool = False):
+            result = original_revalidate(session_id, force_role_check=force_role_check)
+            if result is not None and force_role_check:
+                rotated = self.server.context.sessions.rotate(
+                    session_id,
+                    "routerpass",
+                    role=result.role,
+                )
+                rotated_sessions.append(rotated)
+            return result
+
+        with mock.patch.object(runtime, "revalidate_session", side_effect=rotate_after_revalidation):
+            status, _, payload = self.request(
+                "POST",
+                "/api/auth/sessions/revoke-others",
+                body=json.dumps({
+                    "password": "routerpass",
+                    "confirmation": "SIGN OUT MY OTHER SESSIONS",
+                }).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": self.csrf,
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 409, payload.decode("utf-8"))
+        self.assertIsNone(self.server.context.sessions.get(current_session_id, touch=False))
+        self.assertEqual(len(rotated_sessions), 1)
+        replacement = rotated_sessions[0]
+        self.assertIsNotNone(replacement)
+        self.assertIsNotNone(self.server.context.sessions.get(replacement.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(peer_session.session_id, touch=False))
+
     def test_enterprise_foundations_are_scoped_and_read_only_where_expected(self) -> None:
         self.login()
         status, _, payload = self.request("GET", "/api/admin/sessions")

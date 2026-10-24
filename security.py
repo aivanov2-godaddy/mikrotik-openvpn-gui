@@ -912,8 +912,16 @@ class SessionStore:
     async def revoke_account_sessions_async(self, username: str) -> int:
         return await asyncio.to_thread(self.revoke_account_sessions, username)
 
-    def revoke_account_sessions_except(self, username: str, keep_session_id: str) -> int:
-        """Revoke the account's other RouterOS dashboard sessions atomically."""
+    def revoke_account_sessions_except(
+        self, username: str, keep_session_id: str
+    ) -> int | None:
+        """Revoke other account sessions only while the caller is still active.
+
+        ``None`` means the caller disappeared, rotated, or began invalidation
+        before the sweep acquired the session-set lock. Returning without
+        revocation prevents a stale caller ID from accidentally revoking its
+        replacement session.
+        """
         if not isinstance(username, str) or not isinstance(keep_session_id, str):
             return 0
         username_key = username.strip().casefold()
@@ -923,6 +931,14 @@ class SessionStore:
         self._acquire_sync_lock(self._session_set_lock)
         try:
             with self._lock:
+                caller = self._sessions.get(keep_session_id)
+                if (
+                    caller is None
+                    or caller.auth_method != "routeros"
+                    or caller.username.casefold() != username_key
+                    or self._session_is_invalidating_locked(keep_session_id, caller)
+                ):
+                    return None
                 candidates = sorted(
                     session_id
                     for session_id, session in self._sessions.items()
@@ -965,7 +981,7 @@ class SessionStore:
 
     async def revoke_account_sessions_except_async(
         self, username: str, keep_session_id: str
-    ) -> int:
+    ) -> int | None:
         return await asyncio.to_thread(
             self.revoke_account_sessions_except, username, keep_session_id
         )

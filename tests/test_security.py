@@ -755,6 +755,10 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual((same_account.password, another_same_account.password), ("", ""))
         self.assertEqual(store.revoke_account_sessions_except("admin", caller.session_id), 0)
 
+        self.assertIsNone(store.revoke_account_sessions_except("admin", "stale-session-id"))
+        self.assertIsNotNone(store.get(caller.session_id, touch=False))
+        self.assertIsNotNone(store.get(other_account.session_id, touch=False))
+
     def test_telemetry_dispatch_is_atomic_with_session_revocation(self) -> None:
         store = SessionStore()
         session = store.create("admin", "secret")
