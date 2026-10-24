@@ -32,7 +32,7 @@ CANARY_ORIGIN = f"https://{CANARY_HOST}"
 REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 MAX_DURATION_SECONDS = 1800
 MAX_COOKIE_LENGTH = 8192
-MAX_SEQUENCES_PER_EPOCH = 100_000
+MAX_SEQUENCES_PER_OBSERVATION = 100_000
 SESSION_FIELDS = frozenset(
     {
         "id",
@@ -231,10 +231,9 @@ class TelemetryStreamRecorder:
         self.duplicate_sequences = 0
         self.out_of_order_sequences = 0
         self._counts: Counter[str] = Counter()
-        self._epoch = -1
         self._last_sequence: int | None = None
         self._seen_sequences: set[int] = set()
-        self._sequences_in_epoch = 0
+        self._sequences_observed = 0
 
     def on_connect(self) -> None:
         if self.connected:
@@ -244,10 +243,6 @@ class TelemetryStreamRecorder:
             self._awaiting_reconnect_snapshot = True
         self.connections += 1
         self.connected = True
-        self._epoch += 1
-        self._last_sequence = None
-        self._seen_sequences.clear()
-        self._sequences_in_epoch = 0
 
     def on_disconnect(self, *, unexpected: bool = True) -> None:
         if self.connected:
@@ -269,12 +264,12 @@ class TelemetryStreamRecorder:
                 self._awaiting_reconnect_snapshot = False
         if sequence is None:
             return
-        self._sequences_in_epoch += 1
-        if self._sequences_in_epoch > MAX_SEQUENCES_PER_EPOCH:
+        self._sequences_observed += 1
+        if self._sequences_observed > MAX_SEQUENCES_PER_OBSERVATION:
             self.rejected_frames += 1
             self._counts[name] -= 1
             self.events -= 1
-            self._sequences_in_epoch -= 1
+            self._sequences_observed -= 1
             return
         if sequence in self._seen_sequences:
             self.duplicate_sequences += 1

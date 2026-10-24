@@ -152,6 +152,38 @@ class StreamAcceptanceTests(unittest.TestCase):
         self.assertIn("stream_sequence_integrity_failed", failures)
         self.assertIn("stream_reconnect_snapshot_missing", failures)
 
+    def test_every_reconnect_requires_its_own_recovery_snapshot(self) -> None:
+        observer, browser = reports()
+        observer.update({
+            "connections": 3,
+            "disconnects": 2,
+            "reconnects": 2,
+            "event_count": 4,
+            "event_counts": {"telemetry.snapshot": 3, "vpn.session.updated": 1},
+            "snapshot_count": 3,
+            "reconnect_snapshot_count": 1,
+        })
+
+        _, failures = self.validate(observer, browser)
+
+        self.assertIn("stream_reconnect_snapshot_missing", failures)
+
+    def test_all_reconnects_with_recovery_snapshots_pass_snapshot_gate(self) -> None:
+        observer, browser = reports()
+        observer.update({
+            "connections": 3,
+            "disconnects": 2,
+            "reconnects": 2,
+            "event_count": 4,
+            "event_counts": {"telemetry.snapshot": 3, "vpn.session.updated": 1},
+            "snapshot_count": 3,
+            "reconnect_snapshot_count": 2,
+        })
+
+        _, failures = self.validate(observer, browser)
+
+        self.assertNotIn("stream_reconnect_snapshot_missing", failures)
+
     def test_browser_latency_freshness_visibility_and_reconnect_fail_closed(self) -> None:
         observer, browser = reports()
         browser["session_event_latency_p95_ms"] = None
