@@ -913,7 +913,7 @@ test('539 CSS-pixel 200% zoom-equivalent viewport keeps sign-out label readable'
   // A 1078px desktop viewport at 200% browser zoom has roughly this CSS width.
   // This checks the responsive layout equivalent, not the browser zoom setting.
   await page.setViewportSize({ width: 539, height: 700 });
-  const signOutButton = page.getByRole('button', { name: /Sign out/ });
+  const signOutButton = page.getByRole('button', { name: 'Sign out', exact: true });
   await expect(signOutButton).toBeVisible();
 
   const buttonGeometry = await page.locator('.top-logout button').evaluate((button) => ({
@@ -933,7 +933,7 @@ test('shared Sign out stays visible and keyboard reachable on every operator vie
   // A 1078px desktop at 200% browser zoom is approximately 539 CSS px. This
   // tests the responsive equivalent, not actual browser zoom.
   await page.setViewportSize({ width: 539, height: 700 });
-  const signOutButton = page.getByRole('button', { name: /Sign out/ });
+  const signOutButton = page.getByRole('button', { name: 'Sign out', exact: true });
 
   for (const view of accessibilityViews) {
     if (view.target !== 'overview') {
