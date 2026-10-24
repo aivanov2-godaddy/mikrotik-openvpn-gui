@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
+import os
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -132,6 +134,221 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
             argument_exit = compare_routeros_updater.main([])
         self.assertEqual(argument_exit, 2)
         self.assertEqual(json.loads(bad_arguments.getvalue()), {"error": "invalid_arguments"})
+
+    def test_inventory_compares_each_copy_and_counts_direct_bindings(self) -> None:
+        reference = b":local updater \"reviewed\"\n"
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "copy-a.rsc").write_bytes(reference)
+            (root / "copy-identical.rsc").write_bytes(reference)
+            (root / "copy-b.rsc").write_bytes(b":local updater \"other\"\n")
+            inventory_path = root / "inventory.json"
+            inventory_path.write_text("{}", encoding="utf-8")
+            manifest = {
+                "schema_version": 1,
+                "scripts": [
+                    {"id": "copy-a", "path": "copy-a.rsc"},
+                    {"id": "copy-identical", "path": "copy-identical.rsc"},
+                    {"id": "copy-b", "path": "copy-b.rsc"},
+                ],
+                "schedulers": [
+                    {"id": "startup", "script_id": "copy-a"},
+                    {"id": "watchdog", "script_id": "copy-a"},
+                    {"id": "second-startup", "script_id": "copy-identical"},
+                ],
+            }
+            report = compare_routeros_updater.compare_inventory(
+                reference, json.dumps(manifest).encode(), inventory_path
+            )
+
+        self.assertEqual(report["script_count"], 3)
+        self.assertEqual(report["scheduler_count"], 3)
+        self.assertTrue(report["listed_bindings_resolved"])
+        copies = report["scripts"]
+        self.assertTrue(copies[0]["exact_match"])
+        self.assertEqual(copies[0]["scheduler_binding_count"], 2)
+        self.assertTrue(copies[1]["exact_match"])
+        self.assertEqual(copies[1]["scheduler_binding_count"], 1)
+        self.assertFalse(copies[2]["exact_match"])
+        self.assertEqual(copies[2]["scheduler_binding_count"], 0)
+
+    def test_inventory_cli_emits_redacted_report_and_no_stderr(self) -> None:
+        reference = b":local updater \"reviewed\"\n"
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "SOURCE-PATH-SENTINEL.rsc").write_bytes(
+                b':local password "SOURCE-TEXT-SENTINEL"\n'
+            )
+            manifest_path = root / "inventory.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "scripts": [{"id": "SAFE-ID-SENTINEL", "path": "SOURCE-PATH-SENTINEL.rsc"}],
+                        "schedulers": [{"id": "SCHEDULER-NAME-SENTINEL", "script_id": "SAFE-ID-SENTINEL"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with patch.object(compare_routeros_updater, "TEMPLATE_PATH", root / "reference.rsc"):
+                (root / "reference.rsc").write_bytes(reference)
+                with redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    exit_code = compare_routeros_updater.main(["--inventory", str(manifest_path)])
+
+        rendered = stdout.getvalue()
+        report = json.loads(rendered)
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(report["listed_bindings_resolved"])
+        self.assertTrue(report["scripts"][0]["risk_flags"]["credential_marker_added"])
+        self.assertEqual(stderr.getvalue(), "")
+        for marker in (
+            "SOURCE-PATH-SENTINEL",
+            "SOURCE-TEXT-SENTINEL",
+            "SAFE-ID-SENTINEL",
+            "SCHEDULER-NAME-SENTINEL",
+        ):
+            self.assertNotIn(marker, rendered)
+
+    def test_inventory_rejects_ambiguous_bindings_and_unknown_fields(self) -> None:
+        invalid_manifests = (
+            {
+                "schema_version": 1,
+                "scripts": [{"id": "copy-a", "path": "copy-a.rsc"}],
+                "schedulers": [{"id": "startup", "script_id": "missing"}],
+            },
+            {
+                "schema_version": 1,
+                "scripts": [{"id": "copy-a", "path": "copy-a.rsc"}],
+                "schedulers": [{"id": "startup", "on_event": "/system/script/run"}],
+            },
+            {
+                "schema_version": 1,
+                "scripts": [
+                    {"id": "copy-a", "path": "copy-a.rsc"},
+                    {"id": "copy-a", "path": "copy-b.rsc"},
+                ],
+                "schedulers": [],
+            },
+        )
+        for manifest in invalid_manifests:
+            with self.subTest(manifest=manifest):
+                with TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    (root / "copy-a.rsc").write_bytes(b"safe\n")
+                    (root / "copy-b.rsc").write_bytes(b"safe\n")
+                    path = root / "inventory.json"
+                    path.write_text(json.dumps(manifest), encoding="utf-8")
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with patch.object(compare_routeros_updater, "TEMPLATE_PATH", root / "reference.rsc"):
+                        (root / "reference.rsc").write_bytes(b"safe\n")
+                        with redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                            exit_code = compare_routeros_updater.main(["--inventory", str(path)])
+                self.assertEqual(exit_code, 2)
+                self.assertEqual(json.loads(stdout.getvalue()), {"error": "invalid_inventory"})
+                self.assertEqual(stderr.getvalue(), "")
+
+    def test_inventory_rejects_path_escape_and_duplicate_json_keys(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "outside.rsc"
+            outside.write_bytes(b"safe\n")
+            subdir = root / "inventory"
+            subdir.mkdir()
+            manifest_path = subdir / "inventory.json"
+            reference_path = root / "reference.rsc"
+            reference_path.write_bytes(b"safe\n")
+
+            escape = {
+                "schema_version": 1,
+                "scripts": [{"id": "copy-a", "path": "../outside.rsc"}],
+                "schedulers": [],
+            }
+            manifest_path.write_text(json.dumps(escape), encoding="utf-8")
+            stdout = io.StringIO()
+            with patch.object(compare_routeros_updater, "TEMPLATE_PATH", reference_path):
+                with redirect_stdout(stdout):
+                    escape_exit = compare_routeros_updater.main(["--inventory", str(manifest_path)])
+            self.assertEqual(escape_exit, 2)
+            self.assertEqual(json.loads(stdout.getvalue()), {"error": "invalid_inventory"})
+
+            manifest_path.write_text(
+                '{"schema_version":1,"schema_version":1,"scripts":[],"schedulers":[]}',
+                encoding="utf-8",
+            )
+            duplicate_stdout = io.StringIO()
+            with patch.object(compare_routeros_updater, "TEMPLATE_PATH", reference_path):
+                with redirect_stdout(duplicate_stdout):
+                    duplicate_exit = compare_routeros_updater.main(["--inventory", str(manifest_path)])
+            self.assertEqual(duplicate_exit, 2)
+            self.assertEqual(json.loads(duplicate_stdout.getvalue()), {"error": "invalid_inventory"})
+
+    def test_inventory_rejects_mapped_or_unverified_network_filesystems(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "inventory.json"
+            manifest_path.write_text("{}", encoding="utf-8")
+            output = io.StringIO()
+            with patch.object(compare_routeros_updater, "_is_local_filesystem", return_value=False):
+                with redirect_stdout(output):
+                    exit_code = compare_routeros_updater.main(["--inventory", str(manifest_path)])
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(json.loads(output.getvalue()), {"error": "inventory_unavailable"})
+
+    def test_windows_locality_check_resolves_relative_anchor_and_rejects_remote_links(self) -> None:
+        with patch.object(compare_routeros_updater.sys, "platform", "win32"):
+            with (
+                patch.object(compare_routeros_updater, "_windows_drive_type", return_value=3) as drive_type,
+                patch.object(compare_routeros_updater, "_has_reparse_point", return_value=False) as reparse,
+            ):
+                self.assertTrue(compare_routeros_updater._is_local_filesystem(Path("relative/source.rsc")))
+                self.assertTrue(drive_type.call_args.args[0])
+                reparse.assert_called_once()
+
+            with patch.object(compare_routeros_updater, "_windows_drive_type", return_value=4):
+                with patch.object(compare_routeros_updater, "_has_reparse_point") as reparse:
+                    self.assertFalse(compare_routeros_updater._is_local_filesystem(Path("Z:/remote/source.rsc")))
+                    reparse.assert_not_called()
+
+            with patch.object(compare_routeros_updater, "_windows_drive_type", return_value=3):
+                with patch.object(compare_routeros_updater, "_has_reparse_point", return_value=True):
+                    self.assertFalse(compare_routeros_updater._is_local_filesystem(Path("C:/junction/source.rsc")))
+
+    def test_posix_inventory_reader_rejects_fifo_without_blocking(self) -> None:
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("FIFO creation is unavailable")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            fifo = root / "source.fifo"
+            os.mkfifo(fifo)
+            with self.assertRaises((OSError, ValueError)):
+                compare_routeros_updater._read_local_file(fifo, 128)
+
+    def test_inventory_rejects_symlink_that_escapes_its_directory(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            inventory_dir = root / "inventory"
+            inventory_dir.mkdir()
+            outside = root / "outside.rsc"
+            outside.write_bytes(b"safe\n")
+            candidate = inventory_dir / "candidate.rsc"
+            try:
+                candidate.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation is unavailable")
+            manifest_path = inventory_dir / "inventory.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "scripts": [{"id": "copy-a", "path": "candidate.rsc"}],
+                        "schedulers": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                compare_routeros_updater.compare_inventory(b"safe\n", manifest_path.read_bytes(), manifest_path)
 
 
 if __name__ == "__main__":

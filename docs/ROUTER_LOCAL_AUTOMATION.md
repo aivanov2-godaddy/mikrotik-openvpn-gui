@@ -178,6 +178,73 @@ or security review. An added marker can match comments or harmless text, and a
 false flag does not prove that the script has no sensitive or destructive
 behavior. Review every change manually before any separate installation or
 execution step. Use a file on local storage; UNC and URL inputs are rejected.
+On Windows, the CLI rejects mapped network drives and reparse points
+(including junctions) in the source path, then validates the opened file
+handle's final volume and reads from that same handle. On POSIX, it walks from
+directory descriptors without following symlinks and reads from the opened
+file descriptor. Other operating systems may expose network mounts as ordinary
+paths, so the operator must ensure the source is on a local filesystem.
+
+### Comparing multiple installed copies and scheduler bindings
+
+When RouterOS contains several updater copies, prepare a private local folder
+with one read-only `.rsc` source file per copy and a normalized `inventory.json`
+next to those files. Do not save real exports, scripts, hashes, or inventory
+reports into the repository, CI artifacts, GitHub issues, or discussions. The
+source may contain sensitive RouterOS configuration; keep the folder access
+restricted and delete it using the operator's normal secure-retention process
+when the reconciliation is complete.
+
+The inventory format is deliberately narrow and does not attempt to parse
+arbitrary RouterOS exports. Transcribe each script as a separate entry (even
+when two copies have identical content), and represent each scheduler only by
+the single script-copy ID it directly invokes:
+
+```json
+{
+  "schema_version": 1,
+  "scripts": [
+    {"id": "copy-a", "path": "copy-a.rsc"},
+    {"id": "copy-b", "path": "copy-b.rsc"}
+  ],
+  "schedulers": [
+    {"id": "startup", "script_id": "copy-a"},
+    {"id": "watchdog", "script_id": "copy-b"}
+  ]
+}
+```
+
+Run the inventory mode from the repository root:
+
+```powershell
+python scripts/compare_routeros_updater.py --inventory "C:\secure\updater-inventory\inventory.json"
+```
+
+Candidate paths must be relative files contained beneath the inventory's
+directory. Absolute paths, URL/UNC paths, traversal, duplicate IDs or source
+paths, unresolved bindings, inline/unknown scheduler fields, malformed JSON,
+and unsupported schema versions fail closed. The tool reads the local files
+and reviewed template only; it makes no HTTP/API calls, never connects to
+RouterOS, runs a script, changes a device, or emits source text, names, IDs,
+or file paths. Keep inputs on local storage; filesystem drivers can access
+remote storage when paths are network-mounted. The JSON
+report maps `script_index` to the corresponding order in the private manifest,
+includes each candidate's SHA-256, exact-match result, changed-line count,
+marker flags, and the number of explicitly represented scheduler bindings.
+`listed_bindings_resolved` only describes the entries present in the manifest;
+it does not mean the inventory is exhaustive.
+Keep that report private too: a full-file hash can fingerprint known content.
+
+Inventory mode exit code `0` means all listed copies byte-match the reviewed
+template, `1` means one or more listed copies differ, and `2` means the
+inventory or comparison could not be safely processed. This is not proof that
+the manifest is complete or accurate, that the source was exported from the
+live router, that a scheduler actually invokes the represented copy, or that
+any candidate is safe to execute. It does not interpret RouterOS internal
+numeric references or inline `on-event` code; an operator must independently
+transcribe and verify each direct binding from a trusted read-only device view.
+Hash comparison and marker counts do not replace manual review. Do not run an
+unreviewed installed updater to discover its behavior.
 
 Before the updater changes canary, it runs the same journal helper against a
 short-lived probe in the configured local state directory, including both
