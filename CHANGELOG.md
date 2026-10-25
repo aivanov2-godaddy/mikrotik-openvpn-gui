@@ -82,6 +82,9 @@ semantic-version style release tags.
 
 ### Security
 
+- Disable Uvicorn's default production ASGI access logger so sensitive
+  URL-path components are not emitted by that logger; external proxy and
+  historical logs remain outside this safeguard.
 - Log only header counts and coarse origin relations when CSRF origin checks
   reject a request; raw Origin/Referer values, URLs, and tokens are never logged.
 - Bind Engine.IO transport SIDs to the active dashboard session before sending

@@ -644,35 +644,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest published image source.",
+            "PR #824 (`060c1a247e9ba97651ff8093049161de34e57a12`) is the latest published image source.",
             roadmap,
         )
         self.assertIn(
-            "PRs #821 and #822 were documentation and contract-test updates only",
-            roadmap,
-        )
-        self.assertIn(
-            "PRs #819 through #822 made no container-runtime changes",
-            roadmap,
-        )
-        self.assertIn(
-            "neither changed RouterOS, canary, or production",
-            roadmap,
-        )
-        self.assertIn(
-            "PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest published image source",
+            "PR #824 (`060c1a247e9ba97651ff8093049161de34e57a12`) is the latest published image source",
             releases,
         )
         self.assertIn(
-            "PRs #821 and #822 were documentation and contract-test updates only",
-            releases,
-        )
-        self.assertIn(
-            "PRs #819 through #822 made no container-runtime changes",
-            releases,
-        )
-        self.assertIn(
-            "neither changed RouterOS, canary, or production",
+            "No RouterOS read-back verifies that the PR #824 image was staged or accepted.",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)
@@ -683,7 +663,8 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("The two bounded source reviews described above", self.document)
         self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)
         self.assertIn("publication is not an independent security review", assurance)
-        self.assertIn("Latest published mainline security changes — PR #817", assurance)
+        self.assertIn("Latest published source-level log safeguard — PR #824", assurance)
+        self.assertIn("Previous published mainline security changes — PR #817", assurance)
         self.assertIn("Previously published mainline security changes — PR #798", assurance)
         self.assertIn("Previously published mainline security changes — PR #794", assurance)
 
