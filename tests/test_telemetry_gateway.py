@@ -126,6 +126,34 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         )
         self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
 
+    def test_recovery_snapshot_restores_interface_counters_at_its_watermark(self) -> None:
+        subscription = self.gateway.open(self.principal)
+        self.gateway.publish(
+            self.broker.apply(
+                RouterOSReply("re", {".id": "*session", "name": "alice"}), now=101
+            )
+        )
+        self.gateway.publish(
+            self.broker.reconcile_interfaces(
+                [{".id": "*interface", "name": "ovpn-in1", "rx-byte": "4096", "tx-byte": "2048"}],
+                now=102,
+            )
+        )
+
+        frames = self.gateway.poll(subscription, after_sequence=-1)
+
+        self.assertEqual(len(frames), 1)
+        frame = frames[0]
+        self.assertEqual(frame["event"], "telemetry.snapshot")
+        self.assertEqual(frame["sequence"], self.broker.sequence)
+        self.assertEqual([session["name"] for session in frame["payload"]["sessions"]], ["alice"])
+        self.assertEqual(frame["payload"]["interfaces"][0]["name"], "ovpn-in1")
+        self.assertEqual(frame["payload"]["interfaces"][0]["rx_bytes"], 4096)
+        self.assertEqual(
+            validate_frame("telemetry.snapshot", frame),
+            (self.broker.sequence, "telemetry.snapshot"),
+        )
+
     def test_out_of_order_published_batches_replay_in_sequence_order(self) -> None:
         gateway = TelemetryGatewayContract(
             self.broker,
@@ -188,8 +216,8 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         }
         cases = {
             "telemetry.snapshot": (
-                {"sessions": [session_payload], "password": secret_sentinel},
-                {"sessions"},
+                {"sessions": [session_payload], "interfaces": [counter_fields], "password": secret_sentinel},
+                {"sessions", "interfaces"},
             ),
             "vpn.session.connected": (session_payload, set(session_fields)),
             "vpn.session.updated": (session_payload, set(session_fields)),
@@ -225,6 +253,7 @@ class TelemetryGatewayContractTests(unittest.TestCase):
                 self.assertEqual(validate_frame(event_name, frame), (sequence, event_name))
                 if event_name == "telemetry.snapshot":
                     self.assertEqual(set(frame["payload"]["sessions"][0]), set(session_fields))
+                    self.assertEqual(set(frame["payload"]["interfaces"][0]), set(counter_fields))
                 if event_name in {
                     "vpn.session.connected",
                     "vpn.session.updated",

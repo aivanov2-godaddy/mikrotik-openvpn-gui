@@ -326,9 +326,8 @@ class TelemetrySupervisor:
                 elapsed = self._clock() - started
                 if elapsed > self._config.snapshot_timeout:
                     raise TelemetrySupervisorError("snapshot_timeout")
-                events = self._broker.reconcile(records, now=int(self._clock()))
                 self._publish(
-                    events,
+                    lambda: self._broker.reconcile(records, now=int(self._clock())),
                     snapshot=True,
                     credentials=credentials,
                     authorization_ref=authorization_ref,
@@ -346,7 +345,7 @@ class TelemetrySupervisor:
                 if not isinstance(reply, RouterOSReply):
                     raise TelemetrySupervisorError("invalid_reply")
                 self._publish(
-                    self._broker.apply(reply, now=int(self._clock())),
+                    lambda: self._broker.apply(reply, now=int(self._clock())),
                     credentials=credentials,
                     authorization_ref=authorization_ref,
                 )
@@ -391,26 +390,35 @@ class TelemetrySupervisor:
 
     def _publish(
         self,
-        events: list[TelemetryEvent],
+        event_factory: Callable[[], list[TelemetryEvent]],
         *,
         snapshot: bool = False,
         credentials: tuple[str, str] | None = None,
         authorization_ref: str | None = None,
     ) -> None:
-        self._require_attempt_authorized(authorization_ref, credentials)
-        if not events:
-            return
+        events: list[TelemetryEvent] = []
+
         def dispatch() -> None:
-            if self._on_events is not None:
+            nonlocal events
+            # Keep broker mutation inside the same authorization dispatch as
+            # publication. A denied producer must not leave state behind for
+            # a later subscriber's recovery snapshot.
+            events = event_factory()
+            if self._on_events is not None and events:
                 self._on_events(list(events))
 
-        if authorization_ref is not None and self._on_events is not None:
-            if self._authorization_ref_dispatch is None or not self._authorization_ref_dispatch(
-                authorization_ref, dispatch
-            ):
+        if authorization_ref is not None and self._authorization_ref_dispatch is not None:
+            if not self._authorization_ref_dispatch(authorization_ref, dispatch):
                 raise TelemetrySupervisorError("credentials_unavailable")
+        elif authorization_ref is not None and self._on_events is not None:
+            raise TelemetrySupervisorError("credentials_unavailable")
         else:
+            # Legacy providers have no lockable authorization reference; do
+            # their final check immediately before cache mutation.
+            self._require_attempt_authorized(authorization_ref, credentials)
             dispatch()
+        if not events:
+            return
         now = int(self._clock())
         with self._lock:
             self._events += len(events)

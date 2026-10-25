@@ -106,6 +106,24 @@ class TelemetryBrokerTests(unittest.TestCase):
         self.assertEqual(broker.snapshot()[0]["name"], "new")
         self.assertEqual(events[-1].payload["sessions"][0]["rx_bytes"], 7)
 
+    def test_reconciliation_snapshot_includes_latest_interface_totals_without_rates(self) -> None:
+        broker = TelemetryBroker(clock=lambda: 300)
+        broker.reconcile_interfaces(
+            [{".id": "*if1", "name": "ovpn-in1", "rx-byte": "4096", "tx-byte": "2048"}],
+            now=300,
+        )
+
+        events = broker.reconcile(
+            [{".id": "*1", "name": "alice"}],
+            now=301,
+        )
+        snapshot = events[-1]
+
+        self.assertEqual(snapshot.name, "telemetry.snapshot")
+        self.assertEqual(snapshot.payload["interfaces"][0]["name"], "ovpn-in1")
+        self.assertEqual(snapshot.payload["interfaces"][0]["rx_bytes"], 4096)
+        self.assertNotIn("rx_bytes_per_second", snapshot.payload["interfaces"][0])
+
     def test_non_record_replies_do_not_change_sequence(self) -> None:
         broker = TelemetryBroker(clock=lambda: 400)
         self.assertEqual(broker.apply(RouterOSReply("done", {})), [])

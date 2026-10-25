@@ -54,6 +54,12 @@ dashboard: username, VPN address, source address, uptime, encoding, counters,
 and packet totals. Passwords, tokens, certificate material, private keys,
 profiles, and RouterOS exports are never emitted.
 
+Snapshot frames contain the redacted `sessions` array and the latest cumulative
+interface counters in `interfaces`. Replay-gap recovery reads both arrays and
+the sequence watermark in one broker critical section; it never fabricates a
+rate from a recovered total. The observer continues to accept older v1
+sessions-only snapshots for compatibility.
+
 `counter_complete` distinguishes an observed zero from counters omitted by a
 RouterOS PPP active/listen record. When it is false, the browser keeps the
 latest counters from the authoritative REST snapshot for that same session;

@@ -299,7 +299,14 @@ class TelemetryBroker:
                 events.append(self._event(event_name, self._payload(session), observed_at))
             self._sessions = dict(list(sessions.items())[-self._max_sessions :])
             snapshot = [self._payload(item) for item in self._sessions.values()]
-            events.append(self._event("telemetry.snapshot", {"sessions": snapshot}, observed_at))
+            interfaces = [self._interface_payload(self._interfaces[key]) for key in sorted(self._interfaces)]
+            events.append(
+                self._event(
+                    "telemetry.snapshot",
+                    {"sessions": snapshot, "interfaces": interfaces},
+                    observed_at,
+                )
+            )
             return events
 
     @staticmethod
@@ -372,6 +379,23 @@ class TelemetryBroker:
 
         with self._lock:
             return [self._interface_payload(self._interfaces[key]) for key in sorted(self._interfaces)]
+
+    def recovery_snapshot(self) -> dict[str, Any]:
+        """Return one consistent watermark and all cached telemetry state.
+
+        The gateway uses this on replay gaps. Reading the sequence, sessions,
+        and interface counters under one lock ensures the snapshot watermark
+        describes exactly the state carried in the frame.
+        """
+
+        with self._lock:
+            return {
+                "sequence": self._sequence,
+                "sessions": [self._payload(self._sessions[key]) for key in sorted(self._sessions)],
+                "interfaces": [
+                    self._interface_payload(self._interfaces[key]) for key in sorted(self._interfaces)
+                ],
+            }
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Return a stable, redacted snapshot for a reconnecting client."""
