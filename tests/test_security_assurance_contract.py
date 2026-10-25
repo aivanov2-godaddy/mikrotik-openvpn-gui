@@ -501,8 +501,18 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         )
 
         self.assertIn("RouterOS supplies no account-disable push event", rows["V7.4.2"][2])
-        self.assertIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
-        self.assertIn("There is no terminate-all action", rows["V7.5.2"][2])
+        self.assertEqual(rows["V7.4.5"][1], "PARTIAL")
+        self.assertIn(
+            "revokes the other dashboard sessions for the current RouterOS account",
+            rows["V7.4.5"][2],
+        )
+        self.assertIn("preserving the caller's session", rows["V7.4.5"][2])
+        self.assertNotIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
+        self.assertEqual(rows["V7.5.2"][1], "PARTIAL")
+        self.assertIn("PR #817 adds a self-service action", rows["V7.5.2"][2])
+        self.assertIn("the caller's session is preserved", rows["V7.5.2"][2])
+        self.assertIn("Deployed behavior and independent assessment remain outstanding", rows["V7.5.2"][2])
+        self.assertNotIn("There is no terminate-all action", rows["V7.5.2"][2])
         self.assertIn("CI now mechanically reconciles every literal/regex", rows["V8.1.1"][2])
         self.assertIn("does not independently prove every authorization decision is correct", rows["V8.1.1"][2])
         self.assertIn("resolved client IP", rows["V8.1.3–V8.1.4"][2])
