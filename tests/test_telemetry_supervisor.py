@@ -3,6 +3,7 @@ import unittest
 
 from routeros_binary import RouterOSReply
 from telemetry_broker import TelemetryBroker
+from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
 from telemetry_supervisor import (
     INTERFACE_COUNTER_PROPLIST,
     TelemetryCredentialLease,
@@ -185,6 +186,8 @@ class TelemetrySupervisorTests(unittest.TestCase):
 
         self.assertEqual(received, [])
         self.assertEqual(supervisor.health().events, 0)
+        self.assertEqual(supervisor.broker.sequence, 0)
+        self.assertEqual(supervisor.broker.snapshot(), [])
         self.assertTrue(connection.closed)
 
     def test_credential_lease_is_cleared_and_stream_checks_only_reference(self):
@@ -326,7 +329,60 @@ class TelemetrySupervisorTests(unittest.TestCase):
 
         self.assertEqual(received, [])
         self.assertEqual(supervisor.health().last_snapshot_at, None)
+        self.assertEqual(supervisor.broker.sequence, 0)
+        self.assertEqual(supervisor.broker.snapshot(), [])
         self.assertTrue(connection.closed)
+
+    def test_atomic_snapshot_dispatch_denial_leaves_no_recoverable_broker_state(self):
+        connection = FakeConnection()
+        lease = TelemetryCredentialLease("router-user", "router-password", "session-ref")
+        broker = TelemetryBroker()
+        received = []
+        supervisor = TelemetrySupervisor(
+            lambda: connection,
+            lambda: lease,
+            broker=broker,
+            snapshot_reader=lambda _connection: [{".id": "*1", "name": "alice"}],
+            config=TelemetrySupervisorConfig(enabled=True),
+            on_events=received.extend,
+            authorization_ref_check=lambda _ref: True,
+            authorization_ref_dispatch=lambda _ref, _dispatch: False,
+        )
+
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            supervisor.run_attempt()
+
+        self.assertEqual(received, [])
+        self.assertEqual(broker.sequence, 0)
+        self.assertEqual(broker.snapshot(), [])
+        self.assertTrue(connection.closed)
+
+        event_connection = FakeConnection([
+            RouterOSReply("re", {".id": "*2", "name": "bob", "address": "10.8.0.3"})
+        ])
+        event_supervisor = TelemetrySupervisor(
+            lambda: event_connection,
+            lambda: TelemetryCredentialLease("router-user", "router-password", "session-ref"),
+            broker=broker,
+            config=TelemetrySupervisorConfig(enabled=True),
+            on_events=received.extend,
+            authorization_ref_check=lambda _ref: True,
+            authorization_ref_dispatch=lambda _ref, _dispatch: False,
+        )
+        with self.assertRaisesRegex(Exception, "credentials_unavailable"):
+            event_supervisor.run_attempt()
+
+        self.assertEqual(received, [])
+        self.assertEqual(broker.sequence, 0)
+        self.assertEqual(broker.snapshot(), [])
+        self.assertTrue(event_connection.closed)
+
+        gateway = TelemetryGatewayContract(broker)
+        subscription = gateway.open(
+            TelemetryPrincipal(True, auth_method="routeros", role="owner")
+        )
+        recovery = gateway.poll(subscription, after_sequence=-1)
+        self.assertEqual(recovery[0]["payload"]["sessions"], [])
 
     def test_sampler_revocation_after_read_does_not_mark_sample_fresh_or_publish(self):
         connection = FakeConnection([RouterOSReply("re", {".id": "*1", "name": "ether1"})])

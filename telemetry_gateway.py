@@ -170,6 +170,12 @@ class TelemetryGatewayContract:
     def _redact_session(value: Any) -> dict[str, Any]:
         return redact_session(value)
 
+    @staticmethod
+    def _redact_interface(value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+        return {key: copy.deepcopy(value[key]) for key in _INTERFACE_COUNTER_FIELDS if key in value}
+
     @classmethod
     def _frame(cls, event: TelemetryEvent) -> dict[str, Any]:
         if event.name not in SUPPORTED_EVENTS:
@@ -177,6 +183,13 @@ class TelemetryGatewayContract:
         payload = event.payload if isinstance(event.payload, dict) else {}
         if event.name == "telemetry.snapshot":
             safe_payload = {"sessions": [cls._redact_session(item) for item in payload.get("sessions", [])]}
+            if "interfaces" in payload:
+                interfaces = payload.get("interfaces")
+                safe_payload["interfaces"] = (
+                    [cls._redact_interface(item) for item in interfaces]
+                    if isinstance(interfaces, list)
+                    else []
+                )
         elif event.name == "vpn.interface.counters":
             interface_payload = payload.get("interface", payload)
             if not isinstance(interface_payload, dict):
@@ -241,13 +254,13 @@ class TelemetryGatewayContract:
             return count
 
     def _snapshot_frame(self) -> dict[str, Any]:
-        sequence = self._broker.sequence
+        snapshot = self._broker.recovery_snapshot()
         return self._frame(
             TelemetryEvent(
                 "telemetry.snapshot",
-                sequence,
+                int(snapshot["sequence"]),
                 int(self._clock()),
-                {"sessions": self._broker.snapshot()},
+                {"sessions": snapshot["sessions"], "interfaces": snapshot["interfaces"]},
             )
         )
 

@@ -156,6 +156,20 @@ def _validate_session(value: Any) -> None:
         raise ValueError("session frame is outside the redacted field allowlist")
 
 
+def _validate_interface(value: Any) -> None:
+    if not isinstance(value, dict) or set(value) - COUNTER_FIELDS or not REQUIRED_COUNTER_FIELDS.issubset(value):
+        raise ValueError("interface frame is outside the redacted field allowlist")
+    if (
+        not isinstance(value["id"], str)
+        or not value["id"]
+        or not isinstance(value["name"], str)
+        or not value["name"]
+    ):
+        raise ValueError("interface identity is invalid")
+    for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets"):
+        _non_negative_int(value[field], field)
+
+
 def validate_frame(event_name: str, frame: Any) -> tuple[int | None, str]:
     """Validate an incoming event without returning or retaining its payload."""
     if event_name == "telemetry.health":
@@ -187,24 +201,19 @@ def validate_frame(event_name: str, frame: Any) -> tuple[int | None, str]:
         raise ValueError("telemetry payload is invalid")
 
     if event_name == "telemetry.snapshot":
-        if set(payload) != {"sessions"} or not isinstance(payload["sessions"], list):
+        if set(payload) - {"sessions", "interfaces"} or not isinstance(payload.get("sessions"), list):
             raise ValueError("snapshot frame schema is invalid")
         for session in payload["sessions"]:
             _validate_session(session)
+        interfaces = payload.get("interfaces", [])
+        if not isinstance(interfaces, list):
+            raise ValueError("snapshot interface state is invalid")
+        for interface in interfaces:
+            _validate_interface(interface)
     elif event_name in {"vpn.session.connected", "vpn.session.updated", "vpn.session.disconnected"}:
         _validate_session(payload)
     elif event_name == "vpn.interface.counters":
-        if set(payload) - COUNTER_FIELDS or not REQUIRED_COUNTER_FIELDS.issubset(payload):
-            raise ValueError("interface frame is outside the redacted field allowlist")
-        if (
-            not isinstance(payload["id"], str)
-            or not payload["id"]
-            or not isinstance(payload["name"], str)
-            or not payload["name"]
-        ):
-            raise ValueError("interface identity is invalid")
-        for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets"):
-            _non_negative_int(payload[field], field)
+        _validate_interface(payload)
     elif event_name == "telemetry.counter_reset":
         if set(payload) - {"scope", "id", "name", "fields"}:
             raise ValueError("counter-reset frame is outside the redacted field allowlist")
