@@ -153,6 +153,25 @@ class CollectRouterOSUpdaterInventoryTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     inventory._write_report(path, {"collected": True})
 
+    def test_main_rejects_unsafe_output_before_constructing_router_connection(self) -> None:
+        repository_report = inventory.TEMPLATE_PATH.resolve().parents[2] / "private-inventory.json"
+        stdout = io.StringIO()
+        environ = {
+            "ROUTEROS_INVENTORY_HOST": "private-host.example",
+            "ROUTEROS_INVENTORY_USERNAME": "private-user",
+            "ROUTEROS_INVENTORY_PASSWORD": "PRIVATE-PASSWORD-SENTINEL",
+        }
+        with (
+            patch.dict(os.environ, environ, clear=True),
+            patch.object(inventory, "RouterOSBinaryConnection") as constructor,
+            contextlib.redirect_stdout(stdout),
+        ):
+            exit_code = inventory.main(["--output", str(repository_report)])
+
+        self.assertEqual(exit_code, 2)
+        constructor.assert_not_called()
+        self.assertEqual(json.loads(stdout.getvalue()), {"collected": False, "error": "ValueError"})
+
     def test_main_writes_private_report_and_closes_read_only_connection(self) -> None:
         reference = inventory.TEMPLATE_PATH.read_bytes()
         fake_connection = FakeConnection(

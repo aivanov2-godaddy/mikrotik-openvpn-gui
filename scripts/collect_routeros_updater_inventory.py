@@ -164,10 +164,14 @@ def collect_inventory(
     }
 
 
-def _write_report(path: Path, report: Mapping[str, Any]) -> None:
-    """Atomically write only to a local path outside the checked-out repository."""
+def _validate_output_path(path: Path) -> Path:
+    """Validate the private report destination before any RouterOS connection."""
     path = path.absolute()
-    if path.suffix.casefold() != ".json" or not _is_local_filesystem(path):
+    if (
+        path.suffix.casefold() != ".json"
+        or not path.parent.is_dir()
+        or not _is_local_filesystem(path)
+    ):
         raise ValueError("private report path is not an approved local JSON file")
     repository_root = TEMPLATE_PATH.resolve().parents[2]
     try:
@@ -178,6 +182,12 @@ def _write_report(path: Path, report: Mapping[str, Any]) -> None:
         raise ValueError("private report path cannot be safely resolved") from error
     else:
         raise ValueError("private report must be outside the repository")
+    return path
+
+
+def _write_report(path: Path, report: Mapping[str, Any]) -> None:
+    """Atomically write only to a local path outside the checked-out repository."""
+    path = _validate_output_path(path)
 
     temporary_path: Path | None = None
     try:
@@ -207,6 +217,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     connection: RouterOSBinaryConnection | None = None
     try:
+        output_path = _validate_output_path(Path(args.output))
         host = os.environ.get(args.host_env, "")
         username = os.environ.get(args.username_env, "")
         password = os.environ.get(args.password_env, "") or getpass.getpass("RouterOS read-only API password: ")
@@ -221,7 +232,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         connection.connect(username, password)
         report = collect_inventory(connection, reference)
-        _write_report(Path(args.output), report)
+        _write_report(output_path, report)
         print(json.dumps({
             "collected": True,
             "script_count": report["script_count"],
