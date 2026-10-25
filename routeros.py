@@ -233,9 +233,20 @@ class RouterOSClient:
             with self._opener.open(request, timeout=self.timeout) as response:
                 payload = response.read()
         except urllib.error.HTTPError as error:
-            if error.code in {401, 403}:
+            if error.code == 401:
                 error.close()
-                raise RouterOSError("RouterOS rejected the supplied credentials", error.code) from None
+                raise RouterOSError(
+                    "RouterOS rejected the supplied credentials",
+                    error.code,
+                    failure_kind="credentials_rejected",
+                ) from None
+            if error.code == 403:
+                error.close()
+                raise RouterOSError(
+                    "RouterOS denied access to the requested API resource",
+                    error.code,
+                    failure_kind="permission_denied",
+                ) from None
             status = error.code
             error.close()
             raise RouterOSError(
