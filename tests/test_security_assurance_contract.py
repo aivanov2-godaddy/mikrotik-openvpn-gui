@@ -628,22 +628,35 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #821 (`bf5eafd6e4fcec8051b682241559e82a6d49e548`) is the latest merged mainline source",
+            "PRs #821 and #822 were documentation and contract-test updates only",
             roadmap,
         )
         self.assertIn(
-            "PR #821 was documentation and contract-test work only",
+            "PRs #819 through #822 made no container-runtime changes",
             roadmap,
         )
         self.assertIn(
-            "PR #821 (`bf5eafd6e4fcec8051b682241559e82a6d49e548`) is the latest merged mainline source",
-            releases,
+            "neither changed RouterOS, canary, or production",
+            roadmap,
         )
         self.assertIn(
             "PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest published image source",
             releases,
         )
-        self.assertIn("PR #821 was documentation and contract-test work only", releases)
+        self.assertIn(
+            "PRs #821 and #822 were documentation and contract-test updates only",
+            releases,
+        )
+        self.assertIn(
+            "PRs #819 through #822 made no container-runtime changes",
+            releases,
+        )
+        self.assertIn(
+            "neither changed RouterOS, canary, or production",
+            releases,
+        )
+        self.assertNotIn("latest merged mainline source", roadmap)
+        self.assertNotIn("latest merged mainline source", releases)
         self.assertIn("The last recorded canary stage is PR #806", roadmap)
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
