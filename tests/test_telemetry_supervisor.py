@@ -1,5 +1,6 @@
 import threading
 import unittest
+from unittest.mock import patch
 
 from routeros_binary import RouterOSReply
 from telemetry_broker import TelemetryBroker
@@ -42,6 +43,37 @@ class FakeConnection:
 
 
 class TelemetrySupervisorTests(unittest.TestCase):
+    def test_interface_sampler_run_forever_paces_samples_start_to_start(self):
+        class StopAfterWait:
+            def __init__(self):
+                self.stopped = False
+                self.delays = []
+
+            def is_set(self):
+                return self.stopped
+
+            def wait(self, delay):
+                self.delays.append(delay)
+                self.stopped = True
+                return True
+
+        stop_event = StopAfterWait()
+        sampler = TelemetryInterfaceSampler(
+            lambda: None,
+            lambda: ("user", "secret"),
+            TelemetryBroker(),
+            interval=1.0,
+            stop_event=stop_event,
+        )
+        with (
+            patch.object(sampler, "sample_once"),
+            patch("telemetry_supervisor.time.monotonic", side_effect=[100.0, 100.25]),
+        ):
+            sampler.run_forever(max_samples=1)
+
+        self.assertEqual(len(stop_event.delays), 1)
+        self.assertAlmostEqual(stop_event.delays[0], 0.75, places=6)
+
     def test_interface_reader_requests_only_allow_listed_counters(self):
         connection = FakeConnection([RouterOSReply("re", {".id": "*1", "name": "ether1", "comment": "private"})])
         records = read_interface_counters(connection)
