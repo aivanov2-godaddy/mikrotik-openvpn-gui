@@ -157,6 +157,8 @@ def _webhook_url(value: str) -> str | None:
         raise ConfigurationError("WEBHOOK_URL contains an invalid port") from error
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise ConfigurationError("WEBHOOK_URL must be a credential-free HTTPS URL")
+    if parsed.query:
+        raise ConfigurationError("WEBHOOK_URL must not include a query string")
     _hostname_or_ip(parsed.hostname, "WEBHOOK_URL hostname")
     return value
 
