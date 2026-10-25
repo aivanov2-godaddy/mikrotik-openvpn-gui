@@ -17,6 +17,7 @@ from config import ConfigurationError, OpenVPNTopology, is_reserved_invalid_host
 
 
 _FULL_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GHCR_OWNER = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$")
 _ROUTER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 _ROUTER_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
@@ -96,6 +97,7 @@ def _proxy_sources(value: str) -> str:
 class CanarySettings:
     owner: str
     commit: str
+    image_digest: str
     public_origin: str
     routeros_rest_url: str
     routeros_rest_san: str
@@ -120,6 +122,8 @@ class CanarySettings:
             raise ValueError("owner must be a lowercase GitHub user or organization name")
         if not _FULL_COMMIT.fullmatch(self.commit):
             raise ValueError("commit must be the full 40-character lowercase Git commit SHA")
+        if not _IMAGE_DIGEST.fullmatch(self.image_digest):
+            raise ValueError("image digest must be sha256 followed by 64 lowercase hexadecimal characters")
         repository = self.repository.casefold()
         if self.repository != repository or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,98}", repository):
             raise ValueError("repository must be a lowercase container repository name")
@@ -180,6 +184,7 @@ class CanarySettings:
             owner=owner,
             repository=repository,
             commit=self.commit,
+            image_digest=self.image_digest,
             public_origin=public_origin,
             routeros_rest_url=routeros_rest_url,
             external_root=_validated_path(self.external_root),
@@ -198,6 +203,7 @@ class ValidatedCanarySettings:
     owner: str
     repository: str
     commit: str
+    image_digest: str
     public_origin: str
     routeros_rest_url: str
     external_root: str
@@ -219,7 +225,7 @@ def render_canary_plan(settings: CanarySettings) -> str:
     envs = _validated_name(f"{slug}-env", "environment list")
     comment = f"VPN GUI canary {short}"
     root = values.external_root
-    image = f"{values.owner}/{values.repository}:sha-{values.commit}"
+    image = f"{values.owner}/{values.repository}:sha-{values.commit}-arm64@{values.image_digest}"
 
     environment = {
         "PUBLIC_ORIGIN": values.public_origin,
@@ -273,6 +279,11 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--owner", required=True, help="Lowercase GitHub owner with package read access")
     parser.add_argument("--repository", default="mikrotik-openvpn-gui")
     parser.add_argument("--commit", required=True, help="Full 40-character lowercase commit SHA")
+    parser.add_argument(
+        "--image-digest",
+        required=True,
+        help="Published RouterOS ARM64 image digest (sha256:<64 lowercase hex characters>)",
+    )
     parser.add_argument("--public-origin", required=True, help="Credential-free HTTPS dashboard origin")
     parser.add_argument("--routeros-rest-url", required=True, help="Verified HTTPS RouterOS URL ending in /rest")
     parser.add_argument("--routeros-rest-san", required=True, help="Confirmed DNS or IP SAN used by the REST URL")
@@ -335,6 +346,7 @@ def main(argv: list[str] | None = None) -> int:
                 owner=arguments.owner,
                 repository=arguments.repository,
                 commit=arguments.commit,
+                image_digest=arguments.image_digest,
                 public_origin=arguments.public_origin,
                 routeros_rest_url=arguments.routeros_rest_url,
                 routeros_rest_san=arguments.routeros_rest_san,

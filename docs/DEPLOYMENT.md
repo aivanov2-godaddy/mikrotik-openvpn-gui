@@ -102,7 +102,13 @@ The offline `deploy_routeros_canary.py` helper writes a reviewable RouterOS
 configuration plan only to the required `--output` file; stdout contains only a
 generic completion message. The plan includes router addresses, object names,
 and storage paths, so protect the file as operationally sensitive. The helper
-has no network or apply mode:
+has no network or apply mode. It requires both the full source commit and the
+published ARM64 image digest (`--image-digest sha256:<64 lowercase hex>`), and
+renders the architecture-specific `sha-<commit>-arm64@sha256:<digest>` reference.
+It fails closed when the digest is missing or malformed; a commit tag by itself
+does not pin image bytes. Obtain the digest from the successful publish workflow
+or the verified release record, and confirm RouterOS accepts and reads back the
+digest-pinned form before using a generated plan:
 
 ```powershell
 python deploy_routeros_canary.py --help
