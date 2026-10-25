@@ -151,6 +151,9 @@ class RouterOSClientTests(unittest.TestCase):
                 with self.subTest(status=status):
                     mock.state.admin_user_read_error = status
                     self.assertIsNone(client.get_admin_role(credentials))
+            mock.state.admin_user_read_error = 503
+            with self.assertRaises(RouterOSError):
+                client.get_admin_role(credentials, raise_on_error=True)
 
     def test_admin_role_lookup_fails_closed_when_user_endpoint_is_unsupported(self) -> None:
         with MockRouterOS() as mock:

@@ -1903,6 +1903,47 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 429, payload.decode())
         self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
 
+    def test_routeros_role_lookup_outage_does_not_consume_reauthentication_budget(self) -> None:
+        self.login()
+        old_cookie = self.cookie
+        old_csrf = self.csrf
+        session_id = old_cookie.split("=", 1)[1]
+        headers = {
+            "Content-Type": "application/json",
+            "Cookie": old_cookie,
+            "X-CSRF-Token": old_csrf,
+            "Origin": self.config.public_origin,
+        }
+        with mock.patch.object(
+            self.server.context.router,
+            "get_admin_role",
+            side_effect=RouterOSError("RouterOS is unavailable", failure_kind="timeout"),
+        ):
+            for attempt in range(6):
+                with self.subTest(attempt=attempt + 1):
+                    status, _, payload = self.request(
+                        "POST",
+                        "/api/auth/reauthenticate",
+                        body=json.dumps({"password": "routerpass"}).encode(),
+                        headers=headers,
+                    )
+                    self.assertEqual(status, HTTPStatus.SERVICE_UNAVAILABLE, payload.decode())
+                    self.assertIn(b"could not verify the password right now", payload)
+                    self.assertIsNotNone(self.server.context.sessions.get(session_id, touch=False))
+
+        self.assertEqual(self.server.context.limiter._attempts, {})
+        self.assertEqual(
+            self.server.context.store.recent_audit(1)[0]["action"],
+            "session.reauth.unavailable",
+        )
+        status, _, payload = self.request(
+            "POST",
+            "/api/auth/reauthenticate",
+            body=json.dumps({"password": "routerpass"}).encode(),
+            headers=headers,
+        )
+        self.assertEqual(status, HTTPStatus.OK, payload.decode())
+
     def test_sse_reconnect_rejects_revoked_or_expired_cookie_before_router_read(self) -> None:
         for state in ("revoked", "expired"):
             with self.subTest(state=state):
@@ -2997,6 +3038,27 @@ class DashboardIntegrationTests(unittest.TestCase):
         with mock.patch.object(
             self.server.context.router,
             "verify_credentials",
+            side_effect=RouterOSError("RouterOS is unavailable", failure_kind="timeout"),
+        ):
+            for attempt in range(6):
+                with self.subTest(attempt=attempt + 1):
+                    status, _, payload = self.request("POST", "/login", body=body, headers=headers)
+                    self.assertEqual(status, HTTPStatus.BAD_GATEWAY, payload.decode())
+                    self.assertIn(b"temporarily unavailable", payload)
+
+        self.assertEqual(self.server.context.limiter._attempts, {})
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["action"], "login.unavailable")
+        self.login()
+
+    def test_routeros_role_lookup_outage_does_not_consume_bad_password_budget(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": self.config.public_origin,
+        }
+        with mock.patch.object(
+            self.server.context.router,
+            "get_admin_role",
             side_effect=RouterOSError("RouterOS is unavailable", failure_kind="timeout"),
         ):
             for attempt in range(6):

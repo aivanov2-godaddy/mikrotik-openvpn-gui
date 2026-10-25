@@ -422,6 +422,7 @@ test('an incomplete REST status response preserves the last authoritative sessio
     const payload = await response.json();
     payload.sessions = payload.sessions.map((session) => ({
       ...session,
+      uptime: 'updated-by-incomplete-rest-response',
       counter_complete: false,
       rx_bytes: 0,
       tx_bytes: 0,
@@ -447,7 +448,8 @@ test('an incomplete REST status response preserves the last authoritative sessio
 
   await firstStatusStarted;
   releaseFirstStatus();
-  await expect.poll(() => statusPolls).toBeGreaterThan(0);
+  await expect(card.locator('.session-uptime'))
+    .toHaveText('updated-by-incomplete-rest-response');
   await expect(card).toHaveAttribute('data-rx', previousRx);
   await expect(card).toHaveAttribute('data-tx', previousTx);
 });
@@ -496,9 +498,12 @@ test('queues one status refresh for a live session event received during an in-f
     window.__liveTestSocket?.handlers.has('vpn.session.connected')
   ))).toBe(true);
 
-  await page.evaluate(() => window.__liveTestSocket.handlers.get('vpn.session.connected')());
+  await page.evaluate(() => {
+    window.__liveTestSocket.handlers.get('vpn.session.connected')();
+    window.__liveTestSocket.handlers.get('vpn.session.updated')();
+  });
   releaseFirstStatus();
-  await expect.poll(() => statusPolls, { timeout: 2000 }).toBeGreaterThan(1);
+  await expect.poll(() => statusPolls, { timeout: 2000 }).toBe(2);
 });
 
 test('a failed status poll remains delayed when no live snapshot has arrived', async ({ page }) => {

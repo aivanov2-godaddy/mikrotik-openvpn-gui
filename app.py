@@ -3938,12 +3938,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Password is required")
             credentials = RouterOSCredentials(username, password)
             self.server.context.router.verify_credentials(credentials)
-            role = self.server.context.router.get_admin_role(credentials)
+            role = self.server.context.router.get_admin_role(
+                credentials,
+                raise_on_error=True,
+            )
             if role is None:
-                raise RouterOSError("RouterOS account is disabled or unavailable", 401)
+                raise RouterOSError(
+                    "RouterOS account is disabled or unavailable",
+                    HTTPStatus.UNAUTHORIZED,
+                    failure_kind="account_unavailable",
+                )
         except (ValueError, RouterOSError) as error:
             authentication_rejected = isinstance(error, ValueError) or (
-                isinstance(error, RouterOSError) and error.status in {401, 403}
+                isinstance(error, RouterOSError)
+                and (
+                    error.failure_kind == "account_unavailable"
+                    or (
+                        error.status in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
+                        and error.failure_kind is None
+                    )
+                )
             )
             self.server.context.limiter.finish(
                 reservation,
@@ -4140,7 +4154,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = RouterOSCredentials(session.username, password)
         try:
             self.server.context.router.verify_credentials(credentials)
-            role = self.server.context.router.get_admin_role(credentials)
+            role = self.server.context.router.get_admin_role(
+                credentials,
+                raise_on_error=True,
+            )
             if role is None:
                 self.server.context.limiter.finish(reservation, failed=True)
                 self.server.context.store.audit(
