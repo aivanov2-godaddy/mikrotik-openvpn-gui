@@ -388,6 +388,8 @@ def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> di
     return {
         "script_count": len(scripts),
         "scheduler_count": len(schedulers),
+        "inventory_scope": "manifest_listed_only",
+        "inventory_exhaustiveness": "not_verified",
         "listed_bindings_resolved": True,
         "scripts": comparisons,
     }

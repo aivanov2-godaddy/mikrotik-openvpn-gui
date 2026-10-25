@@ -231,8 +231,12 @@ remote storage when paths are network-mounted. The JSON
 report maps `script_index` to the corresponding order in the private manifest,
 includes each candidate's SHA-256, exact-match result, changed-line count,
 marker flags, and the number of explicitly represented scheduler bindings.
-`listed_bindings_resolved` only describes the entries present in the manifest;
-it does not mean the inventory is exhaustive.
+It also returns `inventory_scope: "manifest_listed_only"` and
+`inventory_exhaustiveness: "not_verified"`; `listed_bindings_resolved` only
+describes the entries present in the manifest. The offline tool cannot prove
+that every RouterOS script, scheduler, or indirect invocation was inventoried,
+so even a zero exit code is not proof of a complete installed-device
+reconciliation.
 Keep that report private too: a full-file hash can fingerprint known content.
 
 Inventory mode exit code `0` means all listed copies byte-match the reviewed

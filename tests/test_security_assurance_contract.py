@@ -613,7 +613,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #815 (`42ce550652f8134f3f0e3ed4ca37c3a3df413624`) is the latest merged mainline source and verified published image.",
+            "PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) is the latest merged mainline source; immutable ARM64 and AMD64 images were published and verified.",
             roadmap,
         )
         self.assertIn("The last recorded canary stage is PR #806", roadmap)
@@ -622,7 +622,8 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("The two bounded source reviews described above", self.document)
         self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)
         self.assertIn("publication is not an independent security review", assurance)
-        self.assertIn("Latest published mainline security changes — PR #798", assurance)
+        self.assertIn("Latest published mainline security changes — PR #817", assurance)
+        self.assertIn("Previously published mainline security changes — PR #798", assurance)
         self.assertIn("Previously published mainline security changes — PR #794", assurance)
 
     def test_unverified_section_does_not_deny_historical_canary_observations(self) -> None:

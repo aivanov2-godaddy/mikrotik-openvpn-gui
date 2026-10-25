@@ -25,6 +25,9 @@ semantic-version style release tags.
   read-backs, including recovery from ambiguous revoke/retirement outcomes.
 - Improve responsive OpenVPN branding, high-zoom layouts, and live dashboard
   behavior while preserving the existing SSE/Socket.IO and REST fallback paths.
+- Add a protected self-service action to revoke other dashboard sessions for
+  the current RouterOS account while preserving the caller; VPN tunnels are not
+  affected.
 
 ### Changed
 

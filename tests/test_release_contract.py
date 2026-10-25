@@ -170,7 +170,20 @@ class ReleaseContractTests(unittest.TestCase):
         rendered = " ".join(
             "\n".join(document.read_text(encoding="utf-8") for document in documents).split()
         )
+        release_record = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")
 
+        self.assertIn("## Latest published mainline image — PR #817", release_record)
+        self.assertIn("## Previous published mainline image — PR #815", release_record)
+        self.assertNotIn("## Latest published mainline image — PR #815", release_record)
+        self.assertIn("40ae1d86bbc8037172e38f1b018e71576925f201", rendered)
+        self.assertIn(
+            "sha256:cd96ffd32fb223abe7776c4ac2a6701cbea0c36fa5699619ead5915549cd0b3c",
+            rendered,
+        )
+        self.assertIn(
+            "sha256:d47a711056d7bc7a59b5fddfb68a3584eb0246d047fe6f9e7e1d9b44eba11253",
+            rendered,
+        )
         self.assertIn("42ce550652f8134f3f0e3ed4ca37c3a3df413624", rendered)
         self.assertIn(
             "sha256:d51572f37e09623cdc3e2990038f1a8ed39abc2de3dfd9beb50251c03168f4df",
@@ -195,6 +208,8 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn("Sparse point samples over approximately nine minutes", rendered)
         self.assertIn("Production remains on its prior image", rendered)
+        self.assertIn("read-only RouterOS inventory on 2026-10-25 found the canary container stopped", rendered)
+        self.assertIn("did not verify the configured image digest, embedded revision, or readiness", rendered)
         self.assertIn("PR #798", rendered)
 
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:

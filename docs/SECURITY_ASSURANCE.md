@@ -403,7 +403,30 @@ examined PR #791's commit, not the changed source in PR #793. Therefore this
 publication is not an independent security review, deployed-proxy validation,
 or RouterOS acceptance. Issue #200 remains open for those gates.
 
-### Latest published mainline security changes — PR #798 — 2026-10-23
+### Latest published mainline security changes — PR #817 — 2026-10-25
+
+PR [#817](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/817)
+merged as `40ae1d86bbc8037172e38f1b018e71576925f201`. It adds an authenticated,
+self-scoped action for an administrator to revoke the other dashboard sessions
+for the current RouterOS account while preserving the caller's session. The
+operation requires CSRF and same-origin checks, typed confirmation, rate-limited
+fresh password verification, and forced session revalidation. It refuses the
+sweep if the caller's session was concurrently rotated, coordinates session
+set/per-session locks, and audits only scope and affected count; it does not
+terminate VPN tunnels. Main CI run
+[#40143943796](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943796),
+publisher run
+[#40143943784](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943784),
+and main-branch CodeQL run
+[#40143943935](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943935)
+passed. Both immutable architecture images were smoke-tested and their detached
+provenance/SBOM attestations verified. The stable manifest was published, but
+this run did not read it back. Publication is not deployment or independent
+review: the canary was later observed stopped in a read-only inventory, no
+candidate-bound RouterOS acceptance was performed, and the independent scoped
+ASVS assessment remains open under issue #200.
+
+### Previously published mainline security changes — PR #798 — 2026-10-23
 
 PR [#798](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/798)
 merged as `041a9d2ac7581dac18911c236cbbb3aee4280273`. It narrows originless

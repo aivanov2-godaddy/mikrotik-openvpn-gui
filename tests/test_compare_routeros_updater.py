@@ -164,6 +164,8 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
 
         self.assertEqual(report["script_count"], 3)
         self.assertEqual(report["scheduler_count"], 3)
+        self.assertEqual(report["inventory_scope"], "manifest_listed_only")
+        self.assertEqual(report["inventory_exhaustiveness"], "not_verified")
         self.assertTrue(report["listed_bindings_resolved"])
         copies = report["scripts"]
         self.assertTrue(copies[0]["exact_match"])
@@ -200,6 +202,8 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         rendered = stdout.getvalue()
         report = json.loads(rendered)
         self.assertEqual(exit_code, 1)
+        self.assertEqual(report["inventory_scope"], "manifest_listed_only")
+        self.assertEqual(report["inventory_exhaustiveness"], "not_verified")
         self.assertTrue(report["listed_bindings_resolved"])
         self.assertTrue(report["scripts"][0]["risk_flags"]["credential_marker_added"])
         self.assertEqual(stderr.getvalue(), "")
