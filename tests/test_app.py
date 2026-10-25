@@ -2583,7 +2583,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         existing_session_id = self.cookie.split("=", 1)[1]
 
-        def observe_disable_then_return_stale_role(_credentials):
+        def observe_disable_then_return_stale_role(_credentials, **_kwargs):
             self.assertIsNone(
                 self.server.context.sessions.revalidate_role(
                     existing_session_id,
@@ -2635,7 +2635,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 """
             )
 
-        def observe_disable_then_return_stale_role(_credentials):
+        def observe_disable_then_return_stale_role(_credentials, **_kwargs):
             self.assertIsNone(
                 self.server.context.sessions.revalidate_role(
                     existing_session_id,
