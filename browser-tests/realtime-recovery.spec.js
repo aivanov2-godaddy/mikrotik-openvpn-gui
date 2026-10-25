@@ -273,6 +273,82 @@ test('falls back to SSE when the connected Socket.IO upstream reports degraded h
   expect(navigations).toEqual([]);
 });
 
+test('falls back to SSE after an established Socket.IO disconnect and stays on SSE after REST refresh', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-03T12:00:00.000Z') });
+  await page.addInitScript(() => {
+    window.__disconnectFallbackSources = [];
+    window.EventSource = class DisconnectFallbackEventSource {
+      constructor(url) {
+        this.url = url;
+        this.handlers = new Map();
+        this.closed = false;
+        window.__disconnectFallbackSources.push(this);
+      }
+
+      addEventListener(name, callback) { this.handlers.set(name, callback); }
+      close() { this.closed = true; }
+      emit(name, payload) { this.handlers.get(name)?.({ data: JSON.stringify(payload) }); }
+    };
+  });
+  let statusPolls = 0;
+  await page.route('**/api/status', async (route) => {
+    statusPolls += 1;
+    await route.continue();
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true, socketio_engine: 'asgi' }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: `window.__disconnectFallbackSocket = {
+      handlers: new Map(),
+      closed: false,
+      on(name, callback) { this.handlers.set(name, callback); return this; },
+      close() { this.closed = true; },
+      emit(name, ...args) { this.handlers.get(name)?.(...args); },
+    };
+    window.io = () => window.__disconnectFallbackSocket;`,
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (
+    window.__disconnectFallbackSocket?.handlers.has('disconnect')
+  ))).toBe(true);
+
+  await page.clock.fastForward(1200);
+  await expect.poll(() => statusPolls).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const socket = window.__disconnectFallbackSocket;
+    socket.emit('connect');
+    socket.emit('telemetry.health', { state: 'healthy', stream_connected: true });
+    socket.emit('telemetry.snapshot', { payload: { sessions: [] } });
+  });
+  const indicators = page.locator('[data-live-indicator]');
+  await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
+
+  await page.evaluate(() => window.__disconnectFallbackSocket.emit('disconnect', 'transport close'));
+  await expect.poll(() => page.evaluate(() => ({
+    socketClosed: window.__disconnectFallbackSocket?.closed,
+    sourceCount: window.__disconnectFallbackSources.length,
+    sourceUrl: window.__disconnectFallbackSources[0]?.url,
+  }))).toEqual({ socketClosed: true, sourceCount: 1, sourceUrl: '/api/events' });
+  await expect(indicators).toHaveText(['Connecting · SSE', 'Connecting · SSE']);
+
+  await page.evaluate(() => window.__disconnectFallbackSources[0].emit('status', { sessions: [] }));
+  await expect(indicators).toHaveText(['Live · SSE', 'Live · SSE']);
+  const pollsBeforeRefresh = statusPolls;
+  await page.clock.fastForward(5000);
+  await expect.poll(() => statusPolls).toBeGreaterThan(pollsBeforeRefresh);
+  await expect(indicators).toHaveText(['Live · SSE', 'Live · SSE']);
+  expect(await page.evaluate(() => window.__disconnectFallbackSources.length)).toBe(1);
+});
+
 test('an incomplete Socket.IO snapshot preserves counters while an authoritative zero remains visible', async ({ page }) => {
   await page.addInitScript(() => {
     window.__liveTestSocket = {
