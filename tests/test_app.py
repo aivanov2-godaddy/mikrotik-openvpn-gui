@@ -4220,8 +4220,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.request("GET", "/metrics")
         self.assertEqual(status, 200)
         self.assertIn(b"vpn_dashboard_info", payload)
+        self.assertRegex(
+            payload.decode(),
+            r"(?m)^vpn_dashboard_process_start_time_seconds [0-9]+(?:\.[0-9]+)?$",
+        )
         self.assertIn(b"vpn_dashboard_integration_outbox_pending", payload)
         self.assertIn(b"vpn_dashboard_integration_outbox_dead_lettered", payload)
+        self.assertIn(b"vpn_dashboard_integration_outbox_storage_failures_total 0", payload)
         self.assertIn(b"vpn_dashboard_redis_last_observed_available", payload)
         self.assertIn(b"vpn_dashboard_sqlite_file_bytes", payload)
         self.assertIn(b"vpn_dashboard_sqlite_volume_free_bytes", payload)
@@ -4491,6 +4496,28 @@ class DashboardIntegrationTests(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf},
         )
         self.assertEqual(status, 200)
+
+    def test_metrics_export_sqlite_outbox_storage_failure_counter_without_labels(self) -> None:
+        self.login()
+        dispatcher = mock.Mock()
+        dispatcher.metrics.return_value = {
+            "delivery_successes": 0,
+            "delivery_failures": 0,
+            "last_delivery_success": 0,
+            "outbox_storage_failures": 7,
+            "redis_configured": 0,
+            "redis_available": -1,
+            "redis_publish_successes": 0,
+            "redis_publish_failures": 0,
+            "redis_last_publish_success": 0,
+        }
+        self.server.context.integration_dispatcher = dispatcher
+
+        status, _, payload = self.request("GET", "/metrics")
+
+        self.assertEqual(status, 200)
+        self.assertIn(b"# TYPE vpn_dashboard_integration_outbox_storage_failures_total counter", payload)
+        self.assertIn(b"vpn_dashboard_integration_outbox_storage_failures_total 7", payload)
 
     def test_api_token_mutations_require_fresh_routeros_reauthentication(self) -> None:
         self.login()

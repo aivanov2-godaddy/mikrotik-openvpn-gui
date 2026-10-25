@@ -203,6 +203,10 @@ class DeploymentPolicyTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "individual IP address"):
             render_canary_plan(replace(settings, trusted_proxy_sources="192.0.2.0/24"))
+        secret_sentinel = "secret-proxy-value-do-not-echo"
+        with self.assertRaisesRegex(ValueError, "individual IP address") as error:
+            render_canary_plan(replace(settings, trusted_proxy_sources=secret_sentinel))
+        self.assertNotIn(secret_sentinel, str(error.exception))
         with self.assertRaisesRegex(ValueError, "network or broadcast"):
             render_canary_plan(replace(settings, canary_address="192.0.2.4/30"))
         with self.assertRaisesRegex(ValueError, "RouterOS-safe"):

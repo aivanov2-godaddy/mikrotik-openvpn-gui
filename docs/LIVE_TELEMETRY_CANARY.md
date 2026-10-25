@@ -132,8 +132,14 @@ verification records do not combine; an incomplete record set fails with
 The live release collector independently gates each sampled telemetry window:
 traffic-counter sample age must remain at or below 2 seconds, the bounded
 gateway enqueue-to-authorized-client-poll p95 must remain at or below 1 second,
-and the Binary API supervisor must remain enabled and healthy. Missing traffic
-freshness or gateway-delay observations fail closed. The gateway p95 is a
+and the Binary API supervisor must remain enabled and healthy. The collector
+also requires the aggregate `vpn_dashboard_integration_outbox_storage_failures_total`
+counter to start at zero and fail the window if it increases or resets. It checks
+`vpn_dashboard_process_start_time_seconds` on every scrape and fails if the
+process restarted after the observation window began; this catches a restart
+that could otherwise reset the storage-failure counter between samples. Run
+intentional fault injection outside the final 30-minute soak. Missing traffic
+freshness, gateway-delay, or outbox-storage observations fail closed. The gateway p95 is a
 server-side delivery stage only; it is not a measurement of RouterOS-to-browser
 session-change latency or browser rendering. A real session transition and its
 end-to-end latency still require a controlled operator acceptance test and

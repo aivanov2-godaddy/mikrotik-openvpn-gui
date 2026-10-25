@@ -37,6 +37,8 @@
 :local dryRun false
 :local failureRetryLimit 3
 :local failureFile ($stateFile . ".failed")
+:local updaterFailureStep ""
+:local updaterRollbackOutcome "not-attempted"
 # Optional local maintenance window. Hours are RouterOS local time, start
 # inclusive and end exclusive. A window that crosses midnight is supported.
 :local maintenanceWindowEnabled false
@@ -80,6 +82,8 @@
 }
 :local recordFailure do={
     :local candidate $1
+    :local failureStep $2
+    :local rollbackOutcome $3
     :local previous ""
     :do { :set previous [/file/get [find where name=$failureFile] contents] } on-error={}
     :local count 1
@@ -87,9 +91,9 @@
         :local priorCount [$stateLine $previous "failure-count="]
         :if ([:typeof [:tonum $priorCount]] = "num") do={ :set count ([:tonum $priorCount] + 1) }
     }
-    :local failureState ("failed-image=" . $candidate . "\nfailure-count=" . $count . "\nfailed-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
+    :local failureState ("failed-image=" . $candidate . "\nfailure-count=" . $count . "\nfailed-step=" . $failureStep . "\nrollback-outcome=" . $rollbackOutcome . "\nfailed-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
     $writeState $failureFile $failureState
-    $recordHistory "failed" $candidate ("attempt=" . $count)
+    $recordHistory "failed" $candidate ("attempt=" . $count . ";step=" . $failureStep . ";rollback=" . $rollbackOutcome)
 }
 
 # A dashboard can terminate TLS at a separate router-local proxy. In that
@@ -397,6 +401,8 @@
         :set updaterStep "canary-start"
         /container/start $canaryId
     } on-error={
+        :set updaterFailureStep $updaterStep
+        :set updaterRollbackOutcome "failed"
         :log error ("vpn-gui immutable updater: canary lifecycle failed; step=" . $updaterStep . "; details redacted")
         :set updaterStep "canary-rollback-lifecycle"
         :log warning ("vpn-gui immutable updater: rollback starting; step=" . $updaterStep)
@@ -412,14 +418,16 @@
             :set updaterStep "canary-rollback-lifecycle-verification"
             :set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit $canaryReadyUrl $canaryReadyTransport $pollAttempts $pollDelay]
             :if ($rollbackVerification = "verified") do={
+                :set updaterRollbackOutcome "verified"
                 :log warning "vpn-gui immutable updater: canary rollback verified; step=canary-rollback-lifecycle; restored immutable image and ready revision confirmed; production unchanged"
             } else={
+                :set updaterRollbackOutcome "verification-failed"
                 :set updaterStep ("canary-rollback-lifecycle-" . $rollbackVerification)
                 :log error ("vpn-gui immutable updater: rollback verification failed; step=" . $updaterStep . "; details redacted; operator action required")
             }
-        } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
+        } on-error={ :set updaterRollbackOutcome "failed"; :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
         :set updaterStep "failure-state-write"
-        :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
+        :do { $recordFailure $image $updaterFailureStep $updaterRollbackOutcome } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
         :set updaterStep "canary-lifecycle"
         :error "canary lifecycle gate failed"
     }
@@ -441,6 +449,8 @@
         :if ($canaryHealthy) do={ :break }
     }
     :if (!$canaryHealthy) do={
+        :set updaterFailureStep $updaterStep
+        :set updaterRollbackOutcome "failed"
         :log error ("vpn-gui immutable updater: canary readiness failed; step=canary-readiness; details redacted; production unchanged")
         :set updaterStep "canary-rollback-readiness"
         :log warning ("vpn-gui immutable updater: rollback starting; step=" . $updaterStep)
@@ -456,14 +466,16 @@
             :set updaterStep "canary-rollback-readiness-verification"
             :set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit $canaryReadyUrl $canaryReadyTransport $pollAttempts $pollDelay]
             :if ($rollbackVerification = "verified") do={
+                :set updaterRollbackOutcome "verified"
                 :log warning "vpn-gui immutable updater: canary rollback verified; step=canary-rollback-readiness; restored immutable image and ready revision confirmed; production unchanged"
             } else={
+                :set updaterRollbackOutcome "verification-failed"
                 :set updaterStep ("canary-rollback-readiness-" . $rollbackVerification)
                 :log error ("vpn-gui immutable updater: rollback verification failed; step=" . $updaterStep . "; details redacted; operator action required")
             }
-        } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
+        } on-error={ :set updaterRollbackOutcome "failed"; :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
         :set updaterStep "failure-state-write"
-        :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
+        :do { $recordFailure $image $updaterFailureStep $updaterRollbackOutcome } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
         :set updaterStep "canary-readiness"
         :error "canary readiness gate failed"
     }
@@ -488,6 +500,8 @@
         :log info ("vpn-gui immutable updater: canary readiness sample " . $sample . "/" . $canaryValidationSamples . " passed revision=" . $commit)
     }
     :if (!$canaryStable) do={
+        :set updaterFailureStep $updaterStep
+        :set updaterRollbackOutcome "failed"
         :log error ("vpn-gui immutable updater: canary soak failed; step=canary-soak; details redacted; production unchanged")
         :set updaterStep "canary-rollback-soak"
         :log warning ("vpn-gui immutable updater: rollback starting; step=" . $updaterStep)
@@ -503,14 +517,16 @@
             :set updaterStep "canary-rollback-soak-verification"
             :set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit $canaryReadyUrl $canaryReadyTransport $pollAttempts $pollDelay]
             :if ($rollbackVerification = "verified") do={
+                :set updaterRollbackOutcome "verified"
                 :log warning "vpn-gui immutable updater: canary rollback verified; step=canary-rollback-soak; restored immutable image and ready revision confirmed; production unchanged"
             } else={
+                :set updaterRollbackOutcome "verification-failed"
                 :set updaterStep ("canary-rollback-soak-" . $rollbackVerification)
                 :log error ("vpn-gui immutable updater: rollback verification failed; step=" . $updaterStep . "; details redacted; operator action required")
             }
-        } on-error={ :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
+        } on-error={ :set updaterRollbackOutcome "failed"; :log error ("vpn-gui immutable updater: rollback failed; step=" . $updaterStep . "; details redacted; operator action required") }
         :set updaterStep "failure-state-write"
-        :do { $recordFailure $image } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
+        :do { $recordFailure $image $updaterFailureStep $updaterRollbackOutcome } on-error={ :log error "vpn-gui immutable updater: failure journal write failed; step=failure-state-write; details redacted" }
         :set updaterStep "canary-soak"
         :error "canary readiness soak failed"
     }

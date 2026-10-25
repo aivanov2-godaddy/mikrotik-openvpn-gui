@@ -111,6 +111,12 @@ production to the same SQLite file: one database must have one writer.
    it records the rejected candidate locally and leaves production untouched.
    The script rejects settings below the minimum sample count or cadence
    before it changes even the canary.
+   The private failure marker and bounded history entry preserve the failing
+   updater step captured before rollback, the attempt count, and a coarse
+   rollback outcome (`verified`, `verification-failed`, or `failed`). They do
+   not retain raw RouterOS error text, attributes, response bodies, or URLs, and
+   they are never uploaded to GitHub. This improves diagnosis for future runs;
+   it cannot reconstruct an earlier failure whose source was not retained.
 7. This readiness soak is a minimum canary guard, not the complete release
    acceptance report: it does not collect telemetry latency/freshness percentiles,
    Redis delivery history, RouterOS resource samples, API reconnect/snapshot

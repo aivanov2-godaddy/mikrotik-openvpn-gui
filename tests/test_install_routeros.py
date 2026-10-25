@@ -125,6 +125,10 @@ class InstallationWizardTests(unittest.TestCase):
         self.assertIn("TRUSTED_PROXY_SOURCES", plan)
         with self.assertRaises(ValueError):
             settings(trusted_proxy_sources="10.0.0.2", trusted_proxy_header="CF-Connecting-IP").validated()
+        secret_sentinel = "secret-proxy-value-do-not-echo"
+        with self.assertRaisesRegex(ValueError, "individual IP address") as error:
+            settings(trusted_proxy_sources=secret_sentinel).validated()
+        self.assertNotIn(secret_sentinel, str(error.exception))
 
 
 if __name__ == "__main__":

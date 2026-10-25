@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import queue
+import sqlite3
 import threading
 import time
 import urllib.request
@@ -13,6 +15,9 @@ import uuid
 from typing import Any, Protocol
 
 from event_safety import sanitize_integration_event
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class IntegrationOutbox(Protocol):
@@ -152,6 +157,8 @@ class WebhookDispatcher:
         self._delivery_successes = 0
         self._delivery_failures = 0
         self._last_delivery_success = 0
+        self._outbox_storage_failures = 0
+        self._outbox_storage_failure_streak = 0
         self._thread: threading.Thread | None = None
         if self.enabled:
             self._thread = threading.Thread(target=self._run, name="vpn-integration", daemon=True)
@@ -193,6 +200,7 @@ class WebhookDispatcher:
                 "delivery_successes": self._delivery_successes,
                 "delivery_failures": self._delivery_failures,
                 "last_delivery_success": self._last_delivery_success,
+                "outbox_storage_failures": self._outbox_storage_failures,
             }
         redis_values = self._redis.metrics() if self._redis is not None else {
             "configured": 0,
@@ -221,17 +229,46 @@ class WebhookDispatcher:
                     self._queue.task_done()
                 continue
 
-            pending = self._store.pending_integration_events(20)
-            if not pending:
-                self._wake.wait(1.0)
+            try:
+                batch_succeeded, retry_deadline = self._dispatch_outbox_batch()
+            except sqlite3.Error as error:
+                batch_succeeded = False
+                retry_deadline = time.monotonic() + self._record_outbox_storage_failure(error)
+            else:
+                if batch_succeeded:
+                    self._outbox_storage_failure_streak = 0
+            if retry_deadline is not None:
+                self._wake.wait(max(0.0, retry_deadline - time.monotonic()))
                 self._wake.clear()
-                continue
-            for record in pending:
-                if self._stop.is_set():
-                    return
-                event_id = str(record.get("event_id", ""))
+
+    def _dispatch_outbox_batch(self) -> tuple[bool, float | None]:
+        store = self._store
+        if store is None:
+            return True, None
+        pending = store.pending_integration_events(20)
+        if not pending:
+            self._wake.wait(1.0)
+            self._wake.clear()
+            return True, None
+        storage_failure = False
+        retry_deadline: float | None = None
+        storage_retry_deadline: float | None = None
+
+        def next_retry_deadline() -> float | None:
+            outstanding = [
+                deadline
+                for deadline in (retry_deadline, storage_retry_deadline)
+                if deadline is not None
+            ]
+            return min(outstanding) if outstanding else None
+
+        for record in pending:
+            if self._stop.is_set():
+                return not storage_failure, next_retry_deadline()
+            event_id = str(record.get("event_id", ""))
+            try:
                 if record.get("payload_error"):
-                    self._store.mark_integration_dead_lettered(
+                    store.mark_integration_dead_lettered(
                         event_id, f"malformed_payload_{record['payload_error']}"
                     )
                     continue
@@ -241,20 +278,62 @@ class WebhookDispatcher:
                     self._deliver_with_retries(payload)
                 except Exception as error:  # noqa: BLE001 - boundary records and retries safely
                     if int(record.get("attempts", 1)) >= self._max_outbox_attempts:
-                        self._store.mark_integration_dead_lettered(
+                        store.mark_integration_dead_lettered(
                             event_id, f"retry_limit_{type(error).__name__}"
                         )
                     else:
-                        retry_delay = (
+                        event_retry_delay = (
                             self._circuit_cooldown
                             if self._failure_streak >= self._circuit_threshold
                             else self._backoff_for_attempt(int(record.get("attempts", 1)))
                         )
-                        self._store.mark_integration_failed(
-                            event_id, type(error).__name__, retry_at=int(time.time() + retry_delay)
+                        event_retry_deadline = time.monotonic() + event_retry_delay
+                        retry_deadline = (
+                            event_retry_deadline
+                            if retry_deadline is None
+                            else min(retry_deadline, event_retry_deadline)
+                        )
+                        store.mark_integration_failed(
+                            event_id, type(error).__name__, retry_at=int(time.time() + event_retry_delay)
                         )
                 else:
-                    self._store.mark_integration_delivered(event_id)
+                    store.mark_integration_delivered(event_id)
+            except sqlite3.Error as error:
+                storage_failure = True
+                event_retry_delay = self._record_outbox_storage_failure(error)
+                event_retry_deadline = time.monotonic() + event_retry_delay
+                storage_retry_deadline = (
+                    event_retry_deadline
+                    if storage_retry_deadline is None
+                    else min(storage_retry_deadline, event_retry_deadline)
+                )
+                try:
+                    store.mark_integration_failed(
+                        event_id,
+                        "SQLiteStorageError",
+                        retry_at=int(time.time() + event_retry_delay),
+                    )
+                except sqlite3.Error as release_error:
+                    release_retry_delay = self._record_outbox_storage_failure(release_error)
+                    release_retry_deadline = time.monotonic() + release_retry_delay
+                    storage_retry_deadline = (
+                        release_retry_deadline
+                        if storage_retry_deadline is None
+                        else min(storage_retry_deadline, release_retry_deadline)
+                    )
+        return not storage_failure, next_retry_deadline()
+
+    def _record_outbox_storage_failure(self, error: sqlite3.Error) -> float:
+        self._outbox_storage_failure_streak += 1
+        delay = self._backoff_for_attempt(self._outbox_storage_failure_streak)
+        with self._metrics_lock:
+            self._outbox_storage_failures += 1
+        _LOGGER.warning(
+            "SQLite integration outbox operation failed (%s); retrying in %.2f seconds",
+            type(error).__name__,
+            delay,
+        )
+        return delay
 
     def _deliver_with_retries(self, event: dict[str, Any]) -> None:
         normalized_event = sanitize_integration_event(event)
