@@ -2859,7 +2859,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/setup-plan",
             {
                 "origin": "https://vpn.example.test",
-                "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64",
+                "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64@sha256:" + "b" * 64,
                 "storage": "/disk1/vpn-dashboard",
                 "subnet": "172.31.250.0/30",
                 "lan": "192.0.2.0/24",
@@ -2870,6 +2870,19 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("REVIEW ONLY", plan)
         self.assertIn("CA PRESERVATION GATE", plan)
         self.assertIn("/interface/ovpn-server/server/print detail", plan)
+
+        status, _, payload = self.json_request(
+            "POST",
+            "/api/setup-plan",
+            {
+                "origin": "https://vpn.example.test",
+                "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64",
+                "storage": "/disk1/vpn-dashboard",
+                "subnet": "172.31.250.0/30",
+                "lan": "192.0.2.0/24",
+            },
+        )
+        self.assertEqual(status, 400)
 
         status, _, _ = self.json_request(
             "POST",
@@ -2886,7 +2899,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/setup-plan",
             {
                 "origin": "https://vpn.example.test",
-                "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64",
+                "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64@sha256:" + "b" * 64,
                 "storage": "/disk1/vpn-dashboard",
                 "subnet": "172.31.250.0/31",
                 "lan": "192.0.2.0/24",
@@ -4428,15 +4441,23 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
 
         status, _, payload = self.request(
-            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567&revision=0123456789abcdef0123456789abcdef01234567",
+            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567@sha256:" + "b" * 64 + "&revision=0123456789abcdef0123456789abcdef01234567",
         )
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(payload)["verified"])
         status, _, payload = self.request(
-            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef012345670123456789abcdef01234567&revision=0123456789abcdef0123456789abcdef01234567",
+            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef012345670123456789abcdef01234567-amd64@sha256:" + "c" * 64 + "&revision=0123456789abcdef0123456789abcdef01234567",
         )
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(payload)["verified"])
+
+        status, _, payload = self.request(
+            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567&revision=0123456789abcdef0123456789abcdef01234567",
+        )
+        self.assertEqual(status, 200)
+        unpinned = json.loads(payload)
+        self.assertFalse(unpinned["verified"])
+        self.assertEqual(unpinned["checks"][0]["status"], "fail")
 
         profile = """client\nremote vpn.example.test 1194 udp\nproto udp\nauth-nocache\nverify-x509-name vpn.example.test name\n<ca>\nCERT\n</ca>\n<cert>\nCERT\n</cert>\n<key>\nKEY\n</key>\ncipher AES-256-GCM\n"""
         status, _, payload = self.json_request("POST", "/api/profile/diagnose", {"profile": profile})
@@ -4770,7 +4791,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         revision = "0123456789abcdef0123456789abcdef01234567"
         release_verify = (
             "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-"
-            f"{revision}&revision={revision}"
+            f"{revision}@sha256:{'d' * 64}&revision={revision}"
         )
         scoped_routes = {
             "/metrics": {"health.read"},
@@ -5346,7 +5367,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         payload = {
             "origin": "https://dashboard.example.test",
-            "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64",
+            "image": "ghcr.io/example/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64@sha256:" + "b" * 64,
             "storage": "/disk1/vpn-dashboard",
             "subnet": "2001:db8:1234:1::/120",
             "lan": "2001:db8:1234:2::/64",
