@@ -193,7 +193,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #839", release_record)
+        self.assertIn("## Latest published mainline image — PR #842", release_record)
+        self.assertIn("## Previous published mainline image — PR #839", release_record)
         self.assertIn("## Previous published mainline image — PR #838", release_record)
         self.assertIn("## Previous published mainline image — PR #836", release_record)
         self.assertIn("## Previous published mainline image — PR #829", release_record)
@@ -202,7 +203,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
         self.assertIn("c88bc730a8e75bcd89ab73dcf85d87df37db7884", rendered)
         self.assertIn("273e9ed1c3618e605c3af106a59b76dfb8686769", rendered)
-        self.assertIn("sha256:58b2b996b2299bafc5ba6c1f0f711955cb126e62de92534fe3318f06f5f5f18d", rendered)
+        self.assertIn("b68bc0cc9245991526efbfcd970e89d07000462a", rendered)
+        self.assertIn("sha256:84a9053683a31922a1f21eb88efe62e72bdb48a301af14085f797508041a30a7", rendered)
+        self.assertIn("sha256:f19586c12bf0047f3e5950f7bff365dd1024662c50e42e9bf70ab5c152bdef30", rendered)
+        self.assertIn("sha256:20eb9e83c8c0a43bb4e56c613c82d3dba062c97268f788b15abb2e20679e0b4a", rendered)
         self.assertIn("sha256:53a667d8c8db22d217c38c3ff80a9a32650b1615e69e8d738104652c8fd6b326", rendered)
         self.assertIn("sha256:1009ca54c47258e00950e93de8a8bead79525e6f88b1ddf6b602862919cbef6b", rendered)
         self.assertIn("9fd85aaff7f4ed43888209d2b77663207a11a897", rendered)
@@ -232,15 +236,15 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Current published artifact: commit `273e9ed1c3618e605c3af106a59b76dfb8686769`",
+            "Current published artifact: commit `b68bc0cc9245991526efbfcd970e89d07000462a`",
             installation,
         )
         self.assertIn(
-            "sha256:53a667d8c8db22d217c38c3ff80a9a32650b1615e69e8d738104652c8fd6b326",
+            "sha256:f19586c12bf0047f3e5950f7bff365dd1024662c50e42e9bf70ab5c152bdef30",
             installation,
         )
         self.assertIn(
-            "sha256:1009ca54c47258e00950e93de8a8bead79525e6f88b1ddf6b602862919cbef6b",
+            "sha256:20eb9e83c8c0a43bb4e56c613c82d3dba062c97268f788b15abb2e20679e0b4a",
             installation,
         )
         self.assertIn("### Latest published source-level log safeguard — PR #824", security_assurance)
