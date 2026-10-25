@@ -31,6 +31,15 @@ semantic-version style release tags.
 
 ### Changed
 
+- Keep telemetry recovery snapshots atomic with the broker sequence and
+  session/interface state, and include only sanitized cumulative interface
+  counters so reconnecting clients can restore a consistent live view.
+- Keep authenticated telemetry mutations and their published events inside
+  the same authorization dispatch, preventing denied producer events from
+  changing state later exposed by snapshot recovery.
+- Verify release-image claims against exact source and published-artifact
+  evidence; a user-supplied digest or commit-derived tag alone is not treated
+  as independent verification.
 - Configure SQLite WAL mode once at store initialization, avoiding repeated
   database-level mode changes when concurrent requests open connections.
 - Enforce idle and absolute dashboard-session deadlines with monotonic elapsed
