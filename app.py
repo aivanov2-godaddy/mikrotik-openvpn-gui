@@ -88,6 +88,11 @@ IMMUTABLE_IMAGE_PATTERN = re.compile(
     r"^[a-z0-9][a-z0-9._/-]*:sha-(?P<revision>[a-f0-9]{40,64})(?:-(?:arm64|amd64))?@sha256:[a-f0-9]{64}$",
     re.I,
 )
+PROJECT_RELEASE_IMAGE_PATTERN = re.compile(
+    r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:"
+    r"sha-(?P<revision>[a-f0-9]{40})-(?P<architecture>arm64|amd64)"
+    r"@(?P<digest>sha256:[a-f0-9]{64})$"
+)
 ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "policies.read"})
@@ -3491,36 +3496,37 @@ class DashboardHandler(BaseHTTPRequestHandler):
         image = str((query.get("image") or [""])[0]).strip()
         expected = str((query.get("revision") or [self.server.context.release_revision])[0]).strip().lower()
         errors: list[str] = []
-        image_match = IMMUTABLE_IMAGE_PATTERN.fullmatch(image)
+        image_match = PROJECT_RELEASE_IMAGE_PATTERN.fullmatch(image)
         if not image_match:
-            errors.append("Image must use a commit-tagged sha- reference pinned by a full sha256 digest.")
-        if not re.fullmatch(r"[a-f0-9]{40,64}", expected):
-            errors.append("Revision must be a 40- to 64-character hexadecimal commit SHA.")
+            errors.append("Image must be this project's architecture-specific sha- reference pinned by a full sha256 digest.")
+        if not re.fullmatch(r"[a-f0-9]{40}", expected):
+            errors.append("Revision must be a 40-character hexadecimal commit SHA.")
         image_sha = ""
         revision_match = False
         if not errors and image_match:
             image_sha = image_match.group("revision").lower()
-            # GitHub exposes a 40-character commit SHA while registries may
-            # publish the same source revision with a 64-character image digest.
-            # Accept only an exact match or a full-value prefix relationship;
-            # never accept an arbitrary substring or an unpinned tag.
-            revision_match = (
-                hmac.compare_digest(image_sha, expected)
-                or (len(expected) > len(image_sha) and hmac.compare_digest(expected[:len(image_sha)], image_sha))
-                or (len(image_sha) > len(expected) and hmac.compare_digest(image_sha[:len(expected)], expected))
-            )
+            revision_match = hmac.compare_digest(image_sha, expected)
             if not revision_match:
                 errors.append("Image revision does not match the approved revision.")
+        reference_valid = not errors
         self._json({
-            "verified": not errors,
+            # This endpoint validates only the image-reference syntax and the
+            # source revision embedded in its tag. It does not resolve GHCR or
+            # verify the image's SLSA provenance, so it must never claim that
+            # the artifact itself has been verified.
+            "verified": False,
+            "reference_valid": reference_valid,
+            "verification_scope": "reference_syntax_and_revision_match",
             "image": image,
             "revision": expected,
             "checks": [
-                {"name": "Immutable image reference", "status": "pass" if image_match else "fail"},
+                {"name": "Official project image reference", "status": "pass" if image_match else "fail"},
                 {"name": "Revision match", "status": "pass" if revision_match else "fail"},
-                {"name": "CA and router data safety", "status": "pass", "detail": "Verification is read-only and does not inspect or change CA, certificates, profiles, or RouterOS data."},
+                {"name": "Registry digest resolved", "status": "not_checked", "detail": "This endpoint does not contact GHCR."},
+                {"name": "Build provenance verified", "status": "not_checked", "detail": "Verify the published image digest with GitHub artifact attestations."},
             ],
             "errors": errors,
+            "verification_note": "A valid pinned reference is not proof of registry contents or build provenance.",
         })
 
     def _setup_plan(self) -> None:

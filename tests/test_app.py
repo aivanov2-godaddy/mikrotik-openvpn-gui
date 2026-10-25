@@ -4441,23 +4441,46 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
 
         status, _, payload = self.request(
-            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567@sha256:" + "b" * 64 + "&revision=0123456789abcdef0123456789abcdef01234567",
+            "GET", "/api/release/verify?image=ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567-arm64@sha256:" + "b" * 64 + "&revision=0123456789abcdef0123456789abcdef01234567",
         )
         self.assertEqual(status, 200)
-        self.assertTrue(json.loads(payload)["verified"])
+        valid_reference = json.loads(payload)
+        self.assertTrue(valid_reference["reference_valid"])
+        self.assertFalse(valid_reference["verified"])
+        self.assertEqual(valid_reference["verification_scope"], "reference_syntax_and_revision_match")
+        self.assertEqual(valid_reference["checks"][2]["status"], "not_checked")
+        self.assertEqual(valid_reference["checks"][3]["status"], "not_checked")
         status, _, payload = self.request(
-            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef012345670123456789abcdef01234567-amd64@sha256:" + "c" * 64 + "&revision=0123456789abcdef0123456789abcdef01234567",
+            "GET", "/api/release/verify?image=ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567-amd64@sha256:" + "c" * 64 + "&revision=0123456789abcdef0123456789abcdef01234567",
         )
         self.assertEqual(status, 200)
-        self.assertTrue(json.loads(payload)["verified"])
+        self.assertTrue(json.loads(payload)["reference_valid"])
 
         status, _, payload = self.request(
-            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567&revision=0123456789abcdef0123456789abcdef01234567",
+            "GET", "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567-arm64@sha256:" + "b" * 64 + "&revision=0123456789abcdef0123456789abcdef01234567",
+        )
+        self.assertEqual(status, 200)
+        untrusted_repository = json.loads(payload)
+        self.assertFalse(untrusted_repository["reference_valid"])
+        self.assertFalse(untrusted_repository["verified"])
+        self.assertEqual(untrusted_repository["checks"][0]["status"], "fail")
+
+        status, _, payload = self.request(
+            "GET", "/api/release/verify?image=ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567-arm64&revision=0123456789abcdef0123456789abcdef01234567",
         )
         self.assertEqual(status, 200)
         unpinned = json.loads(payload)
+        self.assertFalse(unpinned["reference_valid"])
         self.assertFalse(unpinned["verified"])
         self.assertEqual(unpinned["checks"][0]["status"], "fail")
+
+        status, _, payload = self.request(
+            "GET", "/api/release/verify?image=ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-0123456789abcdef0123456789abcdef01234567-arm64@sha256:" + "b" * 64 + "&revision=1123456789abcdef0123456789abcdef01234567",
+        )
+        self.assertEqual(status, 200)
+        mismatched_revision = json.loads(payload)
+        self.assertFalse(mismatched_revision["reference_valid"])
+        self.assertEqual(mismatched_revision["checks"][1]["status"], "fail")
 
         profile = """client\nremote vpn.example.test 1194 udp\nproto udp\nauth-nocache\nverify-x509-name vpn.example.test name\n<ca>\nCERT\n</ca>\n<cert>\nCERT\n</cert>\n<key>\nKEY\n</key>\ncipher AES-256-GCM\n"""
         status, _, payload = self.json_request("POST", "/api/profile/diagnose", {"profile": profile})
@@ -4790,8 +4813,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.login()
         revision = "0123456789abcdef0123456789abcdef01234567"
         release_verify = (
-            "/api/release/verify?image=ghcr.io/example/mikrotik-openvpn-gui:sha-"
-            f"{revision}@sha256:{'d' * 64}&revision={revision}"
+            "/api/release/verify?image=ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-"
+            f"{revision}-arm64@sha256:{'d' * 64}&revision={revision}"
         )
         scoped_routes = {
             "/metrics": {"health.read"},
