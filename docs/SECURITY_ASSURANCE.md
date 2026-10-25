@@ -83,7 +83,7 @@ in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md).
 | V8.2.3 | PARTIAL | Selected API/export fields are capability-filtered and tested. Exact safe-payload projections and secret-sentinel absence are unit-tested for all nine supported telemetry events, including nested broker interface counters; the acceptance observer rejects incomplete or invalid cumulative counter frames, and the native WebSocket integration test checks connected, updated, and snapshot frames. An exhaustive API read/write field-level map is not available. |
 | V8.2.4 | N/A | This review makes no ASVS Level 3 target claim, and adaptive environmental/contextual authorization is outside the current product scope. If a Level 3 target is adopted, reclassify this as a gap until the required adaptive controls are implemented and verified. |
 | V8.3.1 | TESTED | Authorization is enforced server-side; client-side visibility is not the enforcement boundary. Negative route tests verify denials precede RouterOS/state mutation. |
-| V8.3.2 | GAP | A RouterOS user reassignment/disable is read on the next REST request; active streams use a one-second application role-cache interval, while ordinary requests retain a 15-second cache. Separately, the current [MikroTik REST API manual](https://manual.mikrotik.com/docs/developer-guides/rest-api/) says group-policy changes take effect when the REST server renews its API login, up to 10 minutes later; this documented behavior is not verified on the deployed RouterOS 7.24.5. Effective authorization may therefore remain stale beyond the app-side one-second stream interval. Fresh/repeated Socket.IO connects force a role lookup but cannot invalidate a RouterOS-side cached REST login. The product has no immediate RouterOS change notification or mitigation that alerts on a now-unauthorized action and reverts it; even that mitigation would not prevent information leakage under this ASVS control. Physical-router enforcement, client receipt timing, and deployed latency remain unmeasured. |
+| V8.3.2 | GAP | Active streams use a one-second application role-cache interval, while ordinary requests retain a 15-second cache; neither is an end-to-end RouterOS revocation bound. The [MikroTik REST API manual](https://manual.mikrotik.com/docs/developer-guides/rest-api/) says the REST server retains its API login for 10 minutes across one or several HTTP connections; group-policy changes apply when that login is renewed, up to 10 minutes later. Closing an HTTP connection does not force that server-side login to renew. The manual lists password, `disabled`, and `address` changes to a user record (and user removal) as applying on the next request, but does not specify the timing of a user's group reassignment. Verify disable, reassignment, and group-policy changes end to end on a disposable router running the deployed version. No blanket ASVS or deployed revocation-latency claim is made. |
 | V8.3.3 | PARTIAL | Current RouterOS-session capabilities are re-derived for live delivery; a complete end-to-end subject-vs-intermediary authorization review remains outstanding. |
 | V8.4.1 | N/A | Multi-tenant architecture is explicitly excluded from the single-router product scope. |
 | V8.4.2 | PARTIAL | Application-side RouterOS role revalidation is implemented and tested. Whether a separate Cloudflare Access layer, device-posture checks, or contextual risk controls are configured is unverified deployment evidence. |
@@ -219,14 +219,16 @@ app-side cache. A process-wide semaphore caps live RouterOS role refreshes at
 four concurrent checks across SSE, threaded polling, and ASGI; stale live
 authorization fails closed at saturation.
 The current [MikroTik REST API manual](https://manual.mikrotik.com/docs/developer-guides/rest-api/)
-distinguishes a user-record change (applied on the next request) from a group
-policy edit (applied when the REST server renews its API login, up to 10 minutes
-later). That manual is newer than the deployed RouterOS 7.24.5 and this
-behavior has not been verified on the device. Fresh application checks cannot
-claim immediate effect while the RouterOS REST layer may still use its cached
-login. There is no immediate RouterOS change notification or alert-and-revert
-control; therefore V8.3.2 remains a known product gap, not merely an
-unverified deployment result.
+says the REST server keeps its API login for 10 minutes and reuses it across
+one or several HTTP connections. Group-policy edits apply when that login is
+renewed, up to 10 minutes later; closing a TCP/HTTP connection does not force
+that renewal. The manual lists password, `disabled`, and `address` changes to
+a user record (and user removal) as applying on the next request, but does not
+specify the timing of an individual user's group reassignment. These RouterOS
+semantics have not been measured on the deployed version. There is no immediate
+RouterOS change notification or alert-and-revert control; therefore V8.3.2
+remains an unresolved product gap until a disposable-router test measures
+disablement, reassignment, and group-policy changes end to end.
 
 `tests/test_asgi_contract.py::test_native_websocket_revalidates_routeros_role_change_and_account_disable`
 is a loopback integration test of the active ASGI Socket.IO WebSocket app. It
@@ -811,12 +813,15 @@ such issue exists outside the reviewed paths.
   application-cache threshold on live streams and a 15-second cache on
   ordinary requests. The SSE endpoint checks every two seconds, so neither
   cache interval is an end-to-end revocation-latency guarantee.
-  The current MikroTik REST manual says a user-record
-  change applies on the next request, but group-policy edits may wait until the
-  REST API login is renewed, up to 10 minutes. That server-side behavior is
-  not verified on deployed RouterOS 7.24.5, so neither app-side interval is
-  the complete physical-router authorization-freshness bound. Disabling an
-  RouterOS does not provide a disablement push signal, so the application cannot
+  The current MikroTik REST manual says the server reuses its API login for up
+  to 10 minutes across one or several HTTP connections, and group-policy edits
+  apply when that login is renewed. Closing an HTTP connection does not force
+  renewal. Password, disabled, and address changes to a user record (and user
+  removal) apply on the next request; timing for an individual user's group
+  reassignment is not specified there. These behaviors are unverified on the
+  deployed RouterOS version, so neither app-side interval is a measured
+  physical-router authorization-freshness bound. Disabling a RouterOS account
+  does not provide a disablement push signal, so the application cannot
   start invalidation before the next role refresh observes a missing/disabled
   account. After that observation, all in-memory sessions for the account are
   denied immediately, warm-cache role checks fail closed, and a login bound to
@@ -860,10 +865,10 @@ The configured one-second live-stream application-cache interval is covered by
 `tests/test_telemetry_runtime.py::TelemetryRuntimeFreshnessTests.test_live_stream_role_downgrade_is_applied_at_one_second_cache_deadline`
 using a controlled monotonic clock and by the live-stream integration test
 above, which naturally crosses the one-second interval. Those tests use a
-deterministic role resolver; they do not model RouterOS REST's documented
-group-policy login cache or establish physical-router revocation latency. A
-separate canary check must measure user-group reassignment and, in a disposable
-test setup, group-policy edits on the exact deployed RouterOS version.
+deterministic role resolver; they do not model RouterOS REST login behavior or
+establish physical-router revocation latency. A separate disposable-router
+check must measure user disable/reassignment and group-policy changes on the
+exact deployed RouterOS version.
 
 **Residual-risk decision: OPEN.** No deployment-level credential-memory or
 logging review, complete independent requirement-by-requirement ASVS review,

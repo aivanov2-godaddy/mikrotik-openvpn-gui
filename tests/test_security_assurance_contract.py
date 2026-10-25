@@ -537,22 +537,17 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("does not independently prove every authorization decision is correct", rows["V8.1.1"][2])
         self.assertIn("resolved client IP", rows["V8.1.3–V8.1.4"][2])
 
-    def test_delayed_live_role_revocation_is_reported_as_an_asvs_gap(self) -> None:
+    def test_routeros_role_propagation_is_reported_as_an_asvs_gap(self) -> None:
         rows = {row[0]: row for row in _assurance_matrix(self.document)[1:]}
         role_change = rows["V8.3.2"]
 
         self.assertEqual(role_change[1], "GAP")
         self.assertIn("one-second application role-cache interval", role_change[2])
         self.assertIn("ordinary requests retain a 15-second cache", role_change[2])
-        self.assertIn("group-policy changes take effect", role_change[2])
-        self.assertIn("up to 10 minutes later", role_change[2])
-        self.assertIn("not verified on the deployed RouterOS 7.24.5", role_change[2])
-        self.assertIn("Effective authorization may therefore remain stale beyond the app-side one-second stream interval", role_change[2])
-        self.assertIn("no immediate RouterOS change notification", role_change[2])
-        self.assertIn("would not prevent information leakage", role_change[2])
-
-        self.assertIn("user-record change (applied on the next request)", self.document)
-        self.assertIn("policy edit (applied when the REST server renews its API login", self.document)
+        self.assertIn("retains its API login for 10 minutes across one or several HTTP connections", role_change[2])
+        self.assertIn("group-policy changes apply when that login is renewed", role_change[2])
+        self.assertIn("Closing an HTTP connection does not force that server-side login to renew", role_change[2])
+        self.assertIn("does not specify the timing of a user's group reassignment", role_change[2])
         self.assertIn("https://manual.mikrotik.com/docs/developer-guides/rest-api/", self.document)
 
     def test_websocket_origin_review_separates_merged_code_from_followup_evidence(self) -> None:
