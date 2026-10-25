@@ -27,9 +27,11 @@ logs or reports.
 ## Optional integrations
 
 Set both `WEBHOOK_URL` and `WEBHOOK_SIGNING_SECRET` in the router-local
-environment to enable audit-event delivery. The URL must be HTTPS and the
-secret must be at least 32 characters; leaving either value unset disables the
-integration. Each JSON event is signed with
+environment to enable audit-event delivery. The URL must be HTTPS and must not
+contain a query string; do not put credentials or tokens in the URL. Configure
+any receiver-side authorization through the receiver's secure configuration.
+The signing secret must be at least 32 characters; leaving either value unset
+disables the integration. Each JSON event is signed with
 `X-VPN-Dashboard-Signature: sha256=<hex>` using HMAC-SHA256 over the exact
 string `<timestamp>.<request body>`, where the timestamp is supplied in
 `X-VPN-Dashboard-Timestamp`. Receivers should reject stale timestamps, verify

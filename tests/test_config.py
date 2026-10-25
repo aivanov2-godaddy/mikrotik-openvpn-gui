@@ -55,12 +55,20 @@ class RuntimeConfigTests(unittest.TestCase):
             RuntimeConfig.from_environ(
                 {"WEBHOOK_URL": "http://events.example.test", "WEBHOOK_SIGNING_SECRET": "0123456789abcdef0123456789abcdef"}
             )
+        with self.assertRaisesRegex(ConfigurationError, "must not include a query string") as error:
+            RuntimeConfig.from_environ(
+                {
+                    "WEBHOOK_URL": "https://events.example.test/vpn/audit?token=private-query-token",
+                    "WEBHOOK_SIGNING_SECRET": "0123456789abcdef0123456789abcdef",
+                }
+            )
+        self.assertNotIn("private-query-token", str(error.exception))
 
     def test_runtime_config_repr_redacts_secrets_and_sensitive_endpoints(self) -> None:
         config = RuntimeConfig.from_environ(
             {
                 "ROUTEROS_REST_URL": "https://192.0.2.20:8443/rest",
-                "WEBHOOK_URL": "https://events.example.test/ingest?token=private-query-token",
+                "WEBHOOK_URL": "https://events.example.test/ingest",
                 "WEBHOOK_SIGNING_SECRET": "private-webhook-signing-secret-0123456789",
                 "REDIS_STREAM_URL": "redis://publisher:private-redis-password@redis.example.test:6379/0",
                 "OVPN_PPP_PROFILE": "private-vpn-profile",
@@ -77,7 +85,6 @@ class RuntimeConfigTests(unittest.TestCase):
 
         for sensitive_value in (
             "192.0.2.20",
-            "private-query-token",
             "private-webhook-signing-secret-0123456789",
             "private-redis-password",
             "publisher@redis.example.test",
