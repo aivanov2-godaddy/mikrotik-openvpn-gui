@@ -69,6 +69,10 @@ class TelemetryGatewayContractTests(unittest.TestCase):
 
     def test_stale_cursor_recovers_with_a_redacted_snapshot(self) -> None:
         subscription = self.gateway.open(self.principal)
+        self.assertEqual(
+            self.gateway.poll(subscription, after_sequence=0)[0]["event"],
+            "telemetry.snapshot",
+        )
         for sequence in range(1, 4):
             events = self.broker.apply(
                 RouterOSReply("re", {".id": f"*{sequence}", "name": f"user-{sequence}"}),
@@ -81,7 +85,7 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         self.assertEqual(len(frames[0]["payload"]["sessions"]), 3)
         metrics = self.gateway.metrics()
         self.assertEqual(metrics["published_events"], 3)
-        self.assertEqual(metrics["snapshot_recoveries"], 1)
+        self.assertEqual(metrics["snapshot_recoveries"], 2)
         self.assertEqual(metrics["replayed_events"], 0)
         self.assertNotIn("subscription_id", str(metrics))
 
@@ -106,8 +110,72 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         )
         self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
 
+        # Once the subscription has a server-bound cursor, a lagging client
+        # cursor cannot rewind replay or duplicate already-sent state.
+        self.gateway.publish(
+            self.broker.apply(
+                RouterOSReply("re", {".id": "*2", "name": "next-user"}),
+                now=102,
+            )
+        )
+        resumed = self.gateway.poll(subscription, after_sequence=0)
+        self.assertEqual([frame["event"] for frame in resumed], ["vpn.session.connected"])
+        self.assertEqual([frame["payload"]["name"] for frame in resumed], ["next-user"])
+
+    def test_client_cursor_cannot_skip_or_repeat_server_deliveries(self) -> None:
+        subscription = self.gateway.open(self.principal)
+        self.assertEqual(
+            self.gateway.poll(subscription, after_sequence=0)[0]["event"],
+            "telemetry.snapshot",
+        )
+
+        for sequence in range(1, 3):
+            self.gateway.publish(
+                self.broker.apply(
+                    RouterOSReply("re", {".id": f"*{sequence}", "name": f"user-{sequence}"}),
+                    now=100 + sequence,
+                )
+            )
+
+        # A cursor that leaps ahead cannot cause the server to drop events it
+        # has not delivered. A repeated future cursor cannot force snapshots.
+        frames = self.gateway.poll(subscription, after_sequence=1)
+        self.assertEqual([frame["sequence"] for frame in frames], [1, 2])
+        self.assertEqual(
+            [frame["payload"]["name"] for frame in frames],
+            ["user-1", "user-2"],
+        )
+        self.assertEqual(self.gateway.poll(subscription, after_sequence=-1), [])
+        self.assertEqual(self.gateway.poll(subscription, after_sequence=50), [])
+        self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
+
+    def test_cursor_equal_to_new_process_sequence_recovers_with_snapshot(self) -> None:
+        subscription = self.gateway.open(self.principal)
+        # The Socket.IO pump can poll once before the client sends its resume
+        # cursor. An empty poll must not bind the subscription to an epoch.
+        self.assertEqual(self.gateway.poll(subscription), [])
+        self.gateway.publish(
+            self.broker.apply(
+                RouterOSReply("re", {".id": "*1", "name": "current-user"}),
+                now=101,
+            )
+        )
+
+        # Sequence numbers restart at zero and are not epoch-bound. A cursor
+        # from the previous process can therefore equal the new sequence and
+        # must not be trusted as proof that the client has current state.
+        frames = self.gateway.poll(subscription, after_sequence=self.broker.sequence)
+
+        self.assertEqual([frame["event"] for frame in frames], ["telemetry.snapshot"])
+        self.assertEqual(
+            [session["name"] for session in frames[0]["payload"]["sessions"]],
+            ["current-user"],
+        )
+        self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
+
     def test_missing_sequence_inside_replay_window_recovers_with_snapshot(self) -> None:
         subscription = self.gateway.open(self.principal)
+        self.gateway.poll(subscription, after_sequence=0)
         first = self.broker.apply(RouterOSReply("re", {".id": "*1", "name": "first"}), now=101)
         self.broker.apply(RouterOSReply("re", {".id": "*2", "name": "second"}), now=102)
         third = self.broker.apply(RouterOSReply("re", {".id": "*3", "name": "third"}), now=103)
@@ -124,15 +192,15 @@ class TelemetryGatewayContractTests(unittest.TestCase):
             {session["name"] for session in frames[0]["payload"]["sessions"]},
             {"first", "second", "third"},
         )
-        self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 1)
+        self.assertEqual(self.gateway.metrics()["snapshot_recoveries"], 2)
 
     def test_recovery_snapshot_restores_interface_counters_at_its_watermark(self) -> None:
         subscription = self.gateway.open(self.principal)
-        self.gateway.publish(
-            self.broker.apply(
-                RouterOSReply("re", {".id": "*session", "name": "alice"}), now=101
-            )
+        self.gateway.poll(subscription, after_sequence=0)
+        self.broker.apply(
+            RouterOSReply("re", {".id": "*session", "name": "alice"}), now=101
         )
+        # Model a missing session event followed by a later interface sample.
         self.gateway.publish(
             self.broker.reconcile_interfaces(
                 [{".id": "*interface", "name": "ovpn-in1", "rx-byte": "4096", "tx-byte": "2048"}],
@@ -167,7 +235,7 @@ class TelemetryGatewayContractTests(unittest.TestCase):
         gateway.publish(second)
         gateway.publish(first)
 
-        frames = gateway.poll(subscription, after_sequence=0)
+        frames = gateway.poll(subscription)
 
         self.assertEqual([frame["sequence"] for frame in frames], [1, 2])
         self.assertEqual([frame["payload"]["name"] for frame in frames], ["first", "second"])
@@ -341,6 +409,7 @@ class TelemetryGatewayContractTests(unittest.TestCase):
                 now=100,
             )
         )
+        self.gateway.poll(subscription)
         self.gateway.publish(
             self.broker.apply(
                 RouterOSReply(
@@ -355,7 +424,7 @@ class TelemetryGatewayContractTests(unittest.TestCase):
                 now=101,
             )
         )
-        frame = self.gateway.poll(subscription, after_sequence=1)[0]
+        frame = self.gateway.poll(subscription)[0]
         self.assertEqual(frame["event"], "telemetry.counter_reset")
         self.assertEqual(frame["payload"]["fields"], ["rx_bytes"])
         self.assertNotIn("password", str(frame))

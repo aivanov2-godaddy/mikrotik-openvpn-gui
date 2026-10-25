@@ -127,6 +127,7 @@ class TelemetrySubscription:
     subscription_id: str
     created_at: int
     last_seen_sequence: int = 0
+    client_cursor_seen: bool = False
 
 
 class TelemetryGatewayContract:
@@ -265,22 +266,32 @@ class TelemetryGatewayContract:
         )
 
     def poll(self, subscription_id: str, *, after_sequence: int | None = None) -> list[dict[str, Any]]:
-        """Return new frames, recovering with a snapshot when replay is stale."""
+        """Return new frames, recovering when replay is stale or epoch-ambiguous.
+
+        Sequence numbers do not identify a broker process. The first explicit
+        client cursor therefore receives a current snapshot; later polls use
+        only the monotonic server-side cursor for bounded replay.
+        """
 
         with self._lock:
             subscription = self._clients.get(subscription_id)
             if subscription is None:
                 raise TelemetrySubscriptionError("telemetry subscription is not active")
-            cursor = subscription.last_seen_sequence if after_sequence is None else int(after_sequence)
+            # Client cursors are not epoch-bound and must never advance or
+            # rewind a cursor after the initial recovery snapshot. The server
+            # tracks exactly what it has delivered to this subscription.
+            cursor = subscription.last_seen_sequence
             frames = list(self._events)
             queued_frames = [frame for frame, _published_at in frames]
-            # Broker sequence numbers are process-local. After a restart the
-            # client can reconnect with a cursor from the previous process,
-            # which may be ahead of this broker's current sequence. Treat
-            # that as an epoch change and replace client state with a snapshot
-            # instead of returning an empty replay forever.
+            # The browser cursor contains no broker epoch. Its first resume
+            # cursor can belong to a previous process whose sequence numbers
+            # overlap this broker's, even if the background pump already made
+            # an empty poll. Replace client state with a snapshot; subsequent
+            # polls use the monotonic server-tracked sequence for bounded replay.
+            unbound_client_cursor = after_sequence is not None and not subscription.client_cursor_seen
             if (
-                cursor < 0
+                unbound_client_cursor
+                or cursor < 0
                 or cursor > self._broker.sequence
                 or (queued_frames and cursor < min(frame["sequence"] for frame in queued_frames) - 1)
             ):
@@ -313,6 +324,8 @@ class TelemetryGatewayContract:
                 self._delivery_queue_ages.extend(
                     max(0.0, observed_at - published_at) for _frame, published_at in result
                 )
+            if after_sequence is not None:
+                subscription.client_cursor_seen = True
             return copy.deepcopy([frame for frame, _published_at in result])
 
     def metrics(self) -> dict[str, int | float]:
