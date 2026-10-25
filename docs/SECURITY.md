@@ -95,9 +95,11 @@ The dashboard verifies the credentials presented at login against RouterOS and
 maps the authenticated RouterOS group to an explicit dashboard role. The roles
 are Owner, Security operator, Administrator, Auditor, and Read-only. The
 capability matrix is enforced in the API and reflected in the UI; a hidden or
-disabled button is never treated as the security boundary. Unknown groups fail
-closed to Read-only, while the legacy `/user`-unavailable compatibility path
-preserves the established owner session behavior for older RouterOS builds.
+disabled button is never treated as the security boundary. Unknown or empty
+groups map to Read-only. If the account or role lookup is unavailable or fails,
+including when an older RouterOS build returns 404 for `/user`, no dashboard
+role is granted and sign-in is rejected. There is no owner-access compatibility
+fallback for an unavailable role lookup.
 
 Prefer a dedicated RouterOS group with only the policy needed by dashboard
 operations after that policy has been tested against every supported action.

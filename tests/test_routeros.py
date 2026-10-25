@@ -152,6 +152,14 @@ class RouterOSClientTests(unittest.TestCase):
                     mock.state.admin_user_read_error = status
                     self.assertIsNone(client.get_admin_role(credentials))
 
+    def test_admin_role_lookup_fails_closed_when_user_endpoint_is_unsupported(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            mock.state.admin_user_read_error = 404
+
+            self.assertIsNone(client.get_admin_role(credentials))
+
     def test_admin_role_lookup_fails_closed_when_group_is_missing_or_empty(self) -> None:
         client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
         credentials = RouterOSCredentials("admin", "routerpass")
