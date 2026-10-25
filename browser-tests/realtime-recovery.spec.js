@@ -401,6 +401,124 @@ test('an incomplete Socket.IO snapshot preserves counters while an authoritative
   await expect(card).toHaveAttribute('data-tx', '0');
 });
 
+test('an incomplete REST status response preserves the last authoritative session counters', async ({ page }) => {
+  let statusPolls = 0;
+  let releaseFirstStatus;
+  let markStatusStarted;
+  let initialSession;
+  const firstStatusStarted = new Promise((resolve) => { markStatusStarted = resolve; });
+
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'sse', socketio_enabled: false }),
+  }));
+  await page.route('**/api/events', (route) => route.abort());
+  await page.route('**/api/status', async (route) => {
+    statusPolls += 1;
+    if (statusPolls === 1) {
+      markStatusStarted();
+      await new Promise((resolve) => { releaseFirstStatus = resolve; });
+    }
+    const response = await route.fetch();
+    const payload = await response.json();
+    const session = payload.sessions.find((item) => String(item.id) === initialSession?.id)
+      || initialSession;
+    payload.sessions = session ? [{
+      ...session,
+      uptime: 'updated-by-incomplete-rest-response',
+      counter_complete: false,
+      rx_bytes: 0,
+      tx_bytes: 0,
+      rx_packets: 0,
+      tx_packets: 0,
+    }] : [];
+    await route.fulfill({ response, body: JSON.stringify(payload) });
+  });
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
+
+  const card = page.locator('[data-active-session-list] .session-card').first();
+  await expect(card).toBeVisible();
+  const previousRx = await card.getAttribute('data-rx');
+  const previousTx = await card.getAttribute('data-tx');
+  expect(Number(previousRx)).toBeGreaterThan(0);
+  expect(Number(previousTx)).toBeGreaterThan(0);
+  initialSession = await card.evaluate((element) => ({
+    id: element.dataset.sessionId,
+    name: element.dataset.sessionUser,
+    uptime: element.querySelector('.session-uptime')?.textContent || '—',
+    rx_bytes: Number(element.dataset.rx) || 0,
+    tx_bytes: Number(element.dataset.tx) || 0,
+    rx_packets: Number(element.dataset.rxPackets) || 0,
+    tx_packets: Number(element.dataset.txPackets) || 0,
+  }));
+
+  await firstStatusStarted;
+  releaseFirstStatus();
+  await expect(card.locator('[data-session-uptime], .session-uptime'))
+    .toHaveText('updated-by-incomplete-rest-response');
+  await expect(card).toHaveAttribute('data-rx', previousRx);
+  await expect(card).toHaveAttribute('data-tx', previousTx);
+});
+
+test('queues one status refresh for a live session event received during an in-flight poll', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-03T12:00:00.000Z') });
+  let statusPolls = 0;
+  let releaseFirstStatus;
+  let markStatusStarted;
+  const firstStatusStarted = new Promise((resolve) => { markStatusStarted = resolve; });
+
+  await page.addInitScript(() => {
+    window.__liveTestSocket = {
+      handlers: new Map(),
+      on(name, callback) { this.handlers.set(name, callback); return this; },
+      close() {},
+    };
+    window.io = () => window.__liveTestSocket;
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'socketio', socketio_enabled: true, socketio_engine: 'asgi' }),
+  }));
+  await page.route('**/static/socket.io.min.js*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: 'window.io = window.io || (() => window.__liveTestSocket);',
+  }));
+  await page.route('**/api/status', async (route) => {
+    statusPolls += 1;
+    if (statusPolls === 1) {
+      markStatusStarted();
+      await new Promise((resolve) => { releaseFirstStatus = resolve; });
+    }
+    await route.continue();
+  });
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await page.clock.fastForward(1200);
+  await firstStatusStarted;
+  await expect.poll(() => page.evaluate(() => (
+    window.__liveTestSocket?.handlers.has('vpn.session.connected')
+  ))).toBe(true);
+
+  await page.evaluate(() => {
+    window.__liveTestSocket.handlers.get('vpn.session.connected')();
+    window.__liveTestSocket.handlers.get('vpn.session.updated')();
+  });
+  releaseFirstStatus();
+  await expect.poll(() => statusPolls, { timeout: 2000 }).toBe(2);
+});
+
 test('a failed status poll remains delayed when no live snapshot has arrived', async ({ page }) => {
   let statusPolls = 0;
   await page.route('**/api/status', async (route) => {

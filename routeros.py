@@ -300,7 +300,12 @@ class RouterOSClient:
             ),
         }
 
-    def get_admin_role(self, credentials: RouterOSCredentials) -> str | None:
+    def get_admin_role(
+        self,
+        credentials: RouterOSCredentials,
+        *,
+        raise_on_error: bool = False,
+    ) -> str | None:
         try:
             records = _records(
                 self._request(
@@ -311,6 +316,11 @@ class RouterOSClient:
                 )
             )
         except RouterOSError:
+            if raise_on_error:
+                raise RouterOSError(
+                    "RouterOS account role could not be verified",
+                    failure_kind="role_lookup",
+                ) from None
             # RouterOS is the identity and role source of truth. A failed role
             # lookup cannot prove that this account is still enabled or entitled
             # to even read-only telemetry, so revoke the established session.
