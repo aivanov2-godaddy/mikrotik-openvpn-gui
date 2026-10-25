@@ -277,7 +277,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
-def _parse_inventory(data: bytes) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def _parse_inventory(data: bytes) -> tuple[list[dict[str, str]], list[dict[str, object]], int]:
     if len(data) > _MAX_INVENTORY_BYTES:
         raise ValueError("inventory too large")
     text = data.decode("utf-8")
@@ -286,7 +286,8 @@ def _parse_inventory(data: bytes) -> tuple[list[dict[str, str]], list[dict[str, 
     document = json.loads(text, object_pairs_hook=_unique_object)
     if not isinstance(document, dict) or set(document) != {"schema_version", "scripts", "schedulers"}:
         raise ValueError("invalid inventory shape")
-    if type(document["schema_version"]) is not int or document["schema_version"] != 1:
+    schema_version = document["schema_version"]
+    if type(schema_version) is not int or schema_version not in {1, 2}:
         raise ValueError("unsupported inventory schema")
 
     scripts_value = document["scripts"]
@@ -330,21 +331,60 @@ def _parse_inventory(data: bytes) -> tuple[list[dict[str, str]], list[dict[str, 
         script_ids.add(script_id)
         scripts.append({"id": script_id, "path": source_path})
 
-    schedulers: list[dict[str, str]] = []
+    schedulers: list[dict[str, object]] = []
     scheduler_ids: set[str] = set()
     for item in schedulers_value:
-        if not isinstance(item, dict) or set(item) != {"id", "script_id"}:
+        if not isinstance(item, dict):
             raise ValueError("invalid scheduler entry")
-        scheduler_id, script_id = item["id"], item["script_id"]
+        scheduler_id = item.get("id")
         if not isinstance(scheduler_id, str) or _INVENTORY_ID.fullmatch(scheduler_id) is None:
             raise ValueError("invalid scheduler id")
         if scheduler_id in scheduler_ids:
             raise ValueError("duplicate scheduler id")
-        if not isinstance(script_id, str) or script_id not in script_ids:
-            raise ValueError("unresolved scheduler binding")
+        if schema_version == 1:
+            if set(item) != {"id", "script_id"}:
+                raise ValueError("invalid scheduler entry")
+            script_id = item["script_id"]
+            if not isinstance(script_id, str) or script_id not in script_ids:
+                raise ValueError("unresolved scheduler binding")
+            scheduler = {
+                "id": scheduler_id,
+                "target_kind": "listed_script",
+                "script_id": script_id,
+                "enabled": None,
+            }
+        else:
+            target_kind = item.get("target_kind")
+            enabled = item.get("enabled")
+            if (
+                not isinstance(enabled, bool)
+                or not isinstance(target_kind, str)
+                or target_kind not in {"listed_script", "opaque"}
+            ):
+                raise ValueError("invalid scheduler classification")
+            if target_kind == "listed_script":
+                if set(item) != {"id", "enabled", "target_kind", "script_id"}:
+                    raise ValueError("invalid listed-script scheduler")
+                script_id = item["script_id"]
+                if not isinstance(script_id, str) or script_id not in script_ids:
+                    raise ValueError("unresolved scheduler binding")
+                scheduler = {
+                    "id": scheduler_id,
+                    "target_kind": target_kind,
+                    "script_id": script_id,
+                    "enabled": enabled,
+                }
+            else:
+                if set(item) != {"id", "enabled", "target_kind"}:
+                    raise ValueError("invalid opaque scheduler")
+                scheduler = {
+                    "id": scheduler_id,
+                    "target_kind": target_kind,
+                    "enabled": enabled,
+                }
         scheduler_ids.add(scheduler_id)
-        schedulers.append({"id": scheduler_id, "script_id": script_id})
-    return scripts, schedulers
+        schedulers.append(scheduler)
+    return scripts, schedulers, schema_version
 
 
 def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> dict[str, object]:
@@ -354,14 +394,36 @@ def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> di
     parser and not proof that its contents match the live device.
     """
     _validate_text(reference)
-    scripts, schedulers = _parse_inventory(data)
+    scripts, schedulers, schema_version = _parse_inventory(data)
     inventory_path = inventory_path.absolute()
     if not _is_local_filesystem(inventory_path):
         raise ValueError("inventory is not on a local filesystem")
     inventory_root = inventory_path.parent
-    binding_counts = {script["id"]: 0 for script in scripts}
+    binding_counts = {
+        script["id"]: {"total": 0, "enabled": 0, "disabled": 0}
+        for script in scripts
+    }
+    opaque_scheduler_count = 0
+    enabled_opaque_scheduler_count = 0
+    enabled_scheduler_count = 0
+    disabled_scheduler_count = 0
     for scheduler in schedulers:
-        binding_counts[scheduler["script_id"]] += 1
+        if schema_version == 2:
+            if scheduler["enabled"] is True:
+                enabled_scheduler_count += 1
+            else:
+                disabled_scheduler_count += 1
+        if scheduler["target_kind"] == "opaque":
+            opaque_scheduler_count += 1
+            if scheduler["enabled"] is True:
+                enabled_opaque_scheduler_count += 1
+            continue
+        counts = binding_counts[scheduler["script_id"]]
+        counts["total"] += 1
+        if scheduler["enabled"] is True:
+            counts["enabled"] += 1
+        elif scheduler["enabled"] is False:
+            counts["disabled"] += 1
 
     comparisons: list[dict[str, object]] = []
     for index, script in enumerate(scripts, start=1):
@@ -381,15 +443,32 @@ def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> di
                 "candidate_sha256": report["candidate_sha256"],
                 "exact_match": report["exact_match"],
                 "changed_line_count": report["changed_line_count"],
-                "scheduler_binding_count": binding_counts[script["id"]],
+                "scheduler_binding_count": binding_counts[script["id"]]["total"],
+                "enabled_scheduler_binding_count": (
+                    binding_counts[script["id"]]["enabled"] if schema_version == 2 else None
+                ),
+                "disabled_scheduler_binding_count": (
+                    binding_counts[script["id"]]["disabled"] if schema_version == 2 else None
+                ),
                 "risk_flags": report["risk_flags"],
             }
         )
     return {
         "script_count": len(scripts),
         "scheduler_count": len(schedulers),
+        "inventory_schema_version": schema_version,
         "inventory_scope": "manifest_listed_only",
         "inventory_exhaustiveness": "not_verified",
+        "scheduler_inventory_scope": (
+            "all_manifest_listed_entries" if schema_version == 2 else "direct_updater_bindings_only"
+        ),
+        "scheduler_inventory_classified": schema_version == 2,
+        "enabled_scheduler_count": enabled_scheduler_count if schema_version == 2 else None,
+        "disabled_scheduler_count": disabled_scheduler_count if schema_version == 2 else None,
+        "opaque_scheduler_event_count": opaque_scheduler_count if schema_version == 2 else None,
+        "enabled_opaque_scheduler_event_count": (
+            enabled_opaque_scheduler_count if schema_version == 2 else None
+        ),
         "listed_bindings_resolved": True,
         "scripts": comparisons,
     }
