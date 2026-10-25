@@ -212,6 +212,26 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.document = ASSURANCE_DOCUMENT.read_text(encoding="utf-8")
 
+    def test_access_log_claims_distinguish_application_and_deployed_layers(self) -> None:
+        normalized = " ".join(self.document.split())
+        self.assertIn(
+            "the production ASGI entrypoint disables Uvicorn access logging",
+            normalized,
+        )
+        self.assertIn("entrypoint regression asserts `access_log=False`", normalized)
+        self.assertIn(
+            "Repository tests cover the synchronous application's sanitized access logger and assert the production ASGI entrypoint disables Uvicorn access logging",
+            normalized,
+        )
+        self.assertIn(
+            "does not show whether prior deployed logs were retained or reviewed",
+            normalized,
+        )
+        self.assertIn(
+            "how the reverse proxy, container runtime, RouterOS, and host log or retain data",
+            normalized,
+        )
+
     def test_scope_and_non_certification_boundary_are_explicit(self) -> None:
         for control in (
             "V3.3.1–V3.3.5 (Cookie Setup)",

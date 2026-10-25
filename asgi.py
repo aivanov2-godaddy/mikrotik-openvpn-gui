@@ -1308,6 +1308,9 @@ def main() -> None:
             host=os.environ.get("LISTEN_ADDRESS", "0.0.0.0"),
             port=int(os.environ.get("APP_PORT", "8080")),
             log_level="info",
+            # Profile-share bearer tokens are embedded in URL paths; Uvicorn's
+            # default access logger records request paths.
+            access_log=False,
             **DashboardHTTPASGI._uvicorn_proxy_options(),
         )
     finally:
