@@ -196,23 +196,44 @@ restricted and delete it using the operator's normal secure-retention process
 when the reconciliation is complete.
 
 The inventory format is deliberately narrow and does not attempt to parse
-arbitrary RouterOS exports. Transcribe each script as a separate entry (even
-when two copies have identical content), and represent each scheduler only by
-the single script-copy ID it directly invokes:
+arbitrary RouterOS exports. Transcribe each updater copy as a separate entry
+(even when two copies have identical content). Schema version 2 also records
+each scheduler entry's enabled state and whether it directly invokes one of
+those listed updater copies. Do not include the scheduler's real name or raw
+`on-event` value:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scripts": [
     {"id": "copy-a", "path": "copy-a.rsc"},
     {"id": "copy-b", "path": "copy-b.rsc"}
   ],
   "schedulers": [
-    {"id": "startup", "script_id": "copy-a"},
-    {"id": "watchdog", "script_id": "copy-b"}
+    {"id": "startup", "enabled": true, "target_kind": "listed_script", "script_id": "copy-a"},
+    {"id": "watchdog", "enabled": true, "target_kind": "listed_script", "script_id": "copy-b"},
+    {"id": "other-entry", "enabled": false, "target_kind": "opaque"}
   ]
 }
 ```
+
+Use a unique pseudonymous `id` for each scheduler and set `enabled` to the
+RouterOS-observed boolean. Use `target_kind: "listed_script"` only when a
+trusted read-only view resolves that scheduler's direct event to one of the
+listed updater copies, then provide its `script_id`. Use `target_kind:
+"opaque"` for an event that does not directly resolve to a listed updater
+copy, including inline, unrelated, or unresolved events. Opaque entries must
+not have a `script_id`; do not copy their event text into the manifest. An
+opaque event may still invoke an updater indirectly, so it requires separate
+private review and is not evidence that the scheduler is harmless. Do not infer
+the meaning of RouterOS numeric references without a trusted read-only
+resolution.
+
+Schema version 1 remains accepted for existing manifests. It represents only
+direct updater bindings and has no scheduler enabled-state evidence; its report
+therefore uses `scheduler_inventory_scope: "direct_updater_bindings_only"`,
+sets `scheduler_inventory_classified` to `false`, and reports the new
+enabled/opaque counts as `null`.
 
 Run the inventory mode from the repository root:
 
@@ -222,33 +243,41 @@ python scripts/compare_routeros_updater.py --inventory "C:\secure\updater-invent
 
 Candidate paths must be relative files contained beneath the inventory's
 directory. Absolute paths, URL/UNC paths, traversal, duplicate IDs or source
-paths, unresolved bindings, inline/unknown scheduler fields, malformed JSON,
-and unsupported schema versions fail closed. The tool reads the local files
+paths, unresolved listed-script bindings, unknown scheduler fields, malformed
+JSON, and unsupported schema versions fail closed. Schema version 2 rejects
+non-boolean enabled values and any unrecognized `target_kind`. The tool reads the local files
 and reviewed template only; it makes no HTTP/API calls, never connects to
 RouterOS, runs a script, changes a device, or emits source text, names, IDs,
 or file paths. Keep inputs on local storage; filesystem drivers can access
 remote storage when paths are network-mounted. The JSON
 report maps `script_index` to the corresponding order in the private manifest,
 includes each candidate's SHA-256, exact-match result, changed-line count,
-marker flags, and the number of explicitly represented scheduler bindings.
-It also returns `inventory_scope: "manifest_listed_only"` and
+marker flags, and direct scheduler-binding counts. Schema version 2 also
+returns only aggregate enabled/disabled scheduler counts and the count of
+opaque events; it never returns scheduler IDs or event contents.
+`scheduler_inventory_classified: true` means each scheduler entry in the
+manifest was represented as a listed-script binding or opaque event; it does
+not mean an opaque event was analyzed. The report also includes
+`inventory_scope: "manifest_listed_only"` and
 `inventory_exhaustiveness: "not_verified"`; `listed_bindings_resolved` only
-describes the entries present in the manifest. The offline tool cannot prove
-that every RouterOS script, scheduler, or indirect invocation was inventoried,
-so even a zero exit code is not proof of a complete installed-device
-reconciliation.
+describes direct bindings to script IDs present in the manifest. The offline
+tool cannot prove that every RouterOS script, scheduler, or indirect invocation
+was inventoried, so even a zero exit code is not proof of a complete
+installed-device reconciliation. Any nonzero opaque-event count still needs
+private manual review before updater execution.
 Keep that report private too: a full-file hash can fingerprint known content.
 
 Inventory mode exit code `0` means all listed copies byte-match the reviewed
 template, `1` means one or more listed copies differ, and `2` means the
-inventory or comparison could not be safely processed. This is not proof that
-the manifest is complete or accurate, that the source was exported from the
-live router, that a scheduler actually invokes the represented copy, or that
-any candidate is safe to execute. It does not interpret RouterOS internal
-numeric references or inline `on-event` code; an operator must independently
-transcribe and verify each direct binding from a trusted read-only device view.
-Hash comparison and marker counts do not replace manual review. Do not run an
-unreviewed installed updater to discover its behavior.
+inventory or comparison could not be safely processed. In schema version 2,
+exit code `0` does not certify or interpret opaque scheduler events. This is
+not proof that the manifest is complete or accurate, that source was exported
+from the live router, that a scheduler actually invokes the represented copy,
+or that any candidate is safe to execute. It does not interpret RouterOS
+internal numeric references or inline `on-event` code; an operator must
+independently transcribe and verify each direct binding from a trusted
+read-only device view. Hash comparison and marker counts do not replace manual
+review. Do not run an unreviewed installed updater to discover its behavior.
 
 Before the updater changes canary, it runs the same journal helper against a
 short-lived probe in the configured local state directory, including both

@@ -164,6 +164,11 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
 
         self.assertEqual(report["script_count"], 3)
         self.assertEqual(report["scheduler_count"], 3)
+        self.assertEqual(report["inventory_schema_version"], 1)
+        self.assertEqual(report["scheduler_inventory_scope"], "direct_updater_bindings_only")
+        self.assertFalse(report["scheduler_inventory_classified"])
+        self.assertIsNone(report["enabled_scheduler_count"])
+        self.assertIsNone(report["opaque_scheduler_event_count"])
         self.assertEqual(report["inventory_scope"], "manifest_listed_only")
         self.assertEqual(report["inventory_exhaustiveness"], "not_verified")
         self.assertTrue(report["listed_bindings_resolved"])
@@ -174,6 +179,142 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         self.assertEqual(copies[1]["scheduler_binding_count"], 1)
         self.assertFalse(copies[2]["exact_match"])
         self.assertEqual(copies[2]["scheduler_binding_count"], 0)
+
+    def test_inventory_v2_classifies_all_listed_scheduler_entries_without_event_text(self) -> None:
+        reference = b":local updater \"reviewed\"\n"
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "copy-a.rsc").write_bytes(reference)
+            (root / "copy-b.rsc").write_bytes(reference)
+            inventory_path = root / "inventory.json"
+            inventory_path.write_text("{}", encoding="utf-8")
+            manifest = {
+                "schema_version": 2,
+                "scripts": [
+                    {"id": "copy-a", "path": "copy-a.rsc"},
+                    {"id": "copy-b", "path": "copy-b.rsc"},
+                ],
+                "schedulers": [
+                    {
+                        "id": "active-updater",
+                        "enabled": True,
+                        "target_kind": "listed_script",
+                        "script_id": "copy-a",
+                    },
+                    {
+                        "id": "disabled-updater",
+                        "enabled": False,
+                        "target_kind": "listed_script",
+                        "script_id": "copy-a",
+                    },
+                    {"id": "disabled-other", "enabled": False, "target_kind": "opaque"},
+                    {"id": "active-opaque", "enabled": True, "target_kind": "opaque"},
+                ],
+            }
+            report = compare_routeros_updater.compare_inventory(
+                reference, json.dumps(manifest).encode(), inventory_path
+            )
+
+        self.assertEqual(report["inventory_schema_version"], 2)
+        self.assertEqual(report["scheduler_inventory_scope"], "all_manifest_listed_entries")
+        self.assertTrue(report["scheduler_inventory_classified"])
+        self.assertEqual(report["scheduler_count"], 4)
+        self.assertEqual(report["enabled_scheduler_count"], 2)
+        self.assertEqual(report["disabled_scheduler_count"], 2)
+        self.assertEqual(report["opaque_scheduler_event_count"], 2)
+        self.assertEqual(report["enabled_opaque_scheduler_event_count"], 1)
+        self.assertTrue(report["listed_bindings_resolved"])
+        scripts = report["scripts"]
+        self.assertEqual(scripts[0]["scheduler_binding_count"], 2)
+        self.assertEqual(scripts[0]["enabled_scheduler_binding_count"], 1)
+        self.assertEqual(scripts[0]["disabled_scheduler_binding_count"], 1)
+        self.assertEqual(scripts[1]["scheduler_binding_count"], 0)
+        rendered = json.dumps(report)
+        for marker in ("active-updater", "disabled-updater", "disabled-other", "active-opaque"):
+            self.assertNotIn(marker, rendered)
+
+    def test_inventory_v2_cli_keeps_opaque_event_values_out_of_report(self) -> None:
+        reference = b":local updater \"reviewed\"\n"
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "copy-a.rsc").write_bytes(reference)
+            manifest_path = root / "inventory.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "scripts": [{"id": "copy-a", "path": "copy-a.rsc"}],
+                        "schedulers": [
+                            {"id": "private-scheduler-id", "enabled": False, "target_kind": "opaque"}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with patch.object(compare_routeros_updater, "TEMPLATE_PATH", root / "reference.rsc"):
+                (root / "reference.rsc").write_bytes(reference)
+                with redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    exit_code = compare_routeros_updater.main(["--inventory", str(manifest_path)])
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report["opaque_scheduler_event_count"], 1)
+        self.assertEqual(report["enabled_opaque_scheduler_event_count"], 0)
+        self.assertNotIn("private-scheduler-id", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_inventory_v2_rejects_invalid_scheduler_classification(self) -> None:
+        invalid_schedulers = (
+            {"id": "entry", "enabled": "false", "target_kind": "opaque"},
+            {"id": "entry", "enabled": 0, "target_kind": "opaque"},
+            {"id": "entry", "enabled": False, "target_kind": "unknown"},
+            {"id": "entry", "enabled": False, "target_kind": ["opaque"]},
+            {"id": "entry", "enabled": True, "target_kind": "listed_script"},
+            {
+                "id": "entry",
+                "enabled": True,
+                "target_kind": "listed_script",
+                "script_id": "missing",
+            },
+            {
+                "id": "entry",
+                "enabled": False,
+                "target_kind": "opaque",
+                "script_id": "copy-a",
+            },
+            {
+                "id": "entry",
+                "enabled": False,
+                "target_kind": "opaque",
+                "on_event": "PRIVATE-RAW-ROUTEROS-EVENT",
+            },
+        )
+        for scheduler in invalid_schedulers:
+            with self.subTest(scheduler=scheduler):
+                with TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    (root / "copy-a.rsc").write_bytes(b"safe\n")
+                    manifest_path = root / "inventory.json"
+                    manifest_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": 2,
+                                "scripts": [{"id": "copy-a", "path": "copy-a.rsc"}],
+                                "schedulers": [scheduler],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with patch.object(compare_routeros_updater, "TEMPLATE_PATH", root / "reference.rsc"):
+                        (root / "reference.rsc").write_bytes(b"safe\n")
+                        with redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                            exit_code = compare_routeros_updater.main(["--inventory", str(manifest_path)])
+                self.assertEqual(exit_code, 2)
+                self.assertEqual(json.loads(stdout.getvalue()), {"error": "invalid_inventory"})
+                self.assertNotIn("PRIVATE-RAW-ROUTEROS-EVENT", stdout.getvalue())
+                self.assertEqual(stderr.getvalue(), "")
 
     def test_inventory_cli_emits_redacted_report_and_no_stderr(self) -> None:
         reference = b":local updater \"reviewed\"\n"
