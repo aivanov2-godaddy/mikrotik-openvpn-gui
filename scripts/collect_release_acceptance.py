@@ -73,6 +73,7 @@ MAX_OUTBOX_DEAD_LETTERED = 0
 MAX_CLOCK_DRIFT_SECONDS = 5.0
 METRIC_NAMES = {
     "vpn_dashboard_health",
+    "vpn_dashboard_process_start_time_seconds",
     "vpn_dashboard_redis_configured",
     "vpn_dashboard_redis_last_observed_available",
     "vpn_dashboard_redis_publish_total",
@@ -80,6 +81,7 @@ METRIC_NAMES = {
     "vpn_dashboard_integration_outbox_pending",
     "vpn_dashboard_integration_outbox_dead_lettered",
     "vpn_dashboard_integration_outbox_oldest_age_seconds",
+    "vpn_dashboard_integration_outbox_storage_failures_total",
     "vpn_dashboard_telemetry_session_event_age_seconds",
     "vpn_dashboard_telemetry_session_event_timestamp_seconds",
     "vpn_dashboard_telemetry_session_events_total",
@@ -185,6 +187,7 @@ def finalize_release_acceptance(
     }
     return (0 if passed else 1), summary
 REQUIRED_ACCEPTANCE_METRICS = {
+    "vpn_dashboard_process_start_time_seconds",
     "vpn_dashboard_redis_configured",
     "vpn_dashboard_redis_last_observed_available",
     "vpn_dashboard_redis_publish_total_success",
@@ -193,6 +196,7 @@ REQUIRED_ACCEPTANCE_METRICS = {
     "vpn_dashboard_integration_outbox_pending",
     "vpn_dashboard_integration_outbox_dead_lettered",
     "vpn_dashboard_integration_outbox_oldest_age_seconds",
+    "vpn_dashboard_integration_outbox_storage_failures_total",
     "vpn_dashboard_telemetry_session_event_age_seconds",
     "vpn_dashboard_telemetry_session_event_timestamp_seconds",
     "vpn_dashboard_telemetry_traffic_sample_age_seconds",
@@ -658,12 +662,19 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
     def counter_window(metric_name: str) -> dict[str, Any]:
         values = [sample["metrics"][metric_name] for sample in metric_samples if metric_name in sample["metrics"]]
         if not values:
-            return {"delta": 0, "counter_reset": False}
-        previous = max(0, int(values[0]))
+            return {"delta": 0, "counter_reset": False, "invalid_samples": 0}
+        valid_values = [
+            int(value)
+            for value in values
+            if math.isfinite(value) and value >= 0 and float(value).is_integer()
+        ]
+        invalid_samples = len(values) - len(valid_values)
+        if not valid_values:
+            return {"delta": 0, "counter_reset": False, "invalid_samples": invalid_samples}
+        previous = valid_values[0]
         delta = 0
         reset = False
-        for raw_value in values[1:]:
-            current = max(0, int(raw_value))
+        for current in valid_values[1:]:
             if current < previous:
                 # A reset starts a new counter epoch; include the post-reset
                 # observations instead of allowing them to cancel prior work.
@@ -675,7 +686,47 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         return {
             "delta": delta,
             "counter_reset": reset,
+            "invalid_samples": invalid_samples,
         }
+
+    process_start_values = [
+        sample["metrics"]["vpn_dashboard_process_start_time_seconds"]
+        for sample in metric_samples
+        if "vpn_dashboard_process_start_time_seconds" in sample["metrics"]
+    ]
+    valid_process_start_values = [
+        value for value in process_start_values if math.isfinite(value) and value > 0
+    ]
+    process_start_invalid_samples = len(process_start_values) - len(valid_process_start_values)
+    process_start_time_changed = len(set(valid_process_start_values)) > 1
+    process_started_during_window = bool(
+        valid_process_start_values
+        and valid_process_start_values[0] > start_epoch + MAX_CLOCK_DRIFT_SECONDS
+    )
+    process_start_window_start_ambiguous = bool(
+        valid_process_start_values
+        and start_epoch - MAX_CLOCK_DRIFT_SECONDS
+        <= valid_process_start_values[0]
+        <= start_epoch + MAX_CLOCK_DRIFT_SECONDS
+    )
+    process_start_unknown_samples = len(metric_samples) - len(process_start_values)
+
+    counter_metric_names = (
+        "vpn_dashboard_redis_publish_total_failure",
+        "vpn_dashboard_integration_outbox_storage_failures_total",
+        "vpn_dashboard_telemetry_gateway_events_total_published",
+        "vpn_dashboard_telemetry_gateway_events_total_replayed",
+        "vpn_dashboard_telemetry_gateway_events_total_snapshot_recovery",
+        "vpn_dashboard_telemetry_gateway_rejected_clients_total",
+        "vpn_dashboard_telemetry_supervisor_attempts_total",
+        "vpn_dashboard_telemetry_supervisor_reconnects_total",
+        "vpn_dashboard_telemetry_supervisor_failures_total",
+        "vpn_dashboard_telemetry_supervisor_events_total",
+    )
+    counter_windows = {name: counter_window(name) for name in counter_metric_names}
+    counter_metric_invalid_samples = sum(
+        window["invalid_samples"] for window in counter_windows.values()
+    )
 
     def gauge_window(metric_name: str) -> dict[str, Any]:
         values = [sample["metrics"][metric_name] for sample in metric_samples if metric_name in sample["metrics"]]
@@ -711,8 +762,16 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
     outbox_pending = gauge_window("vpn_dashboard_integration_outbox_pending")
     outbox_dead_lettered = gauge_window("vpn_dashboard_integration_outbox_dead_lettered")
     outbox_oldest_age = gauge_window("vpn_dashboard_integration_outbox_oldest_age_seconds")
+    outbox_storage_failure_window = counter_windows[
+        "vpn_dashboard_integration_outbox_storage_failures_total"
+    ]
+    outbox_storage_failure_values = [
+        sample["metrics"]["vpn_dashboard_integration_outbox_storage_failures_total"]
+        for sample in metric_samples
+        if "vpn_dashboard_integration_outbox_storage_failures_total" in sample["metrics"]
+    ]
 
-    redis_failure_window = counter_window("vpn_dashboard_redis_publish_total_failure")
+    redis_failure_window = counter_windows["vpn_dashboard_redis_publish_total_failure"]
     failure_delta = redis_failure_window["delta"]
     failure_counter_reset = redis_failure_window["counter_reset"]
     redis_configured_window = binary_window("vpn_dashboard_redis_configured")
@@ -753,15 +812,26 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
         "outbox_dead_lettered_unknown_samples": outbox_dead_lettered["unknown_samples"],
         "outbox_oldest_age_max_seconds": outbox_oldest_age["max"],
         "outbox_oldest_age_unknown_samples": outbox_oldest_age["unknown_samples"],
+        "outbox_storage_failure_delta": outbox_storage_failure_window["delta"],
+        "outbox_storage_failure_counter_reset": outbox_storage_failure_window["counter_reset"],
+        "counter_metric_invalid_samples": counter_metric_invalid_samples,
+        "outbox_storage_failure_initial": (
+            outbox_storage_failure_values[0] if outbox_storage_failure_values else None
+        ),
+        "process_start_time_changed": process_start_time_changed,
+        "process_started_during_window": process_started_during_window,
+        "process_start_window_start_ambiguous": process_start_window_start_ambiguous,
+        "process_start_invalid_samples": process_start_invalid_samples,
+        "process_start_unknown_samples": process_start_unknown_samples,
         "telemetry_gateway": {
             "authorized_clients_last": last.get("vpn_dashboard_telemetry_gateway_clients"),
             "buffered_events_last": last.get("vpn_dashboard_telemetry_gateway_buffered_events"),
-            "published_events": counter_window("vpn_dashboard_telemetry_gateway_events_total_published"),
-            "replayed_events": counter_window("vpn_dashboard_telemetry_gateway_events_total_replayed"),
-            "snapshot_recoveries": counter_window(
+            "published_events": counter_windows["vpn_dashboard_telemetry_gateway_events_total_published"],
+            "replayed_events": counter_windows["vpn_dashboard_telemetry_gateway_events_total_replayed"],
+            "snapshot_recoveries": counter_windows[
                 "vpn_dashboard_telemetry_gateway_events_total_snapshot_recovery"
-            ),
-            "rejected_clients": counter_window("vpn_dashboard_telemetry_gateway_rejected_clients_total"),
+            ],
+            "rejected_clients": counter_windows["vpn_dashboard_telemetry_gateway_rejected_clients_total"],
             "delivery_observations_last": last.get("vpn_dashboard_telemetry_gateway_delivery_observations"),
             "delivery_queue_age_seconds": gauge_window(
                 "vpn_dashboard_telemetry_gateway_delivery_queue_age_seconds"
@@ -788,10 +858,10 @@ def _metric_window(samples: list[dict[str, Any]], start_epoch: float, end_epoch:
                 ),
                 "unknown",
             ),
-            "attempts": counter_window("vpn_dashboard_telemetry_supervisor_attempts_total"),
-            "reconnects": counter_window("vpn_dashboard_telemetry_supervisor_reconnects_total"),
-            "failures": counter_window("vpn_dashboard_telemetry_supervisor_failures_total"),
-            "events": counter_window("vpn_dashboard_telemetry_supervisor_events_total"),
+            "attempts": counter_windows["vpn_dashboard_telemetry_supervisor_attempts_total"],
+            "reconnects": counter_windows["vpn_dashboard_telemetry_supervisor_reconnects_total"],
+            "failures": counter_windows["vpn_dashboard_telemetry_supervisor_failures_total"],
+            "events": counter_windows["vpn_dashboard_telemetry_supervisor_events_total"],
             "last_connected_timestamp_seconds": last.get(
                 "vpn_dashboard_telemetry_supervisor_last_connected_timestamp_seconds"
             ),
@@ -1272,6 +1342,27 @@ def collect(
                 failed_gates.append(f"{environment}_outbox_pending_during_window")
             if metric_summary["outbox_oldest_age_unknown_samples"] or metric_summary["outbox_oldest_age_max_seconds"] is None:
                 failed_gates.append(f"{environment}_outbox_age_unobserved")
+            if metric_summary["outbox_storage_failure_counter_reset"]:
+                failed_gates.append(f"{environment}_outbox_storage_failure_counter_reset")
+            if metric_summary["outbox_storage_failure_initial"] is None:
+                failed_gates.append(f"{environment}_outbox_storage_failure_counter_unobserved")
+            elif metric_summary["outbox_storage_failure_initial"] > 0:
+                failed_gates.append(f"{environment}_outbox_storage_failure_present_at_window_start")
+            if metric_summary["outbox_storage_failure_delta"] > 0:
+                failed_gates.append(f"{environment}_outbox_storage_failures_during_window")
+            if metric_summary["counter_metric_invalid_samples"]:
+                failed_gates.append(f"{environment}_counter_metric_invalid_samples")
+            if metric_summary["process_start_unknown_samples"]:
+                failed_gates.append(f"{environment}_process_start_time_unobserved")
+            if metric_summary["process_start_invalid_samples"]:
+                failed_gates.append(f"{environment}_process_start_time_invalid")
+            if (
+                metric_summary["process_start_time_changed"]
+                or metric_summary["process_started_during_window"]
+            ):
+                failed_gates.append(f"{environment}_process_restarted_during_window")
+            if metric_summary["process_start_window_start_ambiguous"]:
+                failed_gates.append(f"{environment}_process_start_time_ambiguous_at_window_start")
             # A passing Redis publish requires configuration, observed availability,
             # and a successful publish in this observation window.
             record["redis_configured"] = metrics_window_complete and metric_summary["redis_configured_window"]["all_enabled"]

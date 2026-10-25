@@ -85,8 +85,10 @@ def _proxy_sources(value: str) -> str:
     for source in sources:
         try:
             ipaddress.ip_address(source)
-        except ValueError as error:
-            raise ValueError(f"trusted proxy source must be an individual IP address: {source}") from error
+        except ValueError:
+            # The input can be accidentally populated with a credential; keep
+            # the CLI diagnostic allow-listed instead of echoing user input.
+            raise ValueError("trusted proxy source must be an individual IP address") from None
     return ",".join(ipaddress.ip_address(source).compressed for source in sources)
 
 

@@ -68,6 +68,7 @@ POLICY_VALUES = {"full-tunnel", "lan-only", "internet-only"}
 DNS_VALUES = {"router", "cloudflare"}
 EXPIRY_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
+PROCESS_START_TIME_SECONDS = time.time()
 
 
 def _validated_response_headers(extra: dict[str, str] | None) -> list[tuple[str, str]]:
@@ -3049,6 +3050,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         integration = dispatcher.metrics() if dispatcher is not None else {
             "enabled": 0, "webhook_configured": 0,
             "delivery_successes": 0, "delivery_failures": 0, "last_delivery_success": 0,
+            "outbox_storage_failures": 0,
             "redis_configured": 0, "redis_available": -1, "redis_publish_successes": 0,
             "redis_publish_failures": 0, "redis_last_publish_success": 0,
         }
@@ -3056,6 +3058,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# HELP vpn_dashboard_info Runtime release identity.",
             "# TYPE vpn_dashboard_info gauge",
             f'vpn_dashboard_info{{version="{self._metric_escape(self.server.context.release_version)}",revision="{self._metric_escape(self.server.context.release_revision)}"}} 1',
+            "# HELP vpn_dashboard_process_start_time_seconds Unix timestamp when this dashboard process started.",
+            "# TYPE vpn_dashboard_process_start_time_seconds gauge",
+            f"vpn_dashboard_process_start_time_seconds {PROCESS_START_TIME_SECONDS:.6f}",
             "# HELP vpn_dashboard_admin_sessions Active dashboard administrator sessions.",
             "# TYPE vpn_dashboard_admin_sessions gauge",
             f"vpn_dashboard_admin_sessions {active_admin}",
@@ -3098,6 +3103,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "# TYPE vpn_dashboard_integration_delivery_total counter",
             f'vpn_dashboard_integration_delivery_total{{outcome="success"}} {integration["delivery_successes"]}',
             f'vpn_dashboard_integration_delivery_total{{outcome="failure"}} {integration["delivery_failures"]}',
+            "# HELP vpn_dashboard_integration_outbox_storage_failures_total SQLite failures while reading or updating the durable integration outbox.",
+            "# TYPE vpn_dashboard_integration_outbox_storage_failures_total counter",
+            f"vpn_dashboard_integration_outbox_storage_failures_total {integration['outbox_storage_failures']}",
             "# HELP vpn_dashboard_integration_last_delivery_success_timestamp_seconds Unix timestamp of the last successful outbox delivery.",
             "# TYPE vpn_dashboard_integration_last_delivery_success_timestamp_seconds gauge",
             f"vpn_dashboard_integration_last_delivery_success_timestamp_seconds {integration['last_delivery_success']}",

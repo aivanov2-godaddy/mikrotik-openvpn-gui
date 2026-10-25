@@ -628,12 +628,17 @@ class ReleaseCollectionTests(unittest.TestCase):
             b'vpn_dashboard_telemetry_gateway_events_total{outcome="published"} 4\n'
             b'vpn_dashboard_redis_publish_total{outcome="success",token="private-token"} 99\n'
             b'vpn_dashboard_redis_publish_total{outcome="success"} 7\n'
+            b'vpn_dashboard_integration_outbox_storage_failures_total{event_id="private-id"} 99\n'
+            b'vpn_dashboard_integration_outbox_storage_failures_total 3\n'
+            b'vpn_dashboard_process_start_time_seconds 1790928000.5\n'
             b'vpn_dashboard_telemetry_supervisor_status{state="healthy",router="private-host"} 99\n'
             b'vpn_dashboard_telemetry_supervisor_status{state="healthy"} 1\n'
         )
         self.assertNotIn("vpn_dashboard_telemetry_gateway_clients", parsed)
         self.assertEqual(parsed["vpn_dashboard_telemetry_gateway_events_total_published"], 4)
         self.assertEqual(parsed["vpn_dashboard_redis_publish_total_success"], 7)
+        self.assertEqual(parsed["vpn_dashboard_integration_outbox_storage_failures_total"], 3)
+        self.assertEqual(parsed["vpn_dashboard_process_start_time_seconds"], 1790928000.5)
         self.assertEqual(parsed["vpn_dashboard_telemetry_supervisor_status_healthy"], 1)
 
     def run_collection(
@@ -660,6 +665,11 @@ class ReleaseCollectionTests(unittest.TestCase):
         outbox_pending_sequence: list[int] | None = None,
         outbox_dead_lettered: int = 0,
         outbox_oldest_age: float = 0,
+        outbox_storage_failure_initial: int = 0,
+        outbox_storage_failure_delta: int = 0,
+        outbox_storage_failure_counter_reset: bool = False,
+        process_start_time_override: float | None = None,
+        process_restart_observed: bool = False,
         unknown_metric_sample: int | None = None,
         wall_clock_adjustment_seconds: float = 0,
         phase: str = "postpromotion",
@@ -686,6 +696,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         metrics_observations = 0
         metrics_observations_by_environment = {"canary": 0, "production": 0}
         recovery_timestamp_bases: dict[str, float] = {}
+        process_start_time_bases: dict[str, float] = {}
         source = evidence()
         if not include_certificate_lifecycle_report:
             source.pop("certificate_lifecycle_acceptance", None)
@@ -760,12 +771,27 @@ class ReleaseCollectionTests(unittest.TestCase):
             now = time.clock().timestamp()
             recovery_timestamp_bases.setdefault(environment, now)
             recovery_time_base = recovery_timestamp_bases[environment]
+            process_start_time_bases.setdefault(environment, now - 3600)
+            process_start_time = (
+                now - 1
+                if process_restart_observed and metrics_observations_by_environment[environment] > 1
+                else process_start_time_bases[environment]
+            )
+            if process_start_time_override is not None:
+                process_start_time = process_start_time_override
             recovery_observed = metrics_observations_by_environment[environment] > 1
             availability_index = min(metrics_observations_by_environment[environment] - 1,
                                      len(redis_availability_sequence or [1]) - 1)
             redis_available = (redis_availability_sequence or [1])[availability_index]
             event_timestamp_age = 10 if inconsistent_session_timestamp else session_event_age
             traffic_timestamp_age = 10 if inconsistent_traffic_timestamp else traffic_sample_age
+            outbox_storage_failures = (
+                outbox_storage_failure_initial + 5
+                if outbox_storage_failure_counter_reset and not recovery_observed
+                else outbox_storage_failure_initial + outbox_storage_failure_delta
+                if recovery_observed
+                else outbox_storage_failure_initial
+            )
             reconnect_timestamp = recovery_time_base - 0.25 + (
                 reconnect_counter_delta if recovery_observed and advance_recovery_timestamps else 0
             )
@@ -782,6 +808,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 f"vpn_dashboard_integration_outbox_pending {-1 if sample_is_unknown else pending_value}\n"
                 f"vpn_dashboard_integration_outbox_dead_lettered {-1 if sample_is_unknown else outbox_dead_lettered}\n"
                 f"vpn_dashboard_integration_outbox_oldest_age_seconds {-1 if sample_is_unknown else outbox_oldest_age}\n"
+                f"vpn_dashboard_integration_outbox_storage_failures_total {outbox_storage_failures}\n"
+                f"vpn_dashboard_process_start_time_seconds {process_start_time}\n"
                 f"vpn_dashboard_telemetry_session_event_age_seconds {-1 if sample_is_unknown else session_event_age}\n"
                 f"vpn_dashboard_telemetry_session_event_timestamp_seconds {-1 if sample_is_unknown else now - event_timestamp_age}\n"
                 "vpn_dashboard_telemetry_session_events_total 4\n"
@@ -1359,7 +1387,10 @@ class ReleaseCollectionTests(unittest.TestCase):
 
         summary = _metric_window([{"metrics": first}, {"metrics": last}], 0, 1)
         gateway = summary["telemetry_gateway"]
-        self.assertEqual(gateway["published_events"], {"delta": 4, "counter_reset": False})
+        self.assertEqual(
+            gateway["published_events"],
+            {"delta": 4, "counter_reset": False, "invalid_samples": 0},
+        )
         self.assertEqual(gateway["replayed_events"]["delta"], 2)
         self.assertEqual(gateway["snapshot_recoveries"]["delta"], 1)
         self.assertEqual(gateway["rejected_clients"]["delta"], 0)
@@ -1375,7 +1406,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         summary = _metric_window([{"metrics": first}, {"metrics": last}], 0, 1)
         self.assertEqual(
             summary["telemetry_gateway"]["published_events"],
-            {"delta": 3, "counter_reset": True},
+            {"delta": 3, "counter_reset": True, "invalid_samples": 0},
         )
 
     def test_mid_window_counter_reset_preserves_post_reset_delta(self) -> None:
@@ -1385,23 +1416,126 @@ class ReleaseCollectionTests(unittest.TestCase):
             {"metrics": {
                 "vpn_dashboard_telemetry_gateway_events_total_published": 10,
                 "vpn_dashboard_redis_publish_total_failure": 5,
+                "vpn_dashboard_integration_outbox_storage_failures_total": 8,
             }},
             {"metrics": {
                 "vpn_dashboard_telemetry_gateway_events_total_published": 2,
                 "vpn_dashboard_redis_publish_total_failure": 1,
+                "vpn_dashboard_integration_outbox_storage_failures_total": 2,
             }},
             {"metrics": {
                 "vpn_dashboard_telemetry_gateway_events_total_published": 8,
                 "vpn_dashboard_redis_publish_total_failure": 4,
+                "vpn_dashboard_integration_outbox_storage_failures_total": 5,
             }},
         ]
         summary = _metric_window(samples, 0, 1)
         self.assertEqual(
             summary["telemetry_gateway"]["published_events"],
-            {"delta": 8, "counter_reset": True},
+            {"delta": 8, "counter_reset": True, "invalid_samples": 0},
         )
         self.assertEqual(summary["redis_publish_failure_delta"], 4)
         self.assertTrue(summary["redis_publish_failure_counter_reset"])
+        self.assertEqual(summary["outbox_storage_failure_delta"], 5)
+        self.assertTrue(summary["outbox_storage_failure_counter_reset"])
+
+    def test_sqlite_outbox_storage_failure_during_window_fails_acceptance(self) -> None:
+        code, report, _ = self.run_collection(outbox_storage_failure_delta=1)
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_outbox_storage_failures_during_window", report["failed_gates"])
+        self.assertEqual(
+            report["deployments"][0]["metrics"]["outbox_storage_failure_delta"], 1
+        )
+
+    def test_sqlite_outbox_storage_failure_present_at_first_sample_fails_acceptance(self) -> None:
+        code, report, _ = self.run_collection(outbox_storage_failure_initial=1)
+
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "canary_outbox_storage_failure_present_at_window_start",
+            report["failed_gates"],
+        )
+        self.assertEqual(
+            report["deployments"][0]["metrics"]["outbox_storage_failure_initial"],
+            1,
+        )
+
+    def test_sqlite_outbox_storage_failure_counter_reset_fails_acceptance(self) -> None:
+        code, report, _ = self.run_collection(outbox_storage_failure_counter_reset=True)
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_outbox_storage_failure_counter_reset", report["failed_gates"])
+
+    def test_process_restart_during_collection_fails_acceptance(self) -> None:
+        code, report, _ = self.run_collection(process_restart_observed=True)
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_process_restarted_during_window", report["failed_gates"])
+
+    def test_process_start_after_window_start_is_detected_before_first_scrape(self) -> None:
+        from scripts.collect_release_acceptance import _metric_window
+
+        sample_at = datetime.fromtimestamp(110, tz=timezone.utc)
+        summary = _metric_window(
+            [{"at": sample_at, "metrics": {"vpn_dashboard_process_start_time_seconds": 106}}],
+            100,
+            110,
+        )
+
+        self.assertTrue(summary["process_started_during_window"])
+
+    def test_negative_counter_samples_are_reported_invalid(self) -> None:
+        from scripts.collect_release_acceptance import _metric_window
+
+        counter = "vpn_dashboard_integration_outbox_storage_failures_total"
+        summary = _metric_window(
+            [
+                {"metrics": {counter: 4}},
+                {"metrics": {counter: -1}},
+                {"metrics": {counter: 9}},
+            ],
+            100,
+            110,
+        )
+
+        self.assertEqual(summary["counter_metric_invalid_samples"], 1)
+        self.assertEqual(summary["outbox_storage_failure_delta"], 5)
+
+    def test_negative_counter_metric_fails_acceptance(self) -> None:
+        code, report, _ = self.run_collection(outbox_storage_failure_initial=-1)
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_counter_metric_invalid_samples", report["failed_gates"])
+
+    def test_negative_process_start_metric_fails_acceptance(self) -> None:
+        code, report, _ = self.run_collection(process_start_time_override=-1)
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_process_start_time_invalid", report["failed_gates"])
+
+    def test_process_start_within_clock_tolerance_of_window_start_fails_closed(self) -> None:
+        from scripts.collect_release_acceptance import _metric_window
+
+        sample_at = datetime.fromtimestamp(102, tz=timezone.utc)
+        summary = _metric_window(
+            [{"at": sample_at, "metrics": {"vpn_dashboard_process_start_time_seconds": 102}}],
+            100,
+            110,
+        )
+
+        self.assertTrue(summary["process_start_window_start_ambiguous"])
+        self.assertFalse(summary["process_started_during_window"])
+
+    def test_ambiguous_process_start_baseline_fails_acceptance(self) -> None:
+        window_start = datetime(2026, 10, 2, tzinfo=timezone.utc).timestamp()
+        code, report, _ = self.run_collection(process_start_time_override=window_start + 1)
+
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "canary_process_start_time_ambiguous_at_window_start",
+            report["failed_gates"],
+        )
 
     def test_readiness_or_revision_mismatch_fails_closed(self) -> None:
         code, report, _ = self.run_collection(ready=False)

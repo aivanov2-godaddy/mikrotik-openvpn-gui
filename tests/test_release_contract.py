@@ -505,7 +505,27 @@ class ReleaseContractTests(unittest.TestCase):
             executable.index("/container/stop $canaryId"),
         )
         self.assertIn('$recordFailure $image', executable)
+        self.assertIn('$recordFailure $image $updaterFailureStep $updaterRollbackOutcome', executable)
         self.assertIn('"canary readiness soak failed"', executable)
+
+    def test_updater_failure_receipt_is_bounded_and_redacted(self) -> None:
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        executable = "\n".join(
+            line for line in updater.splitlines() if not line.lstrip().startswith("#")
+        )
+        record_start = executable.index(":local recordFailure do={")
+        record_end = executable.index("\n}", record_start)
+        record_function = executable[record_start:record_end]
+
+        self.assertIn(":local failureStep $2", record_function)
+        self.assertIn(":local rollbackOutcome $3", record_function)
+        self.assertIn('"\\nfailed-step=" . $failureStep', record_function)
+        self.assertIn('"\\nrollback-outcome=" . $rollbackOutcome', record_function)
+        self.assertIn('";step=" . $failureStep . ";rollback=" . $rollbackOutcome', record_function)
+        self.assertNotIn("$updaterError", record_function)
+        self.assertNotIn("$updaterErrorAttributes", record_function)
 
     def test_updater_rolls_back_before_best_effort_failure_journaling(self) -> None:
         updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
@@ -540,13 +560,20 @@ class ReleaseContractTests(unittest.TestCase):
                 block_start = executable.index(failure_message)
                 block_end = executable.index(f'"{terminal_error}"', block_start)
                 block = executable[block_start:block_end]
+                failure_step_capture = executable.rfind(
+                    ":set updaterFailureStep $updaterStep", 0, block_start
+                )
                 verification_call = block.index(
                     ":set rollbackVerification [$verifyCanaryRestore $canaryId $canaryRestoreImage $canaryRestoreCommit"
                 )
                 success_message = block.index(f"canary rollback verified; step={rollback_step}")
                 failure_diagnostic = block.index("rollback verification failed; step=")
-                journal_write = block.index(":do { $recordFailure $image } on-error={")
+                journal_write = block.index(
+                    ":do { $recordFailure $image $updaterFailureStep $updaterRollbackOutcome } on-error={"
+                )
 
+                self.assertGreaterEqual(failure_step_capture, 0)
+                self.assertLess(failure_step_capture, block_start)
                 self.assertLess(verification_call, success_message)
                 self.assertLess(verification_call, failure_diagnostic)
                 self.assertLess(success_message, journal_write)
