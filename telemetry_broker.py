@@ -146,10 +146,12 @@ class TelemetryBroker:
         self,
         *,
         clock: Callable[[], float] = time.time,
+        monotonic_clock: Callable[[], float] = time.monotonic,
         max_sessions: int = 4096,
         max_interfaces: int = 1024,
     ) -> None:
         self._clock = clock
+        self._monotonic_clock = monotonic_clock
         self._max_sessions = max(1, int(max_sessions))
         self._max_interfaces = max(1, int(max_interfaces))
         self._lock = threading.RLock()
@@ -159,7 +161,7 @@ class TelemetryBroker:
         self._counter_resets = 0
         self._interface_counter_resets = 0
 
-    def _timestamp(self, now: int | None) -> int:
+    def _timestamp(self, now: int | float | None) -> int:
         return int(self._clock() if now is None else now)
 
     def _event(self, name: str, payload: dict[str, Any], now: int) -> TelemetryEvent:
@@ -333,21 +335,25 @@ class TelemetryBroker:
         return payload
 
     def reconcile_interfaces(
-        self, records: Iterable[Mapping[str, Any]], *, now: int | None = None
+        self, records: Iterable[Mapping[str, Any]], *, now: int | float | None = None
     ) -> list[TelemetryEvent]:
         """Reconcile read-only interface counters and calculate safe rates.
 
-        Rates use only monotonic counter deltas.  A reset produces an explicit
-        event and zeroes the corresponding rate rather than reporting a
-        misleading negative spike.
+        Rates use high-resolution monotonic sample intervals and counter
+        deltas. A reset produces an explicit event and zeroes the corresponding
+        rate rather than reporting a misleading negative spike.
         """
 
         observed_at = self._timestamp(now)
+        sample_clock_kind = "explicit" if now is not None else "monotonic"
+        sampled_at = float(now) if now is not None else float(self._monotonic_clock())
         incoming: dict[str, dict[str, Any]] = {}
         for record in records:
             interface = normalize_interface(record)
             if interface is not None:
                 interface["observed_at"] = observed_at
+                interface["sampled_at"] = sampled_at
+                interface["sample_clock_kind"] = sample_clock_kind
                 incoming[str(interface["id"])] = interface
         with self._lock:
             events: list[TelemetryEvent] = []
@@ -357,8 +363,8 @@ class TelemetryBroker:
                 if reset is not None:
                     events.append(reset)
                 elapsed = None
-                if previous is not None:
-                    elapsed = max(0.0, observed_at - float(previous.get("observed_at", observed_at)))
+                if previous is not None and previous.get("sample_clock_kind") == sample_clock_kind:
+                    elapsed = max(0.0, sampled_at - float(previous.get("sampled_at", sampled_at)))
                     interface["rx_delta"] = int(interface["rx_bytes"]) - int(previous.get("rx_bytes", 0))
                     interface["tx_delta"] = int(interface["tx_bytes"]) - int(previous.get("tx_bytes", 0))
                     interface["rx_packet_delta"] = int(interface["rx_packets"]) - int(previous.get("rx_packets", 0))

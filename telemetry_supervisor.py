@@ -459,7 +459,6 @@ class TelemetryInterfaceSampler:
         broker: TelemetryBroker,
         *,
         interval: float = DEFAULT_INTERFACE_SAMPLE_INTERVAL_SECONDS,
-        clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         stop_event: threading.Event | None = None,
         on_sample: Callable[[], None] | None = None,
@@ -474,7 +473,6 @@ class TelemetryInterfaceSampler:
         self._credentials_provider = credentials_provider
         self._broker = broker
         self.interval_seconds = float(interval)
-        self._clock = clock
         self._sleep = sleep
         self._stop_event = stop_event or threading.Event()
         self._on_sample = on_sample
@@ -524,9 +522,10 @@ class TelemetryInterfaceSampler:
 
             def dispatch() -> None:
                 nonlocal events
-                events = self._broker.reconcile_interfaces(
-                    records, now=int(self._clock())
-                )
+                # The broker keeps wall-clock event timestamps separate from
+                # monotonic rate intervals; passing wall time here would
+                # reintroduce rounded, clock-adjustment-sensitive rates.
+                events = self._broker.reconcile_interfaces(records)
                 # Freshness describes a successful RouterOS observation, not
                 # only a counter delta. Quiet polls still advance freshness.
                 if self._on_sample is not None:

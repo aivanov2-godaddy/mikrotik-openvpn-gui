@@ -41,6 +41,52 @@ class TelemetryBrokerTests(unittest.TestCase):
         self.assertEqual(broker.interface_counter_resets, 1)
         self.assertNotIn("comment", str(reset))
 
+    def test_interface_rates_use_fractional_monotonic_sample_interval(self) -> None:
+        samples = iter((100.999, 102.001))
+        broker = TelemetryBroker(clock=lambda: 500, monotonic_clock=lambda: next(samples))
+        broker.reconcile_interfaces(
+            [{".id": "*1", "name": "ether1", "rx-byte": 100, "tx-byte": 20}]
+        )
+
+        events = broker.reconcile_interfaces(
+            [{".id": "*1", "name": "ether1", "rx-byte": 1100, "tx-byte": 220}]
+        )
+
+        interface = events[0].payload["interface"]
+        self.assertAlmostEqual(interface["rx_bytes_per_second"], 1000 / 1.002)
+        self.assertAlmostEqual(interface["tx_bytes_per_second"], 200 / 1.002)
+        self.assertEqual(events[0].router_timestamp, 500)
+
+    def test_interface_rates_do_not_drop_samples_within_the_same_second(self) -> None:
+        broker = TelemetryBroker(clock=lambda: 500)
+        broker.reconcile_interfaces(
+            [{".id": "*1", "name": "ether1", "rx-byte": 100}], now=100.1
+        )
+
+        events = broker.reconcile_interfaces(
+            [{".id": "*1", "name": "ether1", "rx-byte": 900}], now=100.9
+        )
+
+        self.assertAlmostEqual(events[0].payload["interface"]["rx_bytes_per_second"], 1000.0)
+        self.assertEqual(events[0].router_timestamp, 100)
+
+    def test_interface_rate_baseline_resets_when_sample_clock_source_changes(self) -> None:
+        monotonic_samples = iter((20.0, 21.0, 22.0, 23.0))
+        broker = TelemetryBroker(clock=lambda: 500, monotonic_clock=lambda: next(monotonic_samples))
+
+        def sample(counter: int, *, now: float | None = None) -> dict:
+            events = broker.reconcile_interfaces(
+                [{".id": "*1", "name": "ether1", "rx-byte": counter}], now=now
+            )
+            return events[0].payload["interface"]
+
+        sample(100, now=10.1)
+        self.assertNotIn("rx_bytes_per_second", sample(1100))
+        self.assertNotIn("rx_bytes_per_second", sample(2100, now=10.9))
+        self.assertAlmostEqual(sample(3100, now=11.9)["rx_bytes_per_second"], 1000.0)
+        self.assertNotIn("rx_bytes_per_second", sample(4100))
+        self.assertAlmostEqual(sample(5100)["rx_bytes_per_second"], 1000.0)
+
     def test_normalize_uses_allow_list_and_numeric_counters(self) -> None:
         session = normalize_session(
             {
