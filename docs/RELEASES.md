@@ -18,32 +18,77 @@ RouterOS state, live measurements, and operator/session details remain in
 private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #836
-(`c88bc730a8e75bcd89ab73dcf85d87df37db7884`) is the latest published image
-source. It preserves telemetry cache consistency across recovery and includes
-the scoped release-verification correction from PR #835. PR #830 is
-documentation-only and adds an offline comparator risk flag; it did not change
-the runtime image. The immutable candidate is not a numbered release or
-evidence of RouterOS deployment.
+version, v2.8.0, has not been tagged or published. PR #839
+(`273e9ed1c3618e605c3af106a59b76dfb8686769`) is the latest published runtime
+image source. It rejects query strings in optional webhook URLs, preventing
+credentials from being embedded in request URLs; it also includes PR #838's
+one-second interface-sampling cadence fix. This immutable candidate is not a
+numbered release or evidence of RouterOS deployment.
 
-For PR #836, main CI run
-[#40197252415](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40197252415)
+For PR #839, main CI run
+[#40204581927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40204581927),
+CodeQL run
+[#40204581975](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40204581975),
 and publisher run
-[#40197252453](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40197252453)
-passed. The stable `routeros-release.json` manifest was read back from the
-release asset and matches the source commit and both registry digests. The
-workflow also verifies detached provenance and SPDX SBOM attestations and
-smoke-tests both architecture images. Exact tags and digests are recorded
-below.
+[#40204581900](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40204581900)
+passed. The publisher built and smoke-tested both architecture images,
+verified provenance and SPDX SBOM attestations against the exact image
+digests, and read back the stable `routeros-release.json` manifest. Its SHA-256
+is `sha256:58b2b996b2299bafc5ba6c1f0f711955cb126e62de92534fe3318f06f5f5f18d`.
+Exact immutable tags and digests are recorded below.
 
-The PR #836 images have not been read back from RouterOS as configured
-canary/production images. Candidate-specific rollback, live telemetry
-acceptance, and the independent security review remain incomplete. The
-installed updater and its scheduler bindings are not fully reconciled and were
-not run. Keep production promotion and v2.8.0 gated until candidate-specific
-acceptance passes.
+PR #839 has not been read back as the configured canary or production image.
+The prior RouterOS observation identified the older PR #806 revision; it does
+not establish candidate-specific staging, rollback, live telemetry acceptance,
+or the independent security review. The installed updater and its scheduler
+bindings are not fully reconciled and were not run. Keep production promotion
+and v2.8.0 gated until candidate-specific acceptance passes.
 
-## Latest published mainline image — PR #836 — 2026-10-25
+## Latest published mainline image — PR #839 — 2026-10-25
+
+PR [#839](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/839)
+merged as `273e9ed1c3618e605c3af106a59b76dfb8686769`. Main CI run
+[#40204581927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40204581927),
+CodeQL run
+[#40204581975](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40204581975),
+and publisher run
+[#40204581900](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40204581900)
+passed. The stable manifest asset was read back and binds both architecture
+images to the exact source commit. Provenance and SPDX SBOM attestations were
+verified, and both images passed runtime smoke tests.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-273e9ed1c3618e605c3af106a59b76dfb8686769-arm64` | `sha256:53a667d8c8db22d217c38c3ff80a9a32650b1615e69e8d738104652c8fd6b326` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-273e9ed1c3618e605c3af106a59b76dfb8686769-amd64` | `sha256:1009ca54c47258e00950e93de8a8bead79525e6f88b1ddf6b602862919cbef6b` |
+
+These are immutable published artifacts, not a numbered release or a
+deployment. Candidate-specific rollback, live acceptance, and production
+promotion are not claimed.
+
+## Previous published mainline image — PR #838 — 2026-10-25
+
+PR [#838](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/838)
+merged as `b4b9f966693ad09343889379fb8ff33286a2e2e8`. Main CI run
+[#40202982541](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40202982541),
+CodeQL run
+[#40202982491](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40202982491),
+and publisher run
+[#40202982561](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40202982561)
+passed. The stable manifest asset was read back and binds both architecture
+images to the exact source commit. Provenance and SPDX SBOM attestations were
+verified, and both images passed runtime smoke tests.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-b4b9f966693ad09343889379fb8ff33286a2e2e8-arm64` | `sha256:d620b82cc9a1d9af66f8506d9cc8bdf237901a387f102bac76ff3cfec22638db` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-b4b9f966693ad09343889379fb8ff33286a2e2e8-amd64` | `sha256:29dcba4c4de657ba6789fc87031bcd0c5fa7f5a30f24256796abcf4dcd6c1912` |
+
+These are immutable published artifacts, not a numbered release or a
+deployment. Candidate-specific rollback, live acceptance, and production
+promotion are not claimed.
+
+## Previous published mainline image — PR #836 — 2026-10-25
 
 PR [#836](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/836)
 merged as `c88bc730a8e75bcd89ab73dcf85d87df37db7884`. Main CI run

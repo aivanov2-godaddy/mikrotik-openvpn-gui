@@ -31,6 +31,10 @@ semantic-version style release tags.
 
 ### Changed
 
+- Reject `WEBHOOK_URL` query strings so credentials cannot be embedded in
+  outbound request URLs.
+- Schedule interface traffic samples at the configured one-second start-to-start
+  cadence while retaining a five-second retry delay after RouterOS API errors.
 - Keep telemetry recovery snapshots atomic with the broker sequence and
   session/interface state, and include only sanitized cumulative interface
   counters so reconnecting clients can restore a consistent live view.

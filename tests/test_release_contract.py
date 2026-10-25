@@ -193,12 +193,18 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #836", release_record)
+        self.assertIn("## Latest published mainline image — PR #839", release_record)
+        self.assertIn("## Previous published mainline image — PR #838", release_record)
+        self.assertIn("## Previous published mainline image — PR #836", release_record)
         self.assertIn("## Previous published mainline image — PR #829", release_record)
         self.assertIn("## Previous published mainline image — PR #824", release_record)
         self.assertIn("## Previous published mainline image — PR #817", release_record)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
         self.assertIn("c88bc730a8e75bcd89ab73dcf85d87df37db7884", rendered)
+        self.assertIn("273e9ed1c3618e605c3af106a59b76dfb8686769", rendered)
+        self.assertIn("sha256:58b2b996b2299bafc5ba6c1f0f711955cb126e62de92534fe3318f06f5f5f18d", rendered)
+        self.assertIn("sha256:53a667d8c8db22d217c38c3ff80a9a32650b1615e69e8d738104652c8fd6b326", rendered)
+        self.assertIn("sha256:1009ca54c47258e00950e93de8a8bead79525e6f88b1ddf6b602862919cbef6b", rendered)
         self.assertIn("9fd85aaff7f4ed43888209d2b77663207a11a897", rendered)
         self.assertIn(
             "sha256:295040612e1541dfe92e396461b243fe8c73a5223e11ae9de6af9914ee234867",
@@ -226,15 +232,15 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Current published artifact: commit `c88bc730a8e75bcd89ab73dcf85d87df37db7884`",
+            "Current published artifact: commit `273e9ed1c3618e605c3af106a59b76dfb8686769`",
             installation,
         )
         self.assertIn(
-            "sha256:295040612e1541dfe92e396461b243fe8c73a5223e11ae9de6af9914ee234867",
+            "sha256:53a667d8c8db22d217c38c3ff80a9a32650b1615e69e8d738104652c8fd6b326",
             installation,
         )
         self.assertIn(
-            "sha256:2f71c739d2a3ea919fb9829cb44d3ddd1e777aabd5b2beb483c97d9b4d59ea14",
+            "sha256:1009ca54c47258e00950e93de8a8bead79525e6f88b1ddf6b602862919cbef6b",
             installation,
         )
         self.assertIn("### Latest published source-level log safeguard — PR #824", security_assurance)
