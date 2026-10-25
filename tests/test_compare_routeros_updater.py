@@ -32,6 +32,7 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
                 "private_key_marker_added": False,
                 "destructive_operation_marker_added": False,
                 "fetch_or_download_marker_added": False,
+                "canary_rollback_restore_verification_missing": False,
             },
         )
 
@@ -42,6 +43,40 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
 
         self.assertTrue(report["exact_match"])
         self.assertFalse(any(report["risk_flags"].values()))
+
+    def test_missing_reviewed_canary_restore_verifier_is_flagged(self) -> None:
+        reference = (
+            b":local verifyCanaryRestore do={\n"
+            b"    :return \"verified\"\n"
+            b"}\n"
+            b":set rollbackVerification [$verifyCanaryRestore $canaryId]\n"
+        )
+        candidate = b":set rollbackVerification [$verifyCanaryRestore $canaryId]\n"
+
+        report = compare_routeros_updater.compare_scripts(reference, candidate)
+
+        self.assertTrue(report["risk_flags"]["canary_rollback_restore_verification_missing"])
+
+    def test_missing_reviewed_canary_restore_call_is_flagged(self) -> None:
+        reference = (
+            b":local verifyCanaryRestore do={\n"
+            b"    :return \"verified\"\n"
+            b"}\n"
+            b":set rollbackVerification [$verifyCanaryRestore $canaryId]\n"
+        )
+        candidate = b"".join(reference.splitlines(keepends=True)[:3])
+
+        report = compare_routeros_updater.compare_scripts(reference, candidate)
+
+        self.assertTrue(report["risk_flags"]["canary_rollback_restore_verification_missing"])
+
+    def test_unrelated_reference_does_not_require_canary_restore_verifier(self) -> None:
+        reference = b":local helper do={ :return true }\n"
+        candidate = b":local helper do={ :return false }\n"
+
+        report = compare_routeros_updater.compare_scripts(reference, candidate)
+
+        self.assertFalse(report["risk_flags"]["canary_rollback_restore_verification_missing"])
 
     def test_difference_counts_removed_and_added_lines(self) -> None:
         reference = b"first\nreviewed-value\nlast\n"
