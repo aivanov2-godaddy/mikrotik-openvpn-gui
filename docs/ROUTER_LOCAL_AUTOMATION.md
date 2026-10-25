@@ -211,6 +211,64 @@ directory descriptors without following symlinks and reads from the opened
 file descriptor. Other operating systems may expose network mounts as ordinary
 paths, so the operator must ensure the source is on a local filesystem.
 
+### Collecting a redacted RouterOS updater inventory
+
+For a first-pass inventory, use the read-only Binary API collector from a
+trusted workstation on the private management network. RouterOS's API
+`.proplist` restricts requested fields, and the scheduler's `on-event` field
+can directly name a script ([API](https://help.mikrotik.com/docs/spaces/ROS/pages/47579160/API),
+[Scheduler](https://help.mikrotik.com/docs/spaces/ROS/pages/40992881/Scheduler)).
+The collector requests only `/system/script/print` fields `name,source` and
+`/system/scheduler/print` fields `name,on-event,disabled`, over TLS with normal
+certificate validation. It issues no RouterOS write, run, or scheduler-control
+command.
+
+Use a dedicated RouterOS account with only the minimum read and API access
+needed for these two print operations. Do not reuse the dashboard owner account
+or grant `write`, `policy`, `sensitive`, or unrelated access to make collection
+work. If RouterOS denies a read or omits required fields, stop and review the
+account scope through the normal security process; do not widen permissions by
+trial and error. The collector cannot independently prove which records the
+account is authorized to see.
+
+Set the TLS hostname and read-only username in the process environment. The
+password is prompted invisibly unless supplied by the named environment
+variable. Choose a private local output path outside the repository:
+
+```powershell
+$env:ROUTEROS_INVENTORY_HOST = '<router DNS name covered by the API TLS certificate>'
+$env:ROUTEROS_INVENTORY_USERNAME = '<dedicated read-only API user>'
+python scripts/collect_routeros_updater_inventory.py `
+  --output "$env:TEMP\vpn-dashboard-updater-inventory.json"
+Remove-Item Env:ROUTEROS_INVENTORY_HOST, Env:ROUTEROS_INVENTORY_USERNAME, `
+  Env:ROUTEROS_INVENTORY_PASSWORD, Env:ROUTEROS_INVENTORY_CA_FILE -ErrorAction SilentlyContinue
+```
+
+The script source and scheduler event values are processed in memory and are
+not included in the report or console summary. The private JSON report does
+contain per-script SHA-256 fingerprints, exact template-match flags, redacted
+risk flags, scheduler enabled state, and direct name-to-script matches; hashes
+can fingerprint known content, so keep the report private and out of GitHub,
+CI artifacts, and shared Ruflo memory. No script names, scheduler names, IDs,
+credentials, router identity, source text, or raw event strings are emitted.
+
+Every script row returned by the completed print response is compared in
+memory with the checked-in immutable-release updater template. A scheduler is
+classified as a direct binding only when its entire `on-event` value exactly
+matches one unique script name from that response. Inline, command-form,
+unresolved, or ambiguous events remain `opaque` and require private operator
+review; the collector does not interpret them. The report separately says
+that caller authorization and RouterOS-side visibility are unverified. A
+successful collection is not proof that the account saw every device record,
+that every indirect invocation was understood, that a script is safe, or that
+the updater was executed. Do not run the unknown updater to learn its behavior.
+
+This is collection tooling only. No current RouterOS inventory has been
+collected or verified by this repository change. Issue #785 remains open until
+the private report is matched to a trusted RouterOS read-only view, every
+opaque scheduler path is reviewed, discrepancies are explained, and any
+candidate staging uses the separate reviewed procedure below.
+
 ### Comparing multiple installed copies and scheduler bindings
 
 When RouterOS contains several updater copies, prepare a private local folder
