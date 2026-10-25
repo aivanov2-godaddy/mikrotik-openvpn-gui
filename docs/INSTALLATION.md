@@ -112,11 +112,12 @@ a workflow file, or a screenshot. A public package does not need a pull token.
 ```
 
 RouterOS resolves `remote-image` relative to this registry URL. Therefore use
-`<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>`, not
-a `ghcr.io/...`-prefixed value. The legacy `sha-<full-commit-sha>` tag remains
-an ARM64 alias for compatible routers. Commit-addressed tags make selection
-reviewable, but record the published digest for an immutable audit record; do
-not use `edge` in production.
+`<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-<architecture>@sha256:<64-hex-digest>`,
+not a `ghcr.io/...`-prefixed value. The commit-addressed tag is retained for
+revision checks; the digest is the immutable artifact identity. Do not use
+`edge` in production. Confirm on the exact RouterOS version that
+`remote-image` accepts and reads back the tag-plus-digest form before enabling
+automatic rollout.
 
 ## 7. Create mounts and environment lists
 
@@ -165,7 +166,7 @@ Keep `ROUTEROS_INSECURE_TLS=false` in production. Choose exactly one supported e
 Choose the full SHA from a successful **Publish container** workflow run. Check the package digest and visibility before pulling. Then add the container (replace placeholders with reviewed, device-specific paths):
 
 ```routeros
-/container/add name=vpn-dashboard remote-image=<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-arm64 interface=veth-vpn-dashboard root-dir="<external-disk>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
+/container/add name=vpn-dashboard remote-image=<github-owner>/mikrotik-openvpn-gui:sha-<full-commit-sha>-arm64@sha256:<64-hex-digest> interface=veth-vpn-dashboard root-dir="<external-disk>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
 /container/print detail
 ```
 
@@ -198,7 +199,7 @@ Then open the configured `PUBLIC_ORIGIN`, authenticate through the configured pe
 A merge to the public default branch runs CI and publishes architecture-specific
 immutable images. It does not contact your router. Follow
 [DEPLOYMENT.md](DEPLOYMENT.md) to select, validate, and manually promote a
-specific immutable tag. For automatic promotion without a private deployment
+specific digest-pinned image reference. For automatic promotion without a private deployment
 repository, install the router-local scheduler described in
 [ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md). It keeps all
 credentials, environment values, configuration, database data, certificates,
@@ -213,13 +214,13 @@ through a separate canary.
 | Device-mode refuses enablement | Run `/system/device-mode/update container=yes` again and complete the physical confirmation window |
 | Architecture error during pull | Confirm the router's `architecture-name`; use the matching `arm64` image or `amd64` for x86/CHR evaluation. Do not substitute an ARMv7 image for RouterOS `arm`. |
 | GHCR `auth error` | A public package needs no token. For a private fork, use an expiring `read:packages` token and check `/container/config` without exposing it |
-| Manifest not found | Use registry-relative `owner/repo:sha-<fullsha>` and keep `registry-url=https://ghcr.io` |
+| Manifest not found | Use registry-relative `owner/repo:sha-<fullsha>-arm64@sha256:<digest>` and keep `registry-url=https://ghcr.io` |
 | Extraction fails | Move roots and `tmpdir` to external storage and check free space |
 | REST TLS failure | URL hostname must match the certificate SAN; mount the signing CA at `/config/routeros-ca.crt` |
 | 502 or blinking UI | Check proxy target/ports, container `running` state, `/healthz`, and `/readyz` |
 | Dashboard cannot manage VPN | Verify REST reachability, RouterOS permissions, and the expected OpenVPN object names/subnet |
 
-For rollback, stop the container and restore the prior immutable `sha-<fullsha>` image as documented in [ROLLBACK.md](ROLLBACK.md). Keep the persistent `/data` directory unchanged.
+For rollback, stop the container and restore the prior exact digest-pinned image as documented in [ROLLBACK.md](ROLLBACK.md). Keep the persistent `/data` directory unchanged.
 
 ## Official references
 

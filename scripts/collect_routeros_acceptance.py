@@ -45,7 +45,8 @@ MAX_MEMORY_PERCENT = 90
 MAX_STORAGE_PERCENT = 90
 CONTAINER_NAMES = {"canary": "vpn-dashboard-canary", "production": "vpn-dashboard-production"}
 PROJECT_IMAGE = re.compile(
-    r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:sha-(?P<revision>[0-9a-f]{40})-arm64$"
+    r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:"
+    r"sha-(?P<revision>[0-9a-f]{40})-arm64(?:@(?P<digest>sha256:[0-9a-f]{64}))?$"
 )
 RESOURCE_PROPLIST = "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version"
 LEGACY_CONTAINER_PROPLIST = "name,status,remote-image"

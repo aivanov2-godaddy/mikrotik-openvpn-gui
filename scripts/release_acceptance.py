@@ -38,8 +38,9 @@ except ModuleNotFoundError:
 
 
 IMAGE = re.compile(
-    r"^(?:ghcr\.io/)?[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):"
-    r"sha-(?P<revision>[0-9a-f]{40})(?:-(?:arm64|amd64))?$"
+    r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:"
+    r"sha-(?P<revision>[0-9a-f]{40})-(?P<architecture>arm64|amd64)"
+    r"(?:@(?P<reference_digest>sha256:[0-9a-f]{64}))?$"
 )
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 ENVIRONMENTS = ("canary", "production")
@@ -159,7 +160,7 @@ def evaluate(
         if phase is not None and phase != collection_phase:
             raise ValueError("requested phase must match collection phase")
         registry_verification = collection.get("registry_digest_verification")
-        expected_registry_count = 1 if collection_phase == "canary-prepromotion" else len(ENVIRONMENTS)
+        expected_registry_count = len(ENVIRONMENTS)
         if not isinstance(registry_verification, list) or len(registry_verification) != expected_registry_count:
             raise ValueError("collection registry digest verification does not match its phase")
         collection_passed = collection.get("passed")
@@ -319,14 +320,21 @@ def evaluate(
         image = str(record.get("image", ""))
         image_match = IMAGE.fullmatch(image)
         if not image_match:
-            raise ValueError(f"{expected_environment} image must use a full immutable sha-commit tag")
+            raise ValueError(f"{expected_environment} image must use this project's architecture-specific SHA reference")
         prior_production_baseline = (
             collection_phase == "canary-prepromotion" and expected_environment == "production"
         )
         raw_digest = record.get("digest")
         digest = raw_digest if isinstance(raw_digest, str) and DIGEST.fullmatch(raw_digest) else None
-        if digest is None and not prior_production_baseline:
+        embedded_digest = image_match.group("reference_digest")
+        if digest is None:
             raise ValueError(f"{expected_environment} digest must be a sha256 OCI digest")
+        if embedded_digest is not None and embedded_digest != digest:
+            raise ValueError(f"{expected_environment} image reference and recorded digest do not match")
+        if expected_environment == "canary" and embedded_digest is None:
+            raise ValueError("canary candidate must use a digest-pinned image reference")
+        if collection_phase == "postpromotion" and embedded_digest is None:
+            raise ValueError(f"{expected_environment} image must be digest pinned after promotion")
         transport = record.get("transport")
         allowed_transports = (
             {"rest", "binary", "socketio", "sse", "asgi-websocket", "sse-fallback"}
@@ -585,9 +593,7 @@ def evaluate(
             except ValueError:
                 failures.append("sqlite_restore_verification_invalid")
 
-    registry_environments = (
-        ("canary",) if collection_phase == "canary-prepromotion" else ENVIRONMENTS
-    )
+    registry_environments = ENVIRONMENTS
     if collection is not None:
         registry_digests_verified = True
         if not isinstance(registry_verification, list) or len(registry_verification) != len(registry_environments):
@@ -715,7 +721,7 @@ def evaluate(
         "production_accepted": collection_phase == "postpromotion" and not failures,
         "registry_tag_digests_verified": registry_digests_verified,
         "registry_digest_verification_scope": (
-            "candidate-canary-only" if collection_phase == "canary-prepromotion" else "canary-and-production"
+            "canary-and-production"
         ),
         "router_runtime_digest_verified": False,
         "evidence_authenticity": {

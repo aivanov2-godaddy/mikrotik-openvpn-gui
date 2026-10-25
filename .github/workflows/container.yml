@@ -174,13 +174,27 @@ jobs:
       - name: Record immutable digest
         run: |
           set -euo pipefail
+          digest='${{ steps.build.outputs.digest }}'
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Build did not return a canonical SHA-256 image digest." >&2
+            exit 1
+          fi
           {
             printf '%s\n' '### Published ${{ matrix.name }} container'
             printf '%s\n' '- Platform: ${{ matrix.platform }}'
             printf '%s\n' '- Architecture tag suffix: ${{ matrix.suffix }}'
             printf '%s\n' '- Commit: ${{ github.sha }}'
-            printf '%s\n' '- Digest: ${{ steps.build.outputs.digest }}'
+            printf '%s\n' "- Digest: $digest"
           } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$digest" > "image-digest-${{ matrix.suffix }}.txt"
+      - name: Preserve per-architecture image digest for manifest job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-digest-${{ matrix.suffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: image-digest-${{ matrix.suffix }}.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
       - name: Generate detached SPDX SBOM for the published digest
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
@@ -265,7 +279,7 @@ jobs:
     needs: publish
     # A release manifest is an approval pointer, not executable RouterOS code.
     # It deliberately names the exact source commit and architecture-specific
-    # image tag. Router-local automation must reject mutable image tags.
+    # OCI digest reference. Router-local automation rejects tag-only references.
     # Refresh the approval pointer for normal main builds and for version-tag
     # releases. Tag pushes are the immutable release path used by RouterOS;
     # branch pushes retain the existing edge/stable development behavior.
@@ -277,6 +291,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Download ARM64 image digest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: image-digest-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: image-digests/arm64
+      - name: Download AMD64 image digest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: image-digest-amd64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: image-digests/amd64
       - name: Create generic release manifest
         shell: bash
         env:
@@ -285,22 +309,40 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SERVER_URL: ${{ github.server_url }}
+          ARM64_DIGEST_FILE: image-digests/arm64/image-digest-arm64.txt
+          AMD64_DIGEST_FILE: image-digests/amd64/image-digest-amd64.txt
         run: |
           set -euo pipefail
           python - <<'PY'
           import json
           import os
+          import re
 
           repository = os.environ["REPOSITORY"]
           revision = os.environ["REVISION"]
+          digest_pattern = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+          def read_digest(path):
+              with open(path, encoding="ascii") as source:
+                  digest = source.read().strip()
+              if not digest_pattern.fullmatch(digest):
+                  raise SystemExit("Architecture build artifact did not contain a valid SHA-256 digest")
+              return digest
+
+          digests = {
+              "arm64": read_digest(os.environ["ARM64_DIGEST_FILE"]),
+              "amd64": read_digest(os.environ["AMD64_DIGEST_FILE"]),
+          }
           manifest = {
-              "schema": 1,
+              "schema": 2,
               "channel": "stable",
               "commit": revision,
               "images": {
-                  "arm64": f"ghcr.io/{repository}:sha-{revision}-arm64",
-                  "amd64": f"ghcr.io/{repository}:sha-{revision}-amd64",
+              "arm64": f"ghcr.io/{repository}:sha-{revision}-arm64@{digests['arm64']}",
+              "amd64": f"ghcr.io/{repository}:sha-{revision}-amd64@{digests['amd64']}",
               },
+              "digests": digests,
+              "architectures": {"arm64": "linux/arm64", "amd64": "linux/amd64"},
               "source": {
                   "repository": f"{os.environ['SERVER_URL']}/{repository}",
                   "run": f"{os.environ['SERVER_URL']}/{repository}/actions/runs/{os.environ['RUN_ID']}",
@@ -323,7 +365,7 @@ jobs:
           if ! gh release view "$release_tag" >/dev/null 2>&1; then
             gh release create "$release_tag" \
               --title "RouterOS stable immutable manifest" \
-              --notes "Machine-readable, generic public release pointer. Each manifest entry pins an architecture-specific commit SHA image; it contains no instance configuration." \
+              --notes "Machine-readable, generic public release pointer. Each manifest entry pins an architecture-specific OCI image digest and source commit; it contains no instance configuration." \
               --prerelease
           fi
           upload_status=0
@@ -353,4 +395,4 @@ jobs:
           echo "### Stable immutable manifest" >> "$GITHUB_STEP_SUMMARY"
           echo "- Asset: \`routeros-release.json\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Remote asset read-back matches the generated manifest." >> "$GITHUB_STEP_SUMMARY"
-          echo "- ARM64: \`ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-arm64\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ARM64 digest reference: \`$(python -c 'import json; print(json.load(open("routeros-release.json"))["images"]["arm64"])')\`" >> "$GITHUB_STEP_SUMMARY"

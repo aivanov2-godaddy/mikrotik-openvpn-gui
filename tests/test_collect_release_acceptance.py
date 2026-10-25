@@ -29,7 +29,14 @@ from store import MetadataStore
 
 
 REVISION = "a" * 40
-IMAGE = f"ghcr.io/example/vpn:sha-{REVISION}-arm64"
+DIGEST = "sha256:" + "b" * 64
+PRIOR_DIGEST = "sha256:" + "c" * 64
+TAG_IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{REVISION}-arm64"
+IMAGE = f"{TAG_IMAGE}@{DIGEST}"
+
+
+def image_ref(revision: str, digest: str = DIGEST) -> str:
+    return f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64@{digest}"
 
 
 def redis_recovery_report(revision: str = REVISION) -> dict[str, object]:
@@ -76,7 +83,7 @@ def rollback_report_for(
     started_at: datetime,
 ) -> dict[str, object]:
     start = started_at.astimezone(timezone.utc)
-    prior_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+    prior_image = image_ref("c" * 40, PRIOR_DIGEST)
 
     def readback(environment: str, image: str, offset_seconds: int) -> dict[str, object]:
         observed = (start + timedelta(seconds=offset_seconds)).isoformat()
@@ -250,7 +257,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "ended_at": "2026-10-01T00:30:00Z",
             },
             "deployments": [
-                {"environment": environment, "image": f"ghcr.io/example/vpn:sha-{revision}-arm64"}
+                {"environment": environment, "image": image_ref(revision)}
                 for environment in ("canary", "production")
             ],
         }
@@ -300,7 +307,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "ended_at": "2026-10-01T00:30:00Z",
             },
             "deployments": [
-                {"environment": environment, "image": f"ghcr.io/example/vpn:sha-{revision}-arm64"}
+                {"environment": environment, "image": image_ref(revision)}
                 for environment in ("canary", "production")
             ],
         }
@@ -515,14 +522,19 @@ class ReleaseCollectionTests(unittest.TestCase):
         opener = Opener()
         build_opener = Mock(return_value=opener)
         with patch.object(collector, "build_opener", build_opener):
-            observed = collector._registry_digest_request(IMAGE, timeout=3)
+            observed = collector._registry_digest_request(TAG_IMAGE, timeout=3)
 
         self.assertEqual(observed, digest)
         token_request, manifest_request = opener.requests
         self.assertEqual(token_request.get_method(), "GET")
-        self.assertTrue(token_request.full_url.startswith("https://ghcr.io/token?scope=repository%3Aexample%2Fvpn%3Apull"))
+        self.assertTrue(token_request.full_url.startswith(
+            "https://ghcr.io/token?scope=repository%3Aaivanov2-godaddy%2Fmikrotik-openvpn-gui%3Apull"
+        ))
         self.assertEqual(manifest_request.get_method(), "HEAD")
-        self.assertEqual(manifest_request.full_url, f"https://ghcr.io/v2/example/vpn/manifests/sha-{REVISION}-arm64")
+        self.assertEqual(
+            manifest_request.full_url,
+            f"https://ghcr.io/v2/aivanov2-godaddy/mikrotik-openvpn-gui/manifests/sha-{REVISION}-arm64",
+        )
         self.assertEqual(manifest_request.get_header("Authorization"), "Bearer short-lived-test-token")
         self.assertTrue(any(isinstance(handler, collector._NoRedirect) for handler in build_opener.call_args.args))
         self.assertTrue(token_response.socket.timeouts)
@@ -704,8 +716,8 @@ class ReleaseCollectionTests(unittest.TestCase):
             source["certificate_lifecycle_acceptance"] = certificate_lifecycle_report
         if production_revision is not None:
             production = source["deployments"][1]
-            production["image"] = f"ghcr.io/example/vpn:sha-{production_revision}-arm64"
-            production["digest"] = "sha256:" + "c" * 64
+            production["image"] = image_ref(production_revision, PRIOR_DIGEST)
+            production["digest"] = PRIOR_DIGEST
         if phase == "canary-prepromotion":
             production = source["deployments"][1]
             production["transport"] = "socketio"
@@ -1555,7 +1567,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertTrue(report["passed"])
         self.assertEqual(report["evidence"]["collection"]["phase"], "canary-prepromotion")
         production = report["evidence"]["deployments"][1]
-        self.assertEqual(production["image"], f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64")
+        self.assertEqual(production["image"], image_ref("c" * 40, PRIOR_DIGEST))
         self.assertTrue(production["app_ready"])
 
     def test_pre_promotion_candidate_does_not_require_old_production_metrics(self) -> None:
@@ -1566,21 +1578,20 @@ class ReleaseCollectionTests(unittest.TestCase):
                     production_revision="c" * 40,
                     include_production_metrics=include_production_metrics,
                     clear_prior_production_runtime_evidence=True,
-                    omit_prior_production_digest=True,
                 )
 
                 self.assertEqual(code, 0)
                 self.assertEqual(report["evidence"]["deployments"][1]["redis_publish_verified"], False)
-                self.assertIsNone(report["evidence"]["deployments"][1]["digest"])
+                self.assertEqual(report["evidence"]["deployments"][1]["digest"], PRIOR_DIGEST)
                 self.assertEqual(report["deployments"][1]["metrics_sample_count"], 0)
                 self.assertFalse(any(url == "https://private.example/metrics" for url, _, _ in seen))
                 self.assertEqual(
                     report["evidence"]["collection"]["registry_digest_verification_scope"],
-                    "candidate-canary-only",
+                    "canary-and-production",
                 )
                 self.assertEqual(
                     [item["environment"] for item in report["evidence"]["collection"]["registry_digest_verification"]],
-                    ["canary"],
+                    ["canary", "production"],
                 )
                 from scripts.release_acceptance import evaluate
 
@@ -1662,7 +1673,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 )
                 self.assertEqual(accepted, 0, final_report["failed_gates"])
                 self.assertFalse(final_report["production_accepted"])
-                self.assertIsNone(final_report["deployments"][1]["digest"])
+                self.assertEqual(final_report["deployments"][1]["digest"], PRIOR_DIGEST)
                 self.assertIsNone(final_report["deployments"][1]["transport"])
 
     def test_pre_promotion_soak_fails_if_production_revision_changes(self) -> None:
@@ -1688,6 +1699,15 @@ class ReleaseCollectionTests(unittest.TestCase):
         )
         self.assertEqual(unavailable, 1)
         self.assertIn("canary_registry_digest_unavailable", unavailable_report["failed_gates"])
+
+    def test_pre_promotion_fails_closed_when_prior_production_digest_is_unavailable(self) -> None:
+        with self.assertRaisesRegex(ValueError, "production digest must be a sha256 OCI digest"):
+            self.run_collection(
+                phase="canary-prepromotion",
+                production_revision="c" * 40,
+                clear_prior_production_runtime_evidence=True,
+                omit_prior_production_digest=True,
+            )
 
     def test_wall_clock_jump_cannot_shorten_or_falsely_pass_soak(self) -> None:
         for adjustment in (10, -10):

@@ -229,7 +229,9 @@ METRIC_LINE = re.compile(
     r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+'
     r'(?P<value>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|NaN|[+-]?Inf)(?:\s+\d+)?$'
 )
-REVISION_IN_IMAGE = re.compile(r":sha-(?P<revision>[0-9a-f]{40})(?:-(?:arm64|amd64))?$")
+REVISION_IN_IMAGE = re.compile(
+    r":sha-(?P<revision>[0-9a-f]{40})-(?:arm64|amd64)(?:@sha256:[0-9a-f]{64})?$"
+)
 ROUTEROS_RESOURCE_FIELDS = {
     "router_cpu_peak_percent": ("router_cpu_peak_percent", 80),
     "router_memory_peak_percent": ("router_memory_peak_percent", 90),
@@ -475,7 +477,9 @@ def _registry_digest_request(image: str, *, timeout: float) -> str | None:
     if not IMAGE.fullmatch(image):
         return None
     reference = image.removeprefix("ghcr.io/")
-    repository, tag = reference.rsplit(":", 1)
+    repository, image_reference = reference.split(":", 1)
+    tag, separator, pinned_digest = image_reference.partition("@")
+    registry_reference = pinned_digest if separator else tag
     if repository.count("/") != 1:
         return None
     token_path = "/token?" + urlencode({"scope": f"repository:{repository}:pull"})
@@ -499,7 +503,7 @@ def _registry_digest_request(image: str, *, timeout: float) -> str | None:
         ):
             return None
         digest = _ghcr_request(
-            "HEAD", f"/v2/{repository}/manifests/{tag}", timeout=timeout,
+            "HEAD", f"/v2/{repository}/manifests/{registry_reference}", timeout=timeout,
             max_body_bytes=0,
             headers={
                 "Authorization": f"Bearer {token}",
@@ -1036,9 +1040,19 @@ def collect(
         image = str(record.get("image", ""))
         raw_digest = record.get("digest")
         digest = raw_digest if isinstance(raw_digest, str) and DIGEST.fullmatch(raw_digest) else None
-        prior_production_baseline = phase == "canary-prepromotion" and environment == "production"
-        if not IMAGE.fullmatch(image) or (digest is None and not prior_production_baseline):
-            raise ValueError(f"{environment} evidence needs an immutable image tag and digest")
+        match = IMAGE.fullmatch(image)
+        if not match or digest is None:
+            raise ValueError(f"{environment} evidence needs an architecture-specific image reference and resolved digest")
+        embedded_digest = match.group("reference_digest")
+        if embedded_digest is not None and embedded_digest != digest:
+            raise ValueError(f"{environment} image reference and supplied digest do not match")
+        if environment == "canary" and embedded_digest is None:
+            raise ValueError("canary candidate must use a digest-pinned image reference")
+        if phase == "postpromotion" and embedded_digest is None:
+            raise ValueError(f"{environment} image must be digest pinned after promotion")
+        revision = match.group("revision")
+        if not REVISION_IN_IMAGE.search(image) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise ValueError(f"{environment} image must bind to a full lowercase source commit")
         safe_records[environment] = {**record, "digest": digest}
 
     if phase == "postpromotion" and safe_records["canary"]["image"] != safe_records["production"]["image"]:
@@ -1057,7 +1071,7 @@ def collect(
     }
     registry_verification: list[dict[str, Any]] = []
     failed_gates: list[str] = list(restore_failure_gates)
-    registry_environments = ("canary",) if phase == "canary-prepromotion" else ENVIRONMENTS
+    registry_environments = ENVIRONMENTS
     for environment in registry_environments:
         image = safe_records[environment]["image"]
         expected_digest = safe_records[environment]["digest"]
@@ -1476,9 +1490,9 @@ def collect(
             "interval_seconds": interval_seconds,
             "read_only_app_probe_paths": ["/healthz", "/readyz", "/metrics"],
             "registry_request_methods": ["GET token", "HEAD image manifest"],
-            "image_digest_source": "GHCR Docker-Content-Digest response",
+            "image_digest_source": "GHCR Docker-Content-Digest response; candidate references are digest pinned",
             "registry_digest_verification_scope": (
-                "candidate-canary-only" if phase == "canary-prepromotion" else "canary-and-production"
+                "canary-and-production"
             ),
             "router_runtime_digest_verified": False,
             "browser_origin_readiness": browser_origin_observation,

@@ -1,8 +1,8 @@
 # Router-local immutable release updater for MikroTik OpenVPN GUI.
 #
 # This is deliberately a static, reviewable RouterOS script.  It does NOT
-# download or execute RouterOS code from GitHub.  It only downloads a JSON
-# release manifest, validates one exact public ARM64 image tag, and stages it
+# download or execute RouterOS code from GitHub. It downloads a JSON
+# release manifest, validates one exact public ARM64 SHA-256 image reference, and stages it
 # only to the pre-existing isolated canary. Production is changed only by the
 # separate evidence-gated local promotion controller.
 #
@@ -12,6 +12,7 @@
 
 :local manifestUrl "https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/releases/download/routeros-stable/routeros-release.json"
 :local imagePrefix "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-"
+:local imageDigestMarker "-arm64@sha256:"
 :local canaryContainer "vpn-dashboard-canary"
 :local productionContainer "vpn-dashboard-production"
 # Readiness may use HTTPS, or a literal RFC1918 IPv4 address on the router's
@@ -79,6 +80,42 @@
     :local ending [:find $contents "\n" $start]
     :if ($ending = nil) do={ :return [:pick $contents $start [:len $contents]] }
     :return [:pick $contents $start $ending]
+}
+:local canonicalImage do={
+    :local value $1
+    :if ([:pick $value 0 9] = "ghcr.io/") do={ :return $value }
+    :return ("ghcr.io/" . $value)
+}
+:local validArm64Image do={
+    :local value [$canonicalImage $1]
+    :local prefixLength [:len $imagePrefix]
+    :if ([:pick $value 0 $prefixLength] != $imagePrefix) do={ :return false }
+    :local revisionStart $prefixLength
+    :local suffixStart ($revisionStart + 40)
+    :if ([:len $value] < ($suffixStart + 6)) do={ :return false }
+    :local hex "0123456789abcdef"
+    :for index from=$revisionStart to=($suffixStart - 1) do={
+        :if ([:find $hex [:pick $value $index ($index + 1)]] = nil) do={ :return false }
+    }
+    :if (([:len $value] = ($suffixStart + 6)) && ([:pick $value $suffixStart [:len $value]] = "-arm64")) do={
+        :return true
+    }
+    :if ([:len $value] != ($suffixStart + [:len $imageDigestMarker] + 64)) do={ :return false }
+    :if ([:pick $value $suffixStart ($suffixStart + [:len $imageDigestMarker])] != $imageDigestMarker) do={ :return false }
+    :for index from=($suffixStart + [:len $imageDigestMarker]) to=([:len $value] - 1) do={
+        :if ([:find $hex [:pick $value $index ($index + 1)]] = nil) do={ :return false }
+    }
+    :return true
+}
+:local digestPinnedImage do={
+    :local value [$canonicalImage $1]
+    :if (![$validArm64Image $value]) do={ :return false }
+    :local suffixStart ([:len $imagePrefix] + 40)
+    :return ([:pick $value $suffixStart ($suffixStart + [:len $imageDigestMarker])] = $imageDigestMarker)
+}
+:local imageRevision do={
+    :local value [$canonicalImage $1]
+    :return [:pick $value [:len $imagePrefix] ([:len $imagePrefix] + 40)]
 }
 :local recordFailure do={
     :local candidate $1
@@ -246,33 +283,65 @@
     :set updaterStep "manifest-parse"
     :local manifest [:deserialize from=json value=($fetched->"data")]
     :local schema ($manifest->"schema")
+    :local channel ($manifest->"channel")
+    :local architectures ($manifest->"architectures")
     :local images ($manifest->"images")
     :local image ($images->"arm64")
+    :local digests ($manifest->"digests")
+    :local manifestDigest ($digests->"arm64")
     :local commit ($manifest->"commit")
 
     # Fail closed unless the manifest names this format exactly:
-    # ghcr.io/<configured public owner>/mikrotik-openvpn-gui:sha-<40 lowercase hex>-arm64
+    # ghcr.io/<configured public owner>/mikrotik-openvpn-gui:sha-<commit>-arm64@sha256:<digest>
     :set updaterStep "candidate-validation"
-    :if ($schema != 1) do={
+    :if (($schema != 2) || ($channel != "stable") || ([:typeof $architectures] != "array") || (($architectures->"arm64") != "linux/arm64") || (($architectures->"amd64") != "linux/amd64")) do={
         :error "manifest schema is not accepted"
     }
-    :if (([:typeof $image] != "str") || ([:typeof $commit] != "str")) do={
-        :error "manifest image or commit is not a string"
+    :if (([:typeof $image] != "str") || ([:typeof $commit] != "str") || ([:typeof $manifestDigest] != "str")) do={
+        :error "manifest image, digest, or commit is not a string"
     }
     :local prefixLength [:len $imagePrefix]
-    :local expectedLength ($prefixLength + 46)
-    :if (([:len $image] != $expectedLength) || ([:pick $image 0 $prefixLength] != $imagePrefix) || ([:pick $image ($prefixLength + 40) $expectedLength] != "-arm64")) do={
-        :error "manifest image is not an allowed immutable ARM64 image"
+    :local markerLength [:len $imageDigestMarker]
+    :local expectedLength ($prefixLength + 40 + $markerLength + 64)
+    :if (([:len $image] != $expectedLength) || ([:pick $image 0 $prefixLength] != $imagePrefix) || ([:pick $image ($prefixLength + 40) ($prefixLength + 40 + $markerLength)] != $imageDigestMarker)) do={
+        :error "manifest image is not an allowed digest-pinned ARM64 image"
     }
     :local imageCommit [:pick $image $prefixLength ($prefixLength + 40)]
     :if (([:len $commit] != 40) || ($commit != $imageCommit)) do={
-        :error "manifest commit does not match the immutable image tag"
+        :error "manifest commit does not match the immutable image reference"
     }
     :local hex "0123456789abcdef"
     :for index from=0 to=39 do={
         :local character [:pick $commit $index ($index + 1)]
         :if ([:find $hex $character] = nil) do={
             :error "manifest commit contains a non-lowercase-hex character"
+        }
+    }
+    :local referenceDigestStart ($prefixLength + 40 + [:len "-arm64@"])
+    :local referenceDigest [:pick $image $referenceDigestStart $expectedLength]
+    :if (($manifestDigest != $referenceDigest) || ([:len $manifestDigest] != 71) || ([:pick $manifestDigest 0 7] != "sha256:")) do={
+        :error "manifest digest does not match the ARM64 image reference"
+    }
+    :for index from=7 to=70 do={
+        :if ([:find $hex [:pick $manifestDigest $index ($index + 1)]] = nil) do={
+            :error "manifest digest contains a non-lowercase-hex character"
+        }
+    }
+    :local amd64Image ($images->"amd64")
+    :local amd64Digest ($digests->"amd64")
+    :local amd64Marker "-amd64@sha256:"
+    :local amd64ExpectedLength ($prefixLength + 40 + [:len $amd64Marker] + 64)
+    :if (([:typeof $amd64Image] != "str") || ([:typeof $amd64Digest] != "str") || ([:len $amd64Image] != $amd64ExpectedLength) || ([:pick $amd64Image 0 $prefixLength] != $imagePrefix) || ([:pick $amd64Image ($prefixLength + 40) ($prefixLength + 40 + [:len $amd64Marker])] != $amd64Marker) || ([:len $amd64Digest] != 71) || ([:pick $amd64Digest 0 7] != "sha256:")) do={
+        :error "manifest AMD64 metadata is missing or malformed"
+    }
+    :local amd64Commit [:pick $amd64Image $prefixLength ($prefixLength + 40)]
+    :if ($amd64Commit != $commit) do={ :error "manifest architecture images do not use the same source commit" }
+    :local amd64ReferenceDigestStart ($prefixLength + 40 + [:len $amd64Marker])
+    :local amd64ReferenceDigest [:pick $amd64Image $amd64ReferenceDigestStart $amd64ExpectedLength]
+    :if ($amd64Digest != $amd64ReferenceDigest) do={ :error "manifest AMD64 digest does not match its image reference" }
+    :for index from=7 to=70 do={
+        :if ([:find $hex [:pick $amd64Digest $index ($index + 1)]] = nil) do={
+            :error "manifest AMD64 digest contains a non-lowercase-hex character"
         }
     }
     :set updaterStep "readiness-configuration"
@@ -306,22 +375,31 @@
     :set updaterStep "production-image-read"
     :local productionCurrent [/container/get $productionId remote-image]
     :set updaterStep "production-image-validation"
-    :if (([:len $productionCurrent] != $expectedLength) || ([:pick $productionCurrent 0 $prefixLength] != $imagePrefix) || ([:pick $productionCurrent ($prefixLength + 40) $expectedLength] != "-arm64")) do={
-        :error "production must already use an allowed immutable ARM64 image before automatic updates are enabled"
+    :if (![$validArm64Image $productionCurrent]) do={
+        :error "production image is not an allowed immutable ARM64 image"
     }
     :set updaterStep "production-noop-check"
-    :if ($productionCurrent = $image) do={
+    :if (([$canonicalImage $productionCurrent]) = $image) do={
         :log info ("vpn-gui immutable updater: production already uses " . $image)
         :set skipUpdate true
     }
     :set updaterStep "canary-image-read"
     :local canaryCurrent [/container/get $canaryId remote-image]
+    :if (![$validArm64Image $canaryCurrent]) do={
+        :error "canary image is not an allowed project ARM64 image; no container changed"
+    }
+    :if (![$digestPinnedImage $canaryCurrent]) do={
+        :log error "vpn-gui immutable updater: current canary image is tag-only; pin it to its verified digest before enabling staging"
+        :error "canary rollback target must be digest pinned; no container changed"
+    }
+    :local canaryCurrentCanonical [$canonicalImage $canaryCurrent]
+    :local productionCurrentCanonical [$canonicalImage $productionCurrent]
     :set updaterStep "pending-state-read"
     :local pendingState ""
     :do { :set pendingState [/file/get [find where name=$pendingFile] contents] } on-error={}
     :local pendingImage [$stateLine $pendingState "candidate-image="]
     :local pendingProduction [$stateLine $pendingState "prior-production-image="]
-    :if (($canaryCurrent = $image) && ($pendingImage = $image) && ($pendingProduction = $productionCurrent)) do={
+    :if (($canaryCurrentCanonical = $image) && ($pendingImage = $image) && ([$canonicalImage $pendingProduction] = $productionCurrentCanonical)) do={
         :log info ("vpn-gui immutable updater: candidate already staged; production unchanged " . $image)
         :set skipUpdate true
     }
@@ -377,13 +455,13 @@
     :if (!$skipUpdate) do={
         :set updaterStep "canary-lifecycle"
         :log info ("vpn-gui immutable updater: testing canary " . $image)
-        :local canaryRestoreImage $canaryCurrent
-        :if ($canaryCurrent = $image) do={ :set canaryRestoreImage $productionCurrent }
+        :local canaryRestoreCanonical [$canonicalImage $canaryCurrent]
+        :local canaryRestoreImage [:pick $canaryRestoreCanonical 9 [:len $canaryRestoreCanonical]]
         :set updaterStep "canary-restore-image-validation"
-        :if (([:len $canaryRestoreImage] != $expectedLength) || ([:pick $canaryRestoreImage 0 $prefixLength] != $imagePrefix) || ([:pick $canaryRestoreImage ($prefixLength + 40) $expectedLength] != "-arm64")) do={
+        :if (![$digestPinnedImage $canaryRestoreImage]) do={
             :error "canary restore image is not an allowed immutable ARM64 image"
         }
-        :local canaryRestoreCommit [:pick $canaryRestoreImage $prefixLength ($prefixLength + 40)]
+        :local canaryRestoreCommit [$imageRevision $canaryRestoreImage]
         :for restoreIndex from=0 to=39 do={
             :local restoreCharacter [:pick $canaryRestoreCommit $restoreIndex ($restoreIndex + 1)]
             :if ([:find $hex $restoreCharacter] = nil) do={
@@ -395,9 +473,13 @@
         :set updaterStep "canary-stop"
         /container/stop $canaryId
         :set updaterStep "canary-image-set"
-        /container/set $canaryId remote-image=$image
+        :local routerCandidateImage [:pick $image 9 [:len $image]]
+        /container/set $canaryId remote-image=$routerCandidateImage
         :set updaterStep "canary-image-update"
         /container/update $canaryId
+        :if (([$canonicalImage [/container/get $canaryId remote-image]]) != $image) do={
+            :error "RouterOS image read-back did not match the pinned candidate"
+        }
         :set updaterStep "canary-start"
         /container/start $canaryId
     } on-error={
@@ -533,7 +615,7 @@
     :log info ("vpn-gui immutable updater: canary readiness soak passed samples=" . $canaryValidationSamples)
 
     :set updaterStep "pending-state-write"
-    :local pending ("candidate-image=" . $image . "\nprior-production-image=" . $productionCurrent . "\ncommit=" . $commit . "\nstaged-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
+    :local pending ("candidate-image=" . $image . "\nprior-production-image=" . $productionCurrentCanonical . "\ncommit=" . $commit . "\nstaged-at=" . [/system/clock/get date] . " " . [/system/clock/get time])
     $writeState $pendingFile $pending
     $recordHistory "canary-staged" $image "readiness-soak-passed; production-unchanged"
     :log info ("vpn-gui immutable updater: canary staged; full acceptance and explicit promotion controller required; production unchanged " . $image)

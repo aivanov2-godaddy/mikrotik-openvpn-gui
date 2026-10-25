@@ -9,9 +9,10 @@ from scripts.rollback_acceptance import REPORT_FORMAT, summarize_rollback_report
 
 
 REVISION = "a" * 40
-CANDIDATE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{REVISION}-arm64"
-PRIOR = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'c' * 40}-arm64"
 DIGEST = "sha256:" + "b" * 64
+PRIOR_DIGEST = "sha256:" + "c" * 64
+CANDIDATE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{REVISION}-arm64@{DIGEST}"
+PRIOR = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'c' * 40}-arm64@{PRIOR_DIGEST}"
 START = "2026-10-02T10:00:00Z"
 END = "2026-10-02T10:30:00Z"
 

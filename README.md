@@ -126,8 +126,10 @@ promotion and rollback procedure.
 7. Use the dashboard’s setup plan generator or [manual update guide](docs/DEPLOYMENT.md) for later image updates.
 
 The public repository publishes architecture-specific GHCR images from `main`.
-Always pin an immutable `sha-<commit>-<architecture>` tag for RouterOS; never
-make a router follow the mutable `edge` tag automatically.
+For RouterOS, pin both the full commit/architecture tag and its OCI digest, for
+example `owner/repo:sha-<40-character-commit>-arm64@sha256:<64-hex-digest>`.
+The digest is the artifact identity; the commit tag is retained for source
+revision checks. Never make a router follow the mutable `edge` tag automatically.
 
 ## Runtime configuration
 

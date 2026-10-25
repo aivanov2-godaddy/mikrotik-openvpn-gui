@@ -122,6 +122,24 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("upload_status=$?", step)
         self.assertIn("reconciled as idempotent success", step)
 
+    def test_stable_manifest_binds_each_architecture_to_commit_tag_and_digest(self) -> None:
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+
+        self.assertIn('"schema": 2', publish)
+        self.assertIn('f"ghcr.io/{repository}:sha-{revision}-arm64@{digests[\'arm64\']}"', publish)
+        self.assertIn('f"ghcr.io/{repository}:sha-{revision}-amd64@{digests[\'amd64\']}"', publish)
+        self.assertIn("actions/upload-artifact@", publish)
+        self.assertIn("actions/download-artifact@", publish)
+        self.assertIn("retention-days: 1", publish)
+        updater = (ROOT / "scripts" / "routeros" / "immutable-release-updater.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(':local architectures ($manifest->"architectures")', updater)
+        self.assertIn('($architectures->"arm64") != "linux/arm64"', updater)
+        self.assertIn('($architectures->"amd64") != "linux/amd64"', updater)
+        self.assertIn('manifest AMD64 digest does not match its image reference', updater)
+        self.assertIn('canary rollback target must be digest pinned', updater)
+
     def test_release_sbom_and_provenance_are_detached_from_runtime_image(self) -> None:
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
         release_notes = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")
@@ -393,7 +411,7 @@ class ReleaseContractTests(unittest.TestCase):
         )
         operations = (
             ("canary-stop", "/container/stop $canaryId"),
-            ("canary-image-set", "/container/set $canaryId remote-image=$image"),
+            ("canary-image-set", "/container/set $canaryId remote-image=$routerCandidateImage"),
             ("canary-image-update", "/container/update $canaryId"),
             ("canary-start", "/container/start $canaryId"),
             ("canary-rollback-stop", "/container/stop $canaryId"),
@@ -440,7 +458,7 @@ class ReleaseContractTests(unittest.TestCase):
                 self.assertEqual(target.group(1), "$canaryId")
                 arguments = target.group(2).strip()
                 if command.group(1) == "set":
-                    self.assertRegex(arguments, r"^remote-image=\$(image|canaryRestoreImage)$")
+                    self.assertRegex(arguments, r"^remote-image=\$(routerCandidateImage|canaryRestoreImage)$")
                 else:
                     self.assertEqual(arguments, "")
 
@@ -482,9 +500,7 @@ class ReleaseContractTests(unittest.TestCase):
         validation = executable[validation_at:first_mutation_at]
 
         self.assertLess(validation_at, first_mutation_at)
-        self.assertIn('[:pick $canaryRestoreImage 0 $prefixLength] != $imagePrefix', validation)
-        self.assertIn('[:pick $canaryRestoreImage ($prefixLength + 40) $expectedLength] != "-arm64"', validation)
-        self.assertIn('[:pick $canaryRestoreImage $prefixLength ($prefixLength + 40)]', validation)
+        self.assertIn('[$digestPinnedImage $canaryRestoreImage]', validation)
         self.assertIn(':for restoreIndex from=0 to=39 do={', validation)
         self.assertIn('[:find $hex $restoreCharacter] = nil', validation)
 
