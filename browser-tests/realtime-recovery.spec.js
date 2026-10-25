@@ -461,7 +461,7 @@ test('an incomplete REST status response preserves the last authoritative sessio
 
   await firstStatusStarted;
   releaseFirstStatus();
-  await expect(card.locator('.session-uptime'))
+  await expect(card.locator('[data-session-uptime], .session-uptime'))
     .toHaveText('updated-by-incomplete-rest-response');
   await expect(card).toHaveAttribute('data-rx', previousRx);
   await expect(card).toHaveAttribute('data-tx', previousTx);
