@@ -22,9 +22,11 @@ const LIVE_SNAPSHOT_FRESHNESS_MS = 10_000;
 let realtimeSource = null;
 let socketIoSource = null;
 let realtimeReconnectTimer = null;
+let realtimeConnectionState = 'connecting';
 let realtimeTransport = 'sse';
 let socketIoEngine = 'polling';
 let socketIoHealth = null;
+let latestTelemetryStatus = {};
 let pageReloadScheduled = false;
 let terminationAttempt = null;
 let sessionReauthentication = null;
@@ -931,10 +933,11 @@ function socketIoHealthIsFresh() {
     && Date.now() - socketIoHealth.receivedAt <= 15_000;
 }
 
-function updateTelemetryIndicator(status = {}) {
+function updateTelemetryIndicator(status) {
+  if (status) latestTelemetryStatus = status;
   const effective = socketIoHealthIsFresh()
     ? socketIoHealth
-    : status;
+    : latestTelemetryStatus;
   const state = String(effective.state || 'healthy');
   // Use the browser's selected transport. A REST poll that began before a
   // degraded-socket handoff may still report the server's preferred transport
@@ -942,17 +945,43 @@ function updateTelemetryIndicator(status = {}) {
   const transport = String(realtimeTransport || status.transport || 'sse').toUpperCase();
   const age = Number(effective.event_age_seconds);
   const streamConnected = effective.stream_connected === true;
+  // This is browser receive-time age, not a RouterOS measurement timestamp.
+  const liveUpdateAgeMs = lastLiveSnapshotAt
+    ? Math.max(0, Date.now() - lastLiveSnapshotAt)
+    : null;
+  const socketHealthIsFresh = socketIoHealthIsFresh();
   const stale = state === 'stale' || state === 'error'
-    || (!streamConnected && Number.isFinite(age) && age > 10);
+    || (liveUpdateAgeMs !== null && liveUpdateAgeMs > LIVE_SNAPSHOT_FRESHNESS_MS && !socketHealthIsFresh)
+    || (!streamConnected && Number.isFinite(age) && age > LIVE_SNAPSHOT_FRESHNESS_MS / 1000);
+  const reconnecting = realtimeConnectionState === 'reconnecting';
+  const pending = reconnecting || realtimeConnectionState === 'connecting' || state === 'pending';
+  const ageSeconds = liveUpdateAgeMs === null ? null : Math.floor(liveUpdateAgeMs / 1000);
+  const ageLabel = ageSeconds === null ? '' : `· ${ageSeconds}s`;
   $$('[data-live-indicator]').forEach((indicator) => {
     indicator.classList.toggle('stale', stale);
-    indicator.classList.remove('pending');
-    const label = $('span', indicator);
+    indicator.classList.toggle('pending', pending);
+    indicator.classList.toggle('reconnecting', reconnecting);
+    const label = $('[data-live-label]', indicator) || $('span', indicator);
+    const ageElement = $('[data-live-age]', indicator);
     if (!label) return;
-    if (state === 'error') label.textContent = 'Telemetry unavailable';
-    else if (stale) label.textContent = `Stale · ${transport}`;
-    else if (state === 'pending') label.textContent = `Connecting · ${transport}`;
-    else label.textContent = `Live · ${transport}`;
+    let labelText;
+    if (state === 'error') labelText = 'Telemetry unavailable';
+    else if (reconnecting) labelText = `Reconnecting · ${transport}`;
+    else if (stale) labelText = lastLiveSnapshotAt ? `Stale · ${transport}` : 'Connection data delayed';
+    else if (pending) labelText = `Connecting · ${transport}`;
+    else labelText = `Live · ${transport}`;
+    if (label.textContent !== labelText) label.textContent = labelText;
+    if (ageElement && ageElement.textContent !== ageLabel) ageElement.textContent = ageLabel;
+    const accessibleLabel = ageSeconds === null
+      ? labelText
+      : `${labelText}; last live update received by this dashboard ${ageSeconds} seconds ago`;
+    if (indicator.getAttribute('aria-label') !== accessibleLabel) {
+      indicator.setAttribute('aria-label', accessibleLabel);
+    }
+    const title = ageSeconds === null
+      ? labelText
+      : `${labelText} · last live update received by this dashboard ${ageSeconds} seconds ago`;
+    if (indicator.title !== title) indicator.title = title;
   });
 }
 
@@ -982,6 +1011,7 @@ function updateLiveSnapshot(payload) {
   // appear to have happened in a few milliseconds.
   const timestamp = Date.now();
   lastLiveSnapshotAt = timestamp;
+  realtimeConnectionState = 'connected';
   latestLiveSessions = sessions;
   liveSnapshotVersion += 1;
   reconcileConnectionHistory(sessions);
@@ -998,10 +1028,6 @@ function updateLiveSnapshot(payload) {
   const tx = sessions.reduce((total, item) => total + (Number(item.tx_bytes) || 0), 0);
   const traffic = $('[data-traffic-total]');
   if (traffic) traffic.textContent = `↓ ${formatBytes(rx)} · ↑ ${formatBytes(tx)}`;
-  $$('[data-live-indicator]').forEach((indicator) => {
-    indicator.classList.remove('stale', 'pending');
-    $('span', indicator).textContent = 'Live · updated now';
-  });
   updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
 }
 
@@ -1033,8 +1059,19 @@ function scheduleRealtimeReconnect() {
 
 function connectRealtime() {
   if (document.hidden || realtimeSource || socketIoSource) return;
+  realtimeConnectionState = realtimeConnectionState === 'reconnecting' || lastLiveSnapshotAt
+    ? 'reconnecting'
+    : 'connecting';
+  updateTelemetryIndicator({
+    state: realtimeConnectionState === 'reconnecting' ? 'reconnecting' : 'pending',
+    transport: realtimeTransport,
+  });
   if (realtimeTransport === 'socketio' && connectSocketIO()) return;
-  if (!window.EventSource) return;
+  if (!window.EventSource) {
+    realtimeConnectionState = 'error';
+    updateTelemetryIndicator({ state: 'error', transport: realtimeTransport });
+    return;
+  }
   realtimeSource = new EventSource('/api/events', { withCredentials: true });
   realtimeSource.addEventListener('status', (event) => {
     try { updateLiveSnapshot(JSON.parse(event.data)); } catch (_) { /* ignore malformed telemetry */ }
@@ -1042,6 +1079,8 @@ function connectRealtime() {
   realtimeSource.onerror = () => {
     realtimeSource?.close();
     realtimeSource = null;
+    realtimeConnectionState = 'reconnecting';
+    updateTelemetryIndicator({ state: 'reconnecting', transport: realtimeTransport });
     scheduleRealtimeReconnect();
   };
 }
@@ -1050,7 +1089,6 @@ async function pollStatus() {
   if (document.hidden || pollingInFlight) return;
   pollingInFlight = true;
   const liveVersionAtRequest = liveSnapshotVersion;
-  const indicators = $$('[data-live-indicator]');
   try {
     const response = await resultOrError(await api('/api/status'));
     const payload = await response.json();
@@ -1073,10 +1111,7 @@ async function pollStatus() {
       // authenticated Socket.IO stream during a quiet period.
       updateTelemetryIndicator({ state: 'healthy', transport: realtimeTransport });
     } else {
-      indicators.forEach((indicator) => {
-        indicator.classList.add('stale');
-        $('span', indicator).textContent = 'Connection data delayed';
-      });
+      updateTelemetryIndicator({ state: 'stale', transport: realtimeTransport });
     }
     if (pollingFailures === 2) {
       toast(
@@ -1720,6 +1755,9 @@ function connectSocketIO() {
     });
     onCurrentSocket('connect', () => {
       socketIoHealth = { state: 'pending', stream_connected: false, receivedAt: Date.now() };
+      realtimeConnectionState = realtimeConnectionState === 'reconnecting' || lastLiveSnapshotAt
+        ? 'reconnecting'
+        : 'connecting';
       updateTelemetryIndicator({ transport: 'socketio' });
     });
     onCurrentSocket('telemetry.health', (health) => {
@@ -1736,6 +1774,7 @@ function connectSocketIO() {
         stream_connected: health.stream_connected === true && state === 'healthy',
         receivedAt: Date.now(),
       };
+      if (state === 'healthy') realtimeConnectionState = 'connected';
       updateTelemetryIndicator({ transport: 'socketio' });
     });
     onCurrentSocket('disconnect', () => {
@@ -1758,11 +1797,15 @@ function connectSocketIO() {
 
 function fallbackSocketToSse(socket) {
   if (socketIoSource !== socket) return;
+  const reconnecting = realtimeConnectionState === 'connected'
+    || realtimeConnectionState === 'reconnecting'
+    || Boolean(lastLiveSnapshotAt);
   // Retire the socket before closing it so its queued disconnect/health/data
   // callbacks are ignored by the identity guard above.
   socketIoSource = null;
   socketIoHealth = null;
   realtimeTransport = 'sse';
+  realtimeConnectionState = reconnecting ? 'reconnecting' : 'connecting';
   try { socket.close(); } catch (_) { /* the authenticated SSE fallback still runs */ }
   if (!window.EventSource) {
     updateTelemetryIndicator({ state: 'error', transport: 'sse' });
@@ -3274,6 +3317,9 @@ loadApiTokens();
 detectRealtimeTransport().finally(connectRealtime);
 setTimeout(pollStatus, 1200);
 setInterval(pollStatus, 5000);
+setInterval(() => {
+  if (!document.hidden) updateTelemetryIndicator();
+}, 1000);
 setInterval(() => {
   if (!document.hidden && !$('#profile-security')?.hidden) refreshCertificateSettings();
 }, 30000);

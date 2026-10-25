@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const liveIndicatorLabels = (page) => page.locator('[data-live-indicator] [data-live-label]');
 
 test('same-origin polling GET carries Referer evidence under the dashboard policy', async ({ page }) => {
   let pollingHeaders = null;
@@ -117,7 +118,7 @@ test('a failed status poll does not mark a recent Socket.IO snapshot as delayed'
   await page.evaluate(() => window.__liveTestSocket.handlers.get('telemetry.snapshot')({
     payload: { sessions: [] },
   }));
-  const indicators = page.locator('[data-live-indicator]');
+  const indicators = liveIndicatorLabels(page);
   await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
   await page.getByRole('link', { name: 'Connections', exact: true }).click();
   const staleHistoryRow = page.locator('[data-router-session-id="*A1"]');
@@ -162,10 +163,10 @@ test('a healthy Socket.IO heartbeat keeps quiet telemetry from appearing delayed
   await page.evaluate(() => window.__liveTestSocket.handlers.get('telemetry.health')({
     state: 'healthy', stream_connected: true,
   }));
-  await expect(page.locator('[data-live-indicator]'))
+  await expect(liveIndicatorLabels(page))
     .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
   await page.clock.fastForward(12_000);
-  await expect(page.locator('[data-live-indicator]'))
+  await expect(liveIndicatorLabels(page))
     .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
 });
 
@@ -221,7 +222,7 @@ test('falls back to SSE when the connected Socket.IO upstream reports degraded h
   await page.evaluate(() => window.__degradedFallbackSockets[0].emit('telemetry.health', {
     state: 'healthy', stream_connected: true,
   }));
-  await expect(page.locator('[data-live-indicator]'))
+  await expect(liveIndicatorLabels(page))
     .toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
   await page.getByRole('link', { name: 'Connections', exact: true }).click();
   await expect(page.locator('[data-view="live-sessions"]')).toBeVisible();
@@ -239,8 +240,8 @@ test('falls back to SSE when the connected Socket.IO upstream reports degraded h
     sourceCount: window.__degradedFallbackSources.length,
     sourceUrl: window.__degradedFallbackSources[0]?.url,
   }))).toEqual({ socketClosed: true, sourceCount: 1, sourceUrl: '/api/events' });
-  await expect(page.locator('[data-live-indicator]'))
-    .toHaveText(['Connecting · SSE', 'Connecting · SSE']);
+  await expect(liveIndicatorLabels(page))
+    .toHaveText(['Reconnecting · SSE', 'Reconnecting · SSE']);
 
   await page.evaluate(() => window.__degradedFallbackSources[0].emit('status', {
     sessions: [{
@@ -250,7 +251,7 @@ test('falls back to SSE when the connected Socket.IO upstream reports degraded h
     }],
   }));
   await expect(page.getByText('fallback-user', { exact: true })).toBeVisible();
-  await expect(page.locator('[data-live-indicator]'))
+  await expect(liveIndicatorLabels(page))
     .toHaveText(['Live · SSE', 'Live · SSE']);
 
   // A queued callback from the retired socket must not overwrite the SSE view.
@@ -267,7 +268,7 @@ test('falls back to SSE when the connected Socket.IO upstream reports degraded h
   });
   await expect(page.getByText('fallback-user', { exact: true })).toBeVisible();
   await expect(page.getByText('retired-socket-user', { exact: true })).toHaveCount(0);
-  await expect(page.locator('[data-live-indicator]'))
+  await expect(liveIndicatorLabels(page))
     .toHaveText(['Live · SSE', 'Live · SSE']);
   expect(await page.evaluate(() => window.__degradedFallbackSources.length)).toBe(1);
   expect(navigations).toEqual([]);
@@ -329,7 +330,7 @@ test('falls back to SSE after an established Socket.IO disconnect and stays on S
     socket.emit('telemetry.health', { state: 'healthy', stream_connected: true });
     socket.emit('telemetry.snapshot', { payload: { sessions: [] } });
   });
-  const indicators = page.locator('[data-live-indicator]');
+  const indicators = liveIndicatorLabels(page);
   await expect(indicators).toHaveText(['Live · SOCKETIO', 'Live · SOCKETIO']);
 
   await page.evaluate(() => window.__disconnectFallbackSocket.emit('disconnect', 'transport close'));
@@ -338,7 +339,7 @@ test('falls back to SSE after an established Socket.IO disconnect and stays on S
     sourceCount: window.__disconnectFallbackSources.length,
     sourceUrl: window.__disconnectFallbackSources[0]?.url,
   }))).toEqual({ socketClosed: true, sourceCount: 1, sourceUrl: '/api/events' });
-  await expect(indicators).toHaveText(['Connecting · SSE', 'Connecting · SSE']);
+  await expect(indicators).toHaveText(['Reconnecting · SSE', 'Reconnecting · SSE']);
 
   await page.evaluate(() => window.__disconnectFallbackSources[0].emit('status', { sessions: [] }));
   await expect(indicators).toHaveText(['Live · SSE', 'Live · SSE']);
@@ -419,8 +420,8 @@ test('a failed status poll remains delayed when no live snapshot has arrived', a
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
   await expect.poll(() => statusPolls).toBeGreaterThan(0);
-  await expect(page.locator('[data-live-indicator]'))
-    .toHaveText(['Connection data delayed', 'Connection data delayed']);
+  await expect(liveIndicatorLabels(page))
+    .toHaveText(['Reconnecting · SSE', 'Reconnecting · SSE']);
 });
 
 test('stale active sessions are labeled last-known and termination re-enables after a fresh snapshot', async ({ page }) => {
@@ -470,6 +471,87 @@ test('stale active sessions are labeled last-known and termination re-enables af
   await expect(card).not.toHaveClass(/session-stale/);
   await expect(card.locator('[data-session-state]')).toHaveText('Connected securely · AES-256-GCM');
   await expect(card.locator('[data-terminate]')).toBeEnabled();
+});
+
+test('live indicator shows last-update age and automatic reconnect recovery without a page refresh', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-03T12:00:00.000Z') });
+  await page.addInitScript(() => {
+    window.__freshnessEventSources = [];
+    window.EventSource = class FreshnessEventSource {
+      constructor(url) {
+        this.url = url;
+        this.handlers = new Map();
+        this.closed = false;
+        window.__freshnessEventSources.push(this);
+      }
+
+      addEventListener(name, callback) { this.handlers.set(name, callback); }
+      close() { this.closed = true; }
+      emit(payload) { this.handlers.get('status')?.({ data: JSON.stringify(payload) }); }
+      fail() { this.onerror?.(new Event('error')); }
+    };
+  });
+  await page.route('**/api/telemetry', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ transport: 'sse', socketio_enabled: false }),
+  }));
+
+  await page.goto('/login');
+  await page.getByLabel('Login').fill('admin');
+  await page.getByLabel('Password').fill('routerpass');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__freshnessEventSources.length)).toBe(1);
+  await expect.poll(() => page.evaluate(() => (
+    window.__freshnessEventSources[0]?.handlers.has('status') || false
+  ))).toBe(true);
+
+  const documentNavigations = [];
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) documentNavigations.push(frame.url());
+  });
+  const labels = liveIndicatorLabels(page);
+  const ages = page.locator('[data-live-indicator] [data-live-age]');
+  const sample = {
+    sessions: [{
+      id: 'freshness-session', name: 'freshness-user', encoding: 'AES-256-GCM',
+      vpn_address: '10.8.0.99', source_address: '192.0.2.99', uptime: '1m',
+      rx_bytes: 1024, tx_bytes: 2048, rx_packets: 10, tx_packets: 20,
+    }],
+  };
+  await page.evaluate((payload) => window.__freshnessEventSources[0].emit(payload), sample);
+  await expect(labels).toHaveText(['Live · SSE', 'Live · SSE']);
+  await expect(ages).toHaveText(['· 0s', '· 0s']);
+
+  await page.clock.fastForward(3000);
+  await expect(ages).toHaveText(['· 3s', '· 3s']);
+  await expect(labels).toHaveText(['Live · SSE', 'Live · SSE']);
+  await expect(page.locator('[data-live-indicator]').first()).toHaveAttribute(
+    'title', 'Live · SSE · last live update received by this dashboard 3 seconds ago',
+  );
+
+  await page.clock.fastForward(8000);
+  await expect(ages).toHaveText(['· 11s', '· 11s']);
+  await expect(labels).toHaveText(['Stale · SSE', 'Stale · SSE']);
+  await page.evaluate((payload) => window.__freshnessEventSources[0].emit(payload), sample);
+  await expect(labels).toHaveText(['Live · SSE', 'Live · SSE']);
+  await expect(ages).toHaveText(['· 0s', '· 0s']);
+  await expect(page.locator('#overview [data-session-total]')).toHaveText('1');
+
+  await page.evaluate(() => window.__freshnessEventSources[0].fail());
+  await expect(labels).toHaveText(['Reconnecting · SSE', 'Reconnecting · SSE']);
+  await expect(page.locator('[data-live-indicator]').first()).toHaveClass(/reconnecting/);
+  await page.clock.fastForward(3000);
+  await expect.poll(() => page.evaluate(() => window.__freshnessEventSources.length)).toBe(2);
+  await expect(labels).toHaveText(['Reconnecting · SSE', 'Reconnecting · SSE']);
+  await page.evaluate((payload) => window.__freshnessEventSources[1].emit(payload), sample);
+  await expect(labels).toHaveText(['Live · SSE', 'Live · SSE']);
+  await expect(ages).toHaveText(['· 0s', '· 0s']);
+  await expect(page.locator('#overview [data-session-total]')).toHaveText('1');
+  await expect(page).toHaveURL(/\/dashboard$/);
+  expect(documentNavigations).toEqual([]);
+  expect(await page.evaluate(() => window.__freshnessEventSources[1]?.closed)).toBe(false);
 });
 
 test('returns to the top-level Access flow when an API request is redirected', async ({ page }) => {
@@ -710,7 +792,7 @@ test('certificate migration panel refresh preserves the live stream and later te
     }],
   }));
   await expect(page.getByText('migration-live-user', { exact: true })).toBeVisible();
-  await expect(page.locator('[data-live-indicator]').first()).toHaveText('Live · SSE');
+  await expect(liveIndicatorLabels(page).first()).toHaveText('Live · SSE');
   expect(await page.evaluate(() => window.__syntheticEventSources[0]?.closed)).toBe(false);
 });
 
