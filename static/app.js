@@ -1739,8 +1739,9 @@ function connectSocketIO() {
       updateTelemetryIndicator({ transport: 'socketio' });
     });
     onCurrentSocket('disconnect', () => {
-      socketIoHealth = { state: 'stale', stream_connected: false, receivedAt: Date.now() };
-      updateTelemetryIndicator({ transport: 'socketio' });
+      // A dropped established transport must switch immediately to SSE; a
+      // later REST snapshot must not make the disconnected socket look live.
+      fallbackSocketToSse(socket);
     });
     onCurrentSocket('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
     onCurrentSocket('vpn.session.connected', () => pollStatus());
