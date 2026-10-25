@@ -18,22 +18,54 @@ RouterOS state, live measurements, and operator/session details remain in
 private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #815
-(`42ce550652f8134f3f0e3ed4ca37c3a3df413624`) is the latest merged source and
-verified published image. Main CI run 40138240586 and publisher run 40138240583
-passed. The PR's required CodeQL check passed, and the current main-branch
-alert inventory is 0 open / 7 closed. The publisher verified detached
-provenance and SPDX SBOM attestations, smoke-tested both architectures, and
-read back the stable immutable manifest. Exact image tags and digests are
-recorded below. The last recorded canary read-back remains the older PR #806
-candidate. PR #815 has not been staged; candidate-specific
-rollback, authenticated live telemetry acceptance, and the remaining security
-review are incomplete. This repository work made no RouterOS change. PR
-#791/#797's updater changes remain repository examples; the installed router
-updater was not run because its source is unreconciled. Keep v2.8.0 gated until
-candidate-specific acceptance passes.
+version, v2.8.0, has not been tagged or published. PR #817
+(`40ae1d86bbc8037172e38f1b018e71576925f201`) is the latest merged mainline
+source. Main CI run [#40143943796](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943796),
+publisher run [#40143943784](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943784),
+and main-branch CodeQL run
+[#40143943935](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943935)
+passed. The current CodeQL alert inventory is 0 open / 7 closed. The publisher
+verified detached provenance and SPDX SBOM attestations and smoke-tested both
+architecture images. It published the stable immutable manifest, but this run
+did not read that manifest back. Exact architecture tags and registry digests
+are recorded below.
 
-## Latest published mainline image — PR #815 — 2026-10-25
+No RouterOS read-back verifies that the latest image was staged or accepted. A
+read-only RouterOS inventory on 2026-10-25 found the canary container stopped;
+that view did not verify its image digest, embedded revision, or readiness, and
+no device configuration was changed. The last candidate-bound healthy read-back remains
+the historical PR #806 checkpoint. Production was not promoted by this work;
+its candidate digest and application health were not revalidated. The installed
+updater remains unreconciled and was not run. Candidate-specific rollback,
+authenticated live telemetry acceptance, and the independent security review
+remain incomplete. Keep v2.8.0 gated until candidate-specific acceptance passes.
+
+## Latest published mainline image — PR #817 — 2026-10-25
+
+PR [#817](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/817)
+merged as `40ae1d86bbc8037172e38f1b018e71576925f201`. Main CI run
+[#40143943796](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943796),
+publisher run
+[#40143943784](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943784),
+and main-branch CodeQL run
+[#40143943935](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943935)
+passed. The publisher verified detached provenance and SPDX SBOM attestations
+against the exact source commit and smoke-tested both architecture images. It
+published the stable immutable manifest; unlike earlier runs, this workflow
+did not include a manifest read-back step.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-40ae1d86bbc8037172e38f1b018e71576925f201-arm64` | `sha256:cd96ffd32fb223abe7776c4ac2a6701cbea0c36fa5699619ead5915549cd0b3c` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-40ae1d86bbc8037172e38f1b018e71576925f201-amd64` | `sha256:d47a711056d7bc7a59b5fddfb68a3584eb0246d047fe6f9e7e1d9b44eba11253` |
+
+The images are immutable published artifacts, not a numbered release or a
+deployment. The current canary was observed stopped in a read-only inventory;
+no PR #817 candidate digest, revision, or readiness was verified on RouterOS.
+No production promotion is claimed. The release and security-acceptance gates
+remain open.
+
+## Previous published mainline image — PR #815 — 2026-10-25
 
 PR [#815](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/815)
 merged as `42ce550652f8134f3f0e3ed4ca37c3a3df413624`. Main CI run
@@ -146,7 +178,7 @@ GitHub Release entry while retaining its Git tag for rollback history.
 
 ## Published images
 
-### Latest published mainline image — PR #806 — 2026-10-24
+### Previously published mainline image — PR #806 — 2026-10-24
 
 PR [#806](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/806)
 merged as `79816625e493f9581e7389b95760403ac6c9a327`. Main CI run
@@ -313,8 +345,9 @@ attestations verified.
 
 This publication did not stage or run the example updater on RouterOS and is
 not candidate-specific acceptance or production promotion. PR #793 and then
-PR #794 superseded it at the time; PR #811 is the latest published mainline
-image now. It is not a numbered release.
+PR #794 superseded it at the time; PR #811 was the latest published mainline
+image when this historical entry was written. PR #815 and later PR #817 have
+since superseded it. It is not a numbered release.
 
 ### Previously published mainline image — PR #778 — 2026-10-23
 
@@ -335,8 +368,9 @@ source commit.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-10721ebc7a0a4db2fb8ef82a80783376140e4205-arm64` | `sha256:f518688d46cb7b1c089ad63d2310263076e7f067b4ada597a651dd4e349ba832` |
 
 No RouterOS staging for this image is recorded. It was superseded by PR #794
-at the time of that earlier record; PR #811 is the latest published image
-now. PR #776 below is a historical candidate-bound record; the current PR #806
+at the time of that earlier record; PR #811 was then the latest published
+image, later superseded by PR #815 and PR #817. PR #776 below is a historical
+candidate-bound record; the current PR #806
 canary evidence is above. No #778 hardware acceptance is claimed. Production
 was not changed. This is an immutable published mainline image, not a numbered
 release; v2.7.0 remains the latest formal release. Do not tag or publish

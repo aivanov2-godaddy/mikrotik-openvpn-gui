@@ -13,15 +13,17 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest verified published mainline image is
-PR #815, commit `42ce550652f8134f3f0e3ed4ca37c3a3df413624`. Its publisher
-verified detached provenance/SBOM, both architecture smoke tests, and the
-stable manifest read-back; its immutable ARM64 tag and digest are recorded in
-[`RELEASES.md`](RELEASES.md#published-images). The last recorded canary ARM64
+prove RouterOS compatibility. The latest published mainline image is PR #817,
+commit `40ae1d86bbc8037172e38f1b018e71576925f201`. Its publisher verified
+detached provenance/SBOM and both architecture smoke tests, and published the
+stable immutable manifest; this run did not read the manifest back. Its
+immutable ARM64 tag and digest are recorded in [`RELEASES.md`](RELEASES.md).
+The last candidate-bound canary ARM64
 digest is
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
-CI, CodeQL, ARM64 image build, Redis recovery integration, rendered-browser /
-accessibility regression, secret-pattern checks, and dependency audit passed.
+Main CI run 40143943796, CodeQL run 40143943935, ARM64 image build, Redis
+recovery integration, rendered-browser/accessibility regression, secret-pattern
+checks, and dependency audit passed.
 
 On 2026-10-24, the exact PR #806 ARM64 tag and embedded revision were read back
 on the isolated canary; RouterOS reported healthy readiness. Sparse point
@@ -33,6 +35,12 @@ shows the canary app sign-in form, so authenticated event latency, traffic
 freshness, reconnect/snapshot recovery, and session authorization are not
 verified. Readiness and point samples alone do not constitute full hardware
 acceptance or production promotion.
+
+A later read-only RouterOS inventory on 2026-10-25 found the canary container
+stopped. That inventory did not verify its image digest, embedded revision, or
+readiness and made no configuration change. The PR #806 read-back above remains
+historical evidence only; it must not be treated as current canary health or as
+evidence that PR #817 was staged.
 
 The PR #803 canary staging, rollback, and readiness-only observation described
 in older records are historical and do not transfer acceptance evidence to
@@ -139,7 +147,7 @@ runbook coverage. No RouterOS staging for this image is recorded. Do not treat
 publication as hardware
 compatibility or acceptance evidence.
 
-## Latest candidate-bound canary record — PR #776 (healthy startup; acceptance pending)
+## Historical candidate-bound canary record — PR #776 (healthy startup; acceptance pending)
 
 PR #776 merged as
 `c4b4b76793b2454e81362867d8654962627de6fa`. Its immutable ARM64 image is
@@ -187,10 +195,13 @@ recovery, event integrity, resource impact, Redis/SQLite recovery, deployed
 security checks, and rollback rehearsal are all **not verified**.
 
 This is historical evidence only. PR #793 was the latest published runtime
-when this checkpoint was written, and PR #794 superseded it at that time. PR
-#798 is the latest published runtime now. PR #776 is the latest recorded
-canary candidate. Use the exact candidate and its recorded
-acceptance status above for any new acceptance run. Do not treat image
+when this checkpoint was written; PR #794 superseded it at that time, followed
+by later publications including PR #798 and PR #817. PR #776 was the latest
+recorded canary candidate at that historical checkpoint; PR #806 is the last
+candidate-bound read-back documented above. The later read-only inventory found
+the canary stopped but did not verify a running revision or readiness. Use the
+exact candidate and its recorded acceptance status above for any new acceptance
+run. Do not treat image
 publication or startup health as the required 30-minute acceptance window. Do
 not promote until the complete candidate-specific report passes and rollback
 has been rehearsed.
