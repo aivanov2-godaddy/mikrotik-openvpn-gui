@@ -193,7 +193,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #842", release_record)
+        self.assertIn("## Latest published mainline image — PR #846", release_record)
+        self.assertIn("## Previous published mainline image — PR #842", release_record)
         self.assertIn("## Previous published mainline image — PR #839", release_record)
         self.assertIn("## Previous published mainline image — PR #838", release_record)
         self.assertIn("## Previous published mainline image — PR #836", release_record)
@@ -203,7 +204,11 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
         self.assertIn("c88bc730a8e75bcd89ab73dcf85d87df37db7884", rendered)
         self.assertIn("273e9ed1c3618e605c3af106a59b76dfb8686769", rendered)
+        self.assertIn("e7ff31b222df2229186c6c745b0917084599e4b3", rendered)
         self.assertIn("b68bc0cc9245991526efbfcd970e89d07000462a", rendered)
+        self.assertIn("sha256:6ba391ce4a78dbdf4e54dbd8891493b3a5004fcb5e3493b15577599e541b0ab2", rendered)
+        self.assertIn("sha256:003cd252a1df946b23531cb89bcb137c525949c7797b82b022ac2c2078a91dac", rendered)
+        self.assertIn("sha256:fe525c7a91b572682dce6a7ea73533408013d790a0640775ff3e7f636479f437", rendered)
         self.assertIn("sha256:84a9053683a31922a1f21eb88efe62e72bdb48a301af14085f797508041a30a7", rendered)
         self.assertIn("sha256:f19586c12bf0047f3e5950f7bff365dd1024662c50e42e9bf70ab5c152bdef30", rendered)
         self.assertIn("sha256:20eb9e83c8c0a43bb4e56c613c82d3dba062c97268f788b15abb2e20679e0b4a", rendered)
@@ -236,18 +241,19 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Current published artifact: commit `b68bc0cc9245991526efbfcd970e89d07000462a`",
+            "Current published artifact: commit `e7ff31b222df2229186c6c745b0917084599e4b3`",
             installation,
         )
         self.assertIn(
-            "sha256:f19586c12bf0047f3e5950f7bff365dd1024662c50e42e9bf70ab5c152bdef30",
+            "sha256:003cd252a1df946b23531cb89bcb137c525949c7797b82b022ac2c2078a91dac",
             installation,
         )
         self.assertIn(
-            "sha256:20eb9e83c8c0a43bb4e56c613c82d3dba062c97268f788b15abb2e20679e0b4a",
+            "sha256:fe525c7a91b572682dce6a7ea73533408013d790a0640775ff3e7f636479f437",
             installation,
         )
-        self.assertIn("### Latest published source-level log safeguard — PR #824", security_assurance)
+        self.assertIn("### Latest published source-level session/audit safeguard — PR #846", security_assurance)
+        self.assertIn("### Previous published source-level log safeguard — PR #824", security_assurance)
         self.assertIn("### Previous published mainline security changes — PR #817", security_assurance)
         self.assertIn("40ae1d86bbc8037172e38f1b018e71576925f201", rendered)
         self.assertIn(
@@ -285,7 +291,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("An earlier read-only RouterOS inventory on 2026-10-25 reported the canary stopped", rendered)
         self.assertIn("latest read-only WinBox observation", rendered)
         self.assertIn("0.7% CPU and 60.9 MiB memory", rendered)
-        self.assertIn("does not verify or accept PR #829", rendered)
+        self.assertIn("does not verify or accept PR #846", rendered)
         self.assertIn("PR #798", rendered)
 
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:

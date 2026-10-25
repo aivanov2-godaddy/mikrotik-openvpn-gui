@@ -410,7 +410,28 @@ examined PR #791's commit, not the changed source in PR #793. Therefore this
 publication is not an independent security review, deployed-proxy validation,
 or RouterOS acceptance. Issue #200 remains open for those gates.
 
-### Latest published source-level log safeguard — PR #824 — 2026-10-25
+### Latest published source-level session/audit safeguard — PR #846 — 2026-10-25
+
+PR [#846](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/846)
+merged as `e7ff31b222df2229186c6c745b0917084599e4b3`. Session creation and
+rotation now commit their audit event before the session mutation; failed
+reauthentication audit preserves the existing session, and login-denial audit
+failures return a sanitized service-unavailable response instead of silently
+continuing. Regression tests cover audit transaction failures, rollback,
+concurrent session changes, and session-reference behavior. PR checks included
+Python 3.13/3.14, CodeQL for Python/JavaScript/actions, pre-commit, secret and
+dependency checks, Redis recovery, and browser/accessibility coverage. Main CI
+run [#40226555414](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40226555414)
+and publisher run
+[#40226555415](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40226555415)
+passed; published artifact identities are recorded in
+[`RELEASES.md`](RELEASES.md).
+
+This is a focused source-level safeguard, not an independent ASVS assessment,
+review of deployed RouterOS behavior, or evidence of canary/production
+deployment. Issue #200 remains open for those acceptance gates.
+
+### Previous published source-level log safeguard — PR #824 — 2026-10-25
 
 PR [#824](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/824)
 merged as `060c1a247e9ba97651ff8093049161de34e57a12`. The production ASGI
