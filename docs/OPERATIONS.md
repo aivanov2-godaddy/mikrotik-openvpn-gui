@@ -179,9 +179,11 @@ boundary between RouterOS mutations and dashboard-only writes, see
 
 The dashboard reads the signed-in account's RouterOS group and maps it to one
 of five explicit dashboard roles. It never keeps a second password or role
-database. Unknown groups fail closed to read-only; older RouterOS versions that
-cannot expose `/user` retain the existing owner compatibility behavior so a
-known deployment does not unexpectedly lose access.
+database. Unknown or empty groups map to read-only. If RouterOS cannot provide
+the account/role lookup—including an unsupported `/user` endpoint returning
+404—the dashboard grants no role and rejects sign-in. Older RouterOS versions
+do not receive an owner-access compatibility fallback when role lookup is
+unavailable.
 
 | Dashboard role | Intended responsibility | Typical capabilities |
 | --- | --- | --- |
