@@ -13,10 +13,12 @@ Detailed operational records remain operator-controlled.
 
 Formal release **v2.7.0** remains the latest numbered release. PR #817
 (`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest published
-image source. PR #820 (`817bcaa068cedfb2ecd1678ca3afb7c7d6d7fbbb`) is the latest
-merged mainline source; PR #819 and PR #820 contain no container-runtime
-changes, so no newer image was published. PR #821 is open for documentation-only
-ASVS evidence corrections, with CI running. Main CI
+image source. PR #821 (`bf5eafd6e4fcec8051b682241559e82a6d49e548`) is the latest
+merged mainline source; PR #819 through PR #821 contain no container-runtime
+changes, so no newer image was published. PR #821 was documentation and
+contract-test work only and made no RouterOS, canary, or production change.
+All required PR #821 checks and post-merge main CI run 40152328248 passed.
+For the PR #817 published image, main CI
 run 40143943796, publisher run 40143943784, and main-branch CodeQL run
 40143943935 passed. The publisher verified detached provenance and SPDX SBOM
 attestations and smoke-tested both architectures. It published the stable

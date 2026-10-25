@@ -617,6 +617,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
 
     def test_latest_publication_is_not_misrepresented_as_independent_review(self) -> None:
         roadmap = " ".join((ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8").split())
+        releases = " ".join((ROOT / "docs" / "RELEASES.md").read_text(encoding="utf-8").split())
         assurance = " ".join(self.document.split())
         self.assertIn(
             "Two bounded, read-only source reviews against PR #791's commit",
@@ -627,13 +628,22 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #820 (`817bcaa068cedfb2ecd1678ca3afb7c7d6d7fbbb`) is the latest merged mainline source",
+            "PR #821 (`bf5eafd6e4fcec8051b682241559e82a6d49e548`) is the latest merged mainline source",
             roadmap,
         )
         self.assertIn(
-            "PR #821 is open for documentation-only ASVS evidence corrections",
+            "PR #821 was documentation and contract-test work only",
             roadmap,
         )
+        self.assertIn(
+            "PR #821 (`bf5eafd6e4fcec8051b682241559e82a6d49e548`) is the latest merged mainline source",
+            releases,
+        )
+        self.assertIn(
+            "PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest published image source",
+            releases,
+        )
+        self.assertIn("PR #821 was documentation and contract-test work only", releases)
         self.assertIn("The last recorded canary stage is PR #806", roadmap)
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
