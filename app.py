@@ -3897,13 +3897,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._delete_user(urllib.parse.unquote(match.group(1)))
 
     def _login(self) -> None:
+        def audit_unavailable(message: str = "Dashboard authentication is temporarily unavailable. Please try again.") -> None:
+            self._html(
+                login_page(
+                    message,
+                    dashboard_name=self.server.context.config.dashboard_name,
+                    router_display_name=self.server.context.config.router_display_name,
+                ),
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+
         identity = self._client_ip()
         reservation = self.server.context.limiter.reserve(identity)
         if reservation is None:
-            self.server.context.store.audit(
-                actor="unknown", action="login.rate_limited", target="dashboard",
-                status="failed", details={"source": identity},
-            )
+            try:
+                self.server.context.store.audit(
+                    actor="unknown", action="login.rate_limited", target="dashboard",
+                    status="failed", details={"source": identity},
+                )
+            except Exception:
+                audit_unavailable()
+                return
             self._html(
                 login_page(
                     "Too many attempts. Try again in a few minutes.",
@@ -3929,15 +3943,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise RouterOSError("RouterOS account is disabled or unavailable", 401)
         except (ValueError, RouterOSError) as error:
             self.server.context.limiter.finish(reservation, failed=True)
-            self.server.context.store.audit(
-                actor=username if "username" in locals() else "unknown",
-                action="login.failure", target="dashboard", status="failed",
-                details={
-                    "source": identity,
-                    "auth_method": "routeros",
-                    "reason": type(error).__name__,
-                },
-            )
+            try:
+                self.server.context.store.audit(
+                    actor=username if "username" in locals() else "unknown",
+                    action="login.failure", target="dashboard", status="failed",
+                    details={
+                        "source": identity,
+                        "auth_method": "routeros",
+                        "reason": type(error).__name__,
+                    },
+                )
+            except Exception:
+                audit_unavailable()
+                return
             self._html(
                 login_page(
                     "MikroTik authentication failed.",
@@ -3959,14 +3977,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 source_address=identity,
                 user_agent=self.headers.get("User-Agent", ""),
                 expected_account_revocation_generation=account_revocation_generation,
+                before_commit=lambda _session: self.server.context.store.audit_many([
+                    {
+                        "actor": username,
+                        "action": "routeros.login.credentials_verified",
+                        "target": "dashboard",
+                        "status": "success",
+                        "details": {"role": role, "source": identity, "auth_method": "routeros"},
+                    },
+                    {
+                        "actor": username,
+                        "action": "routeros.role.verified",
+                        "target": "dashboard",
+                        "status": "success",
+                        "details": {"role": role, "source": "routeros-group"},
+                    },
+                ]),
             )
         except SessionAuthorizationChanged:
             self.server.context.limiter.finish(reservation, failed=False)
-            self.server.context.store.audit(
-                actor=username,
-                action="login.failure", target="dashboard", status="denied",
-                details={"source": identity, "auth_method": "routeros", "reason": "authorization_changed"},
-            )
+            try:
+                self.server.context.store.audit(
+                    actor=username,
+                    action="login.failure", target="dashboard", status="denied",
+                    details={"source": identity, "auth_method": "routeros", "reason": "authorization_changed"},
+                )
+            except Exception:
+                audit_unavailable("Dashboard access changed; please try again.")
+                return
             self._html(
                 login_page(
                     "MikroTik authentication failed.",
@@ -3979,13 +4017,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except ConcurrentSessionLimitReached:
             self.server.context.limiter.finish(reservation, failed=False)
             limit = self.server.context.sessions.max_sessions_per_account
-            self.server.context.store.audit(
-                actor=username,
-                action="login.concurrent_session_limit",
-                target="dashboard",
-                status="denied",
-                details={"source": identity, "limit": limit},
-            )
+            try:
+                self.server.context.store.audit(
+                    actor=username,
+                    action="login.concurrent_session_limit",
+                    target="dashboard",
+                    status="denied",
+                    details={"source": identity, "limit": limit},
+                )
+            except Exception:
+                audit_unavailable()
+                return
             self._html(
                 login_page(
                     f"This account already has the maximum of {limit} active dashboard sessions. "
@@ -3996,18 +4038,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.TOO_MANY_REQUESTS,
             )
             return
+        except Exception:
+            self.server.context.limiter.finish(reservation, failed=None)
+            self._html(
+                login_page(
+                    "Dashboard could not start a session. Please try again.",
+                    dashboard_name=self.server.context.config.dashboard_name,
+                    router_display_name=self.server.context.config.router_display_name,
+                ),
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
         self.server.context.limiter.finish(reservation, failed=False)
         cookie = (
             f"__Host-vpn_session={session.session_id}; Path=/; Max-Age=28800; "
             "Secure; HttpOnly; SameSite=Strict"
-        )
-        self.server.context.store.audit(
-            actor=username, action="login", target="dashboard", status="success",
-            details={"role": role, "source": identity, "auth_method": "routeros"},
-        )
-        self.server.context.store.audit(
-            actor=username, action="role.assigned", target="dashboard", status="success",
-            details={"role": role, "source": "routeros-group"},
         )
         self._redirect("/dashboard", cookie=cookie)
 
@@ -4119,25 +4164,49 @@ class DashboardHandler(BaseHTTPRequestHandler):
             raise
 
         self.server.context.limiter.finish(reservation, failed=False)
-        replacement = self.server.context.sessions.rotate(
-            session.session_id,
-            password,
-            role=role,
-        )
+        try:
+            replacement = self.server.context.sessions.rotate(
+                session.session_id,
+                password,
+                role=role,
+                before_commit=lambda current: self.server.context.store.audit_many([{
+                    "actor": current.username,
+                    "action": "routeros.reauthentication.credentials_verified",
+                    "target": "dashboard",
+                    "status": "success",
+                    "details": {"role": normalize_role(current.role), "source": identity},
+                }]),
+            )
+        except Exception:
+            self._json(
+                {"error": "Re-authentication could not be recorded; the session was not changed."},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
         if replacement is None:
+            try:
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="session.reauthentication",
+                    target="dashboard",
+                    status="denied",
+                    details={
+                        "source": identity,
+                        "reason": "session_changed_before_rotation_commit",
+                    },
+                )
+            except Exception:
+                self._json(
+                    {"error": "The session changed, but the denial could not be recorded."},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
             self._json(
                 {"error": "The dashboard session expired or changed during re-authentication."},
                 status=HTTPStatus.UNAUTHORIZED,
             )
             return
 
-        self.server.context.store.audit(
-            actor=replacement.username,
-            action="session.reauthenticated",
-            target="dashboard",
-            status="success",
-            details={"role": normalize_role(replacement.role), "source": identity},
-        )
         cookie = (
             f"__Host-vpn_session={replacement.session_id}; Path=/; Max-Age=28800; "
             "Secure; HttpOnly; SameSite=Strict"
