@@ -14,11 +14,11 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published runtime candidate is PR
-#829, commit `9fd85aaff7f4ed43888209d2b77663207a11a897`. Main CI run 40171739354
-and publisher run 40171739273 passed; SLSA provenance for its ARM64 and AMD64
-images was verified against the source commit and main-branch workflow. Exact
-immutable tags and digests are recorded in [`RELEASES.md`](RELEASES.md). This
-publication does not establish RouterOS compatibility, staging, or acceptance.
+#836, commit `c88bc730a8e75bcd89ab73dcf85d87df37db7884`. Main CI run 40197252415
+and publisher run 40197252453 passed; its stable manifest was read back and
+binds the ARM64 and AMD64 image digests to the source commit. Exact immutable
+tags and digests are recorded in [`RELEASES.md`](RELEASES.md). This publication
+does not establish RouterOS compatibility, staging, or acceptance.
 The last candidate-bound canary ARM64
 digest is
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
@@ -44,7 +44,7 @@ container healthy, architecture `arm64`, and OCI revision
 tag and registry digest were not read back. The WinBox Stats view showed 0.7%
 CPU, 60.9 MiB memory, and 0 B swap; this is not a soak or acceptance result.
 This supersedes the
-earlier stopped-state observation, but does not verify or accept PR #829.
+earlier stopped-state observation, but does not verify or accept PR #836.
 Production was not changed.
 
 The PR #803 canary staging, rollback, and readiness-only observation described

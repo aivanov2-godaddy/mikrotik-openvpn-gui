@@ -1,13 +1,12 @@
 # Live telemetry acceptance status
 
-Status: **PR #829 (`9fd85aaff7f4ed43888209d2b77663207a11a897`) is the latest
+Status: **PR #836 (`c88bc730a8e75bcd89ab73dcf85d87df37db7884`) is the latest
 published runtime source, with immutable ARM64 and AMD64 images. Main CI run
-40171739354 and publisher run 40171739273 passed. SLSA provenance attestations
-for both architecture-specific images were verified against the source commit
-and main-branch workflow. Exact image tags and digests are in
-[`RELEASES.md`](RELEASES.md).
+40197252415 and publisher run 40197252453 passed. The published stable manifest
+was read back and binds both architecture-specific images to the source commit.
+Exact image tags and digests are in [`RELEASES.md`](RELEASES.md).
 
-PR #829 has no candidate-specific staging/read-back or acceptance evidence. The
+PR #836 has no candidate-specific staging/read-back or acceptance evidence. The
 last candidate-bound canary read-back is the older PR #806 image, observed on
 2026-10-24;
 its immutable ARM64 digest was
@@ -25,7 +24,7 @@ complete configured tag and digest were not read back. The WinBox Stats view
 showed 0.7% CPU, 60.9 MiB memory, and 0 B swap, which is not a soak or
 acceptance result. This
 supersedes the earlier stopped-state observation but does not verify or accept
-PR #829. The PR #829 image has not been read back as configured on RouterOS.
+PR #836. The PR #836 image has not been read back as configured on RouterOS.
 No RouterOS configuration was changed. The installed updater and its scheduler
 bindings remain unreconciled and were not run. Candidate-specific acceptance
 and production promotion remain gated.**
