@@ -639,15 +639,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #839 (`273e9ed1c3618e605c3af106a59b76dfb8686769`) is the latest published runtime image source.",
+            "PR #842 (`b68bc0cc9245991526efbfcd970e89d07000462a`) is the latest published runtime image source.",
             roadmap,
         )
         self.assertIn(
-            "PR #839 (`273e9ed1c3618e605c3af106a59b76dfb8686769`) is the latest published runtime image source",
+            "PR #842 (`b68bc0cc9245991526efbfcd970e89d07000462a`) is the latest published runtime image source",
             releases,
         )
         self.assertIn(
-            "PR #839 has not been read back as the configured canary or production image",
+            "PR #842 has not been read back as the configured canary or production image",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)
