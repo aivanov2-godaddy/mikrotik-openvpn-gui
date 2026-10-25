@@ -81,23 +81,34 @@ class TelemetrySupervisorTests(unittest.TestCase):
         self.assertEqual(connection.paths, [('/interface/print', (INTERFACE_COUNTER_PROPLIST,))])
 
     def test_interface_sampler_uses_separate_connection_and_publishes_rates(self):
-        connection = FakeConnection([RouterOSReply("re", {".id": "*1", "name": "ether1", "rx-byte": "10"})])
-        broker = TelemetrySupervisor(
-            lambda: connection,
-            lambda: ("user", "secret"),
-        ).broker
+        counters = iter(("10", "1010"))
+        sample_times = iter((100.999, 102.001))
+        connections = []
+
+        def create_connection():
+            connection = FakeConnection(
+                [RouterOSReply("re", {".id": "*1", "name": "ether1", "rx-byte": next(counters)})]
+            )
+            connections.append(connection)
+            return connection
+
+        broker = TelemetryBroker(clock=lambda: 500, monotonic_clock=lambda: next(sample_times))
         received = []
         sampler = TelemetryInterfaceSampler(
-            lambda: connection,
+            create_connection,
             lambda: ("user", "secret"),
             broker,
-            clock=lambda: 100,
             on_events=received.extend,
         )
+        first = sampler.sample_once()
         events = sampler.sample_once()
+
+        self.assertEqual(first[0].name, "vpn.interface.counters")
         self.assertEqual(events[0].name, "vpn.interface.counters")
         self.assertEqual(received[0].payload["interface"]["name"], "ether1")
-        self.assertTrue(connection.closed)
+        self.assertAlmostEqual(events[0].payload["interface"]["rx_bytes_per_second"], 1000 / 1.002)
+        self.assertEqual(events[0].router_timestamp, 500)
+        self.assertTrue(all(connection.closed for connection in connections))
 
     def test_interface_sampler_counts_poll_cycles_not_interface_events(self):
         replies = [
