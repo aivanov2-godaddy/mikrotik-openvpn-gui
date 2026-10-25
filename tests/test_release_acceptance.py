@@ -23,13 +23,17 @@ from scripts.redis_recovery_acceptance import (
 from scripts.rollback_acceptance import REPORT_FORMAT as ROLLBACK_REPORT_FORMAT
 
 
+def image_ref(revision: str, digest: str = "sha256:" + "b" * 64) -> str:
+    return f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64@{digest}"
+
+
 class ReleaseAcceptanceTests(unittest.TestCase):
     NOW = datetime(2026, 10, 2, 10, 31, tzinfo=timezone.utc)
 
     @staticmethod
     def _rollback_readbacks(revision: str, digest: str, production_image: str) -> dict[str, object]:
-        candidate = f"ghcr.io/example/vpn:sha-{revision}-arm64"
-        prior = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+        candidate = image_ref(revision, digest)
+        prior = image_ref("c" * 40, "sha256:" + "f" * 64)
 
         def readback(environment: str, observed_at: str, image: str) -> dict[str, object]:
             observed_revision = image.split(":sha-", 1)[1].split("-arm64", 1)[0]
@@ -93,7 +97,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         return {
             "format": "vpn-dashboard-certificate-lifecycle-acceptance-v1",
             "environment": "canary",
-            "candidate_image": f"ghcr.io/example/vpn:sha-{revision}-arm64",
+            "candidate_image": image_ref(revision),
             "candidate_digest": "sha256:" + "b" * 64,
             "replacement_tested_before_retirement": True,
             "replacement_tested_at": "2026-10-02T09:40:00Z",
@@ -139,7 +143,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 "registry_digest_verification": [
                     {
                         "environment": environment,
-                        "image": f"ghcr.io/example/vpn:sha-{revision}-arm64",
+                        "image": image_ref(revision),
                         "expected_digest": "sha256:" + "b" * 64,
                         "observed_digest": "sha256:" + "b" * 64,
                         "verified": True,
@@ -170,14 +174,14 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     },
                 },
                 "rollback_rehearsal": self._rollback_readbacks(
-                    revision, "sha256:" + "b" * 64, f"ghcr.io/example/vpn:sha-{revision}-arm64"
+                    revision, "sha256:" + "b" * 64, image_ref(revision)
                 ),
                 "sqlite_restore_verification": {
                     "format": "vpn-dashboard-sqlite-restore-verification-v3",
                     "checks": [
                         {
                             "environment": environment,
-                            "candidate_image": f"ghcr.io/example/vpn:sha-{revision}-arm64",
+                            "candidate_image": image_ref(revision),
                             "candidate_revision": revision,
                             "candidate_digest": "sha256:" + "b" * 64,
                             "checked_at": "2026-10-02T10:24:00Z",
@@ -197,7 +201,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "deployments": [
                 {
                     "environment": environment,
-                    "image": f"ghcr.io/example/vpn:sha-{revision}-arm64",
+                    "image": image_ref(revision),
                     "digest": "sha256:" + "b" * 64,
                     "container_healthy": True,
                     "app_ready": True,
@@ -534,7 +538,15 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertIn("live_collection_future_dated", report["failed_gates"])
 
     def test_mismatched_production_digest_fails_closed(self) -> None:
-        self.evidence["deployments"][1]["digest"] = "sha256:" + "c" * 64
+        production_digest = "sha256:" + "c" * 64
+        production_image = image_ref("a" * 40, production_digest)
+        self.evidence["deployments"][1]["image"] = production_image
+        self.evidence["deployments"][1]["digest"] = production_digest
+        self.evidence["collection"]["registry_digest_verification"][1].update({
+            "image": production_image,
+            "expected_digest": production_digest,
+            "observed_digest": production_digest,
+        })
         code, report = evaluate(self.evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_production_digest_mismatch", report["failed_gates"])
@@ -678,7 +690,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
 
     def test_structured_rollback_readbacks_fail_if_production_image_changes(self) -> None:
         self.evidence["collection"]["rollback_rehearsal"]["production_after"]["image"] = (
-            f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+            image_ref("c" * 40, "sha256:" + "c" * 64)
         )
 
         code, report = evaluate(self.evidence, now=self.NOW)
@@ -692,10 +704,10 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.evidence["collection"]["sqlite_restore_verification"]["checks"] = self.evidence[
             "collection"
         ]["sqlite_restore_verification"]["checks"][:1]
-        previous_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+        previous_image = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'c' * 40}-arm64"
         production = self.evidence["deployments"][1]
         production["image"] = previous_image
-        production["digest"] = None
+        production["digest"] = "sha256:" + "c" * 64
         self.evidence["collection"]["rollback_rehearsal"] = self._rollback_readbacks(
             "a" * 40, "sha256:" + "b" * 64, previous_image
         )
@@ -711,9 +723,11 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "rollback_drill_passed", "production_untouched_on_canary_failure",
         ):
             production.pop(field)
-        self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
-            "registry_digest_verification"
-        ][:1]
+        self.evidence["collection"]["registry_digest_verification"][1].update({
+            "image": previous_image,
+            "expected_digest": production["digest"],
+            "observed_digest": production["digest"],
+        })
 
         code, report = evaluate(self.evidence, now=self.NOW)
 
@@ -721,13 +735,13 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertTrue(report["promotion_eligible"])
         self.assertFalse(report["production_accepted"])
         self.assertEqual(report["phase"], "canary-prepromotion")
-        self.assertEqual(report["registry_digest_verification_scope"], "candidate-canary-only")
+        self.assertEqual(report["registry_digest_verification_scope"], "canary-and-production")
         self.assertEqual(
             report["certificate_lifecycle_acceptance"]["candidate_image"],
             report["deployments"][0]["image"],
         )
         accepted_production = report["deployments"][1]
-        self.assertIsNone(accepted_production["digest"])
+        self.assertEqual(accepted_production["digest"], "sha256:" + "c" * 64)
         self.assertIsNone(accepted_production["transport"])
         self.assertIsNone(accepted_production["session_event_p95_ms"])
         self.assertIsNone(accepted_production["router_cpu_peak_percent"])
@@ -739,7 +753,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.evidence["collection"]["sqlite_restore_verification"]["checks"] = self.evidence[
             "collection"
         ]["sqlite_restore_verification"]["checks"][:1]
-        previous_image = f"ghcr.io/example/vpn:sha-{'c' * 40}-arm64"
+        previous_image = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'c' * 40}-arm64"
         previous_digest = "sha256:" + "c" * 64
         production = self.evidence["deployments"][1]
         production["image"] = previous_image
@@ -748,9 +762,11 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.evidence["collection"]["rollback_rehearsal"] = self._rollback_readbacks(
             "a" * 40, "sha256:" + "b" * 64, previous_image
         )
-        self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
-            "registry_digest_verification"
-        ][:1]
+        self.evidence["collection"]["registry_digest_verification"][1].update({
+            "image": previous_image,
+            "expected_digest": previous_digest,
+            "observed_digest": previous_digest,
+        })
 
         _, collected_projection = evaluate(self.evidence, now=self.NOW)
         collected_evidence = {
@@ -769,10 +785,6 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.evidence["collection"]["sqlite_restore_verification"]["checks"] = self.evidence[
             "collection"
         ]["sqlite_restore_verification"]["checks"][:1]
-        self.evidence["collection"]["registry_digest_verification"] = self.evidence["collection"][
-            "registry_digest_verification"
-        ][:1]
-
         code, report = evaluate(self.evidence, now=self.NOW)
 
         self.assertEqual(code, 1)
@@ -789,6 +801,14 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_incorrect_deployment_order_is_rejected(self) -> None:
         self.evidence["deployments"].reverse()
         with self.assertRaisesRegex(ValueError, "ordered canary"):
+            evaluate(self.evidence, now=self.NOW)
+
+    def test_non_project_image_cannot_become_promotion_eligible(self) -> None:
+        self.evidence["deployments"][0]["image"] = (
+            f"ghcr.io/another-owner/another-project:sha-{'a' * 40}-arm64@sha256:{'b' * 64}"
+        )
+
+        with self.assertRaisesRegex(ValueError, "this project's"):
             evaluate(self.evidence, now=self.NOW)
 
     def test_short_or_interrupted_soak_fails_closed(self) -> None:

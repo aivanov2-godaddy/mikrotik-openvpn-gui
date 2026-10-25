@@ -18,20 +18,22 @@ from scripts.deploy_routeros_release import (
 )
 
 
-OLD_IMAGE = "ghcr.io/example-owner/mikrotik-openvpn-gui:sha-" + "a" * 40
-NEW_IMAGE = "ghcr.io/example-owner/mikrotik-openvpn-gui:sha-" + "b" * 40
-NEW_ARM64_IMAGE = NEW_IMAGE + "-arm64"
+IMAGE_REPOSITORY = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui"
+OLD_TAG = f"{IMAGE_REPOSITORY}:sha-{'a' * 40}-arm64"
+OLD_IMAGE = OLD_TAG + "@sha256:" + "c" * 64
+NEW_IMAGE = f"{IMAGE_REPOSITORY}:sha-{'b' * 40}-arm64@sha256:" + "d" * 64
+NEW_ARM64_IMAGE = NEW_IMAGE
 OLD_RELATIVE_IMAGE = OLD_IMAGE.removeprefix("ghcr.io/")
 NEW_RELATIVE_IMAGE = NEW_IMAGE.removeprefix("ghcr.io/")
 
 
 class FakeRouterOS:
-    def __init__(self, *, fail_start: bool = False) -> None:
+    def __init__(self, *, fail_start: bool = False, image: str = OLD_IMAGE) -> None:
         self.record = {
             ".id": "*1",
             "name": "vpn-dashboard",
             "status": "running",
-            "remote-image": OLD_IMAGE,
+            "remote-image": image,
         }
         self.calls: list[tuple[str, str, object]] = []
         self.fail_start = fail_start
@@ -256,9 +258,58 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn(("patch", "*1", {"remote-image": OLD_RELATIVE_IMAGE}), router.calls)
 
     def test_rejects_mutable_or_non_ghcr_image(self) -> None:
-        invalid = settings("ghcr.io/example-owner/mikrotik-openvpn-gui:edge")
+        invalid = settings(f"{IMAGE_REPOSITORY}:edge")
         with self.assertRaises(DeploymentError):
             invalid.validate()
+
+    def test_rejects_tag_only_candidate(self) -> None:
+        invalid = settings(OLD_TAG)
+        with self.assertRaises(DeploymentError):
+            invalid.validate()
+
+    def test_legacy_current_tag_requires_digest_resolution_before_mutation(self) -> None:
+        router = FakeRouterOS(image=OLD_TAG.removeprefix("ghcr.io/"))
+        calls: list[tuple[str, float]] = []
+
+        def resolve(image: str, *, timeout: float) -> str:
+            calls.append((image, timeout))
+            return "sha256:" + "c" * 64
+
+        deploy(settings(), router, digest_resolver=resolve)
+
+        self.assertEqual(router.record["remote-image"], NEW_RELATIVE_IMAGE)
+        self.assertEqual(calls[0][0], OLD_TAG.removeprefix("ghcr.io/"))
+
+    def test_unresolved_legacy_rollback_image_causes_zero_mutations(self) -> None:
+        router = FakeRouterOS(image=OLD_TAG.removeprefix("ghcr.io/"))
+
+        with self.assertRaisesRegex(DeploymentError, "exact rollback digest"):
+            deploy(settings(), router, digest_resolver=lambda *_args, **_kwargs: None)
+
+        self.assertEqual(router.calls, [])
+
+    def test_supplied_rollback_digest_must_match_exact_installed_digest(self) -> None:
+        router = FakeRouterOS()
+        same_revision_wrong_digest = f"{OLD_TAG}@sha256:{'e' * 64}"
+
+        with self.assertRaisesRegex(DeploymentError, "exact currently installed image"):
+            deploy(settings(), router, rollback_image=same_revision_wrong_digest)
+
+        self.assertEqual(router.calls, [])
+
+    def test_supplied_rollback_digest_resolves_and_matches_legacy_installed_tag(self) -> None:
+        router = FakeRouterOS(image=OLD_TAG.removeprefix("ghcr.io/"))
+        resolved: list[str] = []
+
+        def resolve(image: str, *, timeout: float) -> str:
+            del timeout
+            resolved.append(image)
+            return "sha256:" + "c" * 64
+
+        deploy(settings(), router, rollback_image=f"{OLD_TAG}@sha256:{'c' * 64}", digest_resolver=resolve)
+
+        self.assertEqual(resolved, [OLD_TAG.removeprefix("ghcr.io/")])
+        self.assertEqual(router.record["remote-image"], NEW_RELATIVE_IMAGE)
 
     def test_accepts_registry_relative_immutable_image(self) -> None:
         relative = settings(NEW_RELATIVE_IMAGE)

@@ -217,8 +217,9 @@ See the [installation compatibility
 matrix](INSTALLATION.md#compatibility-and-support-matrix) and [historical release record](RELEASES.md#previously-published-mainline-image-pr-497-2026-10-05).
 
 - Use one immutable candidate for the canary, such as
-  `ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64`.
-  Record its exact tag and digest. For a pre-promotion run, also record
+  `ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64@sha256:<64-hex-digest>`.
+  Record the exact pinned reference and digest. Verify the target RouterOS
+  version accepts and reads back this form before staging. For a pre-promotion run, also record
   production's separate prior image, tag, digest, and revision; each
   `/readyz` result must match its environment's recorded image. After promotion,
   both environments should identify the candidate.
@@ -286,7 +287,7 @@ candidate does not pass, stop it and restore that exact prior reference:
 
 ```routeros
 /container/stop [find where name="<canary-container>"]
-/container/set [find where name="<canary-container>"] remote-image="ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<previous-commit>-arm64"
+/container/set [find where name="<canary-container>"] remote-image="<owner>/mikrotik-openvpn-gui:sha-<previous-commit>-arm64@sha256:<previous-64-hex-digest>"
 /container/update [find where name="<canary-container>"]
 /container/start [find where name="<canary-container>"]
 ```
@@ -455,10 +456,10 @@ environment hostname over HTTPS.
 ```powershell
 python scripts/collect_rollback_acceptance.py `
   --output private-rollback-rehearsal.json `
-  --candidate-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<candidate-sha>-arm64 `
+  --candidate-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<candidate-sha>-arm64@sha256:<candidate-digest> `
   --candidate-digest sha256:<candidate-registry-digest> `
-  --previous-canary-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<previous-sha>-arm64 `
-  --production-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<production-sha>-arm64 `
+  --previous-canary-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<previous-sha>-arm64@sha256:<previous-digest> `
+  --production-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<production-sha>-arm64@sha256:<production-digest> `
   --canary-url https://vpn-dev.wanted.sx `
   --production-url https://vpn.wanted.sx
 ```

@@ -16,9 +16,9 @@ from scripts.rollback_acceptance import READBACKS
 REVISION = "a" * 40
 PRIOR = "c" * 40
 PRODUCTION = "d" * 40
-CANDIDATE_IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{REVISION}-arm64"
-PRIOR_IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{PRIOR}-arm64"
-PRODUCTION_IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{PRODUCTION}-arm64"
+CANDIDATE_IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{REVISION}-arm64@sha256:{'b' * 64}"
+PRIOR_IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{PRIOR}-arm64@sha256:{'c' * 64}"
+PRODUCTION_IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{PRODUCTION}-arm64@sha256:{'d' * 64}"
 
 
 def checkpoint(canary_revision: str, at: str) -> dict[str, object]:

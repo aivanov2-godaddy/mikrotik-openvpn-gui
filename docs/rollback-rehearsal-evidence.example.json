@@ -1,11 +1,11 @@
 {
   "format": "vpn-dashboard-rollback-rehearsal-v2",
-  "candidate_image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64",
+  "candidate_image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "candidate_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "production_before": {
     "environment": "production",
     "observed_at": "2026-10-19T11:50:00+00:00",
-    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-dddddddddddddddddddddddddddddddddddddddd-arm64",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-dddddddddddddddddddddddddddddddddddddddd-arm64@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "healthy": true,
     "ready": true,
     "source": {
@@ -27,7 +27,7 @@
   "canary_before": {
     "environment": "canary",
     "observed_at": "2026-10-19T11:50:10+00:00",
-    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-cccccccccccccccccccccccccccccccccccccccc-arm64",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-cccccccccccccccccccccccccccccccccccccccc-arm64@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "healthy": true,
     "ready": true,
     "source": {
@@ -49,7 +49,7 @@
   "canary_candidate": {
     "environment": "canary",
     "observed_at": "2026-10-19T11:50:20+00:00",
-    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "healthy": true,
     "ready": true,
     "source": {
@@ -71,7 +71,7 @@
   "canary_after_rollback": {
     "environment": "canary",
     "observed_at": "2026-10-19T11:50:30+00:00",
-    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-cccccccccccccccccccccccccccccccccccccccc-arm64",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-cccccccccccccccccccccccccccccccccccccccc-arm64@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "healthy": true,
     "ready": true,
     "source": {
@@ -93,7 +93,7 @@
   "production_after": {
     "environment": "production",
     "observed_at": "2026-10-19T11:50:40+00:00",
-    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-dddddddddddddddddddddddddddddddddddddddd-arm64",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-dddddddddddddddddddddddddddddddddddddddd-arm64@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "healthy": true,
     "ready": true,
     "source": {
@@ -115,7 +115,7 @@
   "canary_candidate_restored": {
     "environment": "canary",
     "observed_at": "2026-10-19T11:50:50+00:00",
-    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64",
+    "image": "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arm64@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "healthy": true,
     "ready": true,
     "source": {

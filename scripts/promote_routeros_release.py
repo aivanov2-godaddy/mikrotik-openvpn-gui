@@ -34,12 +34,11 @@ from scripts.deploy_routeros_release import (
     deploy,
 )
 from scripts.release_acceptance import evaluate
+from scripts.collect_release_acceptance import _registry_digest
+from scripts.release_images import image_digest, parse_project_image, pin_project_image
 
 
 _CONTAINER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
-_PROJECT_ARM64_IMAGE = re.compile(
-    r"^ghcr\.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-(?P<revision>[0-9a-f]{40})-arm64$"
-)
 _ROUTER_FILE = re.compile(r"^[A-Za-z0-9._/-]{1,160}$")
 _PRIVATE_V4 = tuple(
     ipaddress.ip_network(value)
@@ -100,10 +99,10 @@ def _safe_ready_url(url: str) -> None:
 
 
 def _revision(image: str) -> str:
-    match = _PROJECT_ARM64_IMAGE.fullmatch(image)
-    if not match:
-        raise DeploymentError("promotion evidence must name this project's immutable ARM64 image")
-    return match.group("revision")
+    try:
+        return parse_project_image(image, require_digest=True, architecture="arm64").revision
+    except ValueError as error:
+        raise DeploymentError("promotion evidence must name this project's digest-pinned ARM64 image") from error
 
 
 def _ready_probe(url: str, expected_revision: str, timeout: float, ca_pem: str | None) -> bool:
@@ -278,6 +277,7 @@ def promote(
     ready_probe: Callable[[str, str, float, str | None], bool] = _ready_probe,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     sleep: Callable[[float], None] | None = None,
+    registry_digest_resolver: Callable[..., str | None] | None = None,
     check_only: bool = False,
 ) -> str:
     """Fail closed on evidence or router drift; return the candidate revision."""
@@ -306,7 +306,36 @@ def promote(
     candidate_image = str(deployments[0].get("image", ""))
     prior_image = str(deployments[1].get("image", ""))
     candidate_revision = _revision(candidate_image)
-    prior_revision = _revision(prior_image)
+    try:
+        prior_identity = parse_project_image(prior_image, require_digest=False, architecture="arm64")
+        candidate_digest = image_digest(candidate_image)
+        prior_digest = deployments[1].get("digest")
+        candidate_recorded_digest = deployments[0].get("digest")
+        if candidate_recorded_digest != candidate_digest:
+            raise ValueError("candidate image and registry digest disagree")
+        if not isinstance(prior_digest, str):
+            raise ValueError("prior production digest is missing")
+        restore_image = pin_project_image(prior_image, prior_digest)
+        restore_identity = parse_project_image(restore_image, require_digest=True, architecture="arm64")
+        if restore_identity.revision != prior_identity.revision:
+            raise ValueError("prior production rollback image revision disagrees")
+    except ValueError as error:
+        raise DeploymentError("acceptance evidence image digests are invalid") from error
+    prior_revision = prior_identity.revision
+
+    # Re-resolve the prior production tag immediately before RouterOS access so
+    # rollback is pinned to the exact bytes covered by the accepted evidence.
+    digest_resolver = registry_digest_resolver or _registry_digest
+    observed_prior_digest = digest_resolver(
+        prior_image, timeout=min(30.0, float(settings.timeout_seconds))
+    )
+    if observed_prior_digest != prior_digest:
+        raise DeploymentError("production rollback digest changed or could not be verified")
+    observed_candidate_digest = digest_resolver(
+        candidate_image, timeout=min(30.0, float(settings.timeout_seconds))
+    )
+    if observed_candidate_digest != candidate_digest:
+        raise DeploymentError("accepted canary digest is no longer available or does not match")
 
     deployment_settings = DeploymentSettings(
         rest_url=settings.rest_url,
@@ -336,7 +365,12 @@ def promote(
         return candidate_revision
 
     try:
-        deploy(deployment_settings, client)
+        deploy(
+            deployment_settings,
+            client,
+            rollback_image=restore_image,
+            digest_resolver=digest_resolver,
+        )
         ready = False
         for _attempt in range(6):
             if ready_probe(
@@ -357,19 +391,19 @@ def promote(
             username=settings.username,
             password=settings.password,
             container_name=settings.production_container,
-            release_image=prior_image,
+            release_image=restore_image,
             timeout_seconds=settings.timeout_seconds,
             poll_seconds=settings.poll_seconds,
             ca_pem=settings.ca_pem,
         )
         try:
-            if _registry_relative_image(_image(_find_target(client, settings.production_container))) != _registry_relative_image(prior_image):
+            if _registry_relative_image(_image(_find_target(client, settings.production_container))) != _registry_relative_image(restore_image):
                 deploy(rollback_settings, client)
             _require_ready(ready_probe, settings.production_ready_url, prior_revision, settings)
         except Exception as rollback_error:
             raise DeploymentError("promotion failed and prior production readiness could not be restored; operator action required") from rollback_error
         try:
-            _write_last_good(client, settings.state_file, prior_image, prior_revision, clock())
+            _write_last_good(client, settings.state_file, restore_image, prior_revision, clock())
         except Exception as state_error:
             raise DeploymentError("prior production was restored but last-good state could not be reset; operator action required") from state_error
         try:

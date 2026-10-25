@@ -11,7 +11,8 @@ MAX_ROLLBACK_EVIDENCE_AGE_SECONDS = 24 * 60 * 60
 REPORT_FORMAT = "vpn-dashboard-rollback-rehearsal-v2"
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(
-    r"^(?:ghcr\.io/)?[a-z0-9]+(?:[._-][a-z0-9]+)*/[a-z0-9]+(?:[._-][a-z0-9]+)*:sha-(?P<revision>[0-9a-f]{40})-arm64$"
+    r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:"
+    r"sha-(?P<revision>[0-9a-f]{40})-arm64(?:@(?P<digest>sha256:[0-9a-f]{64}))?$"
 )
 READBACKS = (
     "production_before",
@@ -69,6 +70,7 @@ def validate_rollback_report(
         or report.get("candidate_digest") != candidate_digest
         or not isinstance(candidate_digest, str)
         or DIGEST.fullmatch(candidate_digest) is None
+        or candidate_match.group("digest") != candidate_digest
     ):
         return None, ["rollback_candidate_identity_mismatch"]
 
@@ -104,6 +106,8 @@ def validate_rollback_report(
             failures.append("rollback_readback_invalid")
             continue
         revision = image_match.group("revision")
+        if expected_environment == "canary" and image_match.group("digest") is None:
+            failures.append("rollback_canary_image_not_digest_pinned")
         source_timestamp = _timestamp(source.get("captured_at"))
         source_revisions_valid = all(
             isinstance(source.get(key), str)
@@ -161,6 +165,9 @@ def validate_rollback_report(
     if safe_readbacks["canary_candidate_restored"]["image"] != candidate_image:
         failures.append("rollback_candidate_restore_readback_mismatch")
     rollback_target = safe_readbacks["canary_before"]["image"]
+    rollback_target_match = IMAGE.fullmatch(rollback_target)
+    if rollback_target_match is None or rollback_target_match.group("digest") is None:
+        failures.append("rollback_target_not_digest_pinned")
     if rollback_target == candidate_image or safe_readbacks["canary_after_rollback"]["image"] != rollback_target:
         failures.append("rollback_target_readback_mismatch")
     if (
@@ -188,7 +195,6 @@ def summarize_rollback_report(report: dict[str, Any]) -> dict[str, Any]:
     """Project validated read-backs into a concise public acceptance summary."""
     candidate_match = IMAGE.fullmatch(report["candidate_image"])
     rollback_target = report["canary_before"]["image"]
-    rollback_match = IMAGE.fullmatch(rollback_target)
     return {
         "format": REPORT_FORMAT,
         "evidence_basis": report["evidence_basis"],
@@ -197,7 +203,7 @@ def summarize_rollback_report(report: dict[str, Any]) -> dict[str, Any]:
         "candidate_registry_digest": report["candidate_digest"],
         "router_runtime_digest_verified": False,
         "rollback_target_image": rollback_target,
-        "rollback_target_revision": rollback_match.group("revision"),
+        "rollback_target_revision": report["canary_before"]["revision"],
         "production_unchanged": report["production_before"]["image"] == report["production_after"]["image"],
         "candidate_restored_before_soak": report["canary_candidate_restored"]["image"] == report["candidate_image"],
         "candidate_restored_at": report["canary_candidate_restored"]["observed_at"],

@@ -239,7 +239,7 @@ the architecture suffix. RouterOS resolves image names through the registry
 configured above, so use the registry-relative name:
 
 ```routeros
-/container/add name=vpn-dashboard remote-image=aivanov2-godaddy/mikrotik-openvpn-gui:sha-<FULL_SHA>-arm64 interface=veth-vpn-dashboard root-dir="<DISK>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
+/container/add name=vpn-dashboard remote-image=aivanov2-godaddy/mikrotik-openvpn-gui:sha-<FULL_SHA>-arm64@sha256:<64-HEX-DIGEST> interface=veth-vpn-dashboard root-dir="<DISK>/vpn-dashboard/root" mountlists=vpn-dashboard-mounts envlists=vpn-dashboard-env start-on-boot=yes logging=yes
 /container/print detail where name="vpn-dashboard"
 /container/start [find name="vpn-dashboard"]
 ```
@@ -409,14 +409,17 @@ Do not use this planner to overwrite a working OpenVPN installation.
 
 ### Safe updates
 
-Use a full immutable tag such as `sha-<FULL_SHA>-arm64`; never follow `edge`.
+Use a full immutable reference such as
+`sha-<FULL_SHA>-arm64@sha256:<64-HEX-DIGEST>`; never follow `edge`. Confirm
+the target RouterOS release accepts and reads back the tag-plus-digest form
+before automating updates.
 For a single-router update, stop the container, change only `remote-image`,
 update, start it, and inspect health. Mounts, environment list, veth, database,
 certificates, and VPN configuration stay in place.
 
 ```routeros
 /container/stop [find name="vpn-dashboard"]
-/container/set [find name="vpn-dashboard"] remote-image="aivanov2-godaddy/mikrotik-openvpn-gui:sha-<FULL_SHA>-arm64"
+/container/set [find name="vpn-dashboard"] remote-image="aivanov2-godaddy/mikrotik-openvpn-gui:sha-<FULL_SHA>-arm64@sha256:<64-HEX-DIGEST>"
 /container/update [find name="vpn-dashboard"]
 /container/start [find name="vpn-dashboard"]
 /container/print detail where name="vpn-dashboard"

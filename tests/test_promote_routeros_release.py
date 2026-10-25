@@ -15,14 +15,17 @@ from scripts.promote_routeros_release import (
 )
 
 
-PRIOR_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "a" * 40 + "-arm64"
-CANDIDATE_IMAGE = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-" + "b" * 40 + "-arm64"
+IMAGE_REPOSITORY = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui"
+PRIOR_IMAGE = f"{IMAGE_REPOSITORY}:sha-{'a' * 40}-arm64"
+PRIOR_DIGEST = "sha256:" + "e" * 64
+CANDIDATE_DIGEST = "sha256:" + "c" * 64
+CANDIDATE_IMAGE = f"{IMAGE_REPOSITORY}:sha-{'b' * 40}-arm64@{CANDIDATE_DIGEST}"
 NOW = datetime(2026, 10, 6, 9, 0, tzinfo=timezone.utc)
 REPORT = {
     "promotion_eligible": True,
     "deployments": [
-        {"environment": "canary", "image": CANDIDATE_IMAGE, "digest": "sha256:" + "c" * 64},
-        {"environment": "production", "image": PRIOR_IMAGE, "digest": None},
+        {"environment": "canary", "image": CANDIDATE_IMAGE, "digest": CANDIDATE_DIGEST},
+        {"environment": "production", "image": PRIOR_IMAGE, "digest": PRIOR_DIGEST},
     ],
 }
 
@@ -104,6 +107,19 @@ def settings() -> PromotionSettings:
 
 
 class PromotionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        def resolve(image: str, *, timeout: float) -> str | None:
+            self.assertGreater(timeout, 0)
+            if image in (PRIOR_IMAGE, PRIOR_IMAGE.removeprefix("ghcr.io/")):
+                return PRIOR_DIGEST
+            if image in (CANDIDATE_IMAGE, CANDIDATE_IMAGE.removeprefix("ghcr.io/")):
+                return CANDIDATE_DIGEST
+            return None
+
+        self.digest_patcher = patch("scripts.promote_routeros_release._registry_digest", side_effect=resolve)
+        self.digest_patcher.start()
+        self.addCleanup(self.digest_patcher.stop)
+
     def test_passing_fresh_evidence_and_matching_router_promotes_candidate(self) -> None:
         router = FakeRouterOS()
         with (
@@ -202,13 +218,16 @@ class PromotionTests(unittest.TestCase):
         ):
             def probe(_url: str, revision: str, _timeout: float, _ca: str | None) -> bool:
                 production_image = router.records["*2"]["remote-image"]
-                if revision == "b" * 40 and production_image.endswith("b" * 40 + "-arm64"):
+                if revision == "b" * 40 and production_image == CANDIDATE_IMAGE.removeprefix("ghcr.io/"):
                     return False
                 return True
 
             with self.assertRaisesRegex(DeploymentError, "prior production image was restored"):
                 promote({}, settings(), client=router, ready_probe=probe, clock=lambda: NOW, sleep=lambda _: None)
-        self.assertTrue(router.records["*2"]["remote-image"].endswith("a" * 40 + "-arm64"))
+        self.assertEqual(
+            router.records["*2"]["remote-image"],
+            (PRIOR_IMAGE + "@" + PRIOR_DIGEST).removeprefix("ghcr.io/"),
+        )
 
     def test_last_good_journal_failure_rolls_back_and_resets_previous_state(self) -> None:
         router = FakeRouterOS()
@@ -224,10 +243,10 @@ class PromotionTests(unittest.TestCase):
             with self.assertRaisesRegex(DeploymentError, "prior production image was restored"):
                 promote({}, settings(), client=router, ready_probe=lambda *_: True, clock=lambda: NOW)
 
-        self.assertTrue(router.records["*2"]["remote-image"].endswith("a" * 40 + "-arm64"))
+        self.assertTrue(router.records["*2"]["remote-image"].endswith("@" + PRIOR_DIGEST))
         self.assertEqual(
             write_last_good.call_args_list[-1].args[2:4],
-            (PRIOR_IMAGE, "a" * 40),
+            (PRIOR_IMAGE + "@" + PRIOR_DIGEST, "a" * 40),
         )
 
     def test_plain_http_readiness_is_private_ipv4_only(self) -> None:

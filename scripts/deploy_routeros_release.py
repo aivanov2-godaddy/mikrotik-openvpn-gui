@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+from collections.abc import Callable
 import json
 import os
-import re
 import ssl
 import sys
 import time
@@ -29,17 +29,18 @@ if __package__ in {None, ""}:
         has_container_lifecycle_signal as _has_lifecycle_signal,
         normalize_container_status as _status,
     )
+    from release_images import parse_project_image, pin_project_image, registry_relative_image
+    from collect_release_acceptance import _registry_digest
 else:
     from .routeros_container_state import (
         STATUS_FAILURES as _STATUS_FAILURES,
         has_container_lifecycle_signal as _has_lifecycle_signal,
         normalize_container_status as _status,
     )
+    from .release_images import parse_project_image, pin_project_image, registry_relative_image
+    from .collect_release_acceptance import _registry_digest
 
 
-_IMAGE_PATTERN = re.compile(
-    r"^(?:ghcr\.io/)?[a-z0-9](?:[a-z0-9._-]{0,98})/[a-z0-9](?:[a-z0-9._-]{0,98}):sha-(?P<revision>[0-9a-f]{40})(?:-(?P<architecture>arm64|amd64))?$"
-)
 _EMPTY_STOP_CONFIRMATIONS = 2
 
 
@@ -75,12 +76,10 @@ class DeploymentSettings:
 
     @property
     def revision(self) -> str:
-        match = _IMAGE_PATTERN.fullmatch(self.release_image)
-        if not match:
-            raise DeploymentError(
-                "release image must be a registry-relative or ghcr.io image with a full sha-commit tag"
-            )
-        return match.group("revision")
+        try:
+            return parse_project_image(self.release_image, require_digest=True).revision
+        except ValueError as error:
+            raise DeploymentError("release image must be this project's immutable SHA-256-pinned reference") from error
 
     def validate(self) -> None:
         parsed = urllib.parse.urlsplit(self.rest_url)
@@ -243,7 +242,10 @@ def _image(record: dict[str, Any]) -> str:
 def _registry_relative_image(image: str) -> str:
     """Return the image form expected by RouterOS container registry config."""
 
-    return image.removeprefix("ghcr.io/")
+    try:
+        return registry_relative_image(image)
+    except ValueError as error:
+        raise DeploymentError("image must be this project's architecture-specific immutable reference") from error
 
 
 def current_image(settings: DeploymentSettings, client: RouterOSRest | None = None) -> str:
@@ -252,12 +254,20 @@ def current_image(settings: DeploymentSettings, client: RouterOSRest | None = No
     settings.validate()
     client = client or RouterOSRest(settings)
     image = _registry_relative_image(_image(_find_target(client, settings.container_name)))
-    if not image or not _IMAGE_PATTERN.fullmatch(image):
+    try:
+        parse_project_image(image, require_digest=False)
+    except ValueError:
         raise DeploymentError("target container does not use a supported immutable GHCR image")
     return image
 
 
-def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> str:
+def deploy(
+    settings: DeploymentSettings,
+    client: RouterOSRest | None = None,
+    *,
+    rollback_image: str | None = None,
+    digest_resolver: Callable[..., str | None] | None = None,
+) -> str:
     settings.validate()
     client = client or RouterOSRest(settings)
     target = _find_target(client, settings.container_name)
@@ -270,6 +280,36 @@ def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> 
     previous_image = _registry_relative_image(_image(target))
     if not previous_image:
         raise DeploymentError("target container has no remote image/tag; refusing update")
+    try:
+        previous_identity = parse_project_image(previous_image, require_digest=False)
+    except ValueError as error:
+        raise DeploymentError("target container image is not an approved project image") from error
+    if previous_identity.digest:
+        installed_rollback_image = previous_image
+    else:
+        resolver = digest_resolver or _registry_digest
+        resolved = resolver(previous_image, timeout=min(30.0, float(settings.timeout_seconds)))
+        if not resolved:
+            raise DeploymentError("could not resolve the existing image to an exact rollback digest")
+        try:
+            installed_rollback_image = pin_project_image(previous_image, resolved)
+        except ValueError as error:
+            raise DeploymentError("existing image rollback digest could not be validated") from error
+    if rollback_image is None:
+        rollback_image = installed_rollback_image
+    else:
+        try:
+            rollback_image = _registry_relative_image(rollback_image)
+            rollback_identity = parse_project_image(rollback_image, require_digest=True)
+            installed_identity = parse_project_image(installed_rollback_image, require_digest=True)
+        except ValueError as error:
+            raise DeploymentError("rollback image must be an immutable project digest reference") from error
+        if (
+            rollback_identity.revision != previous_identity.revision
+            or rollback_identity.architecture != previous_identity.architecture
+            or rollback_identity.digest != installed_identity.digest
+        ):
+            raise DeploymentError("rollback reference does not match the exact currently installed image")
     current_status = _status(target)
     release_image = _registry_relative_image(settings.release_image)
     changed = previous_image != release_image
@@ -302,7 +342,7 @@ def deploy(settings: DeploymentSettings, client: RouterOSRest | None = None) -> 
                 if _status(record) != "stopped":
                     client.command("stop", container_id)
                     _wait_for(client, container_id, "stopped", settings, allow_empty_stopped=True)
-                client.patch_container(container_id, {"remote-image": previous_image})
+                client.patch_container(container_id, {"remote-image": rollback_image})
                 client.command("update", container_id)
                 _wait_for(client, container_id, "stopped", settings)
                 client.command("start", container_id)

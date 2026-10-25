@@ -33,19 +33,23 @@ contain an installation's domain, IP addresses, RouterOS credentials, Cloudflare
 configuration, webhook secret, RouterOS export, environment list, SQLite data,
 audit history, VPN user data, certificates, private keys, or issued profiles.
 
-Every promotable image is architecture-specific and pinned to a full Git commit:
+Every promotable image is architecture-specific, tied to a full Git commit,
+and pinned to the OCI digest:
 
 ```text
-ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64
+ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64@sha256:<64-hex-digest>
 ```
 
-The release manifest is declarative JSON, not RouterOS code. Its contract is a
-`schema` number, a full `commit` SHA, and an `images` object whose `arm64`
-member is the exact image reference. It never contains an endpoint, token, or
-other operator-specific value. A public stable manifest is an approval pointer,
-not a mutable container tag: the controller rejects `edge`, `latest`, branches,
-abbreviated SHAs, alternate registries, and images outside the configured
-public package prefix.
+The release manifest is declarative JSON, not RouterOS code. Schema 2 contains
+the full `commit` SHA, architecture metadata, per-architecture `digests`, and
+`images` references in the form
+`ghcr.io/<owner>/mikrotik-openvpn-gui:sha-<commit>-<architecture>@sha256:<digest>`.
+The updater cross-checks each image's embedded digest, architecture, and source
+commit against those fields. It never contains an endpoint, token, or other
+operator-specific value. A public stable manifest is an approval pointer, not
+a mutable container tag: the controller rejects `edge`, `latest`, branches,
+abbreviated SHAs, alternate registries, tag-only candidates, and images outside
+the configured public package prefix.
 
 ## Router-local state
 
@@ -70,6 +74,17 @@ environment lists, VETH interfaces, firewall rules, proxy configuration,
 RouterOS configuration, or persistent directories. Never attach canary and
 production to the same SQLite file: one database must have one writer.
 
+Before enabling the scheduler, ensure the existing canary `remote-image` is
+already digest-pinned. The updater intentionally refuses a tag-only canary
+because it cannot promise exact rollback. For the one-time migration, resolve
+the installed commit tag to its registry digest, then use
+`scripts/deploy_routeros_release.py` to apply that same tag-plus-digest reference
+to the canary. The deployer verifies the installed tag's digest and the
+requested rollback digest before its first RouterOS write. Confirm image
+read-back and `/readyz`; production remains untouched. Do not enable the
+scheduler until this migration and the target RouterOS tag-plus-digest
+compatibility check pass.
+
 ## Promotion sequence
 
 1. The updater counts active RouterOS script jobs to prevent overlap. RouterOS
@@ -77,8 +92,9 @@ production to the same SQLite file: one database must have one writer.
    may remain set after an interrupted run without blocking a later recovery
    attempt (PR #278).
 2. It fetches the approved public manifest through HTTPS with certificate
-   validation and checks its schema, architecture, image prefix, and complete
-   SHA-tag format. The request carries a short numeric cache-busting query so a
+   validation and checks schema 2, both architecture declarations, exact image
+   prefixes, commit tags, and SHA-256 digests. The request carries a short
+   numeric cache-busting query so a
    replaced GitHub release asset cannot be served stale by an intermediary;
    this query contains no configuration or credentials, and the response is
    still data-only and redirect-bounded.
@@ -106,7 +122,7 @@ production to the same SQLite file: one database must have one writer.
    response must identify the exact immutable candidate revision. Any failed,
    incomplete, or mismatched response rejects the canary, restores its
    last-known-good image, then verifies both the restored immutable image tag
-   and `/readyz` revision before reporting rollback verified. A failed
+   and digest read-back plus `/readyz` revision before reporting rollback verified. A failed
    restoration or read-back is logged as an operator-action-required failure;
    it records the rejected candidate locally and leaves production untouched.
    The script rejects settings below the minimum sample count or cadence

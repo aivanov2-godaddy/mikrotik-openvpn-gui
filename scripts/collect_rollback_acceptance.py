@@ -30,7 +30,7 @@ from scripts.rollback_acceptance import DIGEST, READBACKS, REPORT_FORMAT, SOURCE
 
 CHECKPOINT_INSTRUCTIONS = {
     "production_before": "Before the canary drill, with production and the prior canary image healthy.",
-    "canary_before": "Confirm the canary is still on its prior immutable image.",
+    "canary_before": "Confirm the canary is still on its prior digest-pinned image.",
     "canary_candidate": "Apply the candidate to canary only and wait for it to become ready.",
     "canary_after_rollback": "Rollback canary to its exact prior image and wait for readiness.",
     "production_after": "Confirm production is still unchanged after the canary rollback.",
@@ -163,6 +163,8 @@ def build_report(
         or candidate_image == previous_canary_image
         or not isinstance(candidate_digest, str)
         or DIGEST.fullmatch(candidate_digest) is None
+        or candidate.group("digest") != candidate_digest
+        or previous.group("digest") is None
         or set(checkpoints) != set(READBACKS)
     ):
         raise ValueError("candidate identity or rollback checkpoint set is invalid")
