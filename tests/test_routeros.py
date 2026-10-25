@@ -6,6 +6,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
@@ -1041,6 +1042,28 @@ class RouterOSClientTests(unittest.TestCase):
         self.assertEqual(len(sessions), 1)
         self.assertFalse(sessions[0]["counter_complete"])
         self.assertEqual(sessions[0]["rx_bytes"], 0)
+
+    def test_authentication_http_statuses_distinguish_rejection_from_permission_denial(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            for status, failure_kind in (
+                (HTTPStatus.UNAUTHORIZED, "credentials_rejected"),
+                (HTTPStatus.FORBIDDEN, "permission_denied"),
+            ):
+                with self.subTest(status=status):
+                    http_error = urllib.error.HTTPError(
+                        f"{mock.url}/rest/system/identity",
+                        status,
+                        "Authentication response",
+                        {},
+                        io.BytesIO(b"synthetic response"),
+                    )
+                    with patch.object(client._opener, "open", side_effect=http_error):
+                        with self.assertRaises(RouterOSError) as raised:
+                            client.verify_credentials(credentials)
+                    self.assertEqual(raised.exception.status, status)
+                    self.assertEqual(raised.exception.failure_kind, failure_kind)
 
     def test_bad_credentials(self) -> None:
         with MockRouterOS() as mock:

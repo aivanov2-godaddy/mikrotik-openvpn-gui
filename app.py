@@ -195,6 +195,21 @@ def _same_origin(left: str, right: str) -> bool:
     return parsed_left is not None and parsed_left == normalized(right)
 
 
+def _routeros_auth_failure_kind(error: RouterOSError) -> str:
+    """Classify credential rejection separately from authorization and outages."""
+    if error.failure_kind == "account_unavailable":
+        return "credentials_rejected"
+    if error.failure_kind in {"credentials_rejected", "permission_denied"}:
+        return error.failure_kind
+    if error.failure_kind is not None:
+        return "unavailable"
+    if error.status == HTTPStatus.UNAUTHORIZED:
+        return "credentials_rejected"
+    if error.status == HTTPStatus.FORBIDDEN:
+        return "permission_denied"
+    return "unavailable"
+
+
 def _origin_header_relation(values: list[str], expected_origin: str, *, referer: bool = False) -> str:
     """Classify origin-like headers for logs without retaining their values."""
     if not values:
@@ -2724,17 +2739,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 RouterOSCredentials(session.username, password)
             )
         except RouterOSError as error:
-            rejected = error.status == HTTPStatus.UNAUTHORIZED
+            failure_kind = _routeros_auth_failure_kind(error)
+            rejected = failure_kind == "credentials_rejected"
+            permission_denied = failure_kind == "permission_denied"
             self.server.context.limiter.finish(reservation, failed=True if rejected else None)
             self.server.context.store.audit(
                 actor=session.username,
-                action="admin-session.reauth.failed" if rejected else "admin-session.reauth.unavailable",
+                action=(
+                    "admin-session.reauth.failed" if rejected
+                    else "admin-session.reauth.denied" if permission_denied
+                    else "admin-session.reauth.unavailable"
+                ),
                 target="administrator-session",
-                status="denied" if rejected else "unavailable",
+                status="denied" if rejected or permission_denied else "unavailable",
                 details={"session_ref_hash": hashlib.sha256(revocation_ref.encode("utf-8")).hexdigest()[:16]},
             )
             if rejected:
                 self._json({"error": "Authentication failed. The administrator session was not revoked."}, status=HTTPStatus.UNAUTHORIZED)
+            elif permission_denied:
+                self._json({"error": "RouterOS denied the required API permission. The administrator session was not revoked."}, status=HTTPStatus.FORBIDDEN)
             else:
                 self._json({"error": "RouterOS could not verify the password right now. The administrator session was not revoked."}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
@@ -2809,20 +2832,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 RouterOSCredentials(session.username, password)
             )
         except RouterOSError as error:
-            rejected = error.status == HTTPStatus.UNAUTHORIZED
+            failure_kind = _routeros_auth_failure_kind(error)
+            rejected = failure_kind == "credentials_rejected"
+            permission_denied = failure_kind == "permission_denied"
             self.server.context.limiter.finish(reservation, failed=True if rejected else None)
             self.server.context.store.audit(
                 actor=session.username,
                 action=(
                     "session.revoke-others.reauth.failed"
-                    if rejected else "session.revoke-others.reauth.unavailable"
+                    if rejected
+                    else "session.revoke-others.reauth.denied"
+                    if permission_denied
+                    else "session.revoke-others.reauth.unavailable"
                 ),
                 target="dashboard-sessions",
-                status="denied" if rejected else "unavailable",
+                status="denied" if rejected or permission_denied else "unavailable",
                 details={"scope": "own-account-other-sessions"},
             )
             if rejected:
                 self._json({"error": "Authentication failed. No other sessions were signed out."}, status=HTTPStatus.UNAUTHORIZED)
+            elif permission_denied:
+                self._json({"error": "RouterOS denied the required API permission. No other sessions were signed out."}, status=HTTPStatus.FORBIDDEN)
             else:
                 self._json({"error": "RouterOS could not verify the password right now. No other sessions were signed out."}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
@@ -3949,16 +3979,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     failure_kind="account_unavailable",
                 )
         except (ValueError, RouterOSError) as error:
-            authentication_rejected = isinstance(error, ValueError) or (
-                isinstance(error, RouterOSError)
-                and (
-                    error.failure_kind == "account_unavailable"
-                    or (
-                        error.status in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
-                        and error.failure_kind is None
-                    )
-                )
+            failure_kind = (
+                "credentials_rejected"
+                if isinstance(error, ValueError)
+                else _routeros_auth_failure_kind(error)
             )
+            authentication_rejected = failure_kind == "credentials_rejected"
+            permission_denied = failure_kind == "permission_denied"
             self.server.context.limiter.finish(
                 reservation,
                 failed=True if authentication_rejected else None,
@@ -3966,9 +3993,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             try:
                 self.server.context.store.audit(
                     actor=username if "username" in locals() else "unknown",
-                    action="login.failure" if authentication_rejected else "login.unavailable",
+                    action=(
+                        "login.failure" if authentication_rejected
+                        else "login.denied" if permission_denied
+                        else "login.unavailable"
+                    ),
                     target="dashboard",
-                    status="failed" if authentication_rejected else "unavailable",
+                    status=(
+                        "failed" if authentication_rejected
+                        else "denied" if permission_denied
+                        else "unavailable"
+                    ),
                     details={
                         "source": identity,
                         "auth_method": "routeros",
@@ -3978,22 +4013,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception:
                 audit_unavailable()
                 return
-            message = (
-                "MikroTik authentication failed."
-                if authentication_rejected
-                else "MikroTik authentication is temporarily unavailable. Please try again."
-            )
+            if authentication_rejected:
+                message = "MikroTik authentication failed."
+                response_status = HTTPStatus.UNAUTHORIZED
+            elif permission_denied:
+                message = "RouterOS denied the API permission required for dashboard access."
+                response_status = HTTPStatus.FORBIDDEN
+            else:
+                message = "MikroTik authentication is temporarily unavailable. Please try again."
+                response_status = HTTPStatus.BAD_GATEWAY
             self._html(
                 login_page(
                     message,
                     dashboard_name=self.server.context.config.dashboard_name,
                     router_display_name=self.server.context.config.router_display_name,
                 ),
-                status=(
-                    HTTPStatus.UNAUTHORIZED
-                    if authentication_rejected
-                    else HTTPStatus.BAD_GATEWAY
-                ),
+                status=response_status,
             )
             return
         except Exception:
@@ -4173,19 +4208,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
         except RouterOSError as error:
-            rejected = error.status == HTTPStatus.UNAUTHORIZED
+            failure_kind = _routeros_auth_failure_kind(error)
+            rejected = failure_kind == "credentials_rejected"
+            permission_denied = failure_kind == "permission_denied"
             self.server.context.limiter.finish(reservation, failed=True if rejected else None)
             self.server.context.store.audit(
                 actor=session.username,
-                action="session.reauth.failed" if rejected else "session.reauth.unavailable",
+                action=(
+                    "session.reauth.failed" if rejected
+                    else "session.reauth.denied" if permission_denied
+                    else "session.reauth.unavailable"
+                ),
                 target="dashboard",
-                status="denied" if rejected else "unavailable",
+                status="denied" if rejected or permission_denied else "unavailable",
                 details={"source": identity, "reason": type(error).__name__},
             )
             if rejected:
                 self._json(
                     {"error": "Authentication failed. The dashboard session was not changed."},
                     status=HTTPStatus.UNAUTHORIZED,
+                )
+            elif permission_denied:
+                self._json(
+                    {"error": "RouterOS denied the required API permission. The dashboard session was not changed."},
+                    status=HTTPStatus.FORBIDDEN,
                 )
             else:
                 self._json(
