@@ -687,6 +687,10 @@ class ReleaseContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("last-good-image=", helper)
+        self.assertIn(':local digestMarker "@sha256:"', helper)
+        self.assertIn(":local expectedLength ($digestStart + 64)", helper)
+        self.assertIn(':for digestIndex from=0 to=63 do={', helper)
+        self.assertIn('[:find "0123456789abcdef" $digit] = nil', helper)
         self.assertIn("/container/update", helper)
         self.assertIn("persistent data was not modified", helper)
         self.assertNotIn("/file/remove", helper)

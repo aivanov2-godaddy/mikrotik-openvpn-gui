@@ -20,6 +20,12 @@ restores that image, and waits for readiness. It does not restore or overwrite
 the SQLite volume. Use it after confirming the journal entry and keep the
 manual steps below as the recovery fallback.
 
+The helper validates the architecture-specific digest-pinned image reference
+written by the promotion workflow, including its `@sha256:` marker and
+lowercase 64-character digest. `tests/test_release_contract.py` checks this
+format contract; an actual RouterOS rollback rehearsal is still required before
+claiming runtime rollback acceptance.
+
 1. Stop new write activity and announce the maintenance state through the private operator channel.
 2. Start the retained blue container against its separate, frozen data directory and require its private `/readyz` before changing traffic.
 3. Point the HTTPS reverse proxy and HTTP redirect NAT target back to blue, preserving every other field and rule position.

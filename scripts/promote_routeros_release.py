@@ -8,7 +8,7 @@ the named production container. It never uploads evidence or credentials.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import ipaddress
 import json
@@ -51,7 +51,7 @@ _READY_MAX_BYTES = 65536
 class PromotionSettings:
     rest_url: str
     username: str
-    password: str
+    password: str = field(repr=False)
     canary_container: str
     production_container: str
     canary_ready_url: str

@@ -22,9 +22,17 @@
 :local state [/file/get [find where name=$stateFile] contents]
 :local image [$stateLine $state "last-good-image="]
 :local prefixLength [:len $imagePrefix]
-:local expectedLength ($prefixLength + 46)
-:if (([:len $image] != $expectedLength) || ([:pick $image 0 $prefixLength] != $imagePrefix) || ([:pick $image ($prefixLength + 40) $expectedLength] != "-arm64")) do={
+:local architectureEnd ($prefixLength + 46)
+:local digestMarker "@sha256:"
+:local digestStart ($architectureEnd + [:len $digestMarker])
+:local expectedLength ($digestStart + 64)
+:if (([:len $image] != $expectedLength) || ([:pick $image 0 $prefixLength] != $imagePrefix) || ([:pick $image ($prefixLength + 40) $architectureEnd] != "-arm64") || ([:pick $image $architectureEnd $digestStart] != $digestMarker)) do={
     :error "local journal does not contain a valid immutable ARM64 image"
+}
+:local digest [:pick $image $digestStart $expectedLength]
+:for digestIndex from=0 to=63 do={
+    :local digit [:pick $digest $digestIndex ($digestIndex + 1)]
+    :if ([:find "0123456789abcdef" $digit] = nil) do={ :error "local journal image digest is malformed" }
 }
 
 :local productionId [/container/find where name=$productionContainer]
