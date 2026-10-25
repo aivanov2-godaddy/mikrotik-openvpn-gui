@@ -438,6 +438,7 @@ test('an incomplete REST status response preserves the last authoritative sessio
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'VPN at a glance' })).toBeVisible();
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
 
   const card = page.locator('[data-active-session-list] .session-card').first();
   await expect(card).toBeVisible();
