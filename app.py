@@ -84,7 +84,10 @@ def _validated_response_headers(extra: dict[str, str] | None) -> list[tuple[str,
 SCHEDULE_VALUES = {"always", "weekdays", "daytime"}
 BULK_ACTIONS = {"suspend", "revoke", "tag"}
 BULK_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,31}$")
-IMMUTABLE_IMAGE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._/-]*:sha-[a-f0-9]{40,64}(?:-(?:arm64|amd64))?$", re.I)
+IMMUTABLE_IMAGE_PATTERN = re.compile(
+    r"^[a-z0-9][a-z0-9._/-]*:sha-(?P<revision>[a-f0-9]{40,64})(?:-(?:arm64|amd64))?@sha256:[a-f0-9]{64}$",
+    re.I,
+)
 ROUTEROS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,48}$")
 VPN_ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 API_TOKEN_SCOPES = frozenset({"health.read", "audit.read", "sessions.read", "policies.read"})
@@ -3488,31 +3491,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
         image = str((query.get("image") or [""])[0]).strip()
         expected = str((query.get("revision") or [self.server.context.release_revision])[0]).strip().lower()
         errors: list[str] = []
-        if not IMMUTABLE_IMAGE_PATTERN.fullmatch(image):
-            errors.append("Image must use a full immutable sha- tag with an optional architecture suffix.")
+        image_match = IMMUTABLE_IMAGE_PATTERN.fullmatch(image)
+        if not image_match:
+            errors.append("Image must use a commit-tagged sha- reference pinned by a full sha256 digest.")
         if not re.fullmatch(r"[a-f0-9]{40,64}", expected):
             errors.append("Revision must be a 40- to 64-character hexadecimal commit SHA.")
         image_sha = ""
         revision_match = False
-        if not errors:
-            image_sha = image.rsplit(":sha-", 1)[1].split("-", 1)[0].lower()
+        if not errors and image_match:
+            image_sha = image_match.group("revision").lower()
             # GitHub exposes a 40-character commit SHA while registries may
-            # publish the same immutable reference as a 64-character digest.
+            # publish the same source revision with a 64-character image digest.
             # Accept only an exact match or a full-value prefix relationship;
-            # never accept an arbitrary substring or a mutable tag.
+            # never accept an arbitrary substring or an unpinned tag.
             revision_match = (
                 hmac.compare_digest(image_sha, expected)
                 or (len(expected) > len(image_sha) and hmac.compare_digest(expected[:len(image_sha)], image_sha))
                 or (len(image_sha) > len(expected) and hmac.compare_digest(image_sha[:len(expected)], expected))
             )
             if not revision_match:
-                errors.append("Image digest does not match the approved revision.")
+                errors.append("Image revision does not match the approved revision.")
         self._json({
             "verified": not errors,
             "image": image,
             "revision": expected,
             "checks": [
-                {"name": "Immutable image reference", "status": "pass" if IMMUTABLE_IMAGE_PATTERN.fullmatch(image) else "fail"},
+                {"name": "Immutable image reference", "status": "pass" if image_match else "fail"},
                 {"name": "Revision match", "status": "pass" if revision_match else "fail"},
                 {"name": "CA and router data safety", "status": "pass", "detail": "Verification is read-only and does not inspect or change CA, certificates, profiles, or RouterOS data."},
             ],
@@ -3541,7 +3545,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"error": "Public dashboard origins require HTTPS; plain HTTP is limited to private/local setup."}, status=HTTPStatus.BAD_REQUEST)
             return
         if not IMMUTABLE_IMAGE_PATTERN.fullmatch(image):
-            self._json({"error": "Use an immutable sha- image tag; mutable tags such as latest or edge are rejected."}, status=HTTPStatus.BAD_REQUEST)
+            self._json(
+                {"error": "Use a commit-tagged sha- image pinned by @sha256:<digest>; mutable or unpinned tags are rejected."},
+                status=HTTPStatus.BAD_REQUEST,
+            )
             return
         if not storage.startswith("/") or ".." in storage or storage in {"/", "/flash"}:
             self._json({"error": "Choose a dedicated absolute external-storage path, without '..' or /flash."}, status=HTTPStatus.BAD_REQUEST)
