@@ -405,6 +405,7 @@ test('an incomplete REST status response preserves the last authoritative sessio
   let statusPolls = 0;
   let releaseFirstStatus;
   let markStatusStarted;
+  let initialSession;
   const firstStatusStarted = new Promise((resolve) => { markStatusStarted = resolve; });
 
   await page.route('**/api/telemetry', (route) => route.fulfill({
@@ -420,7 +421,9 @@ test('an incomplete REST status response preserves the last authoritative sessio
     }
     const response = await route.fetch();
     const payload = await response.json();
-    payload.sessions = payload.sessions.map((session) => ({
+    const session = payload.sessions.find((item) => String(item.id) === initialSession?.id)
+      || initialSession;
+    payload.sessions = session ? [{
       ...session,
       uptime: 'updated-by-incomplete-rest-response',
       counter_complete: false,
@@ -428,7 +431,7 @@ test('an incomplete REST status response preserves the last authoritative sessio
       tx_bytes: 0,
       rx_packets: 0,
       tx_packets: 0,
-    }));
+    }] : [];
     await route.fulfill({ response, body: JSON.stringify(payload) });
   });
 
@@ -446,6 +449,15 @@ test('an incomplete REST status response preserves the last authoritative sessio
   const previousTx = await card.getAttribute('data-tx');
   expect(Number(previousRx)).toBeGreaterThan(0);
   expect(Number(previousTx)).toBeGreaterThan(0);
+  initialSession = await card.evaluate((element) => ({
+    id: element.dataset.sessionId,
+    name: element.dataset.sessionUser,
+    uptime: element.querySelector('.session-uptime')?.textContent || '—',
+    rx_bytes: Number(element.dataset.rx) || 0,
+    tx_bytes: Number(element.dataset.tx) || 0,
+    rx_packets: Number(element.dataset.rxPackets) || 0,
+    tx_packets: Number(element.dataset.txPackets) || 0,
+  }));
 
   await firstStatusStarted;
   releaseFirstStatus();
