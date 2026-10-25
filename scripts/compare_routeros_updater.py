@@ -34,6 +34,12 @@ _DESTRUCTIVE_OPERATION = re.compile(
     rb"|\b(?:remove|delete|reboot|shutdown|reset-configuration|format)\b"
 )
 _FETCH_OR_DOWNLOAD = re.compile(rb"(?i)\b(?:fetch|download)\b|/tool/fetch\b")
+_CANARY_RESTORE_VERIFIER = re.compile(
+    rb"(?im)^\s*:local\s+verifyCanaryRestore\s+do=\{"
+)
+_CANARY_RESTORE_VERIFIER_CALL = re.compile(
+    rb"(?im)^\s*:[^\r\n]*\[\s*\$verifyCanaryRestore(?:\s|\])"
+)
 _MAX_SCRIPT_BYTES = 1_048_576
 _MAX_SCRIPT_LINES = 2_048
 _MAX_INVENTORY_BYTES = 262_144
@@ -45,6 +51,20 @@ _INVENTORY_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 def _has_additional_marker(pattern: re.Pattern[bytes], reference: bytes, candidate: bytes) -> bool:
     """Flag marker counts added beyond those in the reviewed reference."""
     return len(pattern.findall(candidate)) > len(pattern.findall(reference))
+
+
+def _missing_reviewed_canary_restore_verification(reference: bytes, candidate: bytes) -> bool:
+    """Flag removal of the template's canary rollback verifier or its call site."""
+    reference_has_verifier = bool(
+        _CANARY_RESTORE_VERIFIER.search(reference)
+        and _CANARY_RESTORE_VERIFIER_CALL.search(reference)
+    )
+    if not reference_has_verifier:
+        return False
+    return not (
+        _CANARY_RESTORE_VERIFIER.search(candidate)
+        and _CANARY_RESTORE_VERIFIER_CALL.search(candidate)
+    )
 
 
 def _validate_text(data: bytes) -> None:
@@ -82,6 +102,9 @@ def compare_scripts(reference: bytes, candidate: bytes) -> dict[str, object]:
             ),
             "fetch_or_download_marker_added": _has_additional_marker(
                 _FETCH_OR_DOWNLOAD, reference, candidate
+            ),
+            "canary_rollback_restore_verification_missing": (
+                _missing_reviewed_canary_restore_verification(reference, candidate)
             ),
         },
     }
