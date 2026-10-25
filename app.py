@@ -3942,11 +3942,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if role is None:
                 raise RouterOSError("RouterOS account is disabled or unavailable", 401)
         except (ValueError, RouterOSError) as error:
-            self.server.context.limiter.finish(reservation, failed=True)
+            authentication_rejected = isinstance(error, ValueError) or (
+                isinstance(error, RouterOSError) and error.status in {401, 403}
+            )
+            self.server.context.limiter.finish(
+                reservation,
+                failed=True if authentication_rejected else None,
+            )
             try:
                 self.server.context.store.audit(
                     actor=username if "username" in locals() else "unknown",
-                    action="login.failure", target="dashboard", status="failed",
+                    action="login.failure" if authentication_rejected else "login.unavailable",
+                    target="dashboard",
+                    status="failed" if authentication_rejected else "unavailable",
                     details={
                         "source": identity,
                         "auth_method": "routeros",
@@ -3956,13 +3964,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception:
                 audit_unavailable()
                 return
+            message = (
+                "MikroTik authentication failed."
+                if authentication_rejected
+                else "MikroTik authentication is temporarily unavailable. Please try again."
+            )
             self._html(
                 login_page(
-                    "MikroTik authentication failed.",
+                    message,
                     dashboard_name=self.server.context.config.dashboard_name,
                     router_display_name=self.server.context.config.router_display_name,
                 ),
-                status=HTTPStatus.UNAUTHORIZED,
+                status=(
+                    HTTPStatus.UNAUTHORIZED
+                    if authentication_rejected
+                    else HTTPStatus.BAD_GATEWAY
+                ),
             )
             return
         except Exception:

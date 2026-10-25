@@ -16,6 +16,7 @@ import time
 import unittest
 import urllib.parse
 import zipfile
+from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -2986,6 +2987,27 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(set(self.server.context.limiter._attempts), {"127.0.0.1"})
         status, _, payload = self.request("POST", "/login", body=body, headers=headers)
         self.assertEqual(status, 429, payload.decode())
+
+    def test_routeros_unavailable_login_does_not_consume_bad_password_budget(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": self.config.public_origin,
+        }
+        with mock.patch.object(
+            self.server.context.router,
+            "verify_credentials",
+            side_effect=RouterOSError("RouterOS is unavailable", failure_kind="timeout"),
+        ):
+            for attempt in range(6):
+                with self.subTest(attempt=attempt + 1):
+                    status, _, payload = self.request("POST", "/login", body=body, headers=headers)
+                    self.assertEqual(status, HTTPStatus.BAD_GATEWAY, payload.decode())
+                    self.assertIn(b"temporarily unavailable", payload)
+
+        self.assertEqual(self.server.context.limiter._attempts, {})
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["action"], "login.unavailable")
+        self.login()
 
     def test_login_health_and_authentication_boundaries(self) -> None:
         status, headers, payload = self.request("GET", "/healthz")
@@ -7544,7 +7566,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("reconcileConnectionHistory(sessions)", script)
         self.assertIn("session.counter_complete !== false", script)
         template = (Path(__file__).resolve().parents[1] / "templates.py").read_text()
-        update_block = script.split("function updateDashboard(payload", 1)[1].split("async function pollStatus()", 1)[0]
+        update_block = script.split("function updateDashboard(payload", 1)[1].split("async function pollStatus(", 1)[0]
+        self.assertIn("preserveIncompleteSessionCounters(", update_block)
+        self.assertIn("queueIfInFlight: true", script)
         self.assertIn('data-router-session-id="{session_id}"', template)
         self.assertIn("function renderAlerts(alerts = [])", script)
         self.assertIn("function rememberOperatorViewState()", script)

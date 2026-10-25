@@ -15,6 +15,7 @@ const THEME_STORAGE_KEY = 'vpn-dashboard-theme';
 const THEME_MODES = new Set(['standard', 'dark', 'light', 'system']);
 let pollingFailures = 0;
 let pollingInFlight = false;
+let statusPollQueued = false;
 let lastLiveSnapshotAt = 0;
 let latestLiveSessions = null;
 let liveSnapshotVersion = 0;
@@ -545,6 +546,23 @@ function syncActiveSessions(sessions, timestamp) {
   });
 }
 
+function preserveIncompleteSessionCounters(sessions) {
+  const existing = new Map($$('[data-active-session-list] .session-card')
+    .map((card) => [card.dataset.sessionId, card]));
+  return sessions.map((session) => {
+    if (session.counter_complete !== false) return session;
+    const card = existing.get(String(session.id || ''));
+    if (!card) return session;
+    return {
+      ...session,
+      rx_bytes: Number(card.dataset.rx) || 0,
+      tx_bytes: Number(card.dataset.tx) || 0,
+      rx_packets: Number(card.dataset.rxPackets) || 0,
+      tx_packets: Number(card.dataset.txPackets) || 0,
+    };
+  });
+}
+
 function syncUserConnectionStatuses(sessions) {
   const connectedNames = new Set(sessions.map((session) => String(session.name || '')));
   $$('.user-card[data-user-name]').forEach((card) => {
@@ -867,9 +885,11 @@ function updateDashboard(payload, liveVersionAtRequest = liveSnapshotVersion) {
 
   // A poll can have been in flight when a newer SSE/Socket.IO snapshot arrived.
   // Do not let that older response revert session cards, totals, or user filters.
-  const sessions = liveSnapshotVersion > liveVersionAtRequest && latestLiveSessions
-    ? latestLiveSessions
-    : payload.sessions;
+  const sessions = preserveIncompleteSessionCounters(
+    liveSnapshotVersion > liveVersionAtRequest && latestLiveSessions
+      ? latestLiveSessions
+      : payload.sessions,
+  );
   const timestamp = Date.now();
   cards.forEach((card) => {
     const user = payload.users.find((item) => item.name === card.dataset.userName);
@@ -991,20 +1011,7 @@ function updateLiveSnapshot(payload) {
   // interface traffic counters. Keep the last authoritative REST counters for
   // the same session until a complete counter observation arrives. Treating
   // omitted counters as a real zero makes totals flash and the next rate spike.
-  const existing = new Map($$('[data-active-session-list] .session-card')
-    .map((card) => [card.dataset.sessionId, card]));
-  const sessions = payload.sessions.map((session) => {
-    if (session.counter_complete !== false) return session;
-    const card = existing.get(String(session.id || ''));
-    if (!card) return session;
-    return {
-      ...session,
-      rx_bytes: Number(card.dataset.rx) || 0,
-      tx_bytes: Number(card.dataset.tx) || 0,
-      rx_packets: Number(card.dataset.rxPackets) || 0,
-      tx_packets: Number(card.dataset.txPackets) || 0,
-    };
-  });
+  const sessions = preserveIncompleteSessionCounters(payload.sessions);
   // Use the browser's receive time for every live source.  The SSE endpoint
   // exposes whole-second server timestamps while Socket.IO frames use router
   // timestamps; mixing either with Date.now() makes a normal counter delta
@@ -1085,8 +1092,12 @@ function connectRealtime() {
   };
 }
 
-async function pollStatus() {
-  if (document.hidden || pollingInFlight) return;
+async function pollStatus({ queueIfInFlight = false } = {}) {
+  if (document.hidden) return;
+  if (pollingInFlight) {
+    if (queueIfInFlight) statusPollQueued = true;
+    return;
+  }
   pollingInFlight = true;
   const liveVersionAtRequest = liveSnapshotVersion;
   try {
@@ -1125,6 +1136,10 @@ async function pollStatus() {
     }
   } finally {
     pollingInFlight = false;
+    if (statusPollQueued) {
+      statusPollQueued = false;
+      if (!document.hidden) void pollStatus();
+    }
   }
 }
 
@@ -1783,9 +1798,9 @@ function connectSocketIO() {
       fallbackSocketToSse(socket);
     });
     onCurrentSocket('telemetry.snapshot', (frame) => updateLiveSnapshot(frame?.payload));
-    onCurrentSocket('vpn.session.connected', () => pollStatus());
-    onCurrentSocket('vpn.session.updated', () => pollStatus());
-    onCurrentSocket('vpn.session.disconnected', () => pollStatus());
+    onCurrentSocket('vpn.session.connected', () => pollStatus({ queueIfInFlight: true }));
+    onCurrentSocket('vpn.session.updated', () => pollStatus({ queueIfInFlight: true }));
+    onCurrentSocket('vpn.session.disconnected', () => pollStatus({ queueIfInFlight: true }));
     onCurrentSocket('connect_error', () => fallbackSocketToSse(socket));
     return true;
   } catch (_) {
