@@ -639,15 +639,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #846 (`e7ff31b222df2229186c6c745b0917084599e4b3`) is the latest published runtime image source.",
+            "PR #849 (`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest published runtime image source.",
             roadmap,
         )
         self.assertIn(
-            "PR #846 (`e7ff31b222df2229186c6c745b0917084599e4b3`) is the latest published runtime image source",
+            "PR #849 (`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest published runtime image source",
             releases,
         )
         self.assertIn(
-            "PR #846 has not been read back as the configured canary or production image",
+            "PR #849 has not been read back as the configured canary or production image",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)
@@ -658,7 +658,8 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("The two bounded source reviews described above", self.document)
         self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)
         self.assertIn("publication is not an independent security review", assurance)
-        self.assertIn("Latest published source-level session/audit safeguard — PR #846", assurance)
+        self.assertIn("Latest published authentication-denial classification — PR #849", assurance)
+        self.assertIn("Previous published source-level session/audit safeguard — PR #846", assurance)
         self.assertIn("Previous published source-level log safeguard — PR #824", assurance)
         self.assertIn("Previous published mainline security changes — PR #817", assurance)
         self.assertIn("Previously published mainline security changes — PR #798", assurance)
