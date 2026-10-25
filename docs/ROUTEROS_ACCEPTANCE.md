@@ -14,8 +14,8 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published runtime candidate is PR
-#846, commit `e7ff31b222df2229186c6c745b0917084599e4b3`. Main CI run 40226555414,
-CodeQL run 40226031831, and publisher run 40226555415 passed; its stable
+#849, commit `f4708f519a6810ceb7d253c37c199032800ea625`. Main CI rerun 40239111663,
+CodeQL run 40239111237, and publisher run 40239111661 passed; its stable
 manifest and digest-bound provenance/SBOM were verified for the ARM64 and AMD64
 images. Exact immutable tags and digests are recorded in
 [`RELEASES.md`](RELEASES.md). This publication does not establish RouterOS
@@ -45,7 +45,7 @@ container healthy, architecture `arm64`, and OCI revision
 tag and registry digest were not read back. The WinBox Stats view showed 0.7%
 CPU, 60.9 MiB memory, and 0 B swap; this is not a soak or acceptance result.
 This supersedes the
-earlier stopped-state observation, but does not verify or accept PR #846.
+earlier stopped-state observation, but does not verify or accept PR #849.
 Production was not changed.
 
 The PR #803 canary staging, rollback, and readiness-only observation described

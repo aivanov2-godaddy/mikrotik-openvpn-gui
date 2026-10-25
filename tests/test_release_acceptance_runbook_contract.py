@@ -87,6 +87,11 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "PR #806 is staged on the canary with healthy revision read-back recorded above, but its 30-minute soak, rollback, and full live acceptance remain incomplete.",
             report,
         )
+        self.assertIn(
+            "PR #849 (`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest published runtime source",
+            report,
+        )
+        self.assertIn("PR #849 has no candidate-specific staging/read-back or acceptance evidence.", report)
         self.assertNotIn("PR #791 has been published but not staged", report)
 
 

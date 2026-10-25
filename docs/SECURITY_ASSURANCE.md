@@ -410,7 +410,22 @@ examined PR #791's commit, not the changed source in PR #793. Therefore this
 publication is not an independent security review, deployed-proxy validation,
 or RouterOS acceptance. Issue #200 remains open for those gates.
 
-### Latest published source-level session/audit safeguard — PR #846 — 2026-10-25
+### Latest published authentication-denial classification — PR #849 — 2026-10-25
+
+PR [#849](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/849)
+merged as `f4708f519a6810ceb7d253c37c199032800ea625`. Sign-in and password
+reauthentication now distinguish RouterOS HTTP 401 credential rejection from
+HTTP 403 permission denial. Permission denials and RouterOS availability
+failures do not consume the bad-password lockout budget; existing signed-in
+sessions remain intact, and audit classification is preserved. The focused
+401/403 regression tests and main CI, CodeQL, and publisher checks passed.
+Published artifact identities are recorded in [`RELEASES.md`](RELEASES.md).
+
+This is a source-level authentication safeguard, not deployed RouterOS
+evidence or an independent ASVS assessment. Issue #200 remains open for those
+acceptance gates.
+
+### Previous published source-level session/audit safeguard — PR #846 — 2026-10-25
 
 PR [#846](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/846)
 merged as `e7ff31b222df2229186c6c745b0917084599e4b3`. Session creation and
