@@ -84,6 +84,7 @@ class DeploymentPolicyTests(unittest.TestCase):
         return CanarySettings(
             owner="example-owner",
             commit="a" * 40,
+            image_digest="sha256:" + "b" * 64,
             public_origin="https://vpn.example.com",
             routeros_rest_url="https://router.example.internal:8443/rest",
             routeros_rest_san="router.example.internal",
@@ -104,7 +105,7 @@ class DeploymentPolicyTests(unittest.TestCase):
     def test_canary_plan_uses_an_immutable_ghcr_image_and_separate_state(self) -> None:
         plan = render_canary_plan(self.canary_settings())
         self.assertIn(
-            f'remote-image="example-owner/mikrotik-openvpn-gui:sha-{"a" * 40}"',
+            f'remote-image="example-owner/mikrotik-openvpn-gui:sha-{"a" * 40}-arm64@sha256:{"b" * 64}"',
             plan,
         )
         self.assertIn('mountlists="vpn-gui-canary-aaaaaaaaaaaa-mounts"', plan)
@@ -145,6 +146,8 @@ class DeploymentPolicyTests(unittest.TestCase):
                         settings.owner,
                         "--commit",
                         settings.commit,
+                        "--image-digest",
+                        settings.image_digest,
                         "--public-origin",
                         settings.public_origin,
                         "--routeros-rest-url",
@@ -185,12 +188,25 @@ class DeploymentPolicyTests(unittest.TestCase):
             self.assertIn("router.example.internal", plan)
             self.assertIn("192.0.2.6", plan)
 
+    def test_canary_cli_requires_an_image_digest(self) -> None:
+        error = io.StringIO()
+        with redirect_stderr(error), self.assertRaises(SystemExit) as raised:
+            render_canary_main(["--owner", "example-owner", "--commit", "a" * 40])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--image-digest", error.getvalue())
+
     def test_canary_plan_rejects_unsafe_or_unverified_inputs(self) -> None:
         settings = self.canary_settings()
         with self.assertRaisesRegex(ValueError, r"reserved \.invalid"):
             render_canary_plan(replace(settings, public_origin="https://canary.invalid"))
         with self.assertRaisesRegex(ValueError, "full 40-character"):
             render_canary_plan(replace(settings, commit="abc123"))
+        with self.assertRaisesRegex(ValueError, "image digest must be sha256"):
+            render_canary_plan(replace(settings, image_digest=""))
+        with self.assertRaisesRegex(ValueError, "image digest must be sha256"):
+            render_canary_plan(replace(settings, image_digest="sha256:" + "B" * 64))
+        with self.assertRaisesRegex(ValueError, "image digest must be sha256"):
+            render_canary_plan(replace(settings, image_digest="sha256:" + "b" * 63))
         with self.assertRaisesRegex(ValueError, "exactly match"):
             render_canary_plan(replace(settings, routeros_rest_san="other.example.internal"))
         with self.assertRaisesRegex(ValueError, "HTTPS"):
