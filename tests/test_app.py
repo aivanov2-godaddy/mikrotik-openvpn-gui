@@ -2647,6 +2647,28 @@ class DashboardIntegrationTests(unittest.TestCase):
             verify.assert_not_called()
             sessions.assert_not_called()
 
+    def test_status_does_not_disclose_snapshot_when_session_is_revoked_mid_request(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        router = self.server.context.router
+        original_list_sessions = router.list_active_ovpn_sessions
+
+        def revoke_while_status_is_loading(credentials: tuple[str, str]):
+            active = original_list_sessions(credentials)
+            self.assertTrue(self.server.context.sessions.revoke(session_id))
+            return active
+
+        with mock.patch.object(
+            router,
+            "list_active_ovpn_sessions",
+            side_effect=revoke_while_status_is_loading,
+        ):
+            status, _, payload = self.request("GET", "/api/status", headers={"Cookie": self.cookie})
+
+        self.assertEqual(status, 401)
+        self.assertNotIn(b'"sessions"', payload)
+        self.assertNotIn(b'"users"', payload)
+
     def test_automatic_dashboard_polls_do_not_extend_or_revive_idle_session(self) -> None:
         self.login()
         session_id = self.cookie.split("=", 1)[1]

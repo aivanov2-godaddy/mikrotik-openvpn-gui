@@ -1833,24 +1833,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     telemetry_state = TelemetryRuntimeState(self.server.context.config.live_transport)
                     self.server.context.telemetry_state = telemetry_state
                 telemetry_state.mark_event(reconciliation=True)
-                self._json(
-                    {
-                        "users": self._users_with_metadata(credentials),
-                        "sessions": status_sessions,
-                        "connections": status_connections,
-                        "alerts": status_alerts,
-                        "role": normalize_role(session.role),
-                        "role_label": role_label(session.role),
-                        "capabilities": sorted(role_capabilities(session.role)),
-                        "router": status_router,
-                        "observability": self._observability(
-                            include_audit=self._capability_allowed(session, "audit.read"),
-                            include_sessions=self._capability_allowed(session, "sessions.read"),
-                        ),
-                        "telemetry": {"protocol_version": 1, **self._telemetry_status()},
-                        "generated_at": int(time.time()),
-                    }
-                )
+                payload = {
+                    "users": self._users_with_metadata(credentials),
+                    "sessions": status_sessions,
+                    "connections": status_connections,
+                    "alerts": status_alerts,
+                    "router": status_router,
+                    "telemetry": {"protocol_version": 1, **self._telemetry_status()},
+                    "generated_at": int(time.time()),
+                }
+                # Status performs multiple potentially slow RouterOS reads.
+                # Re-check the RouterOS-derived authorization after those reads
+                # so a session revoked or downgraded mid-request cannot receive
+                # a snapshot using only the authorization from request entry.
+                response_session = self._revalidated_routeros_session(session)
+                if (
+                    response_session is None
+                    or response_session.authorization_ref != session.authorization_ref
+                ):
+                    self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
+                    return
+                for capability in ("users.read", "sessions.read", "health.read"):
+                    if not self._require_capability(response_session, capability):
+                        return
+                payload.update({
+                    "role": normalize_role(response_session.role),
+                    "role_label": role_label(response_session.role),
+                    "capabilities": sorted(role_capabilities(response_session.role)),
+                    "observability": self._observability(
+                        include_audit=self._capability_allowed(response_session, "audit.read"),
+                        include_sessions=self._capability_allowed(response_session, "sessions.read"),
+                    ),
+                })
+                self._json(payload)
             except RouterOSError as error:
                 self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
             return

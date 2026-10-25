@@ -120,6 +120,9 @@ class PromotionTests(unittest.TestCase):
         self.digest_patcher.start()
         self.addCleanup(self.digest_patcher.stop)
 
+    def test_settings_repr_does_not_expose_password(self) -> None:
+        self.assertNotIn("not-used-by-fake", repr(settings()))
+
     def test_passing_fresh_evidence_and_matching_router_promotes_candidate(self) -> None:
         router = FakeRouterOS()
         with (
