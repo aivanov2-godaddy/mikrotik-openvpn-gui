@@ -6,7 +6,8 @@ from dataclasses import dataclass
 import re
 
 
-PROJECT_REPOSITORY = "ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui"
+PROJECT_PATH = "aivanov2-godaddy/mikrotik-openvpn-gui"
+PROJECT_REPOSITORY = f"ghcr.io/{PROJECT_PATH}"
 SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 REVISION = re.compile(r"^[0-9a-f]{40}$")
 _IMAGE = re.compile(
@@ -41,8 +42,9 @@ def parse_project_image(value: str, *, require_digest: bool = True, architecture
 def registry_relative_image(value: str) -> str:
     """Normalize a validated project image for RouterOS registry-url usage."""
 
-    parse_project_image(value, require_digest=False)
-    return value.removeprefix("ghcr.io/")
+    identity = parse_project_image(value, require_digest=False)
+    digest_suffix = f"@{identity.digest}" if identity.digest is not None else ""
+    return f"{PROJECT_PATH}:sha-{identity.revision}-{identity.architecture}{digest_suffix}"
 
 
 def pin_project_image(value: str, digest: str) -> str:
@@ -53,10 +55,10 @@ def pin_project_image(value: str, digest: str) -> str:
         raise ValueError("digest must be a lowercase SHA-256 OCI digest")
     if identity.digest is not None and identity.digest != digest:
         raise ValueError("image reference and supplied digest do not match")
-    canonical = value if value.startswith("ghcr.io/") else f"{PROJECT_REPOSITORY}:{value.split(':', 1)[1]}"
-    if "@" in canonical:
-        return canonical
-    return f"{canonical}@{digest}"
+    return (
+        f"{PROJECT_REPOSITORY}:sha-{identity.revision}-{identity.architecture}"
+        f"@{digest}"
+    )
 
 
 def image_digest(value: str) -> str:
