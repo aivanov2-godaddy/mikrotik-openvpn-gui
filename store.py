@@ -1202,47 +1202,74 @@ class MetadataStore:
         status: str,
         details: dict[str, Any] | None = None,
     ) -> None:
-        sanitized = sanitize_audit_details(details or {})
-        if not isinstance(sanitized, dict):
-            sanitized = {}
-        event_id = str(uuid.uuid4())
-        created = int(time.time())
-        event = {
-            "event": "audit",
-            "event_id": event_id,
-            "actor": str(actor)[:128],
-            "action": str(action)[:128],
-            "target": str(target)[:256],
-            "status": str(status)[:32],
-            "details": sanitized,
-            "created_at": created,
-        }
+        self.audit_many([{
+            "actor": actor,
+            "action": action,
+            "target": target,
+            "status": status,
+            "details": details or {},
+        }])
+
+    def audit_many(self, events: list[dict[str, Any]]) -> None:
+        """Persist related audit records and outbox events as one transaction."""
+        if not events:
+            return
+        audit_hook = self._audit_hook
+        prepared: list[tuple[dict[str, Any], tuple[Any, ...]]] = []
+        for item in events:
+            actor = item["actor"]
+            action = item["action"]
+            target = item["target"]
+            status = item["status"]
+            sanitized = sanitize_audit_details(item.get("details") or {})
+            if not isinstance(sanitized, dict):
+                sanitized = {}
+            event_id = str(uuid.uuid4())
+            created = int(time.time())
+            event = {
+                "event": "audit",
+                "event_id": event_id,
+                "actor": str(actor)[:128],
+                "action": str(action)[:128],
+                "target": str(target)[:256],
+                "status": str(status)[:32],
+                "details": sanitized,
+                "created_at": created,
+            }
+            prepared.append((event, (
+                actor,
+                action,
+                target,
+                status,
+                json.dumps(sanitized, separators=(",", ":"), sort_keys=True),
+                created,
+            )))
+
         with self._lock, self._connection() as connection:
-            connection.execute(
-                "INSERT INTO audit(actor, action, target, status, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    actor,
-                    action,
-                    target,
-                    status,
-                    json.dumps(sanitized, separators=(",", ":"), sort_keys=True),
-                    created,
-                ),
-            )
-            if self._audit_hook is not None:
+            for event, row in prepared:
                 connection.execute(
-                    """
-                    INSERT OR IGNORE INTO integration_outbox(
-                        event_id, event_type, payload, created_at, next_attempt_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (event_id, "audit", json.dumps(event, separators=(",", ":"), sort_keys=True), created, created),
+                    "INSERT INTO audit(actor, action, target, status, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    row,
                 )
-        if self._audit_hook:
-            try:
-                self._audit_hook(event)
-            except Exception:
-                pass
+                if audit_hook is not None:
+                    connection.execute(
+                        """
+                        INSERT OR IGNORE INTO integration_outbox(
+                            event_id, event_type, payload, created_at, next_attempt_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            event["event_id"], "audit",
+                            json.dumps(event, separators=(",", ":"), sort_keys=True),
+                            event["created_at"], event["created_at"],
+                        ),
+                    )
+        if audit_hook:
+            for event, _ in prepared:
+                try:
+                    audit_hook(event)
+                except Exception:
+                    pass
 
     def pending_integration_events(self, limit: int = 20, *, now: int | None = None) -> list[dict[str, Any]]:
         """Claim due outbox events for at-least-once delivery."""

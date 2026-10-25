@@ -714,6 +714,99 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertLess(len(cookie_pair.encode("ascii")), 4096)
         self.assertNotIn(cookie_pair.split("=", 1)[1].encode("ascii"), payload)
 
+    def test_login_audit_transaction_failure_does_not_create_or_issue_session(self) -> None:
+        self.server.context.store._audit_hook = lambda _event: None
+        with self.server.context.store._connection() as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_role_audit BEFORE INSERT ON audit
+                WHEN NEW.action = 'routeros.role.verified'
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected audit failure');
+                END;
+                """
+            )
+
+        status, headers, payload = self.request(
+            "POST",
+            "/login",
+            body=urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode(),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
+        )
+
+        self.assertEqual(status, 503, payload.decode())
+        self.assertNotIn("set-cookie", headers)
+        self.assertNotIn(b"injected audit failure", payload)
+        self.assertEqual(self.server.context.sessions.active(), [])
+        with self.server.context.store._connection() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM audit").fetchone()[0], 0)
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM integration_outbox").fetchone()[0], 0
+            )
+
+        with self.server.context.store._connection() as connection:
+            connection.execute("DROP TRIGGER fail_role_audit")
+        self.login()
+        self.assertEqual(len(self.server.context.sessions.active()), 1)
+
+    def test_login_failure_audit_error_returns_sanitized_service_unavailable(self) -> None:
+        with self.server.context.store._connection() as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_login_failure BEFORE INSERT ON audit
+                WHEN NEW.action = 'login.failure'
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected audit failure');
+                END;
+                """
+            )
+
+        status, headers, payload = self.request(
+            "POST",
+            "/login",
+            body=urllib.parse.urlencode({"username": "admin", "password": "wrong"}).encode(),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
+        )
+
+        self.assertEqual(status, 503)
+        self.assertNotIn("set-cookie", headers)
+        self.assertNotIn(b"injected audit failure", payload)
+        self.assertEqual(self.server.context.sessions.active(), [])
+
+    def test_login_rate_limit_audit_error_returns_sanitized_service_unavailable(self) -> None:
+        with self.server.context.store._connection() as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_login_rate_limited BEFORE INSERT ON audit
+                WHEN NEW.action = 'login.rate_limited'
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected audit failure');
+                END;
+                """
+            )
+
+        with mock.patch.object(self.server.context.limiter, "reserve", return_value=None):
+            status, headers, payload = self.request(
+                "POST",
+                "/login",
+                body=urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode(),
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 503)
+        self.assertNotIn("set-cookie", headers)
+        self.assertNotIn(b"injected audit failure", payload)
+        self.assertEqual(self.server.context.sessions.active(), [])
+
     def test_access_logs_omit_bearer_share_tokens_and_peer_addresses(self) -> None:
         token = "x" * 40
         captured = io.StringIO()
@@ -1617,6 +1710,113 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn(b"CSRF", payload)
         verify.assert_not_called()
 
+    def test_reauthentication_audit_failure_keeps_existing_session_usable(self) -> None:
+        self.login()
+        cookie = self.cookie
+        csrf = self.csrf
+        session_id = cookie.split("=", 1)[1]
+        original = self.server.context.sessions.get(session_id, touch=False)
+        original_secrets = (
+            original.password,
+            original.csrf_token,
+            original.revocation_ref,
+            original.authorization_ref,
+        )
+        body = json.dumps({"password": "routerpass"}).encode()
+
+        with mock.patch.object(
+            self.server.context.store,
+            "audit_many",
+            side_effect=sqlite3.OperationalError("injected database failure"),
+        ):
+            status, headers, payload = self.request(
+                "POST",
+                "/api/auth/reauthenticate",
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": cookie,
+                    "X-CSRF-Token": csrf,
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 503, payload.decode())
+        self.assertNotIn("set-cookie", headers)
+        self.assertNotIn(b"injected database failure", payload)
+        self.assertIs(self.server.context.sessions.get(session_id, touch=False), original)
+        self.assertEqual(
+            (
+                original.password,
+                original.csrf_token,
+                original.revocation_ref,
+                original.authorization_ref,
+            ),
+            original_secrets,
+        )
+        self.assertEqual(len(self.server.context.sessions.active()), 1)
+        status, _, payload = self.request("GET", "/api/telemetry", headers={"Cookie": cookie})
+        self.assertEqual(status, 200, payload.decode())
+
+    def test_reauthentication_audit_records_denial_when_session_is_revoked_midflight(self) -> None:
+        self.login()
+        cookie = self.cookie
+        csrf = self.csrf
+        session_id = cookie.split("=", 1)[1]
+        store = self.server.context.store
+        sessions = self.server.context.sessions
+        original_audit_many = store.audit_many
+        revocation_started = threading.Event()
+
+        def audit_then_revoke(events: list[dict[str, Any]]) -> None:
+            original_audit_many(events)
+            if not any(
+                event.get("action") == "routeros.reauthentication.credentials_verified"
+                for event in events
+            ):
+                return
+
+            def revoke() -> None:
+                sessions.destroy(session_id)
+                revocation_started.set()
+
+            worker = threading.Thread(target=revoke)
+            worker.start()
+            deadline = time.monotonic() + 1
+            while sessions._invalidating.get(session_id, 0) < 2:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("session revocation did not begin")
+                time.sleep(0.005)
+            worker.join(timeout=1)
+
+        with mock.patch.object(store, "audit_many", side_effect=audit_then_revoke):
+            status, headers, payload = self.request(
+                "POST",
+                "/api/auth/reauthenticate",
+                body=json.dumps({"password": "routerpass"}).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": cookie,
+                    "X-CSRF-Token": csrf,
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 401, payload.decode())
+        self.assertNotIn("set-cookie", headers)
+        self.assertTrue(revocation_started.wait(timeout=1))
+        self.assertIsNone(sessions.get(session_id, touch=False))
+        events = store.recent_audit(10)
+        self.assertTrue(any(
+            event["action"] == "routeros.reauthentication.credentials_verified"
+            and event["status"] == "success"
+            for event in events
+        ))
+        self.assertTrue(any(
+            event["action"] == "session.reauthentication" and event["status"] == "denied"
+            for event in events
+        ))
+
     def test_reauthentication_rejects_foreign_or_unverifiable_origins_before_router_auth(self) -> None:
         self.login()
         cookie = self.cookie
@@ -2307,6 +2507,36 @@ class DashboardIntegrationTests(unittest.TestCase):
             "login.concurrent_session_limit",
         )
 
+    def test_concurrent_session_limit_audit_error_returns_sanitized_service_unavailable(self) -> None:
+        self.login()
+        for _ in range(7):
+            self.server.context.sessions.create("ADMIN", "routerpass")
+        with self.server.context.store._connection() as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_concurrent_session_limit BEFORE INSERT ON audit
+                WHEN NEW.action = 'login.concurrent_session_limit'
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected audit failure');
+                END;
+                """
+            )
+
+        status, headers, payload = self.request(
+            "POST",
+            "/login",
+            body=urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode(),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.config.public_origin,
+            },
+        )
+
+        self.assertEqual(status, 503)
+        self.assertNotIn("set-cookie", headers)
+        self.assertNotIn(b"injected audit failure", payload)
+        self.assertEqual(len(self.server.context.sessions.active()), 8)
+
     def test_login_authenticated_before_account_disable_cannot_escape_session_sweep(self) -> None:
         self.login()
         existing_session_id = self.cookie.split("=", 1)[1]
@@ -2348,6 +2578,50 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.server.context.store.recent_audit(1)[0]["action"],
             "login.failure",
         )
+
+    def test_login_authorization_change_audit_error_fails_closed(self) -> None:
+        self.login()
+        existing_session_id = self.cookie.split("=", 1)[1]
+        with self.server.context.store._connection() as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_authorization_changed_audit BEFORE INSERT ON audit
+                WHEN NEW.action = 'login.failure'
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected audit failure');
+                END;
+                """
+            )
+
+        def observe_disable_then_return_stale_role(_credentials):
+            self.assertIsNone(
+                self.server.context.sessions.revalidate_role(
+                    existing_session_id,
+                    lambda _session: None,
+                    interval_seconds=0,
+                )
+            )
+            return "owner"
+
+        with mock.patch.object(
+            self.server.context.router,
+            "get_admin_role",
+            side_effect=observe_disable_then_return_stale_role,
+        ):
+            status, headers, payload = self.request(
+                "POST",
+                "/login",
+                body=urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode(),
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": self.config.public_origin,
+                },
+            )
+
+        self.assertEqual(status, 503)
+        self.assertNotIn("set-cookie", headers)
+        self.assertNotIn(b"injected audit failure", payload)
+        self.assertEqual(self.server.context.sessions.active(), [])
 
     def test_status_projects_operational_records_to_allowlisted_fields(self) -> None:
         self.login()
@@ -5170,8 +5444,8 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.login()
         actions = [item["action"] for item in self.server.context.store.recent_audit(10)]
-        self.assertIn("login", actions)
-        self.assertIn("role.assigned", actions)
+        self.assertIn("routeros.login.credentials_verified", actions)
+        self.assertIn("routeros.role.verified", actions)
         logout = urllib.parse.urlencode({"csrf": self.csrf}).encode()
         status, _, _ = self.request(
             "POST", "/logout", body=logout,

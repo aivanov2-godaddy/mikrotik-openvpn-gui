@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import time
 import hashlib
@@ -88,6 +89,247 @@ class SecurityTests(unittest.TestCase):
     def test_session_store_normalizes_legacy_roles(self) -> None:
         session = SessionStore().create("admin", "secret", role="operator")
         self.assertEqual(session.role, "administrator")
+
+    def test_session_create_does_not_commit_when_before_commit_fails(self) -> None:
+        store = SessionStore()
+
+        def fail_commit(_session) -> None:
+            raise RuntimeError("audit unavailable")
+
+        with self.assertRaisesRegex(RuntimeError, "audit unavailable"):
+            store.create("admin", "secret", before_commit=fail_commit)
+
+        self.assertEqual(store.active(), [])
+
+    def test_session_rotation_preserves_old_session_when_before_commit_fails(self) -> None:
+        store = SessionStore(max_sessions_per_account=1)
+        original = store.create("admin", "old-password", role="owner")
+
+        def fail_commit(_session) -> None:
+            raise RuntimeError("audit unavailable")
+
+        with self.assertRaisesRegex(RuntimeError, "audit unavailable"):
+            store.rotate(
+                original.session_id,
+                "new-password",
+                role="read_only",
+                before_commit=fail_commit,
+            )
+
+        self.assertIs(store.get(original.session_id, touch=False), original)
+        self.assertEqual(original.password, "old-password")
+        self.assertEqual(len(store.active()), 1)
+
+    def test_audit_transition_does_not_block_unrelated_session_reads(self) -> None:
+        store = SessionStore()
+        original = store.create("admin", "old-password")
+        unrelated = store.create("other", "other-password")
+        callback_started = threading.Event()
+        finish_callback = threading.Event()
+        result: list[object] = []
+
+        def before_commit(_replacement) -> None:
+            callback_started.set()
+            if not finish_callback.wait(timeout=2):
+                raise TimeoutError("test callback timed out")
+
+        def rotate() -> None:
+            result.append(
+                store.rotate(
+                    original.session_id,
+                    "new-password",
+                    role="owner",
+                    before_commit=before_commit,
+                )
+            )
+
+        worker = threading.Thread(target=rotate)
+        worker.start()
+        self.assertTrue(callback_started.wait(timeout=1))
+        self.assertIs(store.get(unrelated.session_id, touch=False), unrelated)
+        finish_callback.set()
+        worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(result), 1)
+        self.assertIsNotNone(result[0])
+
+    def test_individual_revocation_during_reauthentication_prevents_replacement(self) -> None:
+        store = SessionStore()
+        original = store.create("admin", "old-password")
+        transition_started = threading.Event()
+        finish_transition = threading.Event()
+        rotation_result: list[object] = []
+
+        def audit_before_rotation(_replacement) -> None:
+            transition_started.set()
+            if not finish_transition.wait(timeout=2):
+                raise TimeoutError("test transition timed out")
+
+        def rotate() -> None:
+            rotation_result.append(
+                store.rotate(
+                    original.session_id,
+                    "new-password",
+                    role="owner",
+                    before_commit=audit_before_rotation,
+                )
+            )
+
+        rotation_worker = threading.Thread(target=rotate)
+        rotation_worker.start()
+        self.assertTrue(transition_started.wait(timeout=1))
+        revoke_worker = threading.Thread(
+            target=store.destroy, args=(original.session_id,)
+        )
+        revoke_worker.start()
+        deadline = time.monotonic() + 1
+        while store._invalidating.get(original.session_id, 0) < 2:
+            if time.monotonic() >= deadline:
+                self.fail("individual revoke did not publish invalidation")
+            time.sleep(0.005)
+        finish_transition.set()
+        rotation_worker.join(timeout=2)
+        revoke_worker.join(timeout=2)
+
+        self.assertFalse(rotation_worker.is_alive())
+        self.assertFalse(revoke_worker.is_alive())
+        self.assertEqual(rotation_result, [None])
+        self.assertIsNone(store.get(original.session_id, touch=False))
+        self.assertEqual(store.active(), [])
+        self.assertEqual(store._invalidating, {})
+
+    def test_account_revocation_keeps_deny_marker_until_busy_set_lock_is_swept(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "secret")
+        store._session_set_lock.acquire()
+        original_start = threading.Thread.start
+        start_attempts = 0
+
+        def start_after_transient_failure(worker: threading.Thread) -> None:
+            nonlocal start_attempts
+            if worker.name == "session-revocation-retry":
+                start_attempts += 1
+                if start_attempts == 1:
+                    raise RuntimeError("injected transient thread-start failure")
+            original_start(worker)
+
+        async def revoke_in_event_loop() -> None:
+            with mock.patch.object(
+                threading.Thread,
+                "start",
+                autospec=True,
+                side_effect=start_after_transient_failure,
+            ):
+                self.assertEqual(store.revoke_account_sessions("admin"), 0)
+                self.assertIsNone(store.get(session.session_id, touch=False))
+                self.assertGreater(store._invalidating_usernames.get("admin", 0), 0)
+                store._session_set_lock.release()
+                await self._wait_for_account_revocation(
+                    store, "admin", session.session_id
+                )
+                self.assertEqual(start_attempts, 2)
+                self.assertIsNone(store.get(session.session_id, touch=False))
+                self.assertEqual(store._invalidating_usernames, {})
+                self.assertEqual(store.active(), [])
+
+        asyncio.run(revoke_in_event_loop())
+
+    def test_account_revocation_retries_when_role_delivery_lock_is_busy(self) -> None:
+        store = SessionStore()
+        session = store.create("admin", "secret")
+        role_lock = store.role_check_lock(session.session_id)
+        assert role_lock is not None
+        role_lock.acquire()
+
+        async def revoke_in_event_loop() -> None:
+            self.assertEqual(store.revoke_account_sessions("admin"), 0)
+            self.assertIsNone(store.get(session.session_id, touch=False))
+            self.assertGreater(store._invalidating_usernames.get("admin", 0), 0)
+            role_lock.release()
+            await self._wait_for_account_revocation(store, "admin", session.session_id)
+            self.assertIsNone(store.get(session.session_id, touch=False))
+            self.assertEqual(store._invalidating_usernames, {})
+            self.assertEqual(store.active(), [])
+
+        asyncio.run(revoke_in_event_loop())
+
+    async def _wait_for_account_revocation(
+        self, store: SessionStore, username: str, session_id: str
+    ) -> None:
+        for _ in range(500):
+            with store._lock:
+                completed = (
+                    session_id not in store._sessions
+                    and username not in store._invalidating_usernames
+                    and username not in store._pending_account_revocation_retries
+                )
+            if completed:
+                return
+            await asyncio.sleep(0.01)
+        self.fail("background account revocation did not finish")
+
+    def test_account_revocation_denies_immediately_and_cancels_inflight_rotation(self) -> None:
+        store = SessionStore()
+        rotating = store.create("admin", "old-password")
+        revalidating = store.create("admin", "second-password")
+        transition_started = threading.Event()
+        finish_transition = threading.Event()
+        invalidation_published = threading.Event()
+        rotation_result: list[object] = []
+        revalidation_result: list[object] = []
+        original_mark = store._mark_account_invalidating_locked
+
+        def mark_and_signal(username_key: str) -> None:
+            original_mark(username_key)
+            invalidation_published.set()
+
+        def audit_before_rotation(_replacement) -> None:
+            transition_started.set()
+            if not finish_transition.wait(timeout=2):
+                raise TimeoutError("test transition timed out")
+
+        def rotate() -> None:
+            rotation_result.append(
+                store.rotate(
+                    rotating.session_id,
+                    "new-password",
+                    role="owner",
+                    before_commit=audit_before_rotation,
+                )
+            )
+
+        def revalidate() -> None:
+            revalidation_result.append(
+                store.revalidate_role(
+                    revalidating.session_id,
+                    lambda _session: None,
+                    interval_seconds=0,
+                )
+            )
+
+        with mock.patch.object(
+            store, "_mark_account_invalidating_locked", side_effect=mark_and_signal
+        ):
+            rotation_worker = threading.Thread(target=rotate)
+            rotation_worker.start()
+            self.assertTrue(transition_started.wait(timeout=1))
+            revalidation_worker = threading.Thread(target=revalidate)
+            revalidation_worker.start()
+            self.assertTrue(invalidation_published.wait(timeout=1))
+            self.assertIsNone(store.get(rotating.session_id, touch=False))
+            self.assertIsNone(store.get(revalidating.session_id, touch=False))
+            finish_transition.set()
+            rotation_worker.join(timeout=2)
+            revalidation_worker.join(timeout=2)
+
+        self.assertFalse(rotation_worker.is_alive())
+        self.assertFalse(revalidation_worker.is_alive())
+        self.assertEqual(len(rotation_result), 1)
+        self.assertIsNone(rotation_result[0])
+        self.assertEqual(revalidation_result, [None])
+        self.assertEqual(store.active(), [])
+        self.assertEqual(store._invalidating_usernames, {})
 
     def test_session_repr_never_contains_routeros_password_or_csrf_token(self) -> None:
         session = SessionStore().create(
@@ -607,7 +849,7 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(second_session.password, "")
         self.assertIs(store.get(unrelated.session_id, touch=False), unrelated)
         self.assertEqual(store.active(), [unrelated])
-        self.assertEqual(store._invalidating_usernames, set())
+        self.assertEqual(store._invalidating_usernames, {})
 
     def test_disabled_account_generation_blocks_stale_authenticated_session_insert(self) -> None:
         store = SessionStore()
