@@ -639,15 +639,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #824 (`060c1a247e9ba97651ff8093049161de34e57a12`) is the latest published image source.",
+            "PR #829 (`9fd85aaff7f4ed43888209d2b77663207a11a897`) is the latest published runtime image source.",
             roadmap,
         )
         self.assertIn(
-            "PR #824 (`060c1a247e9ba97651ff8093049161de34e57a12`) is the latest published image source",
+            "PR #829 (`9fd85aaff7f4ed43888209d2b77663207a11a897`) is the latest published image source",
             releases,
         )
         self.assertIn(
-            "No RouterOS read-back verifies that the PR #824 image was staged or accepted.",
+            "The PR #829 images have not been read back from RouterOS as the configured canary image",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)

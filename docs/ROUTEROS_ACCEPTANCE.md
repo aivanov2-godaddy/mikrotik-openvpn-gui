@@ -13,12 +13,12 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published mainline image is PR #824,
-commit `060c1a247e9ba97651ff8093049161de34e57a12`. Main CI run 40157395035,
-publisher run 40157395026, and CodeQL run 40157394958 passed. The publisher
-verified detached provenance/SBOM and both architecture smoke tests, then read
-back the stable immutable manifest. Its immutable ARM64 tag and digest are
-recorded in [`RELEASES.md`](RELEASES.md).
+prove RouterOS compatibility. The latest published runtime candidate is PR
+#829, commit `9fd85aaff7f4ed43888209d2b77663207a11a897`. Main CI run 40171739354
+and publisher run 40171739273 passed; SLSA provenance for its ARM64 and AMD64
+images was verified against the source commit and main-branch workflow. Exact
+immutable tags and digests are recorded in [`RELEASES.md`](RELEASES.md). This
+publication does not establish RouterOS compatibility, staging, or acceptance.
 The last candidate-bound canary ARM64
 digest is
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
@@ -37,11 +37,15 @@ freshness, reconnect/snapshot recovery, and session authorization are not
 verified. Readiness and point samples alone do not constitute full hardware
 acceptance or production promotion.
 
-A later read-only RouterOS inventory on 2026-10-25 found the canary container
-stopped. That inventory did not verify its image digest, embedded revision, or
-readiness and made no configuration change. The PR #806 read-back above remains
-historical evidence only; it must not be treated as current canary health or as
-evidence that PR #824 was staged.
+An earlier read-only RouterOS inventory on 2026-10-25 reported the canary
+stopped. The latest read-only WinBox observation on that date showed the
+container healthy, architecture `arm64`, and OCI revision
+`79816625e493f9581e7389b95760403ac6c9a327` (PR #806). The complete configured
+tag and registry digest were not read back. The WinBox Stats view showed 0.7%
+CPU, 60.9 MiB memory, and 0 B swap; this is not a soak or acceptance result.
+This supersedes the
+earlier stopped-state observation, but does not verify or accept PR #829.
+Production was not changed.
 
 The PR #803 canary staging, rollback, and readiness-only observation described
 in older records are historical and do not transfer acceptance evidence to
@@ -199,10 +203,10 @@ This is historical evidence only. PR #793 was the latest published runtime
 when this checkpoint was written; PR #794 superseded it at that time, followed
 by later publications including PR #798 and PR #817. PR #776 was the latest
 recorded canary candidate at that historical checkpoint; PR #806 is the last
-candidate-bound read-back documented above. The later read-only inventory found
-the canary stopped but did not verify a running revision or readiness. Use the
-exact candidate and its recorded acceptance status above for any new acceptance
-run. Do not treat image
+candidate-bound read-back documented above. A subsequent WinBox read-back
+showed PR #806's embedded revision healthy, but did not read the full configured
+tag or digest. Use the exact candidate and its recorded acceptance status
+above for any new acceptance run. Do not treat image
 publication or startup health as the required 30-minute acceptance window. Do
 not promote until the complete candidate-specific report passes and rollback
 has been rehearsed.
