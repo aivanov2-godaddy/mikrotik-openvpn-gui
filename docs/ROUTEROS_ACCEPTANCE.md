@@ -13,11 +13,12 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published mainline image is PR #817,
-commit `40ae1d86bbc8037172e38f1b018e71576925f201`. Its publisher verified
-detached provenance/SBOM and both architecture smoke tests, and published the
-stable immutable manifest; this run did not read the manifest back. Its
-immutable ARM64 tag and digest are recorded in [`RELEASES.md`](RELEASES.md).
+prove RouterOS compatibility. The latest published mainline image is PR #824,
+commit `060c1a247e9ba97651ff8093049161de34e57a12`. Main CI run 40157395035,
+publisher run 40157395026, and CodeQL run 40157394958 passed. The publisher
+verified detached provenance/SBOM and both architecture smoke tests, then read
+back the stable immutable manifest. Its immutable ARM64 tag and digest are
+recorded in [`RELEASES.md`](RELEASES.md).
 The last candidate-bound canary ARM64
 digest is
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
@@ -40,7 +41,7 @@ A later read-only RouterOS inventory on 2026-10-25 found the canary container
 stopped. That inventory did not verify its image digest, embedded revision, or
 readiness and made no configuration change. The PR #806 read-back above remains
 historical evidence only; it must not be treated as current canary health or as
-evidence that PR #817 was staged.
+evidence that PR #824 was staged.
 
 The PR #803 canary staging, rollback, and readiness-only observation described
 in older records are historical and do not transfer acceptance evidence to

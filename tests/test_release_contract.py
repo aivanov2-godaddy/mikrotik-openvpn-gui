@@ -165,16 +165,42 @@ class ReleaseContractTests(unittest.TestCase):
             ROOT / "docs/ROADMAP.md",
             ROOT / "docs/LIVE_TELEMETRY_ACCEPTANCE_REPORT.md",
             ROOT / "docs/INSTALLATION.md",
+            ROOT / "docs/SECURITY_ASSURANCE.md",
             ROOT / "docs/ROUTEROS_ACCEPTANCE.md",
         )
         rendered = " ".join(
             "\n".join(document.read_text(encoding="utf-8") for document in documents).split()
         )
         release_record = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")
+        installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
+        security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #817", release_record)
-        self.assertIn("## Previous published mainline image — PR #815", release_record)
-        self.assertNotIn("## Latest published mainline image — PR #815", release_record)
+        self.assertIn("## Latest published mainline image — PR #824", release_record)
+        self.assertIn("## Previous published mainline image — PR #817", release_record)
+        self.assertNotIn("## Latest published mainline image — PR #817", release_record)
+        self.assertIn("060c1a247e9ba97651ff8093049161de34e57a12", rendered)
+        self.assertIn(
+            "sha256:f26a64afad79ec43ffe247d81cdf7488b84b52811af022e6d3bcce8d5d6ab2aa",
+            rendered,
+        )
+        self.assertIn(
+            "sha256:0a598defd090b8de7372f0ef9f6738f5ef76fe1dc3722bf4c9cb55bb36bc8319",
+            rendered,
+        )
+        self.assertIn(
+            "Current published artifact: commit `060c1a247e9ba97651ff8093049161de34e57a12`",
+            installation,
+        )
+        self.assertIn(
+            "sha256:f26a64afad79ec43ffe247d81cdf7488b84b52811af022e6d3bcce8d5d6ab2aa",
+            installation,
+        )
+        self.assertIn(
+            "sha256:0a598defd090b8de7372f0ef9f6738f5ef76fe1dc3722bf4c9cb55bb36bc8319",
+            installation,
+        )
+        self.assertIn("### Latest published source-level log safeguard — PR #824", security_assurance)
+        self.assertIn("### Previous published mainline security changes — PR #817", security_assurance)
         self.assertIn("40ae1d86bbc8037172e38f1b018e71576925f201", rendered)
         self.assertIn(
             "sha256:cd96ffd32fb223abe7776c4ac2a6701cbea0c36fa5699619ead5915549cd0b3c",

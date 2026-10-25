@@ -408,7 +408,26 @@ examined PR #791's commit, not the changed source in PR #793. Therefore this
 publication is not an independent security review, deployed-proxy validation,
 or RouterOS acceptance. Issue #200 remains open for those gates.
 
-### Latest published mainline security changes — PR #817 — 2026-10-25
+### Latest published source-level log safeguard — PR #824 — 2026-10-25
+
+PR [#824](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/824)
+merged as `060c1a247e9ba97651ff8093049161de34e57a12`. The production ASGI
+launcher disables Uvicorn's default access logger so request paths are not
+written by that logger. A contract test protects this setting. Main CI run
+[#40157395035](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40157395035),
+publisher run
+[#40157395026](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40157395026),
+and main-branch CodeQL run
+[#40157394958](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40157394958)
+passed. Detached provenance and SPDX SBOM attestations were verified, both
+architecture images passed runtime smoke tests, and the stable manifest was
+read back.
+
+This is a source-level safeguard only. It does not inspect historical logs or
+verify external proxy/RouterOS logging, and no candidate-specific RouterOS
+deployment or acceptance is claimed. Those checks remain open under issue #200.
+
+### Previous published mainline security changes — PR #817 — 2026-10-25
 
 PR [#817](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/817)
 merged as `40ae1d86bbc8037172e38f1b018e71576925f201`. It adds an authenticated,

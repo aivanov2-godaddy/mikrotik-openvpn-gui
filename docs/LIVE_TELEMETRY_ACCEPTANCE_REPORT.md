@@ -1,14 +1,14 @@
 # Live telemetry acceptance status
 
-Status: **PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) is the latest
-merged mainline source, with immutable ARM64 and AMD64 images published. Main CI
-run 40143943796, publisher run 40143943784, and main-branch CodeQL run 40143943935
-passed; the alert inventory is 0 open / 7 closed. The publisher verified
-detached provenance and SPDX SBOM attestations and smoke-tested both
-architectures. It published the stable immutable manifest but did not read it
-back. Exact image tags and digests are in [`RELEASES.md`](RELEASES.md).
+Status: **PR #824 (`060c1a247e9ba97651ff8093049161de34e57a12`) is the latest
+published mainline source, with immutable ARM64 and AMD64 images. Main CI run
+40157395035, publisher run 40157395026, and main-branch CodeQL run 40157394958
+passed; the latest alert inventory is 0 open / 7 closed. The publisher verified
+detached provenance and SPDX SBOM attestations, smoke-tested both architectures,
+and read back the stable immutable manifest. Exact image tags and digests are
+in [`RELEASES.md`](RELEASES.md).
 
-PR #817 has no candidate-specific staging/read-back or acceptance evidence.
+PR #824 has no candidate-specific staging/read-back or acceptance evidence.
 The last
 candidate-bound canary read-back is the older PR #806 image, observed on
 2026-10-24;
@@ -22,7 +22,7 @@ in that observation, so authenticated live events, latency/freshness, and
 reconnect/snapshot recovery remain unverified. A later read-only RouterOS
 inventory on 2026-10-25 found the canary container stopped; it did not verify
 the configured image digest, embedded revision, or readiness. No RouterOS
-configuration was changed, and no PR #817 deployment is claimed. The installed
+configuration was changed, and no PR #824 deployment is claimed. The installed
 updater remains unreconciled and was not run. Candidate-specific acceptance
 and production promotion remain gated.**
 
