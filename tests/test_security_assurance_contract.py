@@ -623,7 +623,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) is the latest merged mainline source; immutable ARM64 and AMD64 images were published and verified.",
+            "PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest published image source.",
+            roadmap,
+        )
+        self.assertIn(
+            "PR #820 (`817bcaa068cedfb2ecd1678ca3afb7c7d6d7fbbb`) is the latest merged mainline source",
+            roadmap,
+        )
+        self.assertIn(
+            "PR #821 is open for documentation-only ASVS evidence corrections",
             roadmap,
         )
         self.assertIn("The last recorded canary stage is PR #806", roadmap)

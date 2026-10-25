@@ -12,13 +12,17 @@ Detailed operational records remain operator-controlled.
 ## Current project snapshot
 
 Formal release **v2.7.0** remains the latest numbered release. PR #817
-(`40ae1d86bbc8037172e38f1b018e71576925f201`) is the latest merged mainline
-source; immutable ARM64 and AMD64 images were published and verified. Main CI
+(`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest published
+image source. PR #820 (`817bcaa068cedfb2ecd1678ca3afb7c7d6d7fbbb`) is the latest
+merged mainline source; PR #819 and PR #820 contain no container-runtime
+changes, so no newer image was published. PR #821 is open for documentation-only
+ASVS evidence corrections, with CI running. Main CI
 run 40143943796, publisher run 40143943784, and main-branch CodeQL run
 40143943935 passed. The publisher verified detached provenance and SPDX SBOM
 attestations and smoke-tested both architectures. It published the stable
 immutable manifest but did not read it back. The main-branch CodeQL inventory
-is 0 open / 7 closed. Exact tags and digests are in [`RELEASES.md`](RELEASES.md).
+is currently 0 open / 7 closed. Exact tags and digests are in
+[`RELEASES.md`](RELEASES.md).
 
 PR #817 has no candidate-specific staging/read-back or acceptance evidence. A
 fresh read-only RouterOS inventory on 2026-10-25 found the canary container

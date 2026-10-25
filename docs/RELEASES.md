@@ -18,9 +18,13 @@ RouterOS state, live measurements, and operator/session details remain in
 private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #817
-(`40ae1d86bbc8037172e38f1b018e71576925f201`) is the latest merged mainline
-source. Main CI run [#40143943796](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943796),
+version, v2.8.0, has not been tagged or published. PR #820
+(`817bcaa068cedfb2ecd1678ca3afb7c7d6d7fbbb`) is the latest merged mainline
+source. PR #817 (`40ae1d86bbc8037172e38f1b018e71576925f201`) remains the latest
+published image source; PR #819 and PR #820 made no container-runtime changes,
+so they did not produce a newer image. PR #821 is open for documentation-only
+ASVS evidence corrections and has not deployed anything. Main CI run
+[#40143943796](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943796),
 publisher run [#40143943784](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943784),
 and main-branch CodeQL run
 [#40143943935](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40143943935)
