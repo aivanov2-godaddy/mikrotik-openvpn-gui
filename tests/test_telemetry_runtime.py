@@ -59,6 +59,41 @@ class TelemetryRuntimeFreshnessTests(unittest.TestCase):
             fallback.start()
         make_thread.assert_not_called()
 
+    def test_interface_sampler_uses_one_second_start_to_start_cadence(self) -> None:
+        runtime = TelemetryRuntime(
+            sessions=SessionStore(),
+            rest_url="https://127.0.0.1",
+            ca_file=None,
+            insecure_tls=False,
+            api_ssl_port=8729,
+            requested_transport="binary",
+        )
+        self.assertEqual(runtime.sampler.interval_seconds, 1.0)
+
+        class StopAfterWait:
+            def __init__(self):
+                self.stopped = False
+                self.delays = []
+
+            def is_set(self):
+                return self.stopped
+
+            def wait(self, delay):
+                self.delays.append(delay)
+                self.stopped = True
+                return True
+
+        stop_event = StopAfterWait()
+        runtime._stop = stop_event
+        with (
+            patch.object(runtime.sampler, "sample_once"),
+            patch("telemetry_runtime.time.monotonic", side_effect=[100.0, 100.4]),
+        ):
+            runtime._run_sampler()
+
+        self.assertEqual(len(stop_event.delays), 1)
+        self.assertAlmostEqual(stop_event.delays[0], 0.6, places=6)
+
     def test_live_stream_role_downgrade_is_applied_at_one_second_cache_deadline(self) -> None:
         config = RuntimeConfig.from_environ({"LIVE_TRANSPORT": "binary"})
         sessions = SessionStore()

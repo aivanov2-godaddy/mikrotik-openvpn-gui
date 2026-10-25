@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hmac
 import threading
+import time
 from urllib.parse import urlsplit
 from typing import Any, Callable, Iterable, Mapping
 
@@ -23,6 +24,7 @@ from telemetry_broker import TelemetryBroker, TelemetryEvent
 from telemetry_gateway import TelemetryGatewayContract, TelemetryPrincipal
 from telemetry_state import TelemetryRuntimeState
 from telemetry_supervisor import (
+    DEFAULT_INTERFACE_SAMPLE_INTERVAL_SECONDS,
     TelemetryInterfaceSampler,
     TelemetryCredentialLease,
     TelemetrySupervisor,
@@ -90,7 +92,7 @@ class TelemetryRuntime:
                 self._connection,
                 self._credential_lease,
                 self.broker,
-                interval=5.0,
+                interval=DEFAULT_INTERFACE_SAMPLE_INTERVAL_SECONDS,
                 stop_event=self._stop,
                 on_sample=self.state.mark_traffic_samples,
                 on_events=self._publish,
@@ -361,14 +363,21 @@ class TelemetryRuntime:
 
     def _run_sampler(self) -> None:
         assert self.sampler is not None
+        interval = self.sampler.interval_seconds
         while not self._stop.is_set():
+            started_at = time.monotonic()
             try:
                 self.sampler.sample_once()
             except Exception as error:  # noqa: BLE001 - telemetry must not stop the dashboard
                 self.state.mark_error(self._error_code(error))
-                self._stop.wait(5)
+                # Keep the existing bounded retry delay after API failures so
+                # an unavailable router is not polled aggressively.
+                self._stop.wait(max(5.0, interval))
             else:
-                self._stop.wait(5)
+                # Schedule start-to-start, not sample-completion-to-start, so
+                # API response time does not silently widen the freshness SLO.
+                elapsed = max(0.0, time.monotonic() - started_at)
+                self._stop.wait(max(0.0, interval - elapsed))
 
     @staticmethod
     def _error_code(error: Exception) -> str:
