@@ -175,11 +175,21 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #824", release_record)
+        self.assertIn("## Latest published mainline image — PR #829", release_record)
+        self.assertIn("## Previous published mainline image — PR #824", release_record)
         self.assertIn("## Previous published mainline image — PR #817", release_record)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
+        self.assertIn("9fd85aaff7f4ed43888209d2b77663207a11a897", rendered)
         self.assertIn("060c1a247e9ba97651ff8093049161de34e57a12", rendered)
         self.assertIn(
+            "sha256:29c594c7349af2b226afc38ea92cdf4d73d69ce4610a552726bc59297ca68da1",
+            rendered,
+        )
+        self.assertIn(
+            "sha256:aad12eb8d90e295c6968bddc81696836d2247e2d12d800cbf3dcffd1e870e60d",
+            rendered,
+        )
+        self.assertIn(
             "sha256:f26a64afad79ec43ffe247d81cdf7488b84b52811af022e6d3bcce8d5d6ab2aa",
             rendered,
         )
@@ -188,15 +198,15 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Current published artifact: commit `060c1a247e9ba97651ff8093049161de34e57a12`",
+            "Current published artifact: commit `9fd85aaff7f4ed43888209d2b77663207a11a897`",
             installation,
         )
         self.assertIn(
-            "sha256:f26a64afad79ec43ffe247d81cdf7488b84b52811af022e6d3bcce8d5d6ab2aa",
+            "sha256:29c594c7349af2b226afc38ea92cdf4d73d69ce4610a552726bc59297ca68da1",
             installation,
         )
         self.assertIn(
-            "sha256:0a598defd090b8de7372f0ef9f6738f5ef76fe1dc3722bf4c9cb55bb36bc8319",
+            "sha256:aad12eb8d90e295c6968bddc81696836d2247e2d12d800cbf3dcffd1e870e60d",
             installation,
         )
         self.assertIn("### Latest published source-level log safeguard — PR #824", security_assurance)
@@ -234,8 +244,10 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn("Sparse point samples over approximately nine minutes", rendered)
         self.assertIn("Production remains on its prior image", rendered)
-        self.assertIn("read-only RouterOS inventory on 2026-10-25 found the canary container stopped", rendered)
-        self.assertIn("did not verify the configured image digest, embedded revision, or readiness", rendered)
+        self.assertIn("An earlier read-only RouterOS inventory on 2026-10-25 reported the canary stopped", rendered)
+        self.assertIn("latest read-only WinBox observation", rendered)
+        self.assertIn("0.7% CPU and 60.9 MiB memory", rendered)
+        self.assertIn("does not verify or accept PR #829", rendered)
         self.assertIn("PR #798", rendered)
 
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:

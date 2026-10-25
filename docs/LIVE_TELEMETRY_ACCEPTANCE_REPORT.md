@@ -1,16 +1,14 @@
 # Live telemetry acceptance status
 
-Status: **PR #824 (`060c1a247e9ba97651ff8093049161de34e57a12`) is the latest
-published mainline source, with immutable ARM64 and AMD64 images. Main CI run
-40157395035, publisher run 40157395026, and main-branch CodeQL run 40157394958
-passed; the latest alert inventory is 0 open / 7 closed. The publisher verified
-detached provenance and SPDX SBOM attestations, smoke-tested both architectures,
-and read back the stable immutable manifest. Exact image tags and digests are
-in [`RELEASES.md`](RELEASES.md).
+Status: **PR #829 (`9fd85aaff7f4ed43888209d2b77663207a11a897`) is the latest
+published runtime source, with immutable ARM64 and AMD64 images. Main CI run
+40171739354 and publisher run 40171739273 passed. SLSA provenance attestations
+for both architecture-specific images were verified against the source commit
+and main-branch workflow. Exact image tags and digests are in
+[`RELEASES.md`](RELEASES.md).
 
-PR #824 has no candidate-specific staging/read-back or acceptance evidence.
-The last
-candidate-bound canary read-back is the older PR #806 image, observed on
+PR #829 has no candidate-specific staging/read-back or acceptance evidence. The
+last candidate-bound canary read-back is the older PR #806 image, observed on
 2026-10-24;
 its immutable ARM64 digest was
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
@@ -19,11 +17,17 @@ revision. Sparse samples over approximately nine minutes showed 0.6–0.8% CPU
 and 38.6 MiB memory, but no 30-minute soak or candidate-specific rollback
 rehearsal has passed. The canary dashboard was at its application sign-in form
 in that observation, so authenticated live events, latency/freshness, and
-reconnect/snapshot recovery remain unverified. A later read-only RouterOS
-inventory on 2026-10-25 found the canary container stopped; it did not verify
-the configured image digest, embedded revision, or readiness. No RouterOS
-configuration was changed, and no PR #824 deployment is claimed. The installed
-updater remains unreconciled and was not run. Candidate-specific acceptance
+reconnect/snapshot recovery remain unverified. An earlier read-only RouterOS
+inventory on 2026-10-25 reported the canary stopped. The latest read-only
+WinBox observation on that date showed it healthy, with architecture `arm64`
+and OCI revision `79816625e493f9581e7389b95760403ac6c9a327` (PR #806); the
+complete configured tag and digest were not read back. The WinBox Stats view
+showed 0.7% CPU, 60.9 MiB memory, and 0 B swap, which is not a soak or
+acceptance result. This
+supersedes the earlier stopped-state observation but does not verify or accept
+PR #829. The PR #829 image has not been read back as configured on RouterOS.
+No RouterOS configuration was changed. The installed updater and its scheduler
+bindings remain unreconciled and were not run. Candidate-specific acceptance
 and production promotion remain gated.**
 
 ## Last recorded canary checkpoint — PR #806

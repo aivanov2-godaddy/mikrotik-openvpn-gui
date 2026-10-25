@@ -18,33 +18,59 @@ RouterOS state, live measurements, and operator/session details remain in
 private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #824
-(`060c1a247e9ba97651ff8093049161de34e57a12`) is the latest published image
-source. It disables Uvicorn's default access logger in the production ASGI
-launcher so URL-bearing request paths are not emitted by that logger. This is
-a code-level safeguard, not evidence about historical or external proxy logs.
+version, v2.8.0, has not been tagged or published. PR #829
+(`9fd85aaff7f4ed43888209d2b77663207a11a897`) is the latest published image
+source. It improves SQLite-backed integration-outbox recovery after transient
+storage failures and strengthens release-acceptance and sanitized updater
+checks. PR #830 is documentation-only and adds an offline comparator risk flag;
+it did not change the runtime image. The immutable candidate is not a numbered
+release or evidence of RouterOS deployment.
 
-For PR #824, main CI run
-[#40157395035](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40157395035),
-publisher run
-[#40157395026](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40157395026),
-and main-branch CodeQL run
-[#40157394958](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40157394958)
-passed. The publisher verified detached provenance and SPDX SBOM attestations,
-smoke-tested both architecture images, and read back the stable immutable
-manifest. The CodeQL alert inventory was 0 open / 7 closed at the latest check.
-Exact image tags and registry digests are recorded below.
+For PR #829, main CI run
+[#40171739354](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40171739354)
+and publisher run
+[#40171739273](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40171739273)
+passed. SLSA provenance for the ARM64 and AMD64 images was verified against
+this source commit, `refs/heads/main`, and the `Publish container` workflow.
+Exact tags and digests are recorded below.
 
-No RouterOS read-back verifies that the PR #824 image was staged or accepted. A
-read-only RouterOS inventory on 2026-10-25 found the canary container stopped;
-that view did not verify its image digest, embedded revision, or readiness, and
-no device configuration was changed. Production's candidate digest and
-application health were not revalidated. The installed updater remains
-unreconciled and was not run. Candidate-specific rollback, authenticated live
-telemetry acceptance, and the independent security review remain incomplete.
-Keep v2.8.0 gated until candidate-specific acceptance passes.
+The PR #829 images have not been read back from RouterOS as the configured
+canary image, and candidate-specific rollback, live telemetry acceptance, and
+the independent security review remain incomplete. The installed updater and
+its scheduler bindings are not fully reconciled and were not run. Production's
+candidate digest and application health have not been revalidated. Keep
+production promotion and v2.8.0 gated until candidate-specific acceptance
+passes.
 
-## Latest published mainline image — PR #824 — 2026-10-25
+## Latest published mainline image — PR #829 — 2026-10-25
+
+PR [#829](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/829)
+merged as `9fd85aaff7f4ed43888209d2b77663207a11a897`. Main CI run
+[#40171739354](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40171739354)
+and publisher run
+[#40171739273](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40171739273)
+passed. The SLSA provenance attestations for both architecture-specific images
+were verified against the exact source commit and main-branch `Publish
+container` workflow.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-9fd85aaff7f4ed43888209d2b77663207a11a897-arm64` | `sha256:29c594c7349af2b226afc38ea92cdf4d73d69ce4610a552726bc59297ca68da1` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-9fd85aaff7f4ed43888209d2b77663207a11a897-amd64` | `sha256:aad12eb8d90e295c6968bddc81696836d2247e2d12d800cbf3dcffd1e870e60d` |
+
+These are immutable published artifacts, not a numbered release or a
+deployment. RouterOS candidate staging, rollback rehearsal, the required live
+acceptance window, and production promotion are not claimed.
+
+The latest read-only WinBox observation on 2026-10-25 showed the canary
+container healthy, with architecture `arm64` and OCI revision
+`79816625e493f9581e7389b95760403ac6c9a327` (PR #806). That view did not read
+back the complete configured image tag or registry digest. The WinBox Stats
+view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap; it is not a soak or
+sustained-resource measurement. This later observation supersedes an earlier inventory that
+reported the canary stopped, but does not verify or accept PR #829.
+
+## Previous published mainline image — PR #824 — 2026-10-25
 
 PR [#824](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/824)
 merged as `060c1a247e9ba97651ff8093049161de34e57a12`. Main CI run
@@ -62,10 +88,13 @@ read back the stable immutable manifest.
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-060c1a247e9ba97651ff8093049161de34e57a12-arm64` | `sha256:f26a64afad79ec43ffe247d81cdf7488b84b52811af022e6d3bcce8d5d6ab2aa` |
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-060c1a247e9ba97651ff8093049161de34e57a12-amd64` | `sha256:0a598defd090b8de7372f0ef9f6738f5ef76fe1dc3722bf4c9cb55bb36bc8319` |
 
-The images are immutable published artifacts, not a numbered release or a
-deployment. No RouterOS staging, production promotion, or candidate-bound
-acceptance is claimed; the remaining router and security gates are listed
-above.
+PR #824 disabled Uvicorn's default access logger in the production ASGI
+launcher so URL-bearing request paths are not emitted by that logger. This is
+a code-level safeguard, not evidence about historical or external proxy logs.
+The later WinBox read-back showed the canary healthy with embedded PR #806
+revision `79816625e493f9581e7389b95760403ac6c9a327`; it did not read the full
+configured tag or digest. The earlier stopped-state inventory was superseded by
+that later observation. This does not claim PR #824 was staged or accepted.
 
 ## Previous published mainline image — PR #817 — 2026-10-25
 
@@ -87,10 +116,12 @@ did not include a manifest read-back step.
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-40ae1d86bbc8037172e38f1b018e71576925f201-amd64` | `sha256:d47a711056d7bc7a59b5fddfb68a3584eb0246d047fe6f9e7e1d9b44eba11253` |
 
 The images are immutable published artifacts, not a numbered release or a
-deployment. The current canary was observed stopped in a read-only inventory;
-no PR #817 candidate digest, revision, or readiness was verified on RouterOS.
-No production promotion is claimed. The release and security-acceptance gates
-remain open.
+deployment. The read-only inventory accompanying this PR #817 checkpoint
+reported the canary stopped. A subsequent WinBox read-back on 2026-10-25 showed
+the canary healthy with embedded PR #806 revision
+`79816625e493f9581e7389b95760403ac6c9a327`; it did not verify the PR #817
+image tag or digest. No PR #817 staging, production promotion, or candidate
+acceptance is claimed. The release and security-acceptance gates remain open.
 
 ## Previous published mainline image — PR #815 — 2026-10-25
 
