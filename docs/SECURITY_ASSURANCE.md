@@ -760,9 +760,13 @@ full ASVS conformance; issue #200 and its live acceptance gates remain open.
   and `tests.test_deploy_routeros_release.DeploymentTests.test_deployer_credentials_are_not_forwarded_to_redirect_target`
   start separate local redirect and capture servers and verify the capture
   endpoint receives no request.
-- The application access logger excludes request paths and peer addresses, but
-  this does not establish the behavior of the reverse proxy, container runtime,
-  RouterOS, or host logging and crash collection. Those layers, effective
+- The application HTTP-handler logger emits only an allowlisted method and
+  response status; the production ASGI entrypoint disables Uvicorn access
+  logging because its default access format includes request paths, which may
+  contain short-lived profile-share bearer tokens. The entrypoint regression
+  asserts `access_log=False`. This does not show whether prior deployed logs
+  were retained or reviewed, and does not establish reverse-proxy, container,
+  RouterOS, or host logging/crash-collection behavior. Those layers, effective
   process-dump controls, router API reachability, and least-privilege RouterOS
   permissions still require live operational review.
 - Profile diagnostics may report the host and port contained in the submitted
@@ -888,10 +892,14 @@ review.
   verification. Regressions cover foreign Origin precedence, missing evidence,
   same-origin fallback, the opaque-Origin browser case, and the login response
   policy.
-- Application access logs now contain only an allowlisted HTTP method and
-  parsed response status. They no longer include request paths, short-lived
-  profile-share bearer tokens, query values, or peer addresses. This is a
-  code-level logger guarantee; reverse-proxy and host logging remain separate.
+- The synchronous application HTTP-handler logger contains only an allowlisted
+  method and parsed response status; the production ASGI entrypoint disables
+  Uvicorn access logging so request paths and profile-share bearer tokens are
+  not emitted by that application-server logger. Regression coverage pins the
+  production launch option. This source-level fix cannot establish whether
+  historical deployed logs retained earlier request paths, or how the reverse
+  proxy, container runtime, RouterOS, and host log or retain data; those checks
+  remain open.
 - `GET /api/users` explicitly requires `users.read` as well as a
   RouterOS-authenticated dashboard session. API tokens remain rejected before
   contacting RouterOS.
@@ -939,8 +947,9 @@ test window:
   change cannot inspect host process memory or router policy.
 - Verify deployed application, reverse-proxy, and host logs do not expose
   credentials, session cookies, or profile-share bearer URLs. Repository tests
-  cover only the application's sanitized access logger, not external log
-  layers.
+  cover the synchronous application's sanitized access logger and assert the
+  production ASGI entrypoint disables Uvicorn access logging; neither checks
+  retained logs from an already deployed build or external log layers.
 - Verify crash-dump and live telemetry behavior on the deployed image. In
   particular, do not treat authorized exports as data-free: they intentionally
   contain the fields documented above. Production backup storage, access, and
