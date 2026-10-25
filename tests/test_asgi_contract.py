@@ -3492,17 +3492,18 @@ class ASGIContractTests(unittest.TestCase):
 
         server = SimpleNamespace(close=mock.Mock())
         redirect_server = SimpleNamespace(shutdown=mock.Mock())
+        uvicorn = SimpleNamespace(run=mock.Mock())
         with (
             mock.patch("asgi.disable_process_core_dumps"),
             mock.patch(
                 "asgi.create_application",
                 return_value=(object(), server, redirect_server),
             ),
-            mock.patch("uvicorn.run") as uvicorn_run,
+            mock.patch.dict("sys.modules", {"uvicorn": uvicorn}),
         ):
             asgi_main()
 
-        self.assertIs(uvicorn_run.call_args.kwargs["access_log"], False)
+        self.assertIs(uvicorn.run.call_args.kwargs["access_log"], False)
 
     def test_trusted_proxy_scheme_middleware_preserves_configured_client_header(self) -> None:
         from app import DashboardHandler
