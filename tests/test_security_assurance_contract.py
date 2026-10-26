@@ -665,6 +665,12 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("Previously published mainline security changes — PR #798", assurance)
         self.assertIn("Previously published mainline security changes — PR #794", assurance)
 
+    def test_ux_roadmap_separates_implemented_regressions_from_human_validation(self) -> None:
+        roadmap = " ".join((ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8").split())
+        self.assertIn("Role-aware Dashboard quick-action visibility has a template regression test; original deep-link fragments have browser regression coverage.", roadmap)
+        self.assertIn("Sample-age and reconnect state are implemented and covered by PR #832.", roadmap)
+        self.assertIn("complete the documented human task study and assistive-technology review", roadmap)
+
     def test_unverified_section_does_not_deny_historical_canary_observations(self) -> None:
         unverified_heading = "## Explicitly unverified live-router / deployment evidence"
         unverified = " ".join(

@@ -478,6 +478,26 @@ class DevicePostureTests(unittest.TestCase):
         self.assertIn("cannot be verified", result[0]["reason"])
 
 
+class DashboardTemplateRoleTests(unittest.TestCase):
+    @staticmethod
+    def render_dashboard(role: str) -> str:
+        return dashboard_page(
+            actor="operator", csrf="csrf", users=[], sessions=[], admin_sessions=[],
+            devices=[], connections=[], connection_summaries={}, certificates=[],
+            profile_migrations={}, current_ca="", ovpn_server={}, warnings=[],
+            audit=[], alerts=[], policy_templates=[], admin_role=role, router={},
+        )
+
+    def test_dashboard_quick_action_visibility_tracks_role_capability(self) -> None:
+        owner_page = self.render_dashboard("owner")
+        read_only_page = self.render_dashboard("read_only")
+
+        self.assertIn('data-open-add', owner_page)
+        self.assertIn('Add VPN user', owner_page)
+        self.assertNotIn('data-open-add', read_only_page)
+        self.assertIn('Read-only RouterOS account', read_only_page)
+
+
 class DashboardIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
