@@ -95,6 +95,22 @@ for (const view of views) {
   });
 }
 
+test('original dashboard deep-link fragments remain routable without a document reload', async ({ page }) => {
+  // These five fragments shipped in the first public dashboard and must keep
+  // working for saved bookmarks even as new operator views are added.
+  const legacyViews = ['overview', 'vpn-users', 'live-sessions', 'profile-security', 'audit-log'];
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+
+  for (const target of legacyViews) {
+    await page.evaluate((hash) => { window.location.hash = hash; }, `#${target}`);
+    await expect(page.locator(`[data-view="${target}"]`)).toBeVisible();
+    await expect(page.locator(`.winbox-sidebar [data-view-target="${target}"]`))
+      .toHaveAttribute('aria-current', 'page');
+  }
+
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+});
+
 test('Connections history keeps search and status filters during streamed row updates', async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 600 });
   await page.getByRole('link', { name: 'Connections', exact: true }).click();
