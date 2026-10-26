@@ -127,7 +127,7 @@ h1, h2, h3, p { margin-top: 0; }
 /* Native form controls */
 .primary, .quiet, .danger, .terminate-button, .account-button { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; gap: 6px; padding: 4px 11px; color: #ffffff; border: 1px solid #4a5862; border-radius: 3px; background: #3c4851; box-shadow: inset 0 1px rgb(255 255 255 / 5%); font-weight: 600; }
 .primary { border-color: #168bc9; background: #167cad; }
-.primary:hover { border-color: #34b1ef; background: #168bc2; }
+.primary:hover { border-color: #34b1ef; background: #126b98; }
 .quiet:hover { border-color: #60717d; background: #48555f; }
 .danger { color: #fff; border-color: #a94c53; background: #9f424a; }
 .danger:hover { border-color: #e2767d; background: #b64c55; }
@@ -230,6 +230,7 @@ label { color: #d0d7dc; }
 .doctor-check > span { color: var(--muted); font-size: 11px; }
 .doctor-check > p { grid-column: 1 / -1; margin: 0; color: var(--text); font-size: 12px; }
 .doctor-check > small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+.doctor-check > .doctor-destination-link { grid-column: 1 / -1; justify-self: start; font-size: 12px; }
 .observability-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; margin-top: 8px; }
 .observability-panel { min-width: 0; margin-top: 0; }
 .observability-table { min-width: 520px; }

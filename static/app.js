@@ -1203,6 +1203,16 @@ function healthLabel(status) {
   return ({ healthy: 'Operational', warning: 'Attention needed', unavailable: 'Unavailable' }[status] || 'Unavailable');
 }
 
+const connectionDoctorDestinations = new Map([
+  ['router', { view: 'service-health', label: 'Service health' }],
+  ['server', { view: 'service-health', label: 'Service health' }],
+  ['account', { view: 'vpn-users', label: 'VPN users' }],
+  ['session', { view: 'live-sessions', label: 'Connections' }],
+  ['routes', { view: 'profile-security', label: 'Device Profiles' }],
+  ['compatibility', { view: 'service-health', label: 'Service health' }],
+  ['client-path', { view: 'profile-security', label: 'Device Profiles' }],
+]);
+
 function renderConnectionDoctor(payload) {
   const results = $('[data-doctor-results]');
   const status = $('[data-doctor-status]');
@@ -1217,6 +1227,14 @@ function renderConnectionDoctor(payload) {
     item.append(node('p', '', check.message || 'No diagnostic detail is available.'));
     item.append(node('small', '', `Source: ${check.source || 'unknown'} · ${formatObservationTime(check.checked_at)} · ${check.freshness || 'unknown'} (${Number(check.age_seconds) || 0}s old)`));
     item.append(node('small', '', `Safe next step: ${check.next_step || 'Review the related RouterOS state.'}`));
+    const destination = connectionDoctorDestinations.get(check.id);
+    if (destination) {
+      const link = node('a', 'doctor-destination-link', `Open ${destination.label}`);
+      link.href = `#${destination.view}`;
+      link.dataset.viewTarget = destination.view;
+      link.dataset.doctorDestination = '';
+      item.append(link);
+    }
     return item;
   }));
   status.textContent = `Read-only check ${payload.overall || 'unknown'} · ${Number(payload.freshness_seconds) || 0} seconds old. No router settings were changed.`;
