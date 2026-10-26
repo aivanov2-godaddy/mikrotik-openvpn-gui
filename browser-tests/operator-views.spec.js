@@ -111,6 +111,46 @@ test('original dashboard deep-link fragments remain routable without a document 
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
 });
 
+test('Connection Doctor links checks only to allowlisted dashboard views', async ({ page }, testInfo) => {
+  const destinations = [
+    '#service-health', '#service-health', '#vpn-users', '#live-sessions',
+    '#profile-security', '#service-health', '#profile-security',
+  ];
+  const ids = ['router', 'server', 'account', 'session', 'routes', 'compatibility', 'client-path', 'https://attacker.example'];
+  await page.route('**/api/connection-doctor', (route) => route.fulfill({ json: {
+    overall: 'warning', freshness_seconds: 1,
+    checks: ids.map((id) => ({
+      id, status: 'warning', message: '<img src=x onerror=alert(1)>',
+      source: 'synthetic source', checked_at: 1791028800, age_seconds: 1,
+      freshness: 'fresh', confidence: 'high', next_step: 'Review https://attacker.example safely.',
+    })),
+  } }));
+
+  await page.getByRole('link', { name: 'Connection Doctor', exact: true }).click();
+  await page.getByLabel('OpenVPN username').fill('sample-user');
+  await page.getByRole('button', { name: 'Run read-only checks' }).click();
+
+  const cards = page.locator('[data-doctor-results] .doctor-check');
+  const destinationLinks = cards.locator('[data-doctor-destination]');
+  await expect(cards).toHaveCount(ids.length);
+  await expect(destinationLinks).toHaveCount(destinations.length);
+  for (let index = 0; index < destinations.length; index += 1) {
+    await expect(destinationLinks.nth(index)).toHaveAttribute('href', destinations[index]);
+    await expect(destinationLinks.nth(index)).toBeVisible();
+  }
+  await expect(cards.nth(ids.length - 1).locator('a')).toHaveCount(0);
+  await expect(cards.first().locator('img')).toHaveCount(0);
+  await expect(cards.first()).toContainText('<img src=x onerror=alert(1)>');
+  await expect(page.getByRole('button', { name: 'Run read-only checks' })).toBeEnabled();
+  await expectNoSeriousAxeViolations(page, testInfo, 'connection-doctor-destination-links');
+
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+  await destinationLinks.nth(2).click();
+  await expect(page).toHaveURL(/#vpn-users$/);
+  await expect(page.locator('[data-view="vpn-users"]')).toBeVisible();
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+});
+
 test('Connections history keeps search and status filters during streamed row updates', async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 600 });
   await page.getByRole('link', { name: 'Connections', exact: true }).click();
