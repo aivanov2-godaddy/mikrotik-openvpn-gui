@@ -1167,7 +1167,19 @@ test('operations timeline filters bounded observations and labels its coverage',
       ],
     },
     {
-      id: 'health:focus-filter', occurred_at: occurredAt - 2, age_seconds: 4,
+      id: 'integration:focus-pending', occurred_at: occurredAt - 2, age_seconds: 4,
+      source: 'Redis delivery', type: 'integration', actor: '', target: '',
+      outcome: 'pending', severity: 'warning', summary: 'Event pending delivery',
+      relationship_summary: '', related_events: [],
+    },
+    {
+      id: 'integration:focus-dead-lettered', occurred_at: occurredAt - 3, age_seconds: 5,
+      source: 'Redis delivery', type: 'integration', actor: '', target: '',
+      outcome: 'dead-lettered', severity: 'failed', summary: 'Event needs operator review',
+      relationship_summary: '', related_events: [],
+    },
+    {
+      id: 'health:focus-filter', occurred_at: occurredAt - 4, age_seconds: 6,
       source: 'Service health', type: 'health', actor: '', target: '',
       outcome: 'success', severity: 'info', summary: 'Router is healthy',
       relationship_summary: '', related_events: [],
@@ -1225,6 +1237,17 @@ test('operations timeline filters bounded observations and labels its coverage',
   await expect(visibleRows.first()).toBeVisible();
   await expect.poll(() => visibleRows.evaluateAll((rows) => rows.every((row) => row.dataset.operationType === 'health')))
     .toBe(true);
+  await type.selectOption('integration');
+  await expect(visibleRows).toHaveCount(3);
+  await expect.poll(() => visibleRows.evaluateAll((rows) => rows.every((row) => row.dataset.operationType === 'integration')))
+    .toBe(true);
+  const outcome = panel.getByLabel('Filter timeline by outcome');
+  for (const expectedOutcome of ['delivered', 'pending', 'dead-lettered']) {
+    await outcome.selectOption(expectedOutcome);
+    await expect(visibleRows).toHaveCount(1);
+    await expect(visibleRows.first()).toHaveAttribute('data-operation-outcome', expectedOutcome);
+  }
+  await outcome.selectOption('all');
   await type.selectOption('all');
   await panel.getByLabel('Search operations timeline').fill('');
 
