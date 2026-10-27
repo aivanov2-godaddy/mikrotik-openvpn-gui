@@ -215,6 +215,7 @@ test('VPN-user password changes require step-up and review active-session discon
   await userCard.getByRole('button', { name: 'Edit user' }).click();
   const editDialog = page.locator('#edit-dialog');
   await expect(editDialog).toBeVisible();
+  await editDialog.getByLabel('Owner email').fill('user-two@example.test');
   await editDialog.getByLabel('New password').fill('browser-rotated-vpn-password');
   await editDialog.getByLabel('Reason for this change').fill('Rotate this VPN user password');
 
