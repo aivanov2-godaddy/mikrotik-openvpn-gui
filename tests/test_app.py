@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, _certificate_remaining_seconds, _origin_header_relation, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, _certificate_remaining_seconds, _origin_header_relation, _spreadsheet_safe_csv_cell, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from routeros_binary import RouterOSReply
@@ -121,6 +121,20 @@ class ContainerImageTargetTests(unittest.TestCase):
         self.assertFalse(result["supported"])
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["image_suffix"])
+
+
+class SpreadsheetSafeCsvTests(unittest.TestCase):
+    def test_formula_prefixes_after_whitespace_and_controls_are_neutralized(self) -> None:
+        values = ("=1+1", "+SUM(A1:A2)", "-1+1", "@SUM(A1:A2)", " \t\r\n=1+1", "\ufeff@SUM(A1:A2)", "\u200b=1+1")
+        for value in values:
+            with self.subTest(value=value):
+                self.assertEqual(_spreadsheet_safe_csv_cell(value), "'" + value)
+
+    def test_normal_text_and_numeric_values_keep_their_types(self) -> None:
+        self.assertEqual(_spreadsheet_safe_csv_cell("normal text"), "normal text")
+        self.assertEqual(_spreadsheet_safe_csv_cell("- leading prose"), "'- leading prose")
+        self.assertEqual(_spreadsheet_safe_csv_cell(-42), -42)
+        self.assertEqual(_spreadsheet_safe_csv_cell(42), 42)
 
 
 class OriginHeaderRelationTests(unittest.TestCase):
@@ -838,6 +852,55 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("http method=GET status=410", output)
         self.assertNotIn(token, output)
         self.assertNotIn("127.0.0.1", output)
+
+    def test_csv_exports_neutralize_untrusted_formula_cells(self) -> None:
+        self.login()
+        dangerous_user = "\t=HYPERLINK(\"https://example.test\",\"user-marker\")"
+        dangerous_actor = "@SUM(A1:A2)"
+        self.server.context.store.observe_sessions([{
+            "id": "csv-formula-test-session",
+            "name": dangerous_user,
+            "source_address": "203.0.113.77",
+            "vpn_address": "10.8.0.77",
+            "encoding": "AES-256-GCM",
+            "uptime": "1m",
+            "rx_bytes": 123,
+            "tx_bytes": 456,
+            "rx_packets": 2,
+            "tx_packets": 3,
+        }])
+        self.server.context.store.audit(
+            actor=dangerous_actor,
+            action="=1+1",
+            target="csv-formula-test",
+            status="success",
+            details={"source": "synthetic"},
+        )
+
+        for route in ("/api/connections.csv", "/api/usage.csv", "/api/audit.csv"):
+            status, _, payload = self.request("GET", route)
+            self.assertEqual(status, 200, route)
+            rows = list(csv.reader(io.StringIO(payload.decode("utf-8-sig"))))
+            self.assertGreaterEqual(len(rows), 2, route)
+            if route == "/api/connections.csv":
+                connection = next(row for row in rows[1:] if row[0] == "'" + dangerous_user)
+                self.assertTrue(all(re.fullmatch(r"\d+", value) for value in connection[6:10]))
+            if route == "/api/usage.csv":
+                self.assertIn("'" + dangerous_user, [row[0] for row in rows[1:]])
+            if route == "/api/audit.csv":
+                self.assertIn("'" + dangerous_actor, [row[1] for row in rows[1:]])
+                self.assertIn("'=1+1", [row[2] for row in rows[1:]])
+
+        status, _, payload = self.request("GET", "/api/reports/compliance.zip")
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            connection_csv = archive.read("connections.csv")
+            audit_csv = archive.read("audit.csv")
+        connections = list(csv.reader(io.StringIO(connection_csv.decode("utf-8-sig"))))
+        audit = list(csv.reader(io.StringIO(audit_csv.decode("utf-8-sig"))))
+        self.assertIn("'" + dangerous_user, [row[0] for row in connections[1:]])
+        self.assertIn("'" + dangerous_actor, [row[1] for row in audit[1:]])
+        self.assertIn("'=1+1", [row[2] for row in audit[1:]])
 
     def test_sensitive_exports_disclose_their_real_data_scope(self) -> None:
         self.login()
@@ -4958,6 +5021,15 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.json_request("POST", "/api/profile/diagnose", {"profile": profile})
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(payload)["status"], "pass")
+
+        injected_proto = profile.replace("proto udp", 'proto =HYPERLINK("https://example.test","private-proto-marker")')
+        status, _, payload = self.json_request("POST", "/api/profile/diagnose", {"profile": injected_proto})
+        self.assertEqual(status, 200)
+        diagnostic = json.loads(payload)
+        protocol_check = next(item for item in diagnostic["checks"] if item["id"] == "protocol")
+        self.assertEqual(protocol_check["status"], "warning")
+        self.assertNotIn("private-proto-marker", payload.decode("utf-8"))
+        self.assertNotIn("HYPERLINK", payload.decode("utf-8"))
 
         status, _, payload = self.json_request("POST", "/api/connection-doctor", {"username": "user-two"})
         self.assertEqual(status, 200)

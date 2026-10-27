@@ -16,11 +16,15 @@ on:
       - "requirements-runtime.txt"
       - "requirements-redis.txt"
       - "automation.py"
+      - "certificate_lifecycle.py"
       - "config.py"
+      - "diagnostic_bundle.py"
       - "event_safety.py"
       - "favicon.py"
       - "icons.py"
       - "integrations.py"
+      - "exposure_doctor.py"
+      - "profile_diagnostics.py"
       - "qr.py"
       - "routeros.py"
       - "security.py"
@@ -37,6 +41,7 @@ on:
       - "telemetry_supervisor.py"
       - "static/**"
       - "Containerfile"
+      - ".dockerignore"
       - "LICENSE"
       # The static RouterOS controller validates the published immutable image
       # package format. Publishing it with a matching manifest prevents a
