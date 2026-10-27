@@ -147,6 +147,7 @@ class ReleaseContractTests(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 self.assertIn("awk '/^Uid:/ { print $2, $3, $4, $5; exit }' /proc/1/status", source)
                 self.assertIn('test "$runtime_uids" = "65534 65534 65534 65534"', source)
+                self.assertLess(source.index("/readyz"), source.index("runtime_uids="))
 
     def test_container_publish_scans_local_candidate_before_registry_write(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
@@ -160,6 +161,8 @@ class ReleaseContractTests(unittest.TestCase):
 
         self.assertIn("permissions:\n      contents: read", build_scan)
         self.assertNotIn("packages: write", build_scan)
+        self.assertNotIn("id-token: write", build_scan)
+        self.assertNotIn("attestations: write", build_scan)
         self.assertIn("outputs: type=docker,dest=${{ github.workspace }}/candidate-image.tar", build)
         self.assertIn(
             "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0",
