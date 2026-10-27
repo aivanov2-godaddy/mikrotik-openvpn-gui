@@ -2529,15 +2529,25 @@ $('#edit-form')?.addEventListener('submit', async (event) => {
     const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}`, { method: 'PATCH', body: values }));
     const outcome = await response.json();
     if (outcome.verification === 'partial') {
-      setStatus(form, 'Other account settings were verified. RouterOS does not expose the password for read-back.');
-      toast('VPN user updated; password cannot be independently verified.');
+      const disconnected = Number(outcome.active_sessions_disconnected || 0);
+      setStatus(form, `Other account settings were verified. RouterOS does not expose the password for read-back. ${disconnected} active VPN ${disconnected === 1 ? 'device was' : 'devices were'} disconnected.`);
+      toast(`VPN user updated; ${disconnected} active VPN ${disconnected === 1 ? 'device was' : 'devices were'} disconnected.`);
     } else {
       setStatus(form, 'Changes applied and verified on RouterOS.');
       toast('VPN user updated and verified on RouterOS.');
     }
+    form.elements.password.value = '';
+    delete form.dataset.userReviewToken;
     form.closest('dialog')?.close();
     await pollStatus();
-  } catch (error) { setStatus(form, error.message, true); setBusy(form, false); }
+  } catch (error) {
+    form.elements.password.value = '';
+    delete form.dataset.userReviewToken;
+    $('#edit-review').hidden = true;
+    $('[type="submit"]', form).disabled = true;
+    setStatus(form, error.message, true);
+    setBusy(form, false);
+  }
 });
 
 $('#edit-form')?.addEventListener('click', async (event) => {
@@ -2547,12 +2557,19 @@ $('#edit-form')?.addEventListener('click', async (event) => {
   const values = { email: data.get('email'), password: data.get('password'), comment: data.get('comment'), disabled: data.get('disabled') === 'on', policy: data.get('policy'), expiry: data.get('expiry'), max_sessions: data.get('max_sessions'), rate_limit_kbps: data.get('rate_limit_kbps'), quota_mb: data.get('quota_mb'), schedule: data.get('schedule'), dns_mode: data.get('dns_mode'), notifications: data.get('notifications') === 'on', reason: data.get('reason') };
   setStatus(form, 'Preparing a review-only preview…');
   try {
+    if (values.password && !(await requestSensitiveActionStepUp('Verify your RouterOS password before changing this VPN user’s password.'))) {
+      setStatus(form, 'Re-authentication is required before previewing a VPN password change.', true);
+      return;
+    }
     const response = await resultOrError(await api(`/api/users/${encodeURIComponent(data.get('user_id'))}/preview`, { method: 'POST', body: values }));
     const preview = await response.json();
     form.dataset.userReviewToken = preview.review_token;
     const review = $('#edit-review');
     const reviewedChanges = { email: preview.changes.email, comment: preview.changes.comment, disabled: preview.changes.disabled, ...preview.changes.controls };
-    review.textContent = `Review for ${preview.username}: ${JSON.stringify(reviewedChanges)}; password ${preview.changes.password_changed ? 'will change (value hidden)' : 'unchanged'}; reason: ${preview.reason}`;
+    const sessionImpact = preview.changes.password_changed
+      ? `; ${preview.changes.active_sessions_to_disconnect} active VPN ${preview.changes.active_sessions_to_disconnect === 1 ? 'device will' : 'devices will'} be disconnected`
+      : '';
+    review.textContent = `Review for ${preview.username}: ${JSON.stringify(reviewedChanges)}; password ${preview.changes.password_changed ? 'will change (value hidden)' : 'unchanged'}${sessionImpact}; reason: ${preview.reason}`;
     review.hidden = false;
     $('[type="submit"]', form).disabled = false;
     setStatus(form, 'Review the summary, then apply the edit. Any field change clears this preview.');

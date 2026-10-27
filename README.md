@@ -151,7 +151,7 @@ populated environment file.
 | `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
 | `WEBHOOK_URL` | Optional | HTTPS endpoint without a query string for minimized, signed audit events (schema v2); disabled unless paired with `WEBHOOK_SIGNING_SECRET` |
 | `WEBHOOK_SIGNING_SECRET` | Optional | At least 32 characters; used only to calculate `X-VPN-Dashboard-Signature` and never displayed or audited |
-| `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL with the database selected in the path (for example `/0`); URL query parameters are rejected so they cannot override connection timeouts or TLS verification |
+| `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL with the database selected in the path (for example `/0`); URL query parameters are rejected. When set, it also coordinates direct VPN-user account-edit reviews across app instances. |
 | `REDIS_STREAM_KEY` | No | Bounded Redis stream name; defaults to `vpn-dashboard.events` |
 | `REDIS_STREAM_MAXLEN` | No | Approximate stream retention bound from 100 to 1,000,000; defaults to `10000` |
 | `TRUST_CLOUDFLARE` | Conditional | Enable only when every request reaches the app through a trusted Cloudflare origin proxy |
@@ -173,10 +173,22 @@ startup, so REST and Binary API connections cannot disable certificate checks.
 
 The Binary API decoder also applies hard response bounds: 1 MiB per word,
 4 MiB per sentence, 4,096 words per reply, 65,536 words across the command
-response, 10,000 replies, and 16 MiB per command response. Request/reply tags must match. A limit or protocol failure
-closes the connection so unread or mismatched bytes cannot be reused as the
-next command's response. These parser and connection guards are covered by
-`tests/test_routeros_binary.py`.
+response, 10,000 replies, and 16 MiB per command response. Request/reply tags
+must match. A limit or protocol failure closes the connection so unread or
+mismatched bytes cannot be reused as the next command's response. These parser
+and connection guards are covered by `tests/test_routeros_binary.py`.
+
+For multi-instance deployments, every writable instance targeting the same
+RouterOS must share `REDIS_STREAM_URL`. Redis also stores hashed per-user
+account-edit review revisions, a coordination-generation marker, and renewable
+locks under
+`vpn-dashboard.review.*`; the ACL needs `GET`, `SET`, `INCR`, `DEL`, `EVAL`, and
+`PEXPIRE` scoped to that prefix, in addition to the event-stream permissions
+documented in [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Direct VPN-user
+account edits fail closed if configured Redis coordination is unavailable or
+loses state.
+Without Redis, in-process locks and revisions are suitable only for a single
+writable app process.
 
 Read-only router status remains available without the `OVPN_*` settings. User
 and profile actions fail closed until the OpenVPN topology is configured.

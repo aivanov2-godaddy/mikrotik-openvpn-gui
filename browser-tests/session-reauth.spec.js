@@ -200,3 +200,51 @@ test('API token creation and revocation require step-up without reloading the li
   await expect(tokenRow).toHaveCount(0);
   await expectNoDocumentReload(page, originalDocument, navigations);
 });
+
+test('VPN-user password changes require step-up and review active-session disconnects in place', async ({ page }) => {
+  const navigations = { count: 0 };
+  await signIn(page);
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.count += 1;
+  });
+  const originalDocument = await page.evaluate(() => window.__documentInstance);
+
+  await page.locator('[data-view-target="vpn-users"]').click();
+  const userCard = page.locator('.user-card').filter({ hasText: 'user-two' });
+  await userCard.getByRole('button', { name: 'Edit user' }).click();
+  const editDialog = page.locator('#edit-dialog');
+  await expect(editDialog).toBeVisible();
+  await editDialog.getByLabel('New password').fill('browser-rotated-vpn-password');
+  await editDialog.getByLabel('Reason for this change').fill('Rotate this VPN user password');
+
+  const previewResponse = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && /\/api\/users\/[^/]+\/preview$/.test(new URL(response.url()).pathname)
+  ));
+  await editDialog.getByRole('button', { name: 'Preview changes' }).click();
+
+  const reauthDialog = page.locator('#session-reauthenticate-dialog');
+  await expect(reauthDialog).toBeVisible();
+  await expect(reauthDialog.getByRole('status')).toContainText('before changing this VPN user');
+  const reauthResponse = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/auth/reauthenticate'
+  ));
+  await reauthDialog.getByLabel('RouterOS password').fill('routerpass');
+  await reauthDialog.getByRole('button', { name: 'Re-authenticate session' }).click();
+  expect((await reauthResponse).status()).toBe(200);
+  expect((await previewResponse).status()).toBe(200);
+  await expect(reauthDialog).toBeHidden();
+  await expect(editDialog.locator('#edit-review')).toContainText('1 active VPN device will be disconnected');
+
+  const applyResponse = page.waitForResponse((response) => (
+    response.request().method() === 'PATCH'
+    && /\/api\/users\/[^/]+$/.test(new URL(response.url()).pathname)
+  ));
+  await editDialog.getByRole('button', { name: 'Save changes' }).click();
+  expect((await applyResponse).status()).toBe(200);
+  await expect(editDialog).toBeHidden();
+  await expect(editDialog.getByLabel('New password')).toHaveValue('');
+  await expect(page.getByText(/1 active VPN device was disconnected/)).toBeVisible();
+  await expectNoDocumentReload(page, originalDocument, navigations);
+});

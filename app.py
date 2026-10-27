@@ -18,6 +18,7 @@ import urllib.parse
 import ipaddress
 import unicodedata
 import zipfile
+import contextlib
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.cookies import SimpleCookie
@@ -33,7 +34,12 @@ from diagnostic_bundle import build_diagnostic_bundle
 from error_guidance import routeros_error_payload
 from exposure_doctor import exposure_doctor_snapshot
 from favicon import FAVICON_SVG, ico_bytes
-from integrations import RedisStreamPublisher, WebhookDispatcher
+from integrations import (
+    RedisReviewCoordinationError,
+    RedisReviewCoordinator,
+    RedisStreamPublisher,
+    WebhookDispatcher,
+)
 from routeros import ProvisionedProfile, RouterOSClient, RouterOSCredentials, RouterOSError
 from qr import svg as qr_svg
 from profile_diagnostics import diagnose_profile
@@ -720,6 +726,7 @@ class AppContext:
     telemetry_state: TelemetryRuntimeState | None = None
     telemetry_runtime: TelemetryRuntime | None = None
     integration_dispatcher: WebhookDispatcher | None = None
+    review_coordinator: RedisReviewCoordinator | None = None
 
     @property
     def public_origin(self) -> str:
@@ -779,6 +786,9 @@ class ReviewReceipt:
     session_id: str
     intent_digest: str
     expires_at: float
+    resource_key: str | None = None
+    resource_revision: int | None = None
+    coordination_epoch: str | None = None
 
 
 class ReviewReceiptStore:
@@ -787,16 +797,38 @@ class ReviewReceiptStore:
     ttl_seconds = 600
     max_items = 4096
 
-    def __init__(self) -> None:
+    def __init__(self, coordinator: RedisReviewCoordinator | None = None) -> None:
         self._items: dict[str, ReviewReceipt] = {}
         self._lock = threading.Lock()
         self._secret_key = secrets.token_bytes(32)
+        self._coordinator = coordinator
+        self._resource_revisions: dict[str, int] = {}
+        # Stripe locks keep the serialization table bounded while ensuring
+        # reviewed edits for one RouterOS user cannot race.
+        self._resource_locks = tuple(threading.RLock() for _ in range(64))
 
     def secret_commitment(self, value: str) -> str:
         """Bind secret input to a review without retaining or exposing it."""
         return hmac.new(self._secret_key, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
-    def issue(self, session_id: str, intent_digest: str) -> str:
+    @contextlib.contextmanager
+    def resource_lock(self, resource_key: str):
+        digest = hashlib.sha256(resource_key.encode("utf-8")).digest()
+        slot = int.from_bytes(digest[:4], "big") % len(self._resource_locks)
+        with self._resource_locks[slot]:
+            if self._coordinator is None:
+                yield None
+            else:
+                with self._coordinator.resource_lock(resource_key) as lock:
+                    yield lock
+
+    def issue(
+        self,
+        session_id: str,
+        intent_digest: str,
+        *,
+        resource_key: str | None = None,
+    ) -> str:
         now = time.time()
         token = secrets.token_urlsafe(32)
         with self._lock:
@@ -807,10 +839,29 @@ class ReviewReceiptStore:
                 session_id=session_id,
                 intent_digest=intent_digest,
                 expires_at=now + self.ttl_seconds,
+                resource_key=resource_key,
+                coordination_epoch=(
+                    self._coordinator.current_epoch()
+                    if resource_key is not None and self._coordinator is not None
+                    else None
+                ),
+                resource_revision=(
+                    self._coordinator.current_revision(resource_key)
+                    if resource_key is not None and self._coordinator is not None
+                    else self._resource_revisions.get(resource_key, 0)
+                    if resource_key is not None else None
+                ),
             )
         return token
 
-    def consume(self, token: str, session_id: str, intent_digest: str) -> bool:
+    def consume(
+        self,
+        token: str,
+        session_id: str,
+        intent_digest: str,
+        *,
+        resource_key: str | None = None,
+    ) -> bool:
         now = time.time()
         with self._lock:
             self._purge(now)
@@ -820,11 +871,32 @@ class ReviewReceiptStore:
                 or receipt.expires_at <= now
                 or not hmac.compare_digest(receipt.session_id, session_id)
                 or not hmac.compare_digest(receipt.intent_digest, intent_digest)
+                or receipt.resource_key != resource_key
             ):
                 return False
+            if resource_key is not None:
+                if self._coordinator is not None:
+                    if receipt.coordination_epoch != self._coordinator.current_epoch():
+                        return False
+                    current_revision = self._coordinator.current_revision(resource_key)
+                else:
+                    current_revision = self._resource_revisions.get(resource_key, 0)
+                if receipt.resource_revision != current_revision:
+                    return False
+            if resource_key is not None and self._coordinator is not None:
+                if receipt.resource_revision is None or not self._coordinator.advance_if_current(
+                    resource_key,
+                    receipt.resource_revision,
+                    str(receipt.coordination_epoch),
+                ):
+                    return False
             # Validate ownership and intent before consuming. A denied request
             # from another session must not burn the issuing session's receipt.
             self._items.pop(token, None)
+            if resource_key is not None and self._coordinator is None:
+                # Any other edit preview for this account was based on a
+                # pre-attempt state and must be reviewed again.
+                self._resource_revisions[resource_key] = self._resource_revisions.get(resource_key, 0) + 1
             return True
 
     def _purge(self, now: float) -> None:
@@ -841,7 +913,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         self.context = context
         self.socketio_engine = os.environ.get("SOCKETIO_ENGINE", "polling").strip().casefold() or "polling"
         self.profile_shares = ProfileShareStore()
-        self.review_receipts = ReviewReceiptStore()
+        self.review_receipts = ReviewReceiptStore(context.review_coordinator)
         self.telemetry_runtime = TelemetryRuntime(
             sessions=context.sessions,
             rest_url=context.config.routeros_rest_url,
@@ -1183,7 +1255,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         return False
 
-    def _require_recent_reauthentication(self, session: Session) -> bool:
+    def _require_recent_reauthentication(
+        self, session: Session, *, action: str = "changing API tokens",
+    ) -> bool:
         """Require a successful RouterOS password check within the step-up window."""
         now = time.time()
         age = now - session.reauthenticated_at
@@ -1194,7 +1268,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return True
         self._json(
             {
-                "error": "Re-authenticate with your RouterOS password before changing API tokens.",
+                "error": f"Re-authenticate with your RouterOS password before {action}.",
                 "step_up_required": True,
                 "max_age_seconds": SENSITIVE_ACTION_STEP_UP_SECONDS,
             },
@@ -5164,6 +5238,69 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except RouterOSError as error:
             self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
 
+    def _revoke_active_user_sessions(
+        self,
+        credentials: RouterOSCredentials,
+        username: str,
+        update_lock: Any | None = None,
+    ) -> tuple[str, int]:
+        """Disconnect and verify every active OpenVPN tunnel for one user."""
+        try:
+            sessions_to_disconnect = [
+                item for item in self.server.context.router.list_active_ovpn_sessions(credentials)
+                if str(item.get("name", "")) == username
+            ]
+        except RouterOSError:
+            return "unknown", 0
+
+        for active_session in sessions_to_disconnect:
+            active_session_id = str(active_session.get("id", ""))
+            if not active_session_id:
+                continue
+            try:
+                if update_lock is not None:
+                    update_lock.assert_owned()
+                self.server.context.router.terminate_session(
+                    credentials, session_id=active_session_id,
+                )
+            except RouterOSError:
+                # A concurrent disconnect is resolved by the read-back below.
+                continue
+
+        try:
+            remaining_sessions = [
+                item for item in self.server.context.router.list_active_ovpn_sessions(credentials)
+                if str(item.get("name", "")) == username
+            ]
+        except RouterOSError:
+            return "unknown", 0
+
+        remaining_ids = {str(item.get("id", "")) for item in remaining_sessions}
+        original_ids = {
+            str(item.get("id", ""))
+            for item in sessions_to_disconnect
+            if str(item.get("id", ""))
+        }
+        disconnected = len(original_ids - remaining_ids)
+        incomplete = bool(remaining_sessions) or any(
+            not str(item.get("id", "")) for item in sessions_to_disconnect
+        )
+        return ("incomplete" if incomplete else "verified"), disconnected
+
+    @staticmethod
+    def _session_revocation_summary(status: str, disconnected: int) -> str:
+        return f"Active VPN session revocation: {status}; {disconnected} session(s) disconnected."
+
+    @staticmethod
+    def _router_update_definitely_rejected(error: RouterOSError) -> bool:
+        if error.failure_kind in {"credentials_rejected", "permission_denied"}:
+            return True
+        # A completed client-error response is a definitive rejection, apart
+        # from timeout/early-data/client-close codes with ambiguous processing.
+        return error.status is not None and 400 <= error.status < 500 and error.status not in {
+            408, 425, 499,
+        }
+
     def _update_user(self, user_id: str, *, preview: bool = False) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
@@ -5171,9 +5308,49 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = self._credentials(session)
         try:
             data = self._read_json()
+        except (ValueError, RouterOSError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        # Serialize every reviewed edit for this account. A non-secret edit
+        # changes the same RouterOS record as a password update and must not
+        # race it or preserve a stale review receipt.
+        resource_key = f"vpn-user:{user_id}"
+        mutation_state = {"attempted": False}
+        try:
+            with self.server.review_receipts.resource_lock(resource_key) as update_lock:
+                self._update_user_payload(
+                    user_id, preview, session, credentials, data, update_lock, mutation_state,
+                )
+        except RedisReviewCoordinationError as error:
+            self._json(
+                {
+                    "error": str(error),
+                    "code": "review.coordination_unavailable",
+                    "mutation_attempted": mutation_state["attempted"],
+                },
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+
+    def _update_user_payload(
+        self,
+        user_id: str,
+        preview: bool,
+        session: Session,
+        credentials: RouterOSCredentials,
+        data: dict[str, Any],
+        update_lock: Any | None = None,
+        mutation_state: dict[str, bool] | None = None,
+    ) -> None:
+        try:
             user = self._find_user(credentials, user_id)
             password_raw = str(data.get("password", ""))
             password = self._validate_secret(password_raw, "VPN password") if password_raw else None
+            if password and not self._require_capability(session, "session.manage"):
+                return
+            if password and not self._require_recent_reauthentication(
+                session, action="changing this VPN user's password",
+            ):
+                return
             email = (
                 self._validate_email(str(data.get("email", "")))
                 if "email" in data
@@ -5209,6 +5386,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if int(controls["rate_limit_kbps"]) > 0
                 else None
             )
+            active_session_ids: list[str] = []
+            if password:
+                try:
+                    active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+                except RouterOSError as error:
+                    self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
+                    return
+                active_session_ids = sorted(
+                    str(item.get("id", ""))
+                    for item in active_sessions
+                    if str(item.get("name", "")) == str(user["name"])
+                )
+                if any(not session_id for session_id in active_session_ids):
+                    self._json(
+                        {"error": "RouterOS did not provide a safe session identifier; the password change was not applied."},
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
             state = {
                 "router_comment": str(user.get("comment", "")),
                 "router_disabled": str(user.get("disabled", "false")).lower() == "true",
@@ -5216,18 +5411,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "email": self.server.context.store.user_emails().get(str(user["name"]), ""),
                 "controls": {key: self.server.context.store.user_controls(str(user["name"])).get(key) for key in control_keys},
                 "router_rate_profile": router_rate_profile,
+                "active_session_ids": active_session_ids,
             }
             receipt_payload = json.dumps(
                 {"intent": intent, "state": state}, sort_keys=True, separators=(",", ":"),
             ).encode("utf-8")
             intent_digest = hashlib.sha256(receipt_payload).hexdigest()
             if preview:
-                review_token = self.server.review_receipts.issue(session.session_id, intent_digest)
+                review_token = self.server.review_receipts.issue(
+                    session.session_id,
+                    intent_digest,
+                    resource_key=f"vpn-user:{user_id}",
+                )
                 self._json({
                     "username": str(user["name"]), "reason": reason,
                     "changes": {
                         "password_changed": bool(password_raw), "email_changed": email is not None,
                         "email": email, "comment": comment, "disabled": disabled,
+                        "active_sessions_to_disconnect": len(active_session_ids),
                         "controls": controls,
                     },
                     "review_token": review_token,
@@ -5235,7 +5436,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             supplied_review_token = str(data.get("review_token", ""))
             if not self.server.review_receipts.consume(
-                supplied_review_token, session.session_id, intent_digest,
+                supplied_review_token,
+                session.session_id,
+                intent_digest,
+                resource_key=f"vpn-user:{user_id}",
             ):
                 self.server.context.store.audit(
                     actor=session.username, action="user.update", target=str(user["name"]),
@@ -5245,6 +5449,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "user.update"):
                 return
+            if update_lock is not None:
+                update_lock.assert_owned()
+            if mutation_state is not None:
+                mutation_state["attempted"] = True
             router_profile = self.server.context.router.ensure_rate_profile(
                 credentials,
                 username=str(user["name"]),
@@ -5253,6 +5461,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             mutation_error: RouterOSError | None = None
             try:
+                if update_lock is not None:
+                    update_lock.assert_owned()
                 self.server.context.router.update_user(
                     credentials,
                     user_id=user_id,
@@ -5263,9 +5473,45 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
             except RouterOSError as error:
                 # RouterOS may commit the PATCH before its response is lost.
-                # Re-read the account before deciding whether local metadata
-                # can be updated or the operator should retry.
                 mutation_error = error
+
+            active_sessions_disconnected = 0
+            session_revocation = "not_requested"
+            mutation_rejected = bool(
+                mutation_error and self._router_update_definitely_rejected(mutation_error)
+            )
+            if password and mutation_rejected:
+                session_revocation = "not_attempted_rejected"
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="user.update",
+                    target=str(user["name"]),
+                    status="failed",
+                    details={
+                        "phase": "password_update",
+                        "reason": "definitive_rejection",
+                        "router_status": mutation_error.status if mutation_error else None,
+                        "session_revocation": session_revocation,
+                    },
+                )
+                self._json(
+                    {
+                        "code": "routeros.password_update_rejected",
+                        "error": "RouterOS rejected the account update. No active VPN sessions were disconnected. Check the user's current settings before retrying.",
+                        "verified": False,
+                        "verification": "rejected",
+                        "session_revocation": session_revocation,
+                        "active_sessions_disconnected": 0,
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+            elif password:
+                # On an ambiguous write, password values cannot be read back;
+                # revoke immediately to contain a possible committed change.
+                session_revocation, active_sessions_disconnected = self._revoke_active_user_sessions(
+                    credentials, str(user["name"]), update_lock,
+                )
 
             try:
                 verified_user = self._find_user(credentials, user_id)
@@ -5280,17 +5526,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "reason": type(error).__name__,
                         "mutation_response_lost": mutation_error is not None,
                         "password_requested": bool(password),
+                        "session_revocation": session_revocation,
+                        "active_sessions_disconnected": active_sessions_disconnected,
                     },
                 )
-                self._json(
-                    {
-                        "code": "routeros.mutation_verification_unavailable",
-                        "error": "The account update may have reached RouterOS, but its state could not be verified. Local settings were not changed; check VPN Users before retrying.",
-                        "verified": False,
-                        "verification": "unknown",
-                    },
-                    status=HTTPStatus.BAD_GATEWAY,
-                )
+                payload = {
+                    "code": "routeros.mutation_verification_unavailable",
+                    "error": "The account update may have reached RouterOS, but its state could not be verified. Local settings were not changed; check VPN Users before retrying.",
+                    "verified": False,
+                    "verification": "unknown",
+                }
+                if password:
+                    payload["session_revocation"] = session_revocation
+                    payload["active_sessions_disconnected"] = active_sessions_disconnected
+                    payload["error"] += " " + self._session_revocation_summary(
+                        session_revocation, active_sessions_disconnected,
+                    )
+                self._json(payload, status=HTTPStatus.BAD_GATEWAY)
                 return
 
             expected_state = {
@@ -5313,17 +5565,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "phase": "routeros_readback",
                         "reason": "state_mismatch",
                         "mutation_response_lost": mutation_error is not None,
+                        "session_revocation": session_revocation,
+                        "active_sessions_disconnected": active_sessions_disconnected,
                     },
                 )
-                self._json(
-                    {
-                        "code": "routeros.mutation_verification_failed",
-                        "error": "RouterOS did not confirm the requested account settings. Dashboard settings were not changed; inspect VPN Users before retrying.",
-                        "verified": False,
-                        "verification": "mismatch",
-                    },
-                    status=HTTPStatus.CONFLICT,
-                )
+                payload = {
+                    "code": "routeros.mutation_verification_failed",
+                    "error": "RouterOS did not confirm the requested account settings. Dashboard settings were not changed; inspect VPN Users before retrying.",
+                    "verified": False,
+                    "verification": "mismatch",
+                }
+                if password:
+                    payload["session_revocation"] = session_revocation
+                    payload["active_sessions_disconnected"] = active_sessions_disconnected
+                    payload["error"] += " " + self._session_revocation_summary(
+                        session_revocation, active_sessions_disconnected,
+                    )
+                self._json(payload, status=HTTPStatus.CONFLICT)
                 return
 
             if mutation_error is not None and password:
@@ -5339,37 +5597,77 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "phase": "password_update",
                         "verification": "unavailable",
                         "mutation_response_lost": True,
+                        "session_revocation": session_revocation,
+                        "active_sessions_disconnected": active_sessions_disconnected,
                     },
                 )
                 self._json(
                     {
                         "code": "routeros.secret_update_verification_unavailable",
-                        "error": "RouterOS accepted the other account settings, but the password change could not be verified after a lost response. Check the account before retrying; local settings were not changed.",
+                        "error": "RouterOS accepted the other account settings, but the password change could not be verified after a lost response. Check the account before retrying; local settings were not changed. " + self._session_revocation_summary(
+                            session_revocation, active_sessions_disconnected,
+                        ),
                         "verified": False,
                         "verification": "unknown",
+                        "session_revocation": session_revocation,
+                        "active_sessions_disconnected": active_sessions_disconnected,
                     },
                     status=HTTPStatus.BAD_GATEWAY,
                 )
                 return
 
-            self.server.context.store.set_enforcement_state(str(user["name"]), "")
-            if email is not None:
-                self.server.context.store.set_user_email(str(user["name"]), email)
-            self.server.context.store.set_user_controls(str(user["name"]), **controls)
-            # A direct per-user edit is intentional. Keep the template link so
-            # the UI can show exactly which settings now override the group.
-            assignment = self.server.context.store.user_template_assignments().get(str(user["name"]))
-            if assignment:
-                template = self.server.context.store.policy_template(str(assignment["template_id"]))
-                if template:
-                    template_controls = dict(template.get("controls") or {})
-                    override_keys = [
-                        key for key in controls
-                        if controls.get(key) != template_controls.get(key)
-                    ]
-                    self.server.context.store.assign_policy_template(
-                        str(user["name"]), str(template["id"]), overrides=override_keys,
+            if update_lock is not None:
+                update_lock.assert_owned()
+            try:
+                self.server.context.store.set_enforcement_state(str(user["name"]), "")
+                if email is not None:
+                    self.server.context.store.set_user_email(str(user["name"]), email)
+                self.server.context.store.set_user_controls(str(user["name"]), **controls)
+                # A direct per-user edit is intentional. Keep the template link so
+                # the UI can show exactly which settings now override the group.
+                assignment = self.server.context.store.user_template_assignments().get(str(user["name"]))
+                if assignment:
+                    template = self.server.context.store.policy_template(str(assignment["template_id"]))
+                    if template:
+                        template_controls = dict(template.get("controls") or {})
+                        override_keys = [
+                            key for key in controls
+                            if controls.get(key) != template_controls.get(key)
+                        ]
+                        self.server.context.store.assign_policy_template(
+                            str(user["name"]), str(template["id"]), overrides=override_keys,
+                        )
+            except Exception as storage_error:  # noqa: BLE001 - RouterOS changes cannot be rolled back safely
+                try:
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="user.update",
+                        target=str(user["name"]),
+                        status="partial",
+                        details={
+                            "phase": "local_metadata",
+                            "reason": type(storage_error).__name__,
+                            "password_changed": bool(password),
+                            "session_revocation": session_revocation,
+                            "active_sessions_disconnected": active_sessions_disconnected,
+                        },
                     )
+                except Exception:  # noqa: BLE001 - preserve the safe response if the database is unavailable
+                    pass
+                response_payload = {
+                    "ok": False,
+                    "verified": not bool(password),
+                    "verification": "partial",
+                    "error": "RouterOS confirmed the account settings, but dashboard metadata could not be fully saved. Check VPN Users and retry the dashboard update.",
+                }
+                if password:
+                    response_payload["session_revocation"] = session_revocation
+                    response_payload["active_sessions_disconnected"] = active_sessions_disconnected
+                    response_payload["error"] += " " + self._session_revocation_summary(
+                        session_revocation, active_sessions_disconnected,
+                    )
+                self._json(response_payload, status=HTTPStatus.BAD_GATEWAY)
+                return
             verification = "partial" if password else "verified"
             self.server.context.store.audit(
                 actor=session.username,
@@ -5385,15 +5683,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "verification": verification,
                     "password_verification": "not_readable" if password else "not_requested",
                     "mutation_response_lost": mutation_error is not None,
+                    "session_revocation": session_revocation,
+                    "active_sessions_disconnected": active_sessions_disconnected,
                 },
             )
-            self._json({
+            response_payload = {
                 "ok": True,
                 "verified": not bool(password),
                 "verification": verification,
                 "password_verified": False if password else None,
                 "reconciled": mutation_error is not None,
-            })
+            }
+            if password:
+                response_payload["session_revocation"] = session_revocation
+                response_payload["active_sessions_disconnected"] = active_sessions_disconnected
+                if session_revocation != "verified":
+                    response_payload.update({
+                        "ok": False,
+                        "error": "The VPN password change was attempted, but RouterOS could not confirm that all active tunnels were disconnected. Review Connections and terminate any remaining sessions. " + self._session_revocation_summary(
+                            session_revocation, active_sessions_disconnected,
+                        ),
+                    })
+                    self._json(response_payload, status=HTTPStatus.BAD_GATEWAY)
+                    return
+            self._json(response_payload)
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
@@ -7079,6 +7392,11 @@ def build_context() -> AppContext:
         if config.redis_stream_url
         else None
     )
+    review_coordinator = (
+        redis_publisher.review_coordinator()
+        if redis_publisher is not None
+        else None
+    )
     integration_dispatcher = WebhookDispatcher(
         config.webhook_url,
         config.webhook_secret,
@@ -7103,6 +7421,7 @@ def build_context() -> AppContext:
         release_version=baked_release_value("VERSION"),
         release_revision=baked_release_value("REVISION"),
         integration_dispatcher=integration_dispatcher,
+        review_coordinator=review_coordinator,
     )
     # Keep a local, non-secret release breadcrumb so the UI can show what is
     # actually running and whether a previous immutable release is available

@@ -44,7 +44,17 @@ The published container image includes the optional Redis client; Redis itself
 remains a separate service and is enabled only when `REDIS_STREAM_URL` is set.
 After completing the migration in [REDIS_ROTATION.md](REDIS_ROTATION.md), the
 publisher URL must use the dedicated `vpn-dashboard` ACL identity, restricted
-to its stream key and publish commands; do not use the shared `default` user.
+to its event stream and `vpn-dashboard.review.*` keys; do not use the shared
+`default` user. The publisher needs `XADD` and `PING` for event delivery. When
+`REDIS_STREAM_URL` is configured, it also needs `GET`, `SET`, `INCR`, `DEL`,
+`EVAL`, and `PEXPIRE` for hashed per-user account-edit review revisions, a coordination
+generation marker, and renewable mutation locks. Keep these commands limited
+to the two key patterns above. Every process that can handle direct VPN-user
+account edits on the same RouterOS must share this Redis endpoint. Those edits fail
+closed before RouterOS access if Redis coordination is unavailable or loses
+state; restart app instances after restoring Redis coordination state. Without
+Redis, review serialization is process-local and suitable only for a single
+writable application process.
 The Redis Streams sink currently forwards minimized audit/outbox events (not
 the dashboard's live RouterOS telemetry). Remote webhook and Redis payloads use
 schema v2: `schema_version`, `event`, a UUIDv4 `event_id`, and, when valid, the

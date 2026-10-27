@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.request
 import uuid
+import contextlib
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
@@ -121,6 +122,218 @@ class RedisStreamPublisher:
                 "publish_failures": self._publish_failures,
                 "last_publish_success": self._last_publish_success,
             }
+
+    def review_coordinator(self) -> RedisReviewCoordinator:
+        """Share the configured Redis connection for cross-instance review state."""
+        return RedisReviewCoordinator(self._client)
+
+
+class RedisReviewCoordinationError(RuntimeError):
+    """Redis could not safely coordinate a sensitive mutation review."""
+
+
+class _RedisReviewLock:
+    _RENEW = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end"
+    _ASSERT = "if redis.call('get', KEYS[1]) == ARGV[1] then return 1 else return 0 end"
+    _RELEASE = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
+
+    def __init__(self, client: Any, key: str, token: str, lease_ms: int) -> None:
+        self._client = client
+        self._key = key
+        self._token = token
+        self._lease_ms = lease_ms
+        self._lost = threading.Event()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._heartbeat, name="redis-review-lock", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def renew(self) -> None:
+        if self._lost.is_set():
+            raise RedisReviewCoordinationError("Redis review coordination is unavailable")
+        try:
+            renewed = self._client.eval(self._RENEW, 1, self._key, self._token, self._lease_ms)
+        except Exception:
+            self._lost.set()
+            raise RedisReviewCoordinationError(
+                "Redis review coordination is unavailable"
+            ) from None
+        if int(renewed or 0) != 1:
+            self._lost.set()
+            raise RedisReviewCoordinationError(
+                "The VPN user update lock was lost; retry the reviewed change"
+            )
+
+    def assert_owned(self) -> None:
+        if self._lost.is_set():
+            raise RedisReviewCoordinationError(
+                "The VPN user update lock was lost; retry the reviewed change"
+            )
+        try:
+            owned = self._client.eval(self._ASSERT, 1, self._key, self._token)
+        except Exception:
+            self._lost.set()
+            raise RedisReviewCoordinationError(
+                "Redis review coordination is unavailable"
+            ) from None
+        if int(owned or 0) != 1:
+            self._lost.set()
+            raise RedisReviewCoordinationError(
+                "The VPN user update lock was lost; retry the reviewed change"
+            )
+
+    def close(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=min(5.0, max(1.0, self._lease_ms / 1000)))
+        try:
+            self._client.eval(self._RELEASE, 1, self._key, self._token)
+        except Exception:
+            # The lease expires automatically; never mask a RouterOS outcome.
+            pass
+
+    def _heartbeat(self) -> None:
+        interval = max(0.1, self._lease_ms / 3000)
+        while not self._stop.wait(interval):
+            try:
+                self.renew()
+            except RedisReviewCoordinationError:
+                return
+
+
+class RedisReviewCoordinator:
+    """Cross-process lock and revision store for reviewed VPN-user mutations."""
+
+    _EPOCH_KEY = "vpn-dashboard.review.epoch"
+    _ADVANCE_REVISION = (
+        "if redis.call('get', KEYS[1]) ~= ARGV[1] then return -1 end; "
+        "local current = redis.call('get', KEYS[2]); "
+        "if not current or tonumber(current) ~= tonumber(ARGV[2]) then return 0 end; "
+        "return redis.call('incr', KEYS[2])"
+    )
+
+    def __init__(
+        self,
+        client: Any,
+        *,
+        lock_wait_seconds: float = 3.0,
+        lock_lease_ms: int = 900_000,
+    ) -> None:
+        self._client = client
+        self._lock_wait_seconds = max(0.1, float(lock_wait_seconds))
+        self._lock_lease_ms = max(60_000, int(lock_lease_ms))
+        self._state_lock = threading.Lock()
+        self._observed_epoch: str | None = None
+        self._observed_revision_keys: set[str] = set()
+
+    @staticmethod
+    def _resource_digest(resource_key: str) -> str:
+        return hashlib.sha256(resource_key.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _revision_key(cls, resource_key: str) -> str:
+        return f"vpn-dashboard.review.revision:{cls._resource_digest(resource_key)}"
+
+    @classmethod
+    def _lock_key(cls, resource_key: str) -> str:
+        return f"vpn-dashboard.review.lock:{cls._resource_digest(resource_key)}"
+
+    def current_epoch(self) -> str:
+        """Return the Redis data-generation marker, failing closed on its loss."""
+        with self._state_lock:
+            try:
+                value = self._client.get(self._EPOCH_KEY)
+                if value is None and self._observed_epoch is None:
+                    self._client.set(self._EPOCH_KEY, uuid.uuid4().hex, nx=True)
+                    value = self._client.get(self._EPOCH_KEY)
+                if value is None:
+                    raise ValueError("Redis coordination epoch disappeared")
+                epoch = str(value)
+                if self._observed_epoch is not None and epoch != self._observed_epoch:
+                    raise ValueError("Redis coordination epoch changed")
+                self._observed_epoch = epoch
+                return epoch
+            except Exception:
+                raise RedisReviewCoordinationError(
+                    "Redis review coordination state changed; restart the dashboard before retrying"
+                ) from None
+
+    def current_revision(self, resource_key: str) -> int:
+        self.current_epoch()
+        key = self._revision_key(resource_key)
+        try:
+            value = self._client.get(key)
+            if value is None:
+                if key in self._observed_revision_keys:
+                    raise ValueError("Redis review revision disappeared")
+                self._client.set(key, "0", nx=True)
+                value = self._client.get(key)
+            revision = int(value)
+            if revision < 0:
+                raise ValueError("negative revision")
+            self._observed_revision_keys.add(key)
+            return revision
+        except Exception:
+            raise RedisReviewCoordinationError(
+                "Redis review coordination state changed; restart the dashboard before retrying"
+            ) from None
+
+    def advance_if_current(
+        self,
+        resource_key: str,
+        expected_revision: int,
+        expected_epoch: str,
+    ) -> bool:
+        try:
+            result = self._client.eval(
+                self._ADVANCE_REVISION,
+                2,
+                self._EPOCH_KEY,
+                self._revision_key(resource_key),
+                expected_epoch,
+                int(expected_revision),
+            )
+            return int(result or 0) == int(expected_revision) + 1
+        except Exception:
+            raise RedisReviewCoordinationError(
+                "Redis review coordination is unavailable"
+            ) from None
+
+    @contextlib.contextmanager
+    def resource_lock(self, resource_key: str):
+        lock_key = self._lock_key(resource_key)
+        token = uuid.uuid4().hex
+        deadline = time.monotonic() + self._lock_wait_seconds
+        acquired = False
+        while not acquired:
+            try:
+                acquired = bool(
+                    self._client.set(
+                        lock_key,
+                        token,
+                        nx=True,
+                        px=self._lock_lease_ms,
+                    )
+                )
+            except Exception:
+                raise RedisReviewCoordinationError(
+                    "Redis review coordination is unavailable"
+                ) from None
+            if acquired:
+                break
+            if time.monotonic() >= deadline:
+                raise RedisReviewCoordinationError(
+                    "Another review for this VPN user is still being applied"
+                )
+            time.sleep(0.05)
+
+        try:
+            lock = _RedisReviewLock(self._client, lock_key, token, self._lock_lease_ms)
+            lock.start()
+            yield lock
+        finally:
+            if "lock" in locals():
+                lock.close()
 
 
 class WebhookDispatcher:

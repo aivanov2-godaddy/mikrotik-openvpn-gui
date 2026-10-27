@@ -99,6 +99,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends redis-server
           redis-server --version
+      - name: Verify live Redis review coordination
+        env:
+          REDIS_TEST_URL: redis://127.0.0.1:6379/0
+        run: python -m unittest discover -s tests -p "test_redis_review_coordination.py" -v
       - name: Verify outbox outage recovery and duplicate semantics
         env:
           REDIS_TEST_URL: redis://127.0.0.1:6379/0

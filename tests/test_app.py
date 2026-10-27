@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, _certificate_remaining_seconds, _origin_header_relation, _spreadsheet_safe_csv_cell, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, ReviewReceiptStore, _certificate_remaining_seconds, _origin_header_relation, _spreadsheet_safe_csv_cell, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
+from integrations import RedisReviewCoordinationError
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
 from routeros_binary import RouterOSReply
 from security import (
@@ -6157,6 +6158,8 @@ class DashboardIntegrationTests(unittest.TestCase):
                 "verification": "partial",
                 "password_verified": False,
                 "reconciled": False,
+                "session_revocation": "verified",
+                "active_sessions_disconnected": 0,
             },
         )
         self.assertEqual(self.server.context.store.user_emails()["maria"], "maria.new@example.com")
@@ -6797,6 +6800,66 @@ class DashboardIntegrationTests(unittest.TestCase):
         reviewed["review_token"] = json.loads(payload)["review_token"]
         return reviewed
 
+    def test_non_password_user_edits_are_serialized_and_stale_reviews_are_rejected(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        values = {
+            "comment": "reviewed non-secret edit", "disabled": False,
+            "policy": "full-tunnel", "expiry": "", "max_sessions": "2",
+            "rate_limit_kbps": "0", "quota_mb": "0", "schedule": "always",
+            "dns_mode": "router", "notifications": True,
+            "reason": "Review a non-secret account setting",
+        }
+
+        with mock.patch.object(
+            self.server.review_receipts,
+            "resource_lock",
+            wraps=self.server.review_receipts.resource_lock,
+        ) as resource_lock:
+            status, _, _payload = self.json_request("POST", path + "/preview", values)
+        self.assertEqual(status, 200)
+        resource_lock.assert_called_once_with(f"vpn-user:{user['id']}")
+
+        first = self._review_user_edit(path, values)
+        stale = self._review_user_edit(path, values)
+        status, _, _ = self.json_request("PATCH", path, first)
+        self.assertEqual(status, 200)
+        status, _, payload = self.json_request("PATCH", path, stale)
+        self.assertEqual(status, 409)
+        self.assertIn("Preview the edit again", json.loads(payload)["error"])
+
+    def test_redis_coordination_outage_blocks_user_preview_before_routeros_read(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        values = {
+            "comment": "reviewed while redis is unavailable", "disabled": False,
+            "policy": "full-tunnel", "reason": "Review this account change",
+        }
+        with (
+            mock.patch.object(
+                self.server.review_receipts,
+                "resource_lock",
+                side_effect=RedisReviewCoordinationError("Redis review coordination is unavailable"),
+            ) as lock,
+            mock.patch.object(router, "list_ovpn_users") as list_users,
+        ):
+            status, _, payload = self.json_request("POST", path + "/preview", values)
+
+        self.assertEqual(status, 503)
+        self.assertFalse(json.loads(payload)["mutation_attempted"])
+        lock.assert_called_once_with(f"vpn-user:{user['id']}")
+        list_users.assert_not_called()
+
     def test_user_update_reconciles_lost_routeros_response_from_readback(self) -> None:
         self.login()
         router = self.server.context.router
@@ -6945,9 +7008,296 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 502)
         result = json.loads(payload)
         self.assertEqual(result["verification"], "unknown")
+        self.assertEqual(result["session_revocation"], "verified")
+        self.assertEqual(result["active_sessions_disconnected"], 1)
+        self.assertFalse(self.mock.state.active_sessions)
         self.assertNotIn("sensitive-password-value", payload.decode())
         self.assertNotIn("private RouterOS response", payload.decode())
         self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
+
+    def test_password_change_invalidates_other_previews_without_active_sessions(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        self.mock.state.active_sessions.clear()
+        older_review = self._review_user_edit(
+            path,
+            {"password": "older-reviewed-password", "comment": "", "disabled": False},
+        )
+        newer_review = self._review_user_edit(
+            path,
+            {"password": "newer-reviewed-password", "comment": "", "disabled": False},
+        )
+
+        status, _, payload = self.json_request("PATCH", path, newer_review)
+        self.assertEqual(status, 200, payload.decode())
+        self.assertEqual(
+            self.mock.state.users[user["id"]]["password"],
+            "newer-reviewed-password",
+        )
+        self.assertFalse(self.mock.state.active_sessions)
+
+        status, _, payload = self.json_request("PATCH", path, older_review)
+        self.assertEqual(status, 409)
+        self.assertEqual(
+            self.mock.state.users[user["id"]]["password"],
+            "newer-reviewed-password",
+        )
+
+    def test_password_change_revokes_sessions_when_routeros_readback_fails(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {"password": "readback-failure-password", "comment": "", "disabled": False},
+        )
+        original_find_user = DashboardHandler._find_user
+        calls = 0
+
+        def fail_on_readback(handler: DashboardHandler, credentials: RouterOSCredentials, target: str) -> dict[str, Any]:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RouterOSError("PRIVATE_READBACK_FAILURE", 503)
+            return original_find_user(handler, credentials, target)
+
+        with mock.patch.object(DashboardHandler, "_find_user", autospec=True, side_effect=fail_on_readback):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        result = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(result["session_revocation"], "verified")
+        self.assertEqual(result["active_sessions_disconnected"], 1)
+        self.assertFalse(self.mock.state.active_sessions)
+        self.assertIn("session(s) disconnected", result["error"])
+        self.assertNotIn("PRIVATE_READBACK_FAILURE", payload.decode())
+
+    def test_password_change_reports_tunnel_revocation_if_local_metadata_save_fails(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {"password": "metadata-failure-password", "comment": "", "disabled": False},
+        )
+        with mock.patch.object(
+            self.server.context.store,
+            "set_user_controls",
+            side_effect=RuntimeError("PRIVATE_METADATA_FAILURE"),
+        ):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        result = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["session_revocation"], "verified")
+        self.assertEqual(result["active_sessions_disconnected"], 1)
+        self.assertFalse(self.mock.state.active_sessions)
+        self.assertNotIn("PRIVATE_METADATA_FAILURE", payload.decode())
+
+    def test_user_password_change_requires_step_up_and_disconnects_reviewed_sessions(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        edit = {
+            "password": "rotated-vpn-password", "comment": "", "disabled": False,
+            "policy": "full-tunnel", "reason": "Rotate the VPN user's password",
+        }
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        session.reauthenticated_at = 0
+
+        status, _, payload = self.json_request("POST", path + "/preview", edit)
+        self.assertEqual(status, 428)
+        self.assertTrue(json.loads(payload)["step_up_required"])
+        self.assertNotEqual(self.mock.state.users[user["id"]].get("password"), "rotated-vpn-password")
+        self.assertIn("*A1", self.mock.state.active_sessions)
+
+        session.reauthenticated_at = time.time()
+        status, _, payload = self.json_request("POST", path + "/preview", edit)
+        self.assertEqual(status, 200, payload.decode())
+        preview = json.loads(payload)
+        self.assertEqual(preview["changes"]["active_sessions_to_disconnect"], 1)
+        self.assertNotIn("*A1", payload.decode())
+
+        reviewed = {**edit, "review_token": preview["review_token"]}
+        session.reauthenticated_at = 0
+        status, _, payload = self.json_request("PATCH", path, reviewed)
+        self.assertEqual(status, 428)
+        self.assertTrue(json.loads(payload)["step_up_required"])
+        self.assertIn("*A1", self.mock.state.active_sessions)
+        session.reauthenticated_at = time.time()
+
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2", "name": "user-two", "service": "ovpn", "address": "198.18.0.49",
+        }
+        status, _, payload = self.json_request("PATCH", path, reviewed)
+        self.assertEqual(status, 409)
+        self.assertNotEqual(self.mock.state.users[user["id"]].get("password"), "rotated-vpn-password")
+        self.assertEqual(set(self.mock.state.active_sessions), {"*A1", "*A2"})
+
+        status, _, payload = self.json_request("POST", path + "/preview", edit)
+        self.assertEqual(status, 200, payload.decode())
+        preview = json.loads(payload)
+        self.assertEqual(preview["changes"]["active_sessions_to_disconnect"], 2)
+        status, _, payload = self.json_request(
+            "PATCH", path, {**edit, "review_token": preview["review_token"]},
+        )
+        self.assertEqual(status, 200, payload.decode())
+        result = json.loads(payload)
+        self.assertEqual(result["session_revocation"], "verified")
+        self.assertEqual(result["active_sessions_disconnected"], 2)
+        self.assertEqual(self.mock.state.users[user["id"]]["password"], "rotated-vpn-password")
+        self.assertFalse(self.mock.state.active_sessions)
+
+    def test_user_password_change_requires_session_management_capability(self) -> None:
+        self.login()
+        session_id = self.cookie.split("=", 1)[1]
+        session = self.server.context.sessions.get(session_id, touch=False)
+        self.assertIsNotNone(session)
+        session.capabilities = frozenset({"users.manage"})
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+
+        status, _, payload = self.json_request(
+            "POST", path + "/preview",
+            {"password": "rotated-vpn-password", "reason": "Rotate the VPN user's password"},
+        )
+
+        self.assertEqual(status, 403)
+        self.assertIn("not allowed", json.loads(payload)["error"])
+        self.assertIn("*A1", self.mock.state.active_sessions)
+        self.assertFalse(any(item.startswith("PATCH /ppp/secret/") for item in self.mock.state.mutation_requests))
+
+    def test_user_password_change_reports_unverified_disconnect_without_leaking_router_error(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        edit = {
+            "password": "rotated-vpn-password", "reason": "Rotate the VPN user's password",
+        }
+        reviewed = self._review_user_edit(path, edit)
+
+        with mock.patch.object(
+            router, "terminate_session", side_effect=RouterOSError("PRIVATE_ROUTER_ERROR"),
+        ):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        result = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["session_revocation"], "incomplete")
+        self.assertIn("Review Connections", result["error"])
+        self.assertNotIn("PRIVATE_ROUTER_ERROR", payload.decode())
+        self.assertIn("*A1", self.mock.state.active_sessions)
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["status"], "partial")
+        self.assertEqual(json.loads(audit["details"])["session_revocation"], "incomplete")
+
+    def test_definitive_router_rejection_does_not_disconnect_vpn_sessions(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {"password": "rejected-password-value", "reason": "Rotate the VPN user's password"},
+        )
+
+        with (
+            mock.patch.object(
+                router,
+                "update_user",
+                side_effect=RouterOSError(
+                    "PRIVATE_ROUTER_REJECTION", 403, failure_kind="permission_denied",
+                ),
+            ),
+            mock.patch.object(router, "terminate_session") as terminate_session,
+        ):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        result = json.loads(payload)
+        self.assertEqual(status, 502)
+        self.assertEqual(result["verification"], "rejected")
+        self.assertEqual(result["session_revocation"], "not_attempted_rejected")
+        self.assertEqual(result["active_sessions_disconnected"], 0)
+        self.assertIn("*A1", self.mock.state.active_sessions)
+        terminate_session.assert_not_called()
+        self.assertNotIn("PRIVATE_ROUTER_REJECTION", payload.decode())
+        self.assertNotIn("rejected-password-value", payload.decode())
+        self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "failed")
+
+    def test_review_receipts_share_password_revision_across_instances(self) -> None:
+        class SharedCoordinator:
+            def __init__(self, state):
+                self.state = state
+
+            @contextlib.contextmanager
+            def resource_lock(self, resource_key):
+                with self.state["locks"].setdefault(resource_key, threading.RLock()):
+                    yield
+
+            def current_revision(self, resource_key):
+                return self.state["revisions"].get(resource_key, 0)
+
+            def current_epoch(self):
+                return "test-generation"
+
+            def advance_if_current(self, resource_key, expected_revision, expected_epoch):
+                if expected_epoch != "test-generation":
+                    return False
+                if self.current_revision(resource_key) != expected_revision:
+                    return False
+                self.state["revisions"][resource_key] = expected_revision + 1
+                return True
+
+        shared_state = {"locks": {}, "revisions": {}}
+        resource_key = "vpn-user:*2"
+        first = ReviewReceiptStore(SharedCoordinator(shared_state))
+        second = ReviewReceiptStore(SharedCoordinator(shared_state))
+        with first.resource_lock(resource_key):
+            first_token = first.issue("session-one", "intent-one", resource_key=resource_key)
+        with second.resource_lock(resource_key):
+            second_token = second.issue("session-two", "intent-two", resource_key=resource_key)
+
+        with first.resource_lock(resource_key):
+            self.assertTrue(first.consume(
+                first_token, "session-one", "intent-one", resource_key=resource_key,
+            ))
+        with second.resource_lock(resource_key):
+            self.assertFalse(second.consume(
+                second_token, "session-two", "intent-two", resource_key=resource_key,
+            ))
     def test_user_edit_receipt_rejects_tampering_staleness_and_other_session(self) -> None:
         self.login()
         user = next(item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass")) if item["name"] == "user-one")
