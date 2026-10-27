@@ -113,9 +113,10 @@ candidate-specific acceptance is recorded and it does not satisfy the live
 acceptance gates. PR #830 improves offline updater comparison only. PR #851
 adds local read-only inventory tooling for #785, but no live inventory or
 RouterOS mutation has occurred.
-The last recorded canary stage is PR #806. Manual canary staging and point-sample
-readiness evidence do not close the deployed-security and device-acceptance
-gates in #200 and #205.
+The latest recorded canary stage is PR #862, staged on the isolated canary on
+2026-10-27. RouterOS reported healthy and private readiness matched its source
+revision. These are startup checks only; the 30-minute live-acceptance and
+rollback gates in #200 and #205 remain open.
 
 The ASVS matrix classifies V8.3.2 as a known product gap. Active live streams
 now use a one-second application role-cache interval; ordinary authenticated

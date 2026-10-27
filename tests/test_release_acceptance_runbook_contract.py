@@ -84,14 +84,16 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "PR #806 is staged on the canary with healthy revision read-back recorded above, but its 30-minute soak, rollback, and full live acceptance remain incomplete.",
+            "The earlier qualitative live-UI check was on PR #806 and does not provide evidence for this candidate.",
             report,
         )
         self.assertIn(
             "PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest published runtime source",
             report,
         )
-        self.assertIn("PR #862 has no candidate-specific staging/read-back or acceptance evidence.", report)
+        self.assertIn("PR #862 is now staged on the isolated RouterOS canary.", report)
+        self.assertIn("This verifies candidate staging and startup only; it is not a 30-minute soak or acceptance result.", report)
+        self.assertIn("Production was not changed.", report)
         self.assertNotIn("PR #791 has been published but not staged", report)
 
 
