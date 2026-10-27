@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -9,7 +10,13 @@ import unittest
 from unittest import mock
 
 from event_safety import sanitize_integration_event
-from integrations import RedisStreamPublisher, WebhookDispatcher
+from integrations import (
+    RedisReviewCoordinationError,
+    RedisReviewCoordinator,
+    _RedisReviewLock,
+    RedisStreamPublisher,
+    WebhookDispatcher,
+)
 from store import MetadataStore
 
 
@@ -26,7 +33,206 @@ class FakeRedis:
         return "1-0"
 
 
+class FakeSharedReviewRedis:
+    def __init__(self):
+        self.values = {}
+        self.ttls = {}
+        self.guard = threading.Lock()
+        self.run_id = "a" * 40
+
+    def info(self, section):
+        if section != "server":
+            raise AssertionError("only the Redis server identity may be read")
+        return {"run_id": self.run_id}
+
+    def get(self, key):
+        with self.guard:
+            return self.values.get(key)
+
+    def set(self, key, value, *, nx=False, px=None):
+        with self.guard:
+            if nx and key in self.values:
+                return False
+            self.values[key] = value
+            if px is not None:
+                self.ttls[key] = px
+            return True
+
+    def eval(self, script, numkeys, key, *args):
+        with self.guard:
+            if script == RedisReviewCoordinator._ADVANCE_REVISION:
+                if numkeys != 2:
+                    raise AssertionError("expected the epoch and revision keys")
+                revision_key, expected_epoch, expected_revision = args
+                current = self.values.get(revision_key)
+                if self.values.get(key) != expected_epoch:
+                    return -1
+                if current is None or int(current) != int(expected_revision):
+                    return 0
+                self.values[revision_key] = str(int(expected_revision) + 1)
+                return int(expected_revision) + 1
+            self.assert_one_key(numkeys)
+            if script == _RedisReviewLock._RELEASE:
+                if self.values.get(key) == args[0]:
+                    del self.values[key]
+                    self.ttls.pop(key, None)
+                    return 1
+                return 0
+            if script in {_RedisReviewLock._RENEW, _RedisReviewLock._ASSERT, _RedisReviewLock._RETAIN}:
+                if self.values.get(key) != args[0]:
+                    return 0
+                if script in {_RedisReviewLock._RENEW, _RedisReviewLock._RETAIN}:
+                    self.ttls[key] = int(args[1])
+                return 1
+            raise AssertionError("unexpected Redis script")
+
+    @staticmethod
+    def assert_one_key(numkeys):
+        if numkeys != 1:
+            raise AssertionError("expected exactly one Redis key")
+
+
 class IntegrationTests(unittest.TestCase):
+    def test_redis_review_user_revision_and_lock_are_shared_across_instances(self):
+        from app import ReviewReceiptStore
+
+        client = FakeSharedReviewRedis()
+        first = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        second = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        first_receipts = ReviewReceiptStore(first)
+        second_receipts = ReviewReceiptStore(second)
+        resource = "vpn-user:*2"
+
+        with first_receipts.resource_lock(resource):
+            first_token = first_receipts.issue("session-one", "intent-one", resource_key=resource)
+        with second_receipts.resource_lock(resource):
+            second_token = second_receipts.issue("session-two", "intent-two", resource_key=resource)
+
+        with first_receipts.resource_lock(resource):
+            self.assertTrue(first_receipts.consume(
+                first_token, "session-one", "intent-one", resource_key=resource,
+            ))
+            with self.assertRaises(RedisReviewCoordinationError):
+                with second_receipts.resource_lock(resource):
+                    self.fail("a second process acquired the active user lock")
+
+        self.assertEqual(second.current_revision(resource), 1)
+        with second_receipts.resource_lock(resource):
+            self.assertFalse(second_receipts.consume(
+                second_token, "session-two", "intent-two", resource_key=resource,
+            ))
+        epoch = second.current_epoch()
+        with second_receipts.resource_lock(resource):
+            self.assertTrue(second.advance_if_current(resource, 1, epoch))
+
+    def test_redis_review_coordination_fails_closed_after_epoch_loss(self):
+        from app import ReviewReceiptStore
+
+        client = FakeSharedReviewRedis()
+        coordinator = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        receipts = ReviewReceiptStore(coordinator)
+        resource = "vpn-user:epoch-loss"
+        with receipts.resource_lock(resource):
+            token = receipts.issue("session-one", "intent-one", resource_key=resource)
+
+        client.values.clear()
+        with receipts.resource_lock(resource):
+            with self.assertRaises(RedisReviewCoordinationError):
+                receipts.consume(token, "session-one", "intent-one", resource_key=resource)
+
+    def test_redis_review_coordination_fails_closed_if_revision_key_disappears(self):
+        from app import ReviewReceiptStore
+
+        client = FakeSharedReviewRedis()
+        coordinator = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        receipts = ReviewReceiptStore(coordinator)
+        resource = "vpn-user:revision-loss"
+        with receipts.resource_lock(resource):
+            token = receipts.issue("session-one", "intent-one", resource_key=resource)
+        del client.values[coordinator._revision_key(resource)]
+
+        with receipts.resource_lock(resource):
+            with self.assertRaises(RedisReviewCoordinationError):
+                receipts.consume(token, "session-one", "intent-one", resource_key=resource)
+
+    def test_redis_review_coordination_fails_closed_if_revision_rolls_back_in_same_epoch(self):
+        client = FakeSharedReviewRedis()
+        coordinator = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        resource = "vpn-user:revision-rollback"
+        epoch = coordinator.current_epoch()
+        self.assertEqual(coordinator.current_revision(resource), 0)
+        self.assertTrue(coordinator.advance_if_current(resource, 0, epoch))
+        self.assertEqual(coordinator.current_revision(resource), 1)
+
+        # A Redis restore can preserve the generation key while restoring an
+        # older per-user revision. Existing receipts must remain invalidated.
+        client.values[coordinator._revision_key(resource)] = "0"
+        with self.assertRaises(RedisReviewCoordinationError):
+            coordinator.current_revision(resource)
+        with self.assertRaises(RedisReviewCoordinationError):
+            coordinator.advance_if_current(resource, 0, epoch)
+
+    def test_redis_review_coordination_fails_closed_after_server_restart_across_instances(self):
+        client = FakeSharedReviewRedis()
+        first = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        second = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        resource = "vpn-user:cross-instance-restart"
+
+        self.assertEqual(first.current_revision(resource), 0)
+        self.assertEqual(second.current_revision(resource), 0)
+        self.assertTrue(first.advance_if_current(resource, 0, first.current_epoch()))
+        client.values[first._revision_key(resource)] = "0"
+        client.run_id = "b" * 40
+
+        with self.assertRaises(RedisReviewCoordinationError):
+            second.current_revision(resource)
+
+    def test_redis_review_lock_renews_and_checks_ownership(self):
+        client = FakeSharedReviewRedis()
+        coordinator = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        resource = "vpn-user:lock-loss"
+        with coordinator.resource_lock(resource) as lock:
+            lock.assert_owned()
+            lock.renew()
+            del client.values[coordinator._lock_key(resource)]
+            with self.assertRaises(RedisReviewCoordinationError):
+                lock.assert_owned()
+
+    def test_redis_review_lock_is_not_released_after_ownership_check_fails(self):
+        client = FakeSharedReviewRedis()
+        coordinator = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        resource = "vpn-user:ambiguous-write"
+        key = coordinator._lock_key(resource)
+        original_eval = client.eval
+
+        def fail_ownership_check(script, numkeys, redis_key, *args):
+            if script == _RedisReviewLock._ASSERT:
+                raise OSError("temporary Redis outage")
+            return original_eval(script, numkeys, redis_key, *args)
+
+        with mock.patch.object(client, "eval", side_effect=fail_ownership_check):
+            with coordinator.resource_lock(resource) as lock:
+                # Model an API write that may still be completing when its
+                # caller can no longer confirm that it owns the lease.
+                with self.assertRaises(RedisReviewCoordinationError):
+                    lock.assert_owned()
+
+        self.assertIn(key, client.values)
+        self.assertEqual(client.ttls[key], coordinator._lock_lease_ms)
+        successor = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        with self.assertRaises(RedisReviewCoordinationError):
+            with successor.resource_lock(resource):
+                self.fail("a successor writer overlapped the ambiguous request lease")
+
+    def test_redis_review_coordination_fails_closed_when_store_is_unavailable(self):
+        class UnavailableRedis:
+            def get(self, _key):
+                raise OSError("private redis endpoint")
+
+        coordinator = RedisReviewCoordinator(UnavailableRedis())
+        with self.assertRaises(RedisReviewCoordinationError):
+            coordinator.current_revision("vpn-user:*2")
+
     def test_redis_stream_publisher_rejects_url_query_options(self):
         url = "rediss://publisher:private-password@redis.example.test:6380/0?ssl_cert_reqs=none"
 

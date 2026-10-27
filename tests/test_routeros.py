@@ -328,6 +328,25 @@ class RouterOSClientTests(unittest.TestCase):
                 )
             self.assertFalse(mock.state.mutation_requests)
 
+    def test_rate_profile_lease_loss_after_snapshot_prevents_write(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+
+            def lose_lease() -> None:
+                raise RuntimeError("lease lost")
+
+            with self.assertRaisesRegex(RuntimeError, "lease lost"):
+                client.ensure_rate_profile(
+                    credentials,
+                    username="user-one",
+                    rate_limit_kbps=10240,
+                    expected_state={"exists": False},
+                    before_mutation=lose_lease,
+                )
+
+            self.assertFalse(mock.state.mutation_requests)
+
     def test_rate_profile_mismatch_after_write_is_not_reported_as_success(self) -> None:
         with MockRouterOS() as mock:
             client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
@@ -871,7 +890,7 @@ class RouterOSClientTests(unittest.TestCase):
             delete_file = client._delete_file
             replaced: dict[str, str] = {}
 
-            def replace_profile_before_delete(current_credentials, file_id):
+            def replace_profile_before_delete(current_credentials, file_id, *, before_mutation=None):
                 profile = next(
                     (
                         (name, record)
@@ -884,7 +903,7 @@ class RouterOSClientTests(unittest.TestCase):
                     name, old_record = profile
                     replacement = mock.state.file(name, "replacement owned by another actor", ".ovpn file")
                     replaced.update(name=name, old_id=str(old_record[".id"]), new_id=str(replacement[".id"]))
-                delete_file(current_credentials, file_id)
+                delete_file(current_credentials, file_id, before_mutation=before_mutation)
 
             with patch.object(client, "_delete_file", side_effect=replace_profile_before_delete):
                 provisioned = client.provision_profile(
@@ -1017,6 +1036,37 @@ class RouterOSClientTests(unittest.TestCase):
             self.assertTrue(profile.fingerprint)
             self.assertIn(profile.certificate_id, mock.state.certificates)
             self.assertEqual(sorted(mock.state.files), ["vpn-ca.crt"])
+
+    def test_profile_provisioning_stops_all_router_writes_after_lease_loss(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            checks = 0
+
+            def lose_lease_before_third_write() -> None:
+                nonlocal checks
+                checks += 1
+                if checks >= 3:
+                    raise RuntimeError("lease lost")
+
+            with self.assertRaisesRegex(RuntimeError, "lease lost"):
+                client.provision_profile(
+                    credentials,
+                    vpn_user="user-one",
+                    device_name="Lease loss test",
+                    key_passphrase="private-passphrase",
+                    before_mutation=lose_lease_before_third_write,
+                )
+
+            self.assertEqual(checks, 4, "cleanup must also check the fencing callback")
+            self.assertEqual(len(mock.state.mutation_requests), 2, mock.state.mutation_requests)
+            self.assertTrue(mock.state.mutation_requests[0].startswith("PUT /certificate"))
+            self.assertTrue(mock.state.mutation_requests[1].startswith("POST /certificate/sign"))
+            self.assertTrue(
+                any(item.get("name", "").startswith("ovpn-ui-user-one-lease-loss-test-")
+                    for item in mock.state.certificates.values()),
+                "after lease loss, leave uncertain RouterOS state for explicit reconciliation",
+            )
 
     def test_profile_provisioning_uses_relative_expiry_not_router_local_absolute_date(self) -> None:
         with MockRouterOS() as mock:

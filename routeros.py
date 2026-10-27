@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from config import ConfigurationError, OpenVPNTopology
@@ -838,6 +838,7 @@ class RouterOSClient:
         username: str,
         rate_limit_kbps: int,
         expected_state: dict[str, Any] | None = None,
+        before_mutation: Callable[[], None] | None = None,
     ) -> str:
         if not rate_limit_kbps:
             if not self.ovpn_profile:
@@ -857,6 +858,8 @@ class RouterOSClient:
             mutation = ("PUT", "/ppp/profile")
         mutation_error: RouterOSError | None = None
         try:
+            if before_mutation is not None:
+                before_mutation()
             self._request(mutation[0], mutation[1], credentials, body=values)
         except RouterOSError as error:
             # RouterOS can commit a write before the HTTP response is lost.
@@ -953,12 +956,20 @@ class RouterOSClient:
 
         return normalize_pem(match.group(1)) == normalize_pem(certificate)
 
-    def _delete_file(self, credentials: RouterOSCredentials, file_id: str | None) -> None:
+    def _delete_file(
+        self,
+        credentials: RouterOSCredentials,
+        file_id: str | None,
+        *,
+        before_mutation: Callable[[], None] | None = None,
+    ) -> None:
         if not file_id:
             return
         safe_id = urllib.parse.quote(file_id, safe="*")
         delete_error: RouterOSError | None = None
         try:
+            if before_mutation is not None:
+                before_mutation()
             self._request("DELETE", f"/file/{safe_id}", credentials)
         except RouterOSError as error:
             # A lost response does not prove that RouterOS failed to delete
@@ -975,7 +986,12 @@ class RouterOSClient:
                 "RouterOS temporary file cleanup failed and the file remains present"
             ) from delete_error
 
-    def _ensure_ca_export(self, credentials: RouterOSCredentials) -> str:
+    def _ensure_ca_export(
+        self,
+        credentials: RouterOSCredentials,
+        *,
+        before_mutation: Callable[[], None] | None = None,
+    ) -> str:
         files = self._files(credentials)
         # RouterOS normally prefixes certificate exports with
         # ``cert_export_``.  Older installations may already contain an
@@ -989,7 +1005,9 @@ class RouterOSClient:
         for filename in candidates:
             record = files.get(filename)
             if record and record.get(".id"):
-                self._delete_file(credentials, str(record[".id"]))
+                self._delete_file(
+                    credentials, str(record[".id"]), before_mutation=before_mutation,
+                )
 
         before = set(self._files(credentials))
         certs = _records(
@@ -1005,6 +1023,8 @@ class RouterOSClient:
         expected_fingerprint = str(certs[0].get("fingerprint", "")).replace(":", "").lower()
         if len(expected_fingerprint) != 64:
             raise RouterOSError("Configured OpenVPN CA certificate has no usable fingerprint")
+        if before_mutation is not None:
+            before_mutation()
         self._request(
             "POST",
             "/certificate/export-certificate",
@@ -1058,6 +1078,7 @@ class RouterOSClient:
         key_passphrase: str,
         policy: str = "full-tunnel",
         dns_mode: str = "router",
+        before_mutation: Callable[[], None] | None = None,
     ) -> ProvisionedProfile:
         try:
             self.topology.require_profile_generation(policy=policy, dns_mode=dns_mode)
@@ -1074,7 +1095,13 @@ class RouterOSClient:
         profile_export_attempted = False
         profile_file_identified = False
         succeeded = False
+
+        def check_mutation() -> None:
+            if before_mutation is not None:
+                before_mutation()
+
         try:
+            check_mutation()
             created = _records(
                 self._request(
                     "PUT",
@@ -1105,6 +1132,7 @@ class RouterOSClient:
                     raise RouterOSError("Could not locate the new RouterOS certificate")
                 certificate_id = matches[0].get(".id")
 
+            check_mutation()
             self._request(
                 "POST",
                 "/certificate/sign",
@@ -1112,6 +1140,7 @@ class RouterOSClient:
                 body={"number": certificate_id, "ca": self.ovpn_ca},
             )
             safe_cert_id = urllib.parse.quote(str(certificate_id), safe="*")
+            check_mutation()
             self._request(
                 "PATCH",
                 f"/certificate/{safe_cert_id}",
@@ -1127,6 +1156,7 @@ class RouterOSClient:
             # Record the names before exporting: if the subsequent inventory
             # request fails, cleanup can still resolve the generated file IDs.
             generated_file_names.update((exported_cert, exported_key))
+            check_mutation()
             self._request(
                 "POST",
                 "/certificate/export-certificate",
@@ -1151,13 +1181,14 @@ class RouterOSClient:
                 str(exported_files[exported_cert][".id"]),
             )
 
-            ca_file = self._ensure_ca_export(credentials)
+            ca_file = self._ensure_ca_export(credentials, before_mutation=check_mutation)
             files_before_profile = self._files(credentials)
             profile_export_baseline = {
                 name for name in files_before_profile if name.lower().endswith(".ovpn")
             }
             profile_export_attempted = True
 
+            check_mutation()
             self._request(
                 "POST",
                 "/interface/ovpn-server/server/export-client-configuration",
@@ -1322,7 +1353,7 @@ class RouterOSClient:
 
             for file_id in dict.fromkeys(file_ids):
                 try:
-                    self._delete_file(credentials, file_id)
+                    self._delete_file(credentials, file_id, before_mutation=check_mutation)
                 except RouterOSError as error:
                     cleanup_error = cleanup_error or error
 
@@ -1332,6 +1363,7 @@ class RouterOSClient:
                         credentials,
                         certificate_name=certificate_name,
                         certificate_id=certificate_id,
+                        before_mutation=check_mutation,
                     )
                 except RouterOSError as certificate_error:
                     raise RouterOSError(
@@ -1346,6 +1378,7 @@ class RouterOSClient:
                     credentials,
                     certificate_name=certificate_name,
                     certificate_id=certificate_id,
+                    before_mutation=check_mutation,
                 )
 
     def _remove_uncommitted_certificate(
@@ -1354,6 +1387,7 @@ class RouterOSClient:
         *,
         certificate_name: str,
         certificate_id: str | None,
+        before_mutation: Callable[[], None] | None = None,
     ) -> None:
         """Delete a partial profile certificate and verify it is absent."""
         delete_error: RouterOSError | None = None
@@ -1387,6 +1421,8 @@ class RouterOSClient:
                 )
             safe_cert_id = urllib.parse.quote(str(candidate_id), safe="*")
             try:
+                if before_mutation is not None:
+                    before_mutation()
                 self._request("DELETE", f"/certificate/{safe_cert_id}", credentials)
             except RouterOSError as error:
                 delete_error = error

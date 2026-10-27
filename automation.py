@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from integrations import RedisReviewCoordinationError
 from routeros import RouterOSCredentials, RouterOSError
 
 
@@ -128,6 +129,7 @@ class AutomationMixin:
         targets: list[dict[str, Any]],
         *,
         max_sessions: int | None = None,
+        review_lock: Any | None = None,
     ) -> tuple[list[dict[str, Any]] | None, dict[str, int]]:
         """Terminate only fresh exact sessions and classify each result by read-back."""
         counts = {"attempted": 0, "verified": 0, "failed": 0, "unknown": 0, "stale": 0}
@@ -154,6 +156,7 @@ class AutomationMixin:
                     counts["stale"] += 1
                     continue
             counts["attempted"] += 1
+            self.review_receipts.assert_lock_owned(review_lock)
             try:
                 self.context.router.terminate_session(credentials, session_id=str(exact["id"]))
             except RouterOSError:
@@ -189,8 +192,44 @@ class AutomationMixin:
         state: str,
         reason: str,
         now: int,
+        *,
+        _lock_held: bool = False,
+        _review_lock: Any | None = None,
     ) -> list[dict[str, Any]]:
         username = str(user.get("name", ""))
+        resource_key = f"vpn-user:{user.get('id', '')}"
+        if not _lock_held:
+            try:
+                with self.review_receipts.mutation_locks([resource_key]) as locks:
+                    # Controls may have changed while this worker waited for
+                    # another reviewed mutation to finish. Evaluate policy
+                    # only from the current metadata snapshot under the lock.
+                    current_control = self.context.store.user_controls(username)
+                    current_state, current_reason = self._automation_state(
+                        username, current_control, now,
+                    )
+                    return self._apply_automation_access(
+                        credentials,
+                        user,
+                        active,
+                        current_control,
+                        current_state,
+                        current_reason,
+                        now,
+                        _lock_held=True,
+                        _review_lock=locks[resource_key],
+                    )
+            except RedisReviewCoordinationError:
+                self.context.store.audit(
+                    actor="automation", action="user.auto_enforcement", target=username,
+                    status="unknown", details={"reason": "review_coordination_unavailable"},
+                )
+                self._automation_alert(
+                    action="user.auto_enforcement.review", target=username,
+                    title=f"Could not safely update access for {username}",
+                    details="Cross-instance account-edit coordination was unavailable. No new RouterOS account change was started.",
+                )
+                return active
         previous = str(control.get("enforcement_state", ""))
         pending = previous.startswith("pending:")
         if pending:
@@ -258,7 +297,21 @@ class AutomationMixin:
                     return active
                 current_user = checked_user
                 try:
+                    self.review_receipts.assert_lock_owned(_review_lock)
+                    self.review_receipts.invalidate(resource_key)
+                    self.review_receipts.assert_lock_owned(_review_lock)
                     self.context.router.update_user(credentials, user_id=str(user["id"]), disabled=False)
+                except RedisReviewCoordinationError:
+                    self.context.store.audit(
+                        actor="automation", action="user.auto_restore", target=username,
+                        status="unknown", details={"reason": "review_coordination_unavailable"},
+                    )
+                    self._automation_alert(
+                        action="user.auto_restore.review", target=username,
+                        title=f"Access restoration paused for {username}",
+                        details="Cross-instance account-edit coordination was lost before the RouterOS change. Retry after coordination recovers.",
+                    )
+                    return active
                 except RouterOSError as error:
                     mutation_error = error
                 else:
@@ -373,7 +426,21 @@ class AutomationMixin:
                 return active
             request_failed = False
             try:
+                self.review_receipts.assert_lock_owned(_review_lock)
+                self.review_receipts.invalidate(resource_key)
+                self.review_receipts.assert_lock_owned(_review_lock)
                 self.context.router.update_user(credentials, user_id=str(user["id"]), disabled=True)
+            except RedisReviewCoordinationError:
+                self.context.store.audit(
+                    actor="automation", action="user.auto_disable", target=username,
+                    status="unknown", details={"reason": "review_coordination_unavailable"},
+                )
+                self._automation_alert(
+                    action=f"user.auto_disable.{state}.review", target=username,
+                    title=f"Access restriction paused for {username}",
+                    details="Cross-instance account-edit coordination was lost before the RouterOS change. Retry after coordination recovers.",
+                )
+                return active
             except RouterOSError:
                 request_failed = True
                 pass  # Exact RouterOS read-back below resolves ambiguous responses.
@@ -406,7 +473,9 @@ class AutomationMixin:
             counts["unknown"] = 1
         else:
             targets = [item for item in post_disable if str(item.get("name", "")) == username]
-            remaining, counts = self._automation_terminate_sessions(credentials, username, targets)
+            remaining, counts = self._automation_terminate_sessions(
+                credentials, username, targets, review_lock=_review_lock,
+            )
         # The final point-in-time snapshot is authoritative for current live
         # sessions, including identities that changed or appeared during cleanup.
         final_sessions = self._automation_fresh_sessions(credentials)
@@ -444,6 +513,101 @@ class AutomationMixin:
                 details=detail,
             )
         return remaining
+
+    def _enforce_automation_session_limit(
+        self,
+        credentials: RouterOSCredentials,
+        user: dict[str, Any],
+        active: list[dict[str, Any]],
+        observed_control: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Enforce a session cap only from policy reread under the user lock."""
+        username = str(user.get("name", ""))
+        observed_limit = int(observed_control.get("max_sessions", 5) or 5)
+        observed_matching = [item for item in active if str(item.get("name", "")) == username]
+        if observed_limit <= 0 or len(observed_matching) <= observed_limit:
+            return active
+
+        resource_key = f"vpn-user:{user.get('id', '')}"
+        try:
+            with self.review_receipts.mutation_locks([resource_key]) as locks:
+                current_control = self.context.store.user_controls(username)
+                limit = int(current_control.get("max_sessions", 5) or 5)
+                freshness, current_user = self._automation_fresh_user(credentials, user)
+                if freshness != "fresh" or current_user is None:
+                    outcome = "unknown" if freshness == "unknown" else "stale"
+                    self.context.store.audit(
+                        actor="automation", action="session.limit", target=username,
+                        status=outcome, details={"reason": "account_changed_since_observation"},
+                    )
+                    self._automation_alert(
+                        action="session.limit.review", target=username,
+                        title=f"Review the connection limit for {username}",
+                        details="The RouterOS account changed or could not be reread. No session was disconnected.",
+                    )
+                    return active
+
+                current_sessions = self._automation_fresh_sessions(credentials)
+                if current_sessions is None:
+                    self.context.store.audit(
+                        actor="automation", action="session.limit", target=username,
+                        status="unknown", details={"reason": "session_readback_unavailable"},
+                    )
+                    return active
+                matching = [item for item in current_sessions if str(item.get("name", "")) == username]
+                if limit <= 0 or len(matching) <= limit:
+                    return current_sessions
+
+                review_lock = locks[resource_key]
+                self.review_receipts.assert_lock_owned(review_lock)
+                remaining, counts = self._automation_terminate_sessions(
+                    credentials, username, matching[limit:], max_sessions=limit,
+                    review_lock=review_lock,
+                )
+                self.review_receipts.assert_lock_owned(review_lock)
+                effective_sessions = remaining if remaining is not None else current_sessions
+                still_over = sum(
+                    1 for item in effective_sessions if str(item.get("name", "")) == username
+                ) > limit
+                partial = bool(counts["failed"] or counts["unknown"] or still_over)
+                self.context.store.audit(
+                    actor="automation", action="session.limit", target=username,
+                    status="partial" if partial else "success",
+                    details={
+                        "limit": limit,
+                        "sessions_attempted": counts["attempted"],
+                        "sessions_disconnected_verified": counts["verified"],
+                        "sessions_failed": counts["failed"],
+                        "sessions_unknown": counts["unknown"],
+                        "still_over_limit": still_over,
+                    },
+                )
+                if current_control.get("notifications", True):
+                    self.context.store.add_alert(
+                        severity="critical" if partial else "warning",
+                        action="session.limit.partial" if partial else "session.limit",
+                        target=username,
+                        title=(
+                            f"Connection limit needs review for {username}"
+                            if partial else f"Connection limit applied to {username}"
+                        ),
+                        details=(
+                            f"The worker could not verify that the account is within its {limit}-session limit. It will retry."
+                            if partial else f"RouterOS confirms the account is within its {limit}-session limit."
+                        ),
+                    )
+                return effective_sessions
+        except RedisReviewCoordinationError:
+            self.context.store.audit(
+                actor="automation", action="session.limit", target=username,
+                status="unknown", details={"reason": "review_coordination_unavailable"},
+            )
+            self._automation_alert(
+                action="session.limit.review", target=username,
+                title=f"Could not safely enforce the connection limit for {username}",
+                details="Cross-instance account-edit coordination was unavailable. No new session disconnect was started.",
+            )
+            return active
 
     def _telemetry_loop(self) -> None:
         # Credentials remain in the existing in-memory session store only. We do
@@ -486,46 +650,9 @@ class AutomationMixin:
                         active = self._apply_automation_access(
                             credentials, user, active, control, state, reason, now
                         )
-                        limit = int(control.get("max_sessions", 5) or 5)
-                        matching = [item for item in active if str(item.get("name", "")) == username]
-                        if limit > 0 and len(matching) > limit:
-                            remaining, counts = self._automation_terminate_sessions(
-                                credentials, username, matching[limit:], max_sessions=limit
-                            )
-                            if remaining is not None:
-                                active = remaining
-                            still_over = sum(
-                                1 for item in (remaining or []) if str(item.get("name", "")) == username
-                            ) > limit
-                            partial = bool(counts["failed"] or counts["unknown"] or still_over)
-                            self.context.store.audit(
-                                actor="automation",
-                                action="session.limit",
-                                target=username,
-                                status="partial" if partial else "success",
-                                details={
-                                    "limit": limit,
-                                    "sessions_attempted": counts["attempted"],
-                                    "sessions_disconnected_verified": counts["verified"],
-                                    "sessions_failed": counts["failed"],
-                                    "sessions_unknown": counts["unknown"],
-                                    "still_over_limit": still_over,
-                                },
-                            )
-                            if control.get("notifications", True):
-                                self.context.store.add_alert(
-                                    severity="critical" if partial else "warning",
-                                    action="session.limit.partial" if partial else "session.limit",
-                                    target=username,
-                                    title=(
-                                        f"Connection limit needs review for {username}"
-                                        if partial else f"Connection limit applied to {username}"
-                                    ),
-                                    details=(
-                                        f"The worker could not verify that the account is within its {limit}-session limit. It will retry."
-                                        if partial else f"RouterOS confirms the account is within its {limit}-session limit."
-                                    ),
-                                )
+                        active = self._enforce_automation_session_limit(
+                            credentials, user, active, control,
+                        )
                 except RouterOSError:
                     # A transient poll must not kill the worker.
                     continue

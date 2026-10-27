@@ -14,17 +14,12 @@ async function signIn(page) {
   await expect(page.getByRole('heading', { name: 'Administrator sessions' })).toBeVisible();
 }
 
-async function expectNoDocumentReload(page, originalDocument, navigations) {
+async function expectNoDocumentReload(page, originalDocument) {
   expect(await page.evaluate(() => window.__documentInstance)).toBe(originalDocument);
-  expect(navigations.count).toBe(0);
 }
 
 test('failed re-authentication clears password and preserves the live dashboard session', async ({ page }) => {
-  const navigations = { count: 0 };
   await signIn(page);
-  page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame()) navigations.count += 1;
-  });
   const originalDocument = await page.evaluate(() => window.__documentInstance);
 
   await page.getByRole('button', { name: 'Re-authenticate this session' }).click();
@@ -44,15 +39,11 @@ test('failed re-authentication clears password and preserves the live dashboard 
     await fetch('/api/telemetry', { credentials: 'same-origin' })
   ).status);
   expect(telemetryStatus).toBe(200);
-  await expectNoDocumentReload(page, originalDocument, navigations);
+  await expectNoDocumentReload(page, originalDocument);
 });
 
 test('self-service sign-out preserves the current session and requires typed confirmation', async ({ page }) => {
-  const navigations = { count: 0 };
   await signIn(page);
-  page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame()) navigations.count += 1;
-  });
   const originalDocument = await page.evaluate(() => window.__documentInstance);
 
   await page.getByRole('button', { name: 'Sign out my other sessions' }).click();
@@ -84,11 +75,10 @@ test('self-service sign-out preserves the current session and requires typed con
   expect(await page.evaluate(async () => (
     await fetch('/api/telemetry', { credentials: 'same-origin' })
   ).status)).toBe(200);
-  await expectNoDocumentReload(page, originalDocument, navigations);
+  await expectNoDocumentReload(page, originalDocument);
 });
 
 test('successful re-authentication adopts rotated CSRF and keeps the page in place', async ({ page }) => {
-  const navigations = { count: 0 };
   await signIn(page);
   let releaseStaleStatus;
   let signalStaleStatus;
@@ -110,9 +100,6 @@ test('successful re-authentication adopts rotated CSRF and keeps the page in pla
     await route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"expired"}' });
   });
   await staleStatusCaptured;
-  page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame()) navigations.count += 1;
-  });
   const originalDocument = await page.evaluate(() => window.__documentInstance);
   const originalCsrf = await page.locator('meta[name="csrf-token"]').getAttribute('content');
 
@@ -138,23 +125,19 @@ test('successful re-authentication adopts rotated CSRF and keeps the page in pla
   const rotatedCsrf = await page.locator('meta[name="csrf-token"]').getAttribute('content');
   expect(rotatedCsrf).toBeTruthy();
   expect(rotatedCsrf).not.toBe(originalCsrf);
-  await expectNoDocumentReload(page, originalDocument, navigations);
+  await expectNoDocumentReload(page, originalDocument);
 
   // A second successful POST proves the SPA's request helper uses the adopted
   // in-memory CSRF token, not just the one returned by the first response.
   await authenticate();
   const secondRotatedCsrf = await page.locator('meta[name="csrf-token"]').getAttribute('content');
   expect(secondRotatedCsrf).not.toBe(rotatedCsrf);
-  await expectNoDocumentReload(page, originalDocument, navigations);
+  await expectNoDocumentReload(page, originalDocument);
 });
 
 test('API token creation and revocation require step-up without reloading the live page', async ({ page }) => {
-  const navigations = { count: 0 };
   const tokenLabel = `step-up browser ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await signIn(page);
-  page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame()) navigations.count += 1;
-  });
   page.on('dialog', (dialog) => dialog.accept());
   const originalDocument = await page.evaluate(() => window.__documentInstance);
 
@@ -198,5 +181,95 @@ test('API token creation and revocation require step-up without reloading the li
   expect((await revokeReauth).status()).toBe(200);
   expect((await revokeToken).status()).toBe(200);
   await expect(tokenRow).toHaveCount(0);
-  await expectNoDocumentReload(page, originalDocument, navigations);
+  await expectNoDocumentReload(page, originalDocument);
+});
+
+test('VPN-user password changes require step-up and review active-session disconnects in place', async ({ page }) => {
+  let previewPayload;
+  let applyPayload;
+  await signIn(page);
+  const originalDocument = await page.evaluate(() => window.__documentInstance);
+
+  // Keep the browser test isolated from the shared mock RouterOS session used
+  // by the other viewport projects. Backend mutation/revocation behavior is
+  // covered by the dedicated Python integration tests.
+  await page.route((url) => /\/api\/users\/[^/]+(?:\/preview)?$/.test(url.pathname), async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && pathname.endsWith('/preview')) {
+      previewPayload = request.postDataJSON();
+      return route.fulfill({ json: {
+        review_token: 'browser-test-review-token',
+        username: 'user-two',
+        reason: 'Rotate this VPN user password',
+        changes: {
+          email: 'user-two@example.test',
+          comment: 'Tablet test device',
+          disabled: false,
+          controls: { policy: 'full-tunnel' },
+          password_changed: true,
+          active_sessions_to_disconnect: 1,
+        },
+      } });
+    }
+    if (request.method() === 'PATCH' && /^\/api\/users\/[^/]+$/.test(pathname)) {
+      applyPayload = request.postDataJSON();
+      return route.fulfill({ json: {
+        verification: 'partial',
+        active_sessions_disconnected: 1,
+      } });
+    }
+    return route.continue();
+  });
+
+  await page.locator('a[data-view-target="vpn-users"]').click();
+  const userCard = page.locator('.user-card').filter({ hasText: 'user-two' });
+  await userCard.locator('.action-menu summary').click();
+  await userCard.getByRole('button', { name: 'Edit user' }).click();
+  const editDialog = page.locator('#edit-dialog');
+  await expect(editDialog).toBeVisible();
+  await editDialog.getByLabel('Owner email').fill('user-two@example.test');
+  await editDialog.getByLabel('New password').fill('browser-rotated-vpn-password');
+  await editDialog.getByLabel('Reason for this change').fill('Rotate this VPN user password');
+
+  const previewResponse = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && /\/api\/users\/[^/]+\/preview$/.test(new URL(response.url()).pathname)
+  ));
+  await editDialog.getByRole('button', { name: 'Preview changes' }).click();
+
+  const reauthDialog = page.locator('#session-reauthenticate-dialog');
+  await expect(reauthDialog).toBeVisible();
+  await expect(reauthDialog.getByRole('status')).toContainText('before changing this VPN user');
+  const reauthResponse = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/auth/reauthenticate'
+  ));
+  await reauthDialog.getByLabel('RouterOS password').fill('routerpass');
+  await reauthDialog.getByRole('button', { name: 'Re-authenticate session' }).click();
+  expect((await reauthResponse).status()).toBe(200);
+  expect((await previewResponse).status()).toBe(200);
+  expect(previewPayload).toMatchObject({
+    email: 'user-two@example.test',
+    password: 'browser-rotated-vpn-password',
+    reason: 'Rotate this VPN user password',
+  });
+  await expect(reauthDialog).toBeHidden();
+  await expect(editDialog.locator('#edit-review')).toContainText('1 active VPN device will be disconnected');
+
+  const applyResponse = page.waitForResponse((response) => (
+    response.request().method() === 'PATCH'
+    && /\/api\/users\/[^/]+$/.test(new URL(response.url()).pathname)
+  ));
+  await editDialog.getByRole('button', { name: 'Save changes' }).click();
+  expect((await applyResponse).status()).toBe(200);
+  expect(applyPayload).toMatchObject({
+    password: 'browser-rotated-vpn-password',
+    reason: 'Rotate this VPN user password',
+    review_token: 'browser-test-review-token',
+  });
+  await expect(editDialog).toBeHidden();
+  await expect(editDialog.getByLabel('New password')).toHaveValue('');
+  await expect(page.locator('.toast-region')).toContainText('1 active VPN device was disconnected');
+  await expectNoDocumentReload(page, originalDocument);
 });

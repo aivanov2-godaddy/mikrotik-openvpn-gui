@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import contextlib
 from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
@@ -11,7 +12,10 @@ from routeros import RouterOSError
 
 class FakeStore:
     def __init__(self, control: dict[str, Any] | None = None) -> None:
-        self.control = control or {"enforcement_state": "", "notifications": True, "max_sessions": 5}
+        self.control = control or {
+            "enforcement_state": "", "notifications": True, "max_sessions": 5,
+            "quota_mb": 1, "schedule": "always", "expires_at": "",
+        }
         self.audits: list[dict[str, Any]] = []
         self.alerts: list[dict[str, Any]] = []
         self.enforcement_state = str(self.control.get("enforcement_state", ""))
@@ -37,7 +41,7 @@ class FakeStore:
         return self.control
 
     def quota_usage(self, _username: str, _period_start: int) -> int:
-        return 0
+        return 1024 * 1024
 
     def observe_sessions(self, _sessions: list[dict[str, Any]]) -> None:
         pass
@@ -101,6 +105,30 @@ class FakeRouter:
 class Worker(AutomationMixin):
     def __init__(self, router: FakeRouter, store: FakeStore) -> None:
         self.context = SimpleNamespace(router=router, store=store, sessions=None)
+        self.review_receipts = FakeReviewReceipts()
+
+
+class FakeReviewReceipts:
+    def __init__(self) -> None:
+        self.invalidated: list[str] = []
+
+    @contextlib.contextmanager
+    def resource_lock(self, _resource_key: str):
+        yield None
+
+    @contextlib.contextmanager
+    def mutation_locks(self, resource_keys: list[str]):
+        with self.resource_lock("vpn-user-provisioning-gate"):
+            if getattr(self, "before_mutation", None):
+                self.before_mutation()
+            yield {key: None for key in sorted(set(resource_keys))}
+
+    @staticmethod
+    def assert_lock_owned(_lock: Any | None) -> None:
+        return
+
+    def invalidate(self, resource_key: str) -> None:
+        self.invalidated.append(resource_key)
 
 
 class OnePassStop:
@@ -156,6 +184,31 @@ class AutomationMutationTests(unittest.TestCase):
         self.assertFalse(router.users[0]["disabled"])
         self.assertEqual(router.checkpoints, 0)
         self.assertEqual(store.audits[-1]["status"], "stale")
+
+    def test_policy_controls_are_recomputed_after_waiting_for_mutation_lock(self) -> None:
+        router = FakeRouter()
+        store = FakeStore({
+            "enforcement_state": "", "notifications": True, "max_sessions": 5,
+            "schedule": "weekdays", "quota_mb": 0, "expires_at": "",
+        })
+        worker = Worker(router, store)
+
+        class ControlsChangedBeforeLock(FakeReviewReceipts):
+            @contextlib.contextmanager
+            def resource_lock(self, resource_key: str):
+                if resource_key == "vpn-user-provisioning-gate":
+                    store.control["schedule"] = "always"
+                yield None
+
+        worker.review_receipts = ControlsChangedBeforeLock()
+        worker._apply_automation_access(
+            self.credentials, deepcopy(router.users[0]), [], store.control,
+            "schedule", "Outside configured schedule", 1_800_000_000,
+        )
+
+        self.assertFalse(router.users[0]["disabled"])
+        self.assertEqual(router.checkpoints, 0)
+        self.assertEqual(store.enforcement_state, "")
 
     def test_account_change_during_checkpoint_blocks_automatic_write(self) -> None:
         router = FakeRouter()
@@ -244,13 +297,18 @@ class AutomationMutationTests(unittest.TestCase):
         router.update_error = "response lost"
         router.update_commits_before_error = True
         store = FakeStore()
+        worker = Worker(router, store)
 
-        self.apply(router, store)
+        worker._apply_automation_access(
+            self.credentials, deepcopy(router.users[0]), deepcopy(router.sessions),
+            store.control, "quota", "Quota reached", 1_800_000_000,
+        )
 
         self.assertTrue(router.users[0]["disabled"])
         self.assertEqual(store.enforcement_state, "quota")
         self.assertEqual(store.audits[-1]["status"], "success")
         self.assertTrue(store.audits[-1]["details"]["account_readback"] == "verified")
+        self.assertEqual(worker.review_receipts.invalidated, ["vpn-user:*1"])
 
     def test_unverified_disable_does_not_record_enforcement_success(self) -> None:
         router = FakeRouter()
@@ -345,6 +403,23 @@ class AutomationMutationTests(unittest.TestCase):
         self.assertEqual(alert["severity"], "critical")
         self.assertNotIn("*a", str(record))
         self.assertNotIn("*b", str(record))
+
+    def test_session_limit_rereads_policy_after_waiting_for_user_lock(self) -> None:
+        router = FakeRouter(sessions=[session("*a"), session("*b")])
+        store = FakeStore({"enforcement_state": "", "notifications": True, "max_sessions": 1})
+        worker = Worker(router, store)
+        worker.review_receipts.before_mutation = lambda: store.control.update(max_sessions=5)
+
+        remaining = worker._enforce_automation_session_limit(
+            self.credentials,
+            deepcopy(router.users[0]),
+            deepcopy(router.sessions),
+            {"max_sessions": 1},
+        )
+
+        self.assertEqual(len(remaining), 2)
+        self.assertEqual(len(router.sessions), 2)
+        self.assertFalse(any(item["action"] == "session.limit" for item in store.audits))
 
 
 if __name__ == "__main__":
