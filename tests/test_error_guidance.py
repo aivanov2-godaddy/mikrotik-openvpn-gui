@@ -107,7 +107,7 @@ class RouterOSErrorGuidanceTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return False
 
-            def read(self):
+            def read(self, _amount=-1):
                 return b"raw-router-data-marker"
 
         with patch.object(client._opener, "open", return_value=InvalidJsonResponse()):
