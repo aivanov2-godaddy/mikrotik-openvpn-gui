@@ -12,6 +12,7 @@ from typing import Any
 
 _REMOTE = re.compile(r"^remote\s+(\S+)(?:\s+(\d+))?(?:\s+(\S+))?\s*$", re.I)
 _VERIFY_NAME = re.compile(r"^verify-x509-name\s+(\S+)", re.I)
+_DISPLAYABLE_PROTOCOLS = {"udp", "tcp", "tcp-client"}
 
 
 def diagnose_profile(profile: str) -> dict[str, Any]:
@@ -44,10 +45,13 @@ def diagnose_profile(profile: str) -> dict[str, Any]:
 
     proto_line = (directives.get("proto") or [""])[0]
     proto_parts = proto_line.split(None, 1)
-    proto = proto_parts[1].casefold() if len(proto_parts) == 2 else ""
-    add("protocol", "pass", f"Transport protocol is {proto}." if proto else "Protocol uses the OpenVPN default.")
-    if proto and proto not in {"udp", "tcp", "tcp-client"}:
-        add("protocol", "warning", "The transport protocol is unusual for this dashboard.")
+    proto = proto_parts[1].split(None, 1)[0].casefold() if len(proto_parts) == 2 else ""
+    if not proto:
+        add("protocol", "pass", "Protocol uses the OpenVPN default.")
+    elif proto in _DISPLAYABLE_PROTOCOLS:
+        add("protocol", "pass", f"Transport protocol is {proto}.")
+    else:
+        add("protocol", "warning", "The transport protocol is unrecognized or unsupported and was not displayed.")
 
     required_blocks = {"<ca>": "CA certificate", "<cert>": "client certificate", "<key>": "client private key"}
     for block, label in required_blocks.items():

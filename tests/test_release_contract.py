@@ -80,6 +80,18 @@ class ReleaseContractTests(unittest.TestCase):
         for workflow in ("ci.yml", "container.yml"):
             self.assertIn("exposure_doctor.py", (workflows / workflow).read_text(encoding="utf-8"))
 
+    def test_every_local_container_copy_input_triggers_mainline_publishing(self) -> None:
+        containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        self.assertIn('      - ".dockerignore"', publish)
+        for line in containerfile.splitlines():
+            if not line.startswith("COPY ") or "--from=" in line:
+                continue
+            for source in line.split()[1:-1]:
+                trigger = "static/**" if source == "static" else source
+                with self.subTest(container_input=source):
+                    self.assertIn(f'      - "{trigger}"', publish)
+
     def test_public_repository_has_no_router_deployment_workflow(self) -> None:
         workflows = ROOT / ".github" / "workflows"
         self.assertFalse((workflows / "deploy-production.yml").exists())

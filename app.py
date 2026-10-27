@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.parse
 import ipaddress
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -69,6 +70,26 @@ DNS_VALUES = {"router", "cloudflare"}
 EXPIRY_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800, "30d": 2592000}
 QUOTA_VALUES_MB = {0, 1024, 5120, 10240, 25600, 51200, 102400}
 PROCESS_START_TIME_SECONDS = time.time()
+
+
+def _spreadsheet_safe_csv_cell(value: Any) -> Any:
+    """Keep untrusted text cells from being evaluated as spreadsheet formulas."""
+    if not isinstance(value, str):
+        return value
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character.isspace() or unicodedata.category(character) in {"Cc", "Cf", "Zs", "Zl", "Zp"}:
+            index += 1
+            continue
+        break
+    if index < len(value) and value[index] in "=+-@":
+        return "'" + value
+    return value
+
+
+def _spreadsheet_safe_csv_rows(rows: list[list[Any]]) -> list[list[Any]]:
+    return [[_spreadsheet_safe_csv_cell(value) for value in row] for row in rows]
 
 
 def _validated_response_headers(extra: dict[str, str] | None) -> list[tuple[str, str]]:
@@ -992,7 +1013,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         stream = io.StringIO(newline="")
         writer = csv.writer(stream)
         writer.writerow(headers)
-        writer.writerows(rows)
+        writer.writerows(_spreadsheet_safe_csv_rows(rows))
         self._bytes(
             stream.getvalue().encode("utf-8-sig"),
             content_type="text/csv; charset=utf-8",
@@ -3476,17 +3497,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         audit_stream = io.StringIO(newline="")
         writer = csv.writer(audit_stream)
         writer.writerow(["timestamp", "operator", "action", "target", "result", "details"])
-        writer.writerows([
+        writer.writerows(_spreadsheet_safe_csv_rows([
             [time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(int(item["created_at"]))), item["actor"], item["action"], item["target"], item["status"], item["details"]]
             for item in audit
-        ])
+        ]))
         connection_stream = io.StringIO(newline="")
         writer = csv.writer(connection_stream)
         writer.writerow(["user", "connected", "disconnected", "source_ip", "vpn_ip", "encryption", "received_bytes", "sent_bytes"])
-        writer.writerows([
+        writer.writerows(_spreadsheet_safe_csv_rows([
             [item["vpn_user"], time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(int(item["connected_at"]))), time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(int(item["disconnected_at"]))) if item.get("disconnected_at") else "connected", item["source_address"], item["vpn_address"], item["encoding"], item["rx_bytes"], item["tx_bytes"]]
             for item in connections
-        ])
+        ]))
         stream = io.BytesIO()
         with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("summary.json", json.dumps(summary, separators=(",", ":"), sort_keys=True))
