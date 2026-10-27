@@ -235,6 +235,9 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           timeout: 10m0s
+      - name: Verify candidate image archive unchanged after scan
+        working-directory: candidate-image
+        run: sha256sum --check candidate-image.tar.sha256
 
   publish:
     name: Publish ${{ matrix.name }} image

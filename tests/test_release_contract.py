@@ -196,6 +196,10 @@ class ReleaseContractTests(unittest.TestCase):
             scan_job.index("Scan candidate image for OS and library vulnerabilities"),
         )
         self.assertLess(
+            scan_job.index("Scan candidate image for OS and library vulnerabilities"),
+            scan_job.index("Verify candidate image archive unchanged after scan"),
+        )
+        self.assertLess(
             publish_job.index("Verify scanned image archive checksum and load it"),
             publish_job.index("Sign in to GHCR after the candidate passes its scan"),
         )
