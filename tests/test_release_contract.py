@@ -205,7 +205,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #860", release_record)
+        self.assertIn("## Latest published mainline image — PR #862", release_record)
+        self.assertIn("## Previous published mainline image — PR #860", release_record)
         self.assertIn("## Previous published mainline image — PR #859", release_record)
         self.assertIn("## Previous published mainline image — PR #849", release_record)
         self.assertIn("## Previous published mainline image — PR #846", release_record)
@@ -319,7 +320,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("An earlier read-only RouterOS inventory on 2026-10-25 reported the canary stopped", rendered)
         self.assertIn("latest read-only WinBox observation", rendered)
         self.assertIn("0.7% CPU and 60.9 MiB memory", rendered)
-        self.assertIn("does not verify or accept the newer PR #860 image", rendered)
+        self.assertIn("does not verify or accept PR #862", rendered)
         self.assertIn("PR #798", rendered)
 
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:

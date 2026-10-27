@@ -572,7 +572,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "older PR #806 image, observed on 2026-10-24",
+            "older PR #806 image on 2026-10-24",
             report,
         )
         self.assertIn(
@@ -639,15 +639,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #860 (`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) is the latest published runtime image source",
+            "PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest published runtime image source",
             roadmap,
         )
         self.assertIn(
-            "PR #860 (`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) is the latest published runtime image source",
+            "PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest published runtime image source",
             releases,
         )
         self.assertIn(
-            "PR #860's immutable artifacts are published but have not been read back as the configured canary or production image",
+            "PR #862 is a published artifact, not a numbered release or a RouterOS deployment.",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)
