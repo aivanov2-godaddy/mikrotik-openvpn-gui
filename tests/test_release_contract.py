@@ -90,6 +90,18 @@ class ReleaseContractTests(unittest.TestCase):
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
         self.assertIn('      - "scripts/prune_runtime_build_tools.py"', publish)
 
+    def test_runtime_pruner_is_included_in_docker_build_context(self) -> None:
+        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("scripts", dockerignore)
+        self.assertIn("!scripts/", dockerignore)
+        self.assertIn("scripts/*", dockerignore)
+        self.assertIn("!scripts/prune_runtime_build_tools.py", dockerignore)
+        self.assertLess(dockerignore.index("!scripts/"), dockerignore.index("scripts/*"))
+        self.assertLess(
+            dockerignore.index("scripts/*"),
+            dockerignore.index("!scripts/prune_runtime_build_tools.py"),
+        )
+
     def test_every_local_container_copy_input_triggers_mainline_publishing(self) -> None:
         containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")

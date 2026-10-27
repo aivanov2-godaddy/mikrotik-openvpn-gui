@@ -22,3 +22,6 @@ ARCHITECTURE.md
 CHANGELOG.md
 CONTRIBUTING.md
 SECURITY.md
+!scripts/
+scripts/*
+!scripts/prune_runtime_build_tools.py
