@@ -13,17 +13,22 @@ import socket
 import ssl
 import threading
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Iterable, Iterator
 
 from routeros import RouterOSError
 
 
-MAX_WORD_SIZE = 1 << 20
+MAX_WORD_SIZE = 64 << 10
 MAX_SENTENCE_SIZE = 4 << 20
 MAX_RESPONSE_BYTES = 16 << 20
 MAX_RESPONSE_REPLIES = 10_000
 MAX_REPLY_WORDS = 4_096
 MAX_RESPONSE_WORDS = 65_536
+MAX_REPLY_KIND_BYTES = 32
+MAX_REPLY_FIELD_NAME_BYTES = 128
+MAX_REPLY_FIELD_VALUE_BYTES = 4 << 10
+MAX_QUERY_WORD_BYTES = 512
 
 
 class RouterOSBinaryError(RouterOSError):
@@ -113,6 +118,11 @@ def decode_words(data: bytes) -> list[bytes]:
         end = offset + length
         if end > len(data):
             raise RouterOSBinaryError("truncated RouterOS API word")
+        if length > MAX_WORD_SIZE:
+            raise RouterOSBinaryError(
+                "RouterOS API word exceeds configured safety limit",
+                failure_kind="invalid_response",
+            )
         words.append(data[offset:end])
         offset = end
     raise RouterOSBinaryError("missing RouterOS API sentence terminator")
@@ -133,12 +143,37 @@ def parse_reply(words: Iterable[bytes]) -> RouterOSReply:
     first = next(iterator, None)
     if first is None or not first.startswith(b"!"):
         raise RouterOSBinaryError("RouterOS reply does not have a reply kind")
+    if len(first) > MAX_REPLY_KIND_BYTES:
+        raise RouterOSBinaryError(
+            "RouterOS Binary API reply kind exceeds configured safety limit",
+            failure_kind="invalid_response",
+        )
     kind = first.decode("utf-8", "replace")[1:]
     attributes: dict[str, str] = {}
     for word_count, raw in enumerate(iterator, start=2):
         if word_count > MAX_REPLY_WORDS:
             raise RouterOSBinaryError(
                 "RouterOS Binary API reply exceeds configured word limit",
+                failure_kind="invalid_response",
+            )
+        if len(raw) > MAX_WORD_SIZE:
+            raise RouterOSBinaryError(
+                "RouterOS API word exceeds configured safety limit",
+                failure_kind="invalid_response",
+            )
+        if raw.startswith(b"="):
+            key_bytes, separator, value_bytes = raw[1:].partition(b"=")
+        else:
+            key_bytes, separator, value_bytes = raw.partition(b"=")
+        checked_key = key_bytes if separator else raw
+        if len(checked_key) > MAX_REPLY_FIELD_NAME_BYTES:
+            raise RouterOSBinaryError(
+                "RouterOS Binary API field name exceeds configured safety limit",
+                failure_kind="invalid_response",
+            )
+        if separator and len(value_bytes) > MAX_REPLY_FIELD_VALUE_BYTES:
+            raise RouterOSBinaryError(
+                "RouterOS Binary API field value exceeds configured safety limit",
                 failure_kind="invalid_response",
             )
         text = raw.decode("utf-8", "replace")
@@ -280,11 +315,65 @@ class RouterOSBinaryConnection:
     existing REST client until a separate review approves otherwise.
     """
 
-    READ_ONLY_PRINT_PATHS = frozenset({
-        "/interface/print",
-        "/ppp/active/print",
-    })
-    READ_ONLY_LISTEN_PATHS = frozenset({"/ppp/active"})
+    _ACTIVE_SESSION_FIELDS = frozenset(
+        {
+            ".id",
+            "name",
+            "address",
+            "caller-id",
+            "uptime",
+            "encoding",
+            "service",
+            "rx-byte",
+            "tx-byte",
+            "rx-packet",
+            "tx-packet",
+        }
+    )
+    READ_ONLY_PRINT_QUERY_FIELDS = MappingProxyType(
+        {
+            "/interface/print": frozenset(
+                {".id", "name", "rx-byte", "tx-byte", "rx-packet", "tx-packet"}
+            ),
+            "/ppp/active/print": _ACTIVE_SESSION_FIELDS,
+        }
+    )
+    READ_ONLY_LISTEN_QUERY_FIELDS = MappingProxyType({"/ppp/active": _ACTIVE_SESSION_FIELDS})
+    READ_ONLY_PRINT_PATHS = frozenset(READ_ONLY_PRINT_QUERY_FIELDS)
+    READ_ONLY_LISTEN_PATHS = frozenset(READ_ONLY_LISTEN_QUERY_FIELDS)
+
+    @staticmethod
+    def _validated_query(query: Iterable[str], allowed_fields: frozenset[str]) -> tuple[str, ...]:
+        """Accept at most one path-approved, narrowly scoped proplist word."""
+
+        if isinstance(query, (str, bytes, bytearray)):
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+        try:
+            iterator = iter(query)
+        except TypeError as error:
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist") from error
+        sentinel = object()
+        word = next(iterator, sentinel)
+        if word is sentinel:
+            return ()
+        if next(iterator, sentinel) is not sentinel:
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+        if not isinstance(word, str) or len(word) > MAX_QUERY_WORD_BYTES:
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+        try:
+            encoded_length = len(word.encode("utf-8"))
+        except UnicodeEncodeError as error:
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist") from error
+        if encoded_length > MAX_QUERY_WORD_BYTES or not word.startswith(".proplist="):
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+        fields = word[len(".proplist=") :].split(",")
+        if (
+            not fields
+            or any(not field or field not in allowed_fields for field in fields)
+            or len(fields) != len(set(fields))
+        ):
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+        return (word,)
 
     def __init__(
         self,
@@ -480,7 +569,8 @@ class RouterOSBinaryConnection:
             raise ValueError("RouterOS API paths must start with '/'")
         if path not in self.READ_ONLY_PRINT_PATHS:
             raise ValueError("RouterOS Binary API path is not in the read-only allowlist")
-        return self._request([path, *query])
+        approved_query = self._validated_query(query, self.READ_ONLY_PRINT_QUERY_FIELDS[path])
+        return self._request([path, *approved_query])
 
     def listen(self, path: str, *, query: Iterable[str] = ()) -> Iterator[RouterOSReply]:
         """Start a RouterOS ``listen`` command and yield change records.
@@ -493,9 +583,10 @@ class RouterOSBinaryConnection:
             raise ValueError("RouterOS API paths must start with '/'")
         if path not in self.READ_ONLY_LISTEN_PATHS:
             raise ValueError("RouterOS Binary API listen path is not in the read-only allowlist")
+        approved_query = self._validated_query(query, self.READ_ONLY_LISTEN_QUERY_FIELDS[path])
         tag = self._next_tag()
         try:
-            self._send([path + "/listen", *query, f".tag={tag}"])
+            self._send([path + "/listen", *approved_query, f".tag={tag}"])
             while True:
                 reply = parse_reply(self._read_sentence())
                 if reply.attributes.get(".tag") != tag:

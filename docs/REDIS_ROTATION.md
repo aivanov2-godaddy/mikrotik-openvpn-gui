@@ -18,19 +18,43 @@ the new one. Schedule Redis restarts in a quiet maintenance window.
   entries already acknowledged before Redis lost them.
 - Use an authenticated RouterOS account limited to the required container,
   file, and environment-list operations. RouterOS container environment values
-  contain the Redis URL in plaintext; restrict who may inspect that config.
+  contain the Redis URL in plaintext even with TLS; restrict who may inspect it.
 - The dashboard app appends sanitized events to `vpn-dashboard.events` and
   coordinates reviewed RouterOS user mutations across instances. Give its
   dedicated `vpn-dashboard` ACL identity access only to the event stream and
-  `vpn-dashboard.review.*` coordination keys. It needs connection setup,
-  `PING`, `XADD`, `GET`, `SET`, `INCR`, `DEL`, `EVAL`, `PEXPIRE`, and `INFO`;
-  these commands support stream delivery, per-user locks, review generations,
-  and Redis server-run-ID checks. `INFO` is used only to detect a Redis process
-  restart; the dashboard fails closed until its instances are restarted.
+  `vpn-dashboard.review.*` coordination keys. It needs `HELLO` for its RESP3
+  handshake, `PING`, `XADD`, `GET`, `SET`, `INCR`, `DEL`, `EVAL`, `PEXPIRE`,
+  and `INFO`. redis-py 8.1.0 also attempts optional `CLIENT SETINFO`; allow the
+  `setinfo` subcommand on Redis 7.2 or newer. The client tolerates denial on
+  older Redis versions. Do not grant the broad `+@connection` category. `INFO`
+  detects a Redis process restart; the dashboard fails closed until restarted.
   Do not leave the application on Redis's `default` identity after migration.
 - Do not continue if the Redis ACL file, data directory, or persistence mode
   cannot be identified. Do not paste passwords or hashes into screenshots,
   tickets, issues, pull requests, or chat.
+
+## Redis transport and command permissions
+
+The application pins `redis-py==8.1.0`. Its default RESP3 handshake uses
+`HELLO`; with the documented `/0` URL, it does not issue `SELECT`. The publisher
+uses `PING` and `XADD`; the shared mutation coordinator also uses `GET`, `SET`,
+`INCR`, `DEL`, `EVAL`, `PEXPIRE`, and `INFO`. Grant only those commands and
+scope keys to `vpn-dashboard.events` and `vpn-dashboard.review.*`.
+
+On Redis 7.2 and newer, redis-py may also send optional `CLIENT SETINFO`; add
+`+client|setinfo`. On Redis 6.0 through 7.1, omit that subcommand grant. A
+denied or unsupported `CLIENT SETINFO` response is ignored by redis-py. Do not
+grant `+@connection`, which includes unrelated connection and client-control
+commands.
+
+`redis://` remains supported for existing deployments on an isolated, trusted
+private container network. It does not encrypt credentials or event data in
+transit; startup logs a warning without exposing the URL. Use it only when
+Redis is not reachable from an untrusted network. `rediss://` enables TLS
+transport. The dashboard client explicitly requires certificate validation and
+hostname checking; configure a trusted CA when needed. The startup log reports
+the TLS mode without exposing the URL. TLS does not encrypt the URL stored in
+RouterOS environment configuration.
 
 ## Generate a replacement password locally
 
@@ -76,23 +100,24 @@ until both publishers have been switched and verified. Add a second rule for
 the app-specific account:
 
 ```text
-user default on #CURRENT_DEFAULT_SHA256 ~vpn-dashboard.events +@connection +xadd +ping
-user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info
+<EXACT_EXISTING_DEFAULT_RULE>
+user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +hello +ping +xadd +get +set +incr +del +eval +pexpire +info +client|setinfo
 ```
 
-Preserve the exact existing `default` line (including any active hashes or
-permissions); do not copy the placeholder text. The app user has access only
-to the stream key shown and the commands it needs. If the ACL file contains
-other users, preserve their lines too. For a two-line file, RouterOS Terminal
-can write a CRLF between the lines using the documented `\r\n` string escape:
+Replace `<EXACT_EXISTING_DEFAULT_RULE>` with the complete current `default`
+line, byte-for-byte; do not change its permissions during this migration. The
+app user is scoped to the event and review key patterns and the commands it
+needs. If Redis is older than 7.2, omit `+client|setinfo`. Preserve all other
+ACL lines too. RouterOS Terminal can write a CRLF between the lines using the
+documented `\r\n` string escape:
 
 ```routeros
-:local eol "\r\n"; /file set [find where name="<REDIS_FOLDER>/acl.txt"] contents=("user default on #CURRENT_DEFAULT_SHA256 ~vpn-dashboard.events +@connection +xadd +ping".$eol."user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info")
+:local eol "\r\n"; /file set [find where name="<REDIS_FOLDER>/acl.txt"] contents=("<EXACT_EXISTING_DEFAULT_RULE>".$eol."user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +hello +ping +xadd +get +set +incr +del +eval +pexpire +info +client|setinfo")
 ```
 
-Replace the path and values with the actual values. This example assumes the
-existing `default` rule is exactly the one shown; if it differs, preserve its
-actual complete line. Verify the file contents before loading the ACL. Apply
+Replace the path, existing-rule placeholder, and digest locally. If Redis is
+older than 7.2, omit `+client|setinfo`. Verify the complete file contents
+before loading the ACL. Apply
 the file using the configured trusted Redis administrative path, or restart
 Redis after confirming its data directory, persistence, backup, and maintenance
 window. A file edit alone does not prove the running Redis process loaded it.
@@ -125,7 +150,7 @@ and file path. The `vpn-dashboard` rule should temporarily contain both
 SHA-256 hashes, for example:
 
 ```text
-user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info
+user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +hello +ping +xadd +get +set +incr +del +eval +pexpire +info +client|setinfo
 ```
 
 Replace `OLD_SHA256` with the old digest for user `vpn-dashboard` and
@@ -133,13 +158,14 @@ Replace `OLD_SHA256` with the old digest for user `vpn-dashboard` and
 labels or angle brackets. Keep the leading `#` before each digest. The `~`
 before the stream key is literal: do not add a backslash. `#` is part of the
 ACL hash rule, not a comment when it appears on this `user` line.
+If Redis is older than 7.2, omit `+client|setinfo`.
 
 If editing through RouterOS Terminal, use the actual RouterOS property name
 `name` (not Markdown bold markers like `**name**`) and paste the command as a
 single line. Substitute only the path and generated digest values:
 
 ```routeros
-/file set [find where name="<REDIS_FOLDER>/acl.txt"] contents="user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info"
+/file set [find where name="<REDIS_FOLDER>/acl.txt"] contents="user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +hello +ping +xadd +get +set +incr +del +eval +pexpire +info +client|setinfo"
 ```
 
 Use the existing exact file path; do not create a second ACL file or alter the
@@ -154,8 +180,10 @@ plain file edit alone does not prove the running Redis process loaded it.
 
 1. Change only the canary environment list's `REDIS_STREAM_URL` to use the new
    password. Keep the dedicated username `vpn-dashboard`, private Redis
-   address, port, and database number. The URI shape is
-   `redis://vpn-dashboard:<NEW_PASSWORD>@<PRIVATE_REDIS_HOST>:6379/0`.
+   address, port, and database number. For an isolated private network, the URI
+   shape is `redis://vpn-dashboard:<NEW_PASSWORD>@<PRIVATE_REDIS_HOST>:6379/0`;
+   it does not encrypt traffic. Use `rediss://` for a TLS-enabled endpoint with
+   a trusted certificate.
    If you cannot use the RouterOS environment-list editor, the equivalent
    RouterOS Terminal form is below. Replace the placeholders; do not type the
    angle brackets. This command contains the plaintext password and may remain
@@ -192,7 +220,7 @@ When both dashboard containers use the new password and publish successfully,
 remove the old hash from the ACL file, leaving only the new one:
 
 ```text
-user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info
+user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +hello +ping +xadd +get +set +incr +del +eval +pexpire +info +client|setinfo
 ```
 
 Apply the changed ACL file. Removing an old password prevents new
@@ -228,3 +256,7 @@ administrative Redis access path while applying this procedure.
   documents password and connection behavior.
 - Redis [`XADD`](https://redis.io/docs/latest/commands/xadd/) is the stream
   append command used by this publisher.
+- The pinned [redis-py 8.1.0 connection setup](https://github.com/redis/redis-py/blob/v8.1.0/redis/connection.py)
+  and [RESP default](https://github.com/redis/redis-py/blob/v8.1.0/redis/utils.py)
+  document its HELLO negotiation, optional client metadata, and database
+  selection behavior used to derive the command grants above.

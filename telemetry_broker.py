@@ -8,6 +8,7 @@ gateway.  Only fields already safe to display in the dashboard are retained.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -17,6 +18,12 @@ from routeros_binary import RouterOSReply
 
 
 _MISSING = object()
+MAX_TELEMETRY_TEXT_BYTES = 256
+MAX_CACHED_SESSIONS = 4_096
+MAX_CACHED_INTERFACES = 1_024
+MAX_SESSION_SNAPSHOT_RECORDS = 4_096
+MAX_INTERFACE_SNAPSHOT_RECORDS = 1_024
+MAX_ROUTEROS_COUNTER = (1 << 64) - 1
 _SESSION_COUNTERS = {
     "rx_bytes": ("rx-byte", "rx_bytes"),
     "tx_bytes": ("tx-byte", "tx_bytes"),
@@ -46,8 +53,31 @@ class TelemetryEvent:
 def _text(record: Mapping[str, Any], *keys: str) -> str:
     for key in keys:
         value = record.get(key, _MISSING)
-        if value is not _MISSING and value is not None:
-            return str(value).strip()
+        if value is _MISSING or value is None:
+            continue
+        if isinstance(value, str):
+            # Check before stripping so an oversized upstream value never gets
+            # copied into retained broker state, even when it is mostly spaces.
+            if len(value) > MAX_TELEMETRY_TEXT_BYTES:
+                continue
+            text = value.strip()
+        elif isinstance(value, int) and not isinstance(value, bool):
+            if value.bit_length() > MAX_TELEMETRY_TEXT_BYTES * 4:
+                continue
+            text = str(value)
+        elif isinstance(value, float):
+            if not math.isfinite(value):
+                continue
+            text = str(value)
+        else:
+            continue
+        if len(text) > MAX_TELEMETRY_TEXT_BYTES:
+            continue
+        try:
+            if len(text.encode("utf-8")) <= MAX_TELEMETRY_TEXT_BYTES:
+                return text
+        except UnicodeEncodeError:
+            continue
     return ""
 
 
@@ -56,8 +86,9 @@ def _counter(record: Mapping[str, Any], *keys: str) -> int:
     if not value:
         return 0
     try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
+        counter = int(value)
+        return counter if 0 <= counter <= MAX_ROUTEROS_COUNTER else 0
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
@@ -65,7 +96,12 @@ def _counter_observed(record: Mapping[str, Any], *keys: str) -> bool:
     """Distinguish a real zero from a counter omitted by PPP live records."""
 
     value = _text(record, *keys)
-    return bool(value) and value.isdecimal()
+    if not value or not value.isdecimal():
+        return False
+    try:
+        return int(value) <= MAX_ROUTEROS_COUNTER
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def _preserve_unobserved_counters(
@@ -152,8 +188,8 @@ class TelemetryBroker:
     ) -> None:
         self._clock = clock
         self._monotonic_clock = monotonic_clock
-        self._max_sessions = max(1, int(max_sessions))
-        self._max_interfaces = max(1, int(max_interfaces))
+        self._max_sessions = min(MAX_CACHED_SESSIONS, max(1, int(max_sessions)))
+        self._max_interfaces = min(MAX_CACHED_INTERFACES, max(1, int(max_interfaces)))
         self._lock = threading.RLock()
         self._sessions: dict[str, dict[str, Any]] = {}
         self._interfaces: dict[str, dict[str, Any]] = {}
@@ -280,7 +316,9 @@ class TelemetryBroker:
 
         observed_at = self._timestamp(now)
         incoming: dict[str, tuple[dict[str, Any], Mapping[str, Any]]] = {}
-        for record in records:
+        for record_count, record in enumerate(records, start=1):
+            if record_count > MAX_SESSION_SNAPSHOT_RECORDS:
+                raise ValueError("RouterOS session snapshot exceeds configured record limit")
             session = normalize_session(record)
             if session is not None:
                 session["observed_at"] = observed_at
@@ -348,7 +386,9 @@ class TelemetryBroker:
         sample_clock_kind = "explicit" if now is not None else "monotonic"
         sampled_at = float(now) if now is not None else float(self._monotonic_clock())
         incoming: dict[str, dict[str, Any]] = {}
-        for record in records:
+        for record_count, record in enumerate(records, start=1):
+            if record_count > MAX_INTERFACE_SNAPSHOT_RECORDS:
+                raise ValueError("RouterOS interface snapshot exceeds configured record limit")
             interface = normalize_interface(record)
             if interface is not None:
                 interface["observed_at"] = observed_at

@@ -65,6 +65,17 @@ class RedisStreamPublisher:
         self._publish_failures = 0
         self._last_publish_success = 0
         self._last_publish_succeeded: bool | None = None
+        self._transport_tls = urlsplit(str(url)).scheme.lower() == "rediss"
+        if self._transport_tls:
+            _LOGGER.info(
+                "Redis Streams uses rediss:// TLS transport with certificate and hostname validation enabled"
+            )
+        else:
+            _LOGGER.warning(
+                "Redis Streams uses redis:// plaintext transport; credentials and event data "
+                "are unencrypted in transit. Use rediss:// on untrusted networks. "
+                "Existing isolated private-container deployments remain supported."
+            )
         if client is not None:
             self._client = client
             return

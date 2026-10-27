@@ -8,6 +8,8 @@ versioned, redacted broker events are retained here.
 from __future__ import annotations
 
 import copy
+import json
+import math
 import threading
 import time
 import uuid
@@ -16,10 +18,22 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 from security import has_capability, normalize_role
-from telemetry_broker import TelemetryBroker, TelemetryEvent
+from telemetry_broker import (
+    MAX_CACHED_INTERFACES,
+    MAX_CACHED_SESSIONS,
+    MAX_TELEMETRY_TEXT_BYTES,
+    TelemetryBroker,
+    TelemetryEvent,
+)
 
 
 PROTOCOL_VERSION = 1
+MAX_FRAME_BYTES = 8 << 20
+MAX_REPLAY_BYTES = 8 << 20
+MAX_REPLAY_EVENTS = 256
+MAX_COUNTER_VALUE = (1 << 64) - 1
+MAX_FRAME_NUMBER = (1 << 63) - 1
+MAX_RATE_VALUE = 1e15
 SUPPORTED_EVENTS = frozenset(
     {
         "telemetry.snapshot",
@@ -63,13 +77,14 @@ _INTERFACE_COUNTER_FIELDS = frozenset(
         "tx_packets_per_second",
     }
 )
-
-
-def redact_session(value: Any) -> dict[str, Any]:
-    """Project a RouterOS session row onto the public live-telemetry schema."""
-    if not isinstance(value, dict):
-        return {}
-    return {key: copy.deepcopy(value[key]) for key in _SESSION_FIELDS if key in value}
+_SESSION_TEXT_FIELDS = frozenset(
+    {"id", "name", "vpn_address", "source_address", "uptime", "encoding", "service"}
+)
+_SESSION_COUNTER_FIELDS = frozenset({"rx_bytes", "tx_bytes", "rx_packets", "tx_packets"})
+_RESET_FIELDS = _SESSION_COUNTER_FIELDS
+_ROUTER_METRIC_FIELDS = frozenset(
+    {"cpu_percent", "memory_percent", "storage_percent", "status", "age_seconds"}
+)
 
 
 class TelemetryGatewayError(RuntimeError):
@@ -82,6 +97,62 @@ class TelemetryAuthorizationError(TelemetryGatewayError):
 
 class TelemetrySubscriptionError(TelemetryGatewayError):
     """Raised when a subscription is missing or the client limit is reached."""
+
+
+def _bounded_text(value: Any) -> str:
+    if not isinstance(value, str):
+        raise TelemetryGatewayError("telemetry text field has an invalid type")
+    if len(value) > MAX_TELEMETRY_TEXT_BYTES:
+        raise TelemetryGatewayError("telemetry text field exceeds configured safety limit")
+    try:
+        encoded_length = len(value.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise TelemetryGatewayError("telemetry text field is not valid UTF-8") from error
+    if encoded_length > MAX_TELEMETRY_TEXT_BYTES:
+        raise TelemetryGatewayError("telemetry text field exceeds configured safety limit")
+    return value
+
+
+def _bounded_counter(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_COUNTER_VALUE:
+        raise TelemetryGatewayError("telemetry counter has an invalid value")
+    return value
+
+
+def _bounded_number(value: Any, *, maximum: float = MAX_RATE_VALUE) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TelemetryGatewayError("telemetry number has an invalid type")
+    if value < 0 or value > maximum:
+        raise TelemetryGatewayError("telemetry number exceeds configured safety limit")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise TelemetryGatewayError("telemetry number exceeds configured safety limit")
+    return value
+
+
+def _bounded_sequence(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_FRAME_NUMBER:
+        raise TelemetryGatewayError("telemetry frame sequence is invalid")
+    return value
+
+
+def redact_session(value: Any) -> dict[str, Any]:
+    """Project a RouterOS session row onto the public live-telemetry schema."""
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for key in _SESSION_FIELDS:
+        if key not in value:
+            continue
+        field_value = value[key]
+        if key in _SESSION_TEXT_FIELDS:
+            result[key] = _bounded_text(field_value)
+        elif key in _SESSION_COUNTER_FIELDS:
+            result[key] = _bounded_counter(field_value)
+        elif key == "counter_complete":
+            if not isinstance(field_value, bool):
+                raise TelemetryGatewayError("telemetry completion flag has an invalid type")
+            result[key] = field_value
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,11 +219,21 @@ class TelemetryGatewayContract:
         monotonic_clock: Callable[[], float] = time.monotonic,
         max_replay: int = 256,
         max_clients: int = 128,
+        max_frame_bytes: int = MAX_FRAME_BYTES,
+        max_replay_bytes: int = MAX_REPLAY_BYTES,
     ) -> None:
         self._broker = broker
         self._clock = clock
         self._monotonic_clock = monotonic_clock
-        self._events: deque[tuple[dict[str, Any], float]] = deque(maxlen=max(1, int(max_replay)))
+        self._max_replay = min(MAX_REPLAY_EVENTS, max(1, int(max_replay)))
+        self._max_replay_bytes = min(MAX_REPLAY_BYTES, max(1, int(max_replay_bytes)))
+        self._max_frame_bytes = min(
+            MAX_FRAME_BYTES,
+            self._max_replay_bytes,
+            max(1, int(max_frame_bytes)),
+        )
+        self._events: deque[tuple[dict[str, Any], float, int]] = deque()
+        self._retained_frame_bytes = 0
         self._clients: dict[str, TelemetrySubscription] = {}
         self._max_clients = max(1, int(max_clients))
         self._delivery_queue_ages: deque[float] = deque(maxlen=512)
@@ -175,50 +256,95 @@ class TelemetryGatewayContract:
     def _redact_interface(value: Any) -> dict[str, Any]:
         if not isinstance(value, dict):
             return {}
-        return {key: copy.deepcopy(value[key]) for key in _INTERFACE_COUNTER_FIELDS if key in value}
+        result: dict[str, Any] = {}
+        for key in _INTERFACE_COUNTER_FIELDS:
+            if key not in value:
+                continue
+            field_value = value[key]
+            if key in {"id", "name"}:
+                result[key] = _bounded_text(field_value)
+            elif key in _SESSION_COUNTER_FIELDS:
+                result[key] = _bounded_counter(field_value)
+            else:
+                result[key] = _bounded_number(field_value)
+        return result
 
     @classmethod
-    def _frame(cls, event: TelemetryEvent) -> dict[str, Any]:
-        if event.name not in SUPPORTED_EVENTS:
-            raise TelemetryGatewayError(f"unsupported telemetry event: {event.name}")
+    def _build_frame(cls, event: TelemetryEvent) -> tuple[dict[str, Any], int]:
+        if not isinstance(event.name, str) or event.name not in SUPPORTED_EVENTS:
+            raise TelemetryGatewayError("unsupported telemetry event")
         payload = event.payload if isinstance(event.payload, dict) else {}
         if event.name == "telemetry.snapshot":
-            safe_payload = {"sessions": [cls._redact_session(item) for item in payload.get("sessions", [])]}
+            sessions = payload.get("sessions", [])
+            if not isinstance(sessions, list) or len(sessions) > MAX_CACHED_SESSIONS:
+                raise TelemetryGatewayError("telemetry snapshot exceeds configured session limit")
+            safe_payload = {"sessions": [cls._redact_session(item) for item in sessions]}
             if "interfaces" in payload:
                 interfaces = payload.get("interfaces")
-                safe_payload["interfaces"] = (
-                    [cls._redact_interface(item) for item in interfaces]
-                    if isinstance(interfaces, list)
-                    else []
-                )
+                if not isinstance(interfaces, list) or len(interfaces) > MAX_CACHED_INTERFACES:
+                    raise TelemetryGatewayError("telemetry snapshot exceeds configured interface limit")
+                safe_payload["interfaces"] = [cls._redact_interface(item) for item in interfaces]
         elif event.name == "vpn.interface.counters":
             interface_payload = payload.get("interface", payload)
             if not isinstance(interface_payload, dict):
                 interface_payload = {}
-            safe_payload = {
-                key: copy.deepcopy(value)
-                for key, value in interface_payload.items()
-                if key in _INTERFACE_COUNTER_FIELDS
-            }
+            safe_payload = cls._redact_interface(interface_payload)
         elif event.name == "telemetry.counter_reset":
-            safe_payload = {
-                key: copy.deepcopy(value) for key, value in payload.items() if key in {"scope", "id", "name", "fields"}
-            }
+            safe_payload = {}
+            if "scope" in payload:
+                scope = _bounded_text(payload["scope"])
+                if scope not in {"session", "interface"}:
+                    raise TelemetryGatewayError("telemetry reset scope is invalid")
+                safe_payload["scope"] = scope
+            for key in ("id", "name"):
+                if key in payload:
+                    safe_payload[key] = _bounded_text(payload[key])
+            if "fields" in payload:
+                fields = payload["fields"]
+                if (
+                    not isinstance(fields, list)
+                    or len(fields) > len(_RESET_FIELDS)
+                    or any(not isinstance(field, str) or field not in _RESET_FIELDS for field in fields)
+                ):
+                    raise TelemetryGatewayError("telemetry reset fields are invalid")
+                safe_payload["fields"] = list(fields)
         elif event.name in {"router.capacity.updated", "router.health.updated", "telemetry.reconciled"}:
-            safe_payload = {
-                key: copy.deepcopy(value)
-                for key, value in payload.items()
-                if key in {"cpu_percent", "memory_percent", "storage_percent", "status", "age_seconds"}
-            }
+            safe_payload = {}
+            for key in _ROUTER_METRIC_FIELDS:
+                if key not in payload:
+                    continue
+                value = payload[key]
+                if key == "status":
+                    safe_payload[key] = _bounded_text(value)
+                else:
+                    maximum = 100 if key.endswith("_percent") else MAX_RATE_VALUE
+                    safe_payload[key] = _bounded_number(value, maximum=maximum)
         else:
-            safe_payload = {key: copy.deepcopy(value) for key, value in payload.items() if key in _SESSION_FIELDS}
-        return {
+            safe_payload = cls._redact_session(payload)
+        frame = {
             "protocol_version": PROTOCOL_VERSION,
             "event": event.name,
-            "sequence": int(event.sequence),
-            "router_timestamp": int(event.router_timestamp),
+            "sequence": _bounded_sequence(event.sequence),
+            "router_timestamp": _bounded_sequence(event.router_timestamp),
             "payload": safe_payload,
         }
+        try:
+            frame_size = len(json.dumps(frame, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
+        except (TypeError, ValueError, OverflowError) as error:
+            raise TelemetryGatewayError("telemetry frame is not safely serializable") from error
+        if frame_size > MAX_FRAME_BYTES:
+            raise TelemetryGatewayError("telemetry frame exceeds configured byte limit")
+        return frame, frame_size
+
+    @classmethod
+    def _frame(cls, event: TelemetryEvent) -> dict[str, Any]:
+        return cls._build_frame(event)[0]
+
+    def _bounded_frame(self, event: TelemetryEvent) -> tuple[dict[str, Any], int]:
+        frame, frame_size = self._build_frame(event)
+        if frame_size > self._max_frame_bytes:
+            raise TelemetryGatewayError("telemetry frame exceeds configured byte limit")
+        return frame, frame_size
 
     def open(self, principal: TelemetryPrincipal) -> str:
         """Authorize and create an opaque subscription identifier."""
@@ -249,14 +375,24 @@ class TelemetryGatewayContract:
         with self._lock:
             count = 0
             for event in events:
-                self._events.append((self._frame(event), self._monotonic_clock()))
+                frame, frame_size = self._bounded_frame(event)
+                if frame_size > self._max_replay_bytes:
+                    raise TelemetryGatewayError("telemetry frame exceeds configured replay byte budget")
+                while self._events and (
+                    len(self._events) >= self._max_replay
+                    or self._retained_frame_bytes + frame_size > self._max_replay_bytes
+                ):
+                    _old_frame, _published_at, old_size = self._events.popleft()
+                    self._retained_frame_bytes -= old_size
+                self._events.append((frame, self._monotonic_clock(), frame_size))
+                self._retained_frame_bytes += frame_size
                 count += 1
             self._published_events += count
             return count
 
-    def _snapshot_frame(self) -> dict[str, Any]:
+    def _snapshot_frame_entry(self) -> tuple[dict[str, Any], float, int]:
         snapshot = self._broker.recovery_snapshot()
-        return self._frame(
+        frame, frame_size = self._bounded_frame(
             TelemetryEvent(
                 "telemetry.snapshot",
                 int(snapshot["sequence"]),
@@ -264,6 +400,11 @@ class TelemetryGatewayContract:
                 {"sessions": snapshot["sessions"], "interfaces": snapshot["interfaces"]},
             )
         )
+        return frame, self._monotonic_clock(), frame_size
+
+    def _snapshot_frame(self) -> dict[str, Any]:
+        """Return a bounded recovery snapshot frame."""
+        return self._snapshot_frame_entry()[0]
 
     def poll(self, subscription_id: str, *, after_sequence: int | None = None) -> list[dict[str, Any]]:
         """Return new frames, recovering when replay is stale or epoch-ambiguous.
@@ -282,7 +423,7 @@ class TelemetryGatewayContract:
             # tracks exactly what it has delivered to this subscription.
             cursor = subscription.last_seen_sequence
             frames = list(self._events)
-            queued_frames = [frame for frame, _published_at in frames]
+            queued_frames = [frame for frame, _published_at, _size in frames]
             # The browser cursor contains no broker epoch. Its first resume
             # cursor can belong to a previous process whose sequence numbers
             # overlap this broker's, even if the background pump already made
@@ -295,7 +436,7 @@ class TelemetryGatewayContract:
                 or cursor > self._broker.sequence
                 or (queued_frames and cursor < min(frame["sequence"] for frame in queued_frames) - 1)
             ):
-                result = [(self._snapshot_frame(), self._monotonic_clock())]
+                result = [self._snapshot_frame_entry()]
                 self._snapshot_recoveries += 1
             else:
                 result = [item for item in frames if item[0]["sequence"] > cursor]
@@ -305,7 +446,7 @@ class TelemetryGatewayContract:
                 # replay window) cannot silently advance a client past state
                 # it never received. Sorting also makes an out-of-order
                 # adapter publish recover deterministically.
-                available = sorted({frame["sequence"] for frame, _published_at in result})
+                available = sorted({frame["sequence"] for frame, _published_at, _size in result})
                 complete = (
                     len(available) == self._broker.sequence - cursor
                     and (not available or available[0] == cursor + 1)
@@ -313,20 +454,20 @@ class TelemetryGatewayContract:
                     and all(following == previous + 1 for previous, following in zip(available, available[1:]))
                 )
                 if not complete:
-                    result = [(self._snapshot_frame(), self._monotonic_clock())]
+                    result = [self._snapshot_frame_entry()]
                     self._snapshot_recoveries += 1
                 else:
                     result.sort(key=lambda item: item[0]["sequence"])
                     self._replayed_events += len(result)
             if result:
-                subscription.last_seen_sequence = max(frame["sequence"] for frame, _published_at in result)
+                subscription.last_seen_sequence = max(frame["sequence"] for frame, _published_at, _size in result)
                 observed_at = self._monotonic_clock()
                 self._delivery_queue_ages.extend(
-                    max(0.0, observed_at - published_at) for _frame, published_at in result
+                    max(0.0, observed_at - published_at) for _frame, published_at, _size in result
                 )
             if after_sequence is not None:
                 subscription.client_cursor_seen = True
-            return copy.deepcopy([frame for frame, _published_at in result])
+            return copy.deepcopy([frame for frame, _published_at, _size in result])
 
     def metrics(self) -> dict[str, int | float]:
         """Return bounded, aggregate delivery metrics without client/event IDs."""
@@ -337,6 +478,8 @@ class TelemetryGatewayContract:
             return {
                 "active_clients": len(self._clients),
                 "buffered_events": len(self._events),
+                "buffered_frame_bytes": self._retained_frame_bytes,
+                "buffered_frame_bytes_limit": self._max_replay_bytes,
                 "published_events": self._published_events,
                 "replayed_events": self._replayed_events,
                 "snapshot_recoveries": self._snapshot_recoveries,
