@@ -118,6 +118,14 @@ The latest recorded canary stage is PR #862, staged on the isolated canary on
 revision. These are startup checks only; the 30-minute live-acceptance and
 rollback gates in #200 and #205 remain open.
 
+PR #866 merged on 2026-10-27 as `25e67872beeb328661a71e3d97d655b6fe44844b`.
+It revalidates the required RouterOS capabilities from one fresh role snapshot
+and serializes reviewed VPN-user mutations across dashboard instances. Hosted
+CI passed, including Python 3.13/3.14, browser/accessibility, CodeQL, Redis
+recovery, and ARM64 build/smoke. This is repository evidence only: PR #866 did
+not publish or deploy a new image or change RouterOS. It does not satisfy the
+candidate-bound acceptance gates in #200.
+
 The ASVS matrix classifies V8.3.2 as a known product gap. Active live streams
 now use a one-second application role-cache interval; ordinary authenticated
 requests retain the 15-second interval. The current [MikroTik REST API manual](https://manual.mikrotik.com/docs/developer-guides/rest-api/)
