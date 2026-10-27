@@ -1341,7 +1341,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(any(
             frame["payload"].get("name") == "polling-test-user"
             and frame["sequence"] > cursor
-            for frame, _published_at in runtime.gateway._events
+            for frame, _published_at, _frame_size in runtime.gateway._events
         ))
         return "polling-test-user"
 
@@ -3026,7 +3026,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(
             set(snapshot["telemetry"]["gateway"]),
             {
-                "active_clients", "buffered_events", "published_events", "replayed_events",
+                "active_clients", "buffered_events", "buffered_frame_bytes",
+                "buffered_frame_bytes_limit", "published_events", "replayed_events",
                 "snapshot_recoveries", "rejected_clients", "delivery_observations",
                 "delivery_queue_age_seconds", "delivery_queue_age_p95_seconds",
             },
