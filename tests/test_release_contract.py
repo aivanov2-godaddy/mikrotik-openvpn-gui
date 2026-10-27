@@ -234,6 +234,18 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn("packages: write", publish_job)
         self.assertNotIn("aquasecurity/trivy-action", publish_job)
+        qemu_setup = publish_job.split(
+            "      - name: Set up QEMU for ARM64 runtime smoke test\n", maxsplit=1
+        )[1].split("      - name:", maxsplit=1)[0]
+        self.assertIn("if: matrix.platform == 'linux/arm64'", qemu_setup)
+        self.assertIn(
+            "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0",
+            qemu_setup,
+        )
+        self.assertLess(
+            publish_job.index("Set up QEMU for ARM64 runtime smoke test"),
+            publish_job.index("Smoke-test the published runtime"),
+        )
         self.assertIn("docker push \"$PRIMARY_TAG\"", publish_job)
         self.assertIn("python scripts/extract_registry_digest.py", publish_job)
         self.assertIn("printf 'digest=%s", publish_job)
