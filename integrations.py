@@ -135,6 +135,7 @@ class RedisReviewCoordinationError(RuntimeError):
 class _RedisReviewLock:
     _RENEW = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end"
     _ASSERT = "if redis.call('get', KEYS[1]) == ARGV[1] then return 1 else return 0 end"
+    _RETAIN = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end"
     _RELEASE = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
 
     def __init__(self, client: Any, key: str, token: str, lease_ms: int) -> None:
@@ -186,6 +187,17 @@ class _RedisReviewLock:
     def close(self) -> None:
         self._stop.set()
         self._thread.join(timeout=min(5.0, max(1.0, self._lease_ms / 1000)))
+        if self._lost.is_set():
+            # RouterOS cannot validate a Redis fencing token. If ownership was
+            # lost while a downstream write may still be running, retain this
+            # token's lease instead of immediately allowing another writer to
+            # overlap it. Re-start the grace window if Redis is reachable; the
+            # lease still expires automatically if this best-effort call fails.
+            try:
+                self._client.eval(self._RETAIN, 1, self._key, self._token, self._lease_ms)
+            except Exception:
+                pass
+            return
         try:
             self._client.eval(self._RELEASE, 1, self._key, self._token)
         except Exception:

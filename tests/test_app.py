@@ -6962,6 +6962,130 @@ class DashboardIntegrationTests(unittest.TestCase):
         lock.assert_called_once_with(USER_PROVISIONING_GATE_RESOURCE)
         list_users.assert_not_called()
 
+    def test_user_update_revalidates_users_manage_after_waiting_for_lock(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {"comment": "permission changed while waiting", "reason": "Review the account edit"},
+        )
+        original_locks = self.server.review_receipts.mutation_locks
+        lock_waiting = threading.Event()
+        release_lock = threading.Event()
+        result: dict[str, Any] = {}
+
+        @contextlib.contextmanager
+        def wait_then_acquire(resource_keys):
+            lock_waiting.set()
+            if not release_lock.wait(timeout=5):
+                raise AssertionError("test did not release the simulated lock wait")
+            with original_locks(resource_keys) as locks:
+                yield locks
+
+        def submit_update() -> None:
+            result["response"] = self.json_request("PATCH", path, reviewed)
+
+        before_mutations = list(self.mock.state.mutation_requests)
+        with mock.patch.object(
+            self.server.review_receipts,
+            "mutation_locks",
+            side_effect=wait_then_acquire,
+        ):
+            request_thread = threading.Thread(target=submit_update)
+            request_thread.start()
+            self.assertTrue(lock_waiting.wait(timeout=2))
+            self.mock.state.admin_group = "security-operator"
+            release_lock.set()
+            request_thread.join(timeout=5)
+
+        self.assertFalse(request_thread.is_alive())
+        status, _, payload = result["response"]
+        self.assertEqual(status, HTTPStatus.FORBIDDEN)
+        self.assertFalse(any(
+            item.startswith(("PATCH /ppp/secret/", "PUT /ppp/secret/"))
+            for item in self.mock.state.mutation_requests[len(before_mutations):]
+        ))
+
+    def test_user_update_revalidates_users_manage_before_router_account_write(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {"comment": "permission changed before account write", "reason": "Review the account edit"},
+        )
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        def downgrade_after_profile_check(*_args: Any, **_kwargs: Any) -> str:
+            self.mock.state.admin_group = "security-operator"
+            return router.ovpn_profile
+
+        with mock.patch.object(
+            router,
+            "ensure_rate_profile",
+            side_effect=downgrade_after_profile_check,
+        ) as ensure_rate_profile:
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        self.assertEqual(status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(json.loads(payload)["required_capability"], "users.manage")
+        ensure_rate_profile.assert_called_once()
+        self.assertFalse(any(
+            item.startswith(("PATCH /ppp/secret/", "PUT /ppp/secret/"))
+            for item in self.mock.state.mutation_requests[len(before_mutations):]
+        ))
+
+    def test_user_update_revalidates_users_manage_before_rate_profile_write(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {
+                "rate_limit_kbps": 512,
+                "reason": "Review the account bandwidth limit",
+            },
+        )
+        original_snapshot = router.rate_profile_snapshot
+        snapshot_calls = 0
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        def downgrade_after_profile_read(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            nonlocal snapshot_calls
+            result = original_snapshot(*args, **kwargs)
+            snapshot_calls += 1
+            if snapshot_calls == 2:
+                self.mock.state.admin_group = "security-operator"
+            return result
+
+        with mock.patch.object(
+            router,
+            "rate_profile_snapshot",
+            side_effect=downgrade_after_profile_read,
+        ):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        self.assertEqual(status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(json.loads(payload)["required_capability"], "users.manage")
+        self.assertEqual(snapshot_calls, 2)
+        self.assertFalse(any(
+            item.startswith(("PATCH /ppp/profile/", "PUT /ppp/profile", "PATCH /ppp/secret/", "PUT /ppp/secret/"))
+            for item in self.mock.state.mutation_requests[len(before_mutations):]
+        ))
+
     def test_user_update_reconciles_lost_routeros_response_from_readback(self) -> None:
         self.login()
         router = self.server.context.router

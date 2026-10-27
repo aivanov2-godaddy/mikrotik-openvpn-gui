@@ -36,6 +36,7 @@ class FakeRedis:
 class FakeSharedReviewRedis:
     def __init__(self):
         self.values = {}
+        self.ttls = {}
         self.guard = threading.Lock()
         self.run_id = "a" * 40
 
@@ -49,11 +50,12 @@ class FakeSharedReviewRedis:
             return self.values.get(key)
 
     def set(self, key, value, *, nx=False, px=None):
-        del px
         with self.guard:
             if nx and key in self.values:
                 return False
             self.values[key] = value
+            if px is not None:
+                self.ttls[key] = px
             return True
 
     def eval(self, script, numkeys, key, *args):
@@ -73,10 +75,15 @@ class FakeSharedReviewRedis:
             if script == _RedisReviewLock._RELEASE:
                 if self.values.get(key) == args[0]:
                     del self.values[key]
+                    self.ttls.pop(key, None)
                     return 1
                 return 0
-            if script in {_RedisReviewLock._RENEW, _RedisReviewLock._ASSERT}:
-                return int(self.values.get(key) == args[0])
+            if script in {_RedisReviewLock._RENEW, _RedisReviewLock._ASSERT, _RedisReviewLock._RETAIN}:
+                if self.values.get(key) != args[0]:
+                    return 0
+                if script in {_RedisReviewLock._RENEW, _RedisReviewLock._RETAIN}:
+                    self.ttls[key] = int(args[1])
+                return 1
             raise AssertionError("unexpected Redis script")
 
     @staticmethod
@@ -190,6 +197,32 @@ class IntegrationTests(unittest.TestCase):
             del client.values[coordinator._lock_key(resource)]
             with self.assertRaises(RedisReviewCoordinationError):
                 lock.assert_owned()
+
+    def test_redis_review_lock_is_not_released_after_ownership_check_fails(self):
+        client = FakeSharedReviewRedis()
+        coordinator = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        resource = "vpn-user:ambiguous-write"
+        key = coordinator._lock_key(resource)
+        original_eval = client.eval
+
+        def fail_ownership_check(script, numkeys, redis_key, *args):
+            if script == _RedisReviewLock._ASSERT:
+                raise OSError("temporary Redis outage")
+            return original_eval(script, numkeys, redis_key, *args)
+
+        with mock.patch.object(client, "eval", side_effect=fail_ownership_check):
+            with coordinator.resource_lock(resource) as lock:
+                # Model an API write that may still be completing when its
+                # caller can no longer confirm that it owns the lease.
+                with self.assertRaises(RedisReviewCoordinationError):
+                    lock.assert_owned()
+
+        self.assertIn(key, client.values)
+        self.assertEqual(client.ttls[key], coordinator._lock_lease_ms)
+        successor = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        with self.assertRaises(RedisReviewCoordinationError):
+            with successor.resource_lock(resource):
+                self.fail("a successor writer overlapped the ambiguous request lease")
 
     def test_redis_review_coordination_fails_closed_when_store_is_unavailable(self):
         class UnavailableRedis:

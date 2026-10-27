@@ -5643,6 +5643,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         mutation_state: dict[str, bool] | None = None,
     ) -> None:
         try:
+            # Authorization may change while this request waits for the
+            # cross-instance account lock. Revalidate the broad user-management
+            # capability after ownership is secured, before reading or mutating
+            # the RouterOS account.
+            if not self._require_capability(session, "users.manage"):
+                return
             user = self._find_user(credentials, user_id)
             password_raw = str(data.get("password", ""))
             password = self._validate_secret(password_raw, "VPN password") if password_raw else None
@@ -5652,6 +5658,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 session, action="changing this VPN user's password",
             ):
                 return
+
+            class _UserUpdateAuthorizationRevoked(Exception):
+                """Stop profile reconciliation when the actor lost access."""
+
+            def revalidate_user_update_authorization() -> bool:
+                if not self._require_capability(session, "users.manage"):
+                    return False
+                if password and not self._require_capability(session, "session.manage"):
+                    return False
+                if password and not self._require_recent_reauthentication(
+                    session, action="changing this VPN user's password",
+                ):
+                    return False
+                return True
+
             email = (
                 self._validate_email(str(data.get("email", "")))
                 if "email" in data
@@ -5754,23 +5775,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 self._json({"error": "The reviewed edit or RouterOS state has changed. Preview the edit again."}, status=HTTPStatus.CONFLICT)
                 return
+            if not revalidate_user_update_authorization():
+                return
             if not self._checkpoint(session, "user.update"):
                 return
+
+            # Reads and the RouterOS checkpoint above may take time. Recheck
+            # immediately before entering the profile mutation path.
+            if not revalidate_user_update_authorization():
+                return
+
             def before_rate_profile_mutation() -> None:
                 if update_lock is not None:
                     update_lock.assert_owned()
+                if not revalidate_user_update_authorization():
+                    raise _UserUpdateAuthorizationRevoked
                 if mutation_state is not None:
                     mutation_state["attempted"] = True
 
-            router_profile = self.server.context.router.ensure_rate_profile(
-                credentials,
-                username=str(user["name"]),
-                rate_limit_kbps=int(controls["rate_limit_kbps"]),
-                expected_state=state["router_rate_profile"],
-                before_mutation=before_rate_profile_mutation,
-            )
+            try:
+                router_profile = self.server.context.router.ensure_rate_profile(
+                    credentials,
+                    username=str(user["name"]),
+                    rate_limit_kbps=int(controls["rate_limit_kbps"]),
+                    expected_state=state["router_rate_profile"],
+                    before_mutation=before_rate_profile_mutation,
+                )
+            except _UserUpdateAuthorizationRevoked:
+                return
             mutation_error: RouterOSError | None = None
             try:
+                if not revalidate_user_update_authorization():
+                    return
                 if update_lock is not None:
                     update_lock.assert_owned()
                 if mutation_state is not None:
