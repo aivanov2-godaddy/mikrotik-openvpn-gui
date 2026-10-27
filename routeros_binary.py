@@ -1,4 +1,4 @@
-"""Small, dependency-free RouterOS Binary API transport primitives.
+"""Small RouterOS Binary API transport primitives.
 
 The live-telemetry migration starts with a read-only protocol layer.  This
 module deliberately does not expose RouterOS credentials to callers outside
@@ -15,8 +15,18 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, Iterator
 
+from routeros import RouterOSError
 
-class RouterOSBinaryError(RuntimeError):
+
+MAX_WORD_SIZE = 1 << 20
+MAX_SENTENCE_SIZE = 4 << 20
+MAX_RESPONSE_BYTES = 16 << 20
+MAX_RESPONSE_REPLIES = 10_000
+MAX_REPLY_WORDS = 4_096
+MAX_RESPONSE_WORDS = 65_536
+
+
+class RouterOSBinaryError(RouterOSError):
     """Raised when the Binary API stream is malformed or rejected."""
 
 
@@ -44,7 +54,7 @@ def encode_length(length: int) -> bytes:
     return b"\xF0" + length.to_bytes(4, "big")
 
 
-def decode_length(data: bytes, offset: int = 0) -> tuple[int, int]:
+def decode_length(data: bytes | bytearray | memoryview, offset: int = 0) -> tuple[int, int]:
     """Decode one RouterOS API word length and return ``(length, next)``."""
     if offset >= len(data):
         raise RouterOSBinaryError("truncated RouterOS API length")
@@ -119,12 +129,18 @@ class RouterOSReply:
 
 
 def parse_reply(words: Iterable[bytes]) -> RouterOSReply:
-    values = list(words)
-    if not values or not values[0].startswith(b"!"):
+    iterator = iter(words)
+    first = next(iterator, None)
+    if first is None or not first.startswith(b"!"):
         raise RouterOSBinaryError("RouterOS reply does not have a reply kind")
-    kind = values[0].decode("utf-8", "replace")[1:]
+    kind = first.decode("utf-8", "replace")[1:]
     attributes: dict[str, str] = {}
-    for raw in values[1:]:
+    for word_count, raw in enumerate(iterator, start=2):
+        if word_count > MAX_REPLY_WORDS:
+            raise RouterOSBinaryError(
+                "RouterOS Binary API reply exceeds configured word limit",
+                failure_kind="invalid_response",
+            )
         text = raw.decode("utf-8", "replace")
         if text.startswith("="):
             key, separator, value = text[1:].partition("=")
@@ -136,41 +152,123 @@ def parse_reply(words: Iterable[bytes]) -> RouterOSReply:
             attributes[key] = value
         else:
             attributes[text] = ""
+        if len(attributes) > MAX_REPLY_WORDS - 1:
+            raise RouterOSBinaryError(
+                "RouterOS Binary API reply exceeds configured attribute limit",
+                failure_kind="invalid_response",
+            )
     return RouterOSReply(kind, attributes)
 
 
 class SentenceReader:
     """Incrementally decode API sentences from a TCP byte stream."""
 
-    def __init__(self, *, max_word_size: int = 1 << 20) -> None:
+    def __init__(
+        self,
+        *,
+        max_word_size: int = MAX_WORD_SIZE,
+        max_sentence_size: int = MAX_SENTENCE_SIZE,
+        max_words: int = MAX_REPLY_WORDS,
+    ) -> None:
+        if max_word_size < 1 or max_sentence_size < 1 or max_words < 1:
+            raise ValueError("RouterOS API reader limits must be positive")
         self._buffer = bytearray()
         self.max_word_size = max_word_size
+        self.max_sentence_size = max_sentence_size
+        self.max_words = max_words
+        self._scan_offset = 0
+        self._words: list[bytes] = []
 
-    def feed(self, data: bytes) -> Iterator[list[bytes]]:
-        self._buffer.extend(data)
+    def _complete_sentence(self, limit: int) -> tuple[list[bytes], int] | None:
+        offset = self._scan_offset
         while True:
-            offset = 0
-            words: list[bytes] = []
-            complete = False
-            while True:
-                try:
-                    length, next_offset = decode_length(bytes(self._buffer), offset)
-                except RouterOSBinaryError:
-                    break
-                if length == 0:
-                    del self._buffer[:next_offset]
-                    complete = True
-                    break
-                if length > self.max_word_size:
-                    raise RouterOSBinaryError("RouterOS API word exceeds configured safety limit")
-                end = next_offset + length
-                if end > len(self._buffer):
-                    break
-                words.append(bytes(self._buffer[next_offset:end]))
-                offset = end
-            if not complete:
+            try:
+                length, next_offset = decode_length(self._buffer, offset)
+            except RouterOSBinaryError as error:
+                if str(error).startswith("truncated"):
+                    return None
+                raise
+            if next_offset > limit:
+                raise RouterOSBinaryError(
+                    "RouterOS Binary API response exceeds configured safety limit",
+                    failure_kind="invalid_response",
+                )
+            if length == 0:
+                words = self._words
+                self._words = []
+                self._scan_offset = 0
+                return words, next_offset
+            if length > self.max_word_size:
+                raise RouterOSBinaryError("RouterOS API word exceeds configured safety limit")
+            if len(self._words) >= self.max_words:
+                raise RouterOSBinaryError(
+                    "RouterOS Binary API sentence exceeds configured word limit",
+                    failure_kind="invalid_response",
+                )
+            end = next_offset + length
+            if end > limit:
+                raise RouterOSBinaryError(
+                    "RouterOS Binary API response exceeds configured safety limit",
+                    failure_kind="invalid_response",
+                )
+            if end > len(self._buffer):
                 return
-            yield words
+            self._words.append(bytes(self._buffer[next_offset:end]))
+            offset = end
+            self._scan_offset = offset
+
+    def feed(
+        self,
+        data: bytes,
+        *,
+        max_sentence_size: int | None = None,
+        max_sentences: int | None = None,
+    ) -> Iterator[list[bytes]]:
+        """Incrementally decode sentences without buffering past the byte limit."""
+        limit = self.max_sentence_size
+        if max_sentence_size is not None:
+            limit = min(limit, max_sentence_size)
+        if limit < 1:
+            raise RouterOSBinaryError(
+                "RouterOS Binary API response exceeds configured safety limit",
+                failure_kind="invalid_response",
+            )
+
+        view = memoryview(data)
+        cursor = 0
+        emitted = 0
+        while True:
+            complete = self._complete_sentence(limit)
+            if complete is not None:
+                words, sentence_size = complete
+                del self._buffer[:sentence_size]
+                yield words
+                emitted += 1
+                if max_sentences is not None and emitted >= max_sentences:
+                    remaining = view[cursor:]
+                    if len(self._buffer) + len(remaining) > limit:
+                        raise RouterOSBinaryError(
+                            "RouterOS Binary API response exceeds configured safety limit",
+                            failure_kind="invalid_response",
+                        )
+                    self._buffer.extend(remaining)
+                    return
+                continue
+            if len(self._buffer) >= limit:
+                raise RouterOSBinaryError(
+                    "RouterOS Binary API response exceeds configured safety limit",
+                    failure_kind="invalid_response",
+                )
+            if cursor >= len(view):
+                return
+            take = min(limit - len(self._buffer), len(view) - cursor)
+            self._buffer.extend(view[cursor : cursor + take])
+            cursor += take
+
+
+def _sentence_wire_size(words: Iterable[bytes]) -> int:
+    """Return a sentence's encoded size without constructing a second payload."""
+    return 1 + sum(len(word) + len(encode_length(len(word))) for word in words)
 
 
 class RouterOSBinaryConnection:
@@ -246,7 +344,22 @@ class RouterOSBinaryConnection:
             raise RouterOSBinaryError("RouterOS Binary API connection is not open")
         current.sendall(encode_sentence(words))
 
-    def _read_sentence(self) -> list[bytes]:
+    def _read_sentence(self, *, max_response_bytes: int | None = None) -> list[bytes]:
+        if max_response_bytes is not None and max_response_bytes < 1:
+            raise RouterOSBinaryError(
+                "RouterOS Binary API response exceeds configured safety limit",
+                failure_kind="invalid_response",
+            )
+        sentence_limit = MAX_SENTENCE_SIZE
+        if max_response_bytes is not None:
+            sentence_limit = min(sentence_limit, max_response_bytes)
+        with self._state_lock:
+            received = len(self._reader._buffer)  # noqa: SLF001 - account for previously read response bytes
+        if max_response_bytes is not None and received > max_response_bytes:
+            raise RouterOSBinaryError(
+                "RouterOS Binary API response exceeds configured safety limit",
+                failure_kind="invalid_response",
+            )
         while True:
             # A single recv() may contain more than one sentence.  Drain the
             # persistent reader before waiting for another network read so the
@@ -255,31 +368,100 @@ class RouterOSBinaryConnection:
                 current = self._socket
                 if current is None:
                     raise RouterOSBinaryError("RouterOS Binary API connection is not open")
-                buffered = next(self._reader.feed(b""), None)
-                if buffered is not None:
-                    return buffered
-            chunk = current.recv(4096)
+                buffered = list(
+                    self._reader.feed(
+                        b"", max_sentence_size=sentence_limit, max_sentences=1
+                    )
+                )
+                if buffered:
+                    sentence = buffered[0]
+                    if max_response_bytes is not None and _sentence_wire_size(sentence) > max_response_bytes:
+                        raise RouterOSBinaryError(
+                            "RouterOS Binary API response exceeds configured safety limit",
+                            failure_kind="invalid_response",
+                        )
+                    return sentence
+            recv_size = 4096
+            if max_response_bytes is not None:
+                recv_size = min(recv_size, max_response_bytes - received)
+                if recv_size < 1:
+                    raise RouterOSBinaryError(
+                        "RouterOS Binary API response exceeds configured safety limit",
+                        failure_kind="invalid_response",
+                    )
+            chunk = current.recv(recv_size)
             if not chunk:
                 raise RouterOSBinaryError("RouterOS closed the Binary API connection")
+            if len(chunk) > recv_size:
+                raise RouterOSBinaryError(
+                    "RouterOS Binary API response exceeds configured safety limit",
+                    failure_kind="invalid_response",
+                )
+            received += len(chunk)
             with self._state_lock:
                 if self._socket is not current:
                     raise RouterOSBinaryError("RouterOS Binary API connection was closed")
-                parsed = next(self._reader.feed(chunk), None)
-                if parsed is not None:
-                    return parsed
+                parsed = list(
+                    self._reader.feed(
+                        chunk,
+                        max_sentence_size=sentence_limit,
+                        max_sentences=1,
+                    )
+                )
+                if parsed:
+                    sentence = parsed[0]
+                    if max_response_bytes is not None and _sentence_wire_size(sentence) > max_response_bytes:
+                        raise RouterOSBinaryError(
+                            "RouterOS Binary API response exceeds configured safety limit",
+                            failure_kind="invalid_response",
+                        )
+                    return sentence
 
     def _request(self, words: Iterable[str | bytes]) -> list[RouterOSReply]:
         tag = self._next_tag()
-        self._send([*words, f".tag={tag}"])
-        replies: list[RouterOSReply] = []
-        while True:
-            reply = parse_reply(self._read_sentence())
-            replies.append(reply)
-            if reply.kind in {"done", "empty", "trap", "fatal"}:
-                if reply.kind in {"trap", "fatal"}:
-                    message = reply.attributes.get("message", "RouterOS rejected the Binary API request")
-                    raise RouterOSBinaryError(message)
-                return replies
+        try:
+            self._send([*words, f".tag={tag}"])
+            replies: list[RouterOSReply] = []
+            response_bytes = 0
+            response_words = 0
+            while True:
+                if len(replies) >= MAX_RESPONSE_REPLIES:
+                    raise RouterOSBinaryError(
+                        "RouterOS Binary API response exceeds configured reply limit",
+                        failure_kind="invalid_response",
+                    )
+                remaining_bytes = MAX_RESPONSE_BYTES - response_bytes
+                sentence = self._read_sentence(max_response_bytes=remaining_bytes)
+                sentence_bytes = _sentence_wire_size(sentence)
+                if sentence_bytes > remaining_bytes:
+                    raise RouterOSBinaryError(
+                        "RouterOS Binary API response exceeds configured safety limit",
+                        failure_kind="invalid_response",
+                    )
+                response_bytes += sentence_bytes
+                response_words += len(sentence)
+                if response_words > MAX_RESPONSE_WORDS:
+                    raise RouterOSBinaryError(
+                        "RouterOS Binary API response exceeds configured word limit",
+                        failure_kind="invalid_response",
+                    )
+                reply = parse_reply(sentence)
+                if reply.attributes.get(".tag") != tag:
+                    raise RouterOSBinaryError(
+                        "RouterOS Binary API reply tag did not match the active request",
+                        failure_kind="invalid_response",
+                    )
+                replies.append(reply)
+                if reply.kind in {"done", "empty", "trap", "fatal"}:
+                    if reply.kind in {"trap", "fatal"}:
+                        message = reply.attributes.get("message", "RouterOS rejected the Binary API request")
+                        raise RouterOSBinaryError(message)
+                    return replies
+        except Exception:
+            # Limits, malformed replies, and wrong tags leave the stream's
+            # unread bytes ambiguous; never reuse that connection.
+            self.close()
+            raise
 
     def execute(self, path: str, *, query: Iterable[str] = ()) -> list[RouterOSReply]:
         """Execute one read-only ``print`` command and return its replies.
@@ -302,13 +484,22 @@ class RouterOSBinaryConnection:
         if not path.startswith("/"):
             raise ValueError("RouterOS API paths must start with '/'")
         tag = self._next_tag()
-        self._send([path + "/listen", *query, f".tag={tag}"])
-        while True:
-            reply = parse_reply(self._read_sentence())
-            if reply.kind in {"re", "done", "trap", "fatal"}:
-                if reply.kind in {"trap", "fatal"}:
-                    message = reply.attributes.get("message", "RouterOS rejected the Binary API listen request")
-                    raise RouterOSBinaryError(message)
-                if reply.kind == "done":
-                    return
-                yield reply
+        try:
+            self._send([path + "/listen", *query, f".tag={tag}"])
+            while True:
+                reply = parse_reply(self._read_sentence())
+                if reply.attributes.get(".tag") != tag:
+                    raise RouterOSBinaryError(
+                        "RouterOS Binary API reply tag did not match the active request",
+                        failure_kind="invalid_response",
+                    )
+                if reply.kind in {"re", "done", "trap", "fatal"}:
+                    if reply.kind in {"trap", "fatal"}:
+                        message = reply.attributes.get("message", "RouterOS rejected the Binary API listen request")
+                        raise RouterOSBinaryError(message)
+                    if reply.kind == "done":
+                        return
+                    yield reply
+        except Exception:
+            self.close()
+            raise

@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from routeros import RouterOSError
 from routeros_binary import (
     RouterOSBinaryError,
     RouterOSBinaryConnection,
@@ -52,6 +53,197 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         reader = SentenceReader(max_word_size=4)
         with self.assertRaises(RouterOSBinaryError):
             list(reader.feed(encode_sentence([b"!re", b"12345"])))
+
+    def test_reader_rejects_sentence_with_too_many_words(self) -> None:
+        reader = SentenceReader(max_words=3)
+        with self.assertRaisesRegex(RouterOSBinaryError, "word limit"):
+            list(reader.feed(encode_sentence([b"!re", b"=a=1", b"=b=2", b"=c=3"])))
+
+    def test_parse_reply_rejects_too_many_words_without_copying_all_input(self) -> None:
+        def words():
+            yield b"!re"
+            for _ in range(4_097):
+                yield b"=name=value"
+
+        with self.assertRaisesRegex(RouterOSBinaryError, "word limit"):
+            parse_reply(words())
+
+    def test_connection_rejects_oversized_response_with_sanitized_routeros_error(self) -> None:
+        private_payload = b"PRIVATE_SENTINEL_" + b"x" * 80
+
+        class FakeSocket:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+                self.received = 0
+
+            def recv(self, size: int) -> bytes:
+                chunk = self.payload[:size]
+                self.payload = self.payload[size:]
+                self.received += len(chunk)
+                return chunk
+
+            def sendall(self, _payload: bytes) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket(encode_sentence([b"!re", b".tag=1", b"=detail=" + private_payload]))
+        connection._socket = fake  # noqa: SLF001 - exercise bounded response handling
+
+        with mock.patch("routeros_binary.MAX_RESPONSE_BYTES", 32):
+            with self.assertRaises(RouterOSError) as raised:
+                connection.execute("/interface/print")
+
+        self.assertIn("configured safety limit", str(raised.exception))
+        self.assertEqual(raised.exception.failure_kind, "invalid_response")
+        self.assertNotIn("PRIVATE_SENTINEL", str(raised.exception))
+        self.assertLessEqual(fake.received, 32)
+        self.assertLessEqual(len(connection._reader._buffer), 32)  # noqa: SLF001
+        self.assertIsNone(connection._socket)  # noqa: SLF001 - limit failures poison the socket
+
+    def test_connection_rejects_reply_count_over_limit_before_accumulating_more(self) -> None:
+        class FakeSocket:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+                self.recv_calls = 0
+
+            def recv(self, size: int) -> bytes:
+                self.recv_calls += 1
+                chunk = self.payload[:size]
+                self.payload = self.payload[size:]
+                return chunk
+
+            def sendall(self, _payload: bytes) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        payload = encode_sentence(["!re", ".tag=1", "=name=ether1"]) + encode_sentence(["!done", ".tag=1"])
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket(payload)
+        connection._socket = fake  # noqa: SLF001 - exercise reply count ceiling
+
+        with mock.patch("routeros_binary.MAX_RESPONSE_REPLIES", 1):
+            with self.assertRaisesRegex(RouterOSBinaryError, "configured reply limit"):
+                connection.execute("/interface/print")
+
+        self.assertEqual(fake.recv_calls, 1)
+
+    def test_connection_rejects_aggregate_response_over_byte_limit(self) -> None:
+        class FakeSocket:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+                self.received = 0
+
+            def recv(self, size: int) -> bytes:
+                chunk = self.payload[:size]
+                self.payload = self.payload[size:]
+                self.received += len(chunk)
+                return chunk
+
+            def sendall(self, _payload: bytes) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        payload = encode_sentence(["!re", ".tag=1"]) + encode_sentence(["!done", ".tag=1"])
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket(payload)
+        connection._socket = fake  # noqa: SLF001 - exercise aggregate response ceiling
+
+        with mock.patch("routeros_binary.MAX_RESPONSE_BYTES", 15):
+            with self.assertRaisesRegex(RouterOSError, "configured safety limit"):
+                connection.execute("/interface/print")
+
+        self.assertLessEqual(fake.received, 15)
+
+    def test_connection_rejects_aggregate_word_limit_before_accumulating_replies(self) -> None:
+        class FakeSocket:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+                self.closed = False
+
+            def recv(self, size: int) -> bytes:
+                chunk = self.payload[:size]
+                self.payload = self.payload[size:]
+                return chunk
+
+            def sendall(self, _payload: bytes) -> None:
+                return None
+
+            def close(self) -> None:
+                self.closed = True
+
+        payload = encode_sentence(["!re", ".tag=1", "=name=ether1"]) + encode_sentence(["!done", ".tag=1"])
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket(payload)
+        connection._socket = fake  # noqa: SLF001 - exercise aggregate decoded-word ceiling
+
+        with mock.patch("routeros_binary.MAX_RESPONSE_WORDS", 4):
+            with self.assertRaisesRegex(RouterOSBinaryError, "configured word limit"):
+                connection.execute("/interface/print")
+
+        self.assertTrue(fake.closed)
+        self.assertIsNone(connection._socket)  # noqa: SLF001 - word-limit failures poison the socket
+
+    def test_connection_accepts_normal_response_within_bounded_limits(self) -> None:
+        class FakeSocket:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+                self.recv_calls = 0
+
+            def recv(self, size: int) -> bytes:
+                self.recv_calls += 1
+                chunk = self.payload[:size]
+                self.payload = self.payload[size:]
+                return chunk
+
+            def sendall(self, _payload: bytes) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        payload = encode_sentence(["!re", ".tag=1", "=.id=*1", "=name=ether1"]) + encode_sentence(["!done", ".tag=1"])
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket(payload)
+        connection._socket = fake  # noqa: SLF001 - exercise bounded normal response
+
+        with (
+            mock.patch("routeros_binary.MAX_RESPONSE_BYTES", 128),
+            mock.patch("routeros_binary.MAX_RESPONSE_REPLIES", 2),
+        ):
+            replies = connection.execute("/interface/print")
+
+        self.assertEqual([reply.kind for reply in replies], ["re", "done"])
+        self.assertEqual(replies[0].attributes["name"], "ether1")
+        self.assertEqual(fake.recv_calls, 1)
+
+    def test_request_closes_connection_on_mismatched_reply_tag(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def sendall(self, _payload: bytes) -> None:
+                return None
+
+            def recv(self, _size: int) -> bytes:
+                return encode_sentence(["!done", ".tag=other"])
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket()
+        connection._socket = fake  # noqa: SLF001 - exercise response-tag validation
+        with self.assertRaisesRegex(RouterOSBinaryError, "tag did not match"):
+            connection.execute("/interface/print")
+        self.assertTrue(fake.closed)
+        self.assertIsNone(connection._socket)  # noqa: SLF001
 
     def test_connection_preserves_multiple_sentences_in_one_read(self) -> None:
         class FakeSocket:
@@ -120,7 +312,7 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
                 self.sent += payload
 
             def recv(self, _size: int) -> bytes:
-                return encode_sentence(["!re", "=.id=*1", "=name=ether1"]) + encode_sentence(["!done"])
+                return encode_sentence(["!re", ".tag=1", "=.id=*1", "=name=ether1"]) + encode_sentence(["!done", ".tag=1"])
 
             def close(self) -> None:
                 return None
