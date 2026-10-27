@@ -175,8 +175,15 @@ def validate_redis_stream_url(value: str) -> str | None:
     if not value:
         return None
     parsed = urlsplit(value)
-    if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname or parsed.fragment:
-        raise ConfigurationError("REDIS_STREAM_URL must be a redis:// or rediss:// URL")
+    if parsed.scheme not in {"redis", "rediss"}:
+        raise ConfigurationError(
+            "REDIS_STREAM_URL must be a redis:// or rediss:// URL: redis:// uses plaintext transport; "
+            "rediss:// uses TLS transport"
+        )
+    if not parsed.hostname or parsed.fragment:
+        raise ConfigurationError(
+            "REDIS_STREAM_URL must include a hostname and must not contain a fragment"
+        )
     if parsed.query:
         raise ConfigurationError("REDIS_STREAM_URL must not include query parameters")
     try:
