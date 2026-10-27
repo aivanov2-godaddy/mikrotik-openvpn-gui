@@ -181,6 +181,10 @@ jobs:
           provenance: false
           cache-from: type=gha,scope=release-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.suffix }}
+      - name: Checksum candidate image archive before scan
+        env:
+          IMAGE_ARCHIVE: candidate-image.tar
+        run: sha256sum "$IMAGE_ARCHIVE" > "$IMAGE_ARCHIVE.sha256"
       - name: Scan candidate image for OS and library vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -192,10 +196,10 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           timeout: 10m0s
-      - name: Checksum scanned image archive
+      - name: Verify scanned image archive checksum
         env:
           IMAGE_ARCHIVE: candidate-image.tar
-        run: sha256sum "$IMAGE_ARCHIVE" > "$IMAGE_ARCHIVE.sha256"
+        run: sha256sum --check "$IMAGE_ARCHIVE.sha256"
       - name: Preserve scanned image archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

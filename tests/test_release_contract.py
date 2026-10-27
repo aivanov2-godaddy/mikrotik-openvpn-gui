@@ -173,10 +173,18 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("vuln-type: os,library", build_scan)
         self.assertLess(
             build_scan.index("Build candidate image archive"),
+            build_scan.index("Checksum candidate image archive before scan"),
+        )
+        self.assertLess(
+            build_scan.index("Checksum candidate image archive before scan"),
             build_scan.index("Scan candidate image for OS and library vulnerabilities"),
         )
         self.assertLess(
             build_scan.index("Scan candidate image for OS and library vulnerabilities"),
+            build_scan.index("Verify scanned image archive checksum"),
+        )
+        self.assertLess(
+            build_scan.index("Verify scanned image archive checksum"),
             build_scan.index("Preserve scanned image archive"),
         )
         self.assertLess(
