@@ -280,6 +280,12 @@ class RouterOSBinaryConnection:
     existing REST client until a separate review approves otherwise.
     """
 
+    READ_ONLY_PRINT_PATHS = frozenset({
+        "/interface/print",
+        "/ppp/active/print",
+    })
+    READ_ONLY_LISTEN_PATHS = frozenset({"/ppp/active"})
+
     def __init__(
         self,
         host: str,
@@ -466,23 +472,27 @@ class RouterOSBinaryConnection:
     def execute(self, path: str, *, query: Iterable[str] = ()) -> list[RouterOSReply]:
         """Execute one read-only ``print`` command and return its replies.
 
-        This deliberately has no mutation verb helpers.  Callers should use
-        explicit ``/resource/print`` paths and a narrow ``.proplist`` query.
+        Only explicitly reviewed telemetry paths are allowed. Callers should
+        use a narrow ``.proplist`` query for those paths.
         """
 
         if not path.startswith("/"):
             raise ValueError("RouterOS API paths must start with '/'")
+        if path not in self.READ_ONLY_PRINT_PATHS:
+            raise ValueError("RouterOS Binary API path is not in the read-only allowlist")
         return self._request([path, *query])
 
     def listen(self, path: str, *, query: Iterable[str] = ()) -> Iterator[RouterOSReply]:
         """Start a RouterOS ``listen`` command and yield change records.
 
         The caller owns the connection and must close it to stop the stream.
-        ``listen`` is intentionally exposed only as a read stream; the broker
-        is responsible for reconciliation and stale/dead record handling.
+        Only the reviewed active-PPP session stream is allowed; the broker is
+        responsible for reconciliation and stale/dead record handling.
         """
         if not path.startswith("/"):
             raise ValueError("RouterOS API paths must start with '/'")
+        if path not in self.READ_ONLY_LISTEN_PATHS:
+            raise ValueError("RouterOS Binary API listen path is not in the read-only allowlist")
         tag = self._next_tag()
         try:
             self._send([path + "/listen", *query, f".tag={tag}"])

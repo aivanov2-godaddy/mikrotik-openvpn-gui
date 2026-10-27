@@ -325,6 +325,46 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         self.assertIn(b"/interface/print", fake.sent)
         self.assertNotIn(b"/interface/add", fake.sent)
 
+    def test_execute_rejects_commands_outside_the_read_only_allowlist(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.sent = b""
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def close(self) -> None:
+                return None
+
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket()
+        connection._socket = fake  # noqa: SLF001 - verify rejected commands are not written
+
+        with self.assertRaisesRegex(ValueError, "read-only allowlist"):
+            connection.execute("/system/reboot")
+
+        self.assertEqual(fake.sent, b"")
+
+    def test_listen_rejects_paths_outside_the_read_only_allowlist(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.sent = b""
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def close(self) -> None:
+                return None
+
+        connection = RouterOSBinaryConnection("router.example")
+        fake = FakeSocket()
+        connection._socket = fake  # noqa: SLF001 - verify rejected listens are not written
+
+        with self.assertRaisesRegex(ValueError, "read-only allowlist"):
+            next(connection.listen("/system"))
+
+        self.assertEqual(fake.sent, b"")
+
     def test_insecure_tls_cannot_be_enabled(self) -> None:
         with self.assertRaisesRegex(RouterOSBinaryError, "certificate verification cannot be disabled"):
             RouterOSBinaryConnection("router.example", insecure_tls=True)

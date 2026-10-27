@@ -7,12 +7,19 @@ import unittest
 import urllib.error
 import urllib.request
 from http import HTTPStatus
+from http.client import HTTPResponse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from unittest.mock import patch
 
 from config import ConfigurationError, OpenVPNTopology
-from routeros import RouterOSClient, RouterOSCredentials, RouterOSError, harden_profile
+from routeros import (
+    ProvisionedProfile,
+    RouterOSClient,
+    RouterOSCredentials,
+    RouterOSError,
+    harden_profile,
+)
 from tests.mock_routeros import MockRouterOS
 
 
@@ -28,6 +35,78 @@ TEST_TOPOLOGY = OpenVPNTopology(
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_rest_response_body_is_bounded_without_content_length(self) -> None:
+        class LargeResponseHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"x" * 64)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), LargeResponseHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        read_sizes: list[int | None] = []
+        original_read = HTTPResponse.read
+
+        def record_read(response: HTTPResponse, amount: int | None = None) -> bytes:
+            read_sizes.append(amount)
+            return original_read(response, amount)
+
+        try:
+            client = RouterOSClient(f"http://127.0.0.1:{server.server_port}/rest")
+            with patch("http.client.HTTPResponse.read", new=record_read):
+                with patch("routeros.MAX_ROUTEROS_RESPONSE_BYTES", 16):
+                    with self.assertRaises(RouterOSError) as raised:
+                        client._request(
+                            "GET",
+                            "/system/resource",
+                            RouterOSCredentials("admin", "routerpass"),
+                        )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        self.assertEqual(read_sizes, [17])
+        self.assertEqual(raised.exception.failure_kind, "response_too_large")
+        self.assertNotIn("xxxxxxxx", str(raised.exception))
+
+    def test_rest_request_capacity_limits_concurrent_body_parsing(self) -> None:
+        slots = threading.BoundedSemaphore(1)
+        slots.acquire()
+        client = RouterOSClient("http://router.example.test/rest", timeout=0.01)
+        credentials = RouterOSCredentials("admin", "routerpass")
+
+        with patch("routeros._ROUTEROS_REST_REQUEST_SLOTS", slots):
+            with patch.object(client, "_request_with_slot") as request:
+                with self.assertRaises(RouterOSError) as raised:
+                    client._request("GET", "/system/resource", credentials)
+
+        slots.release()
+        self.assertEqual(raised.exception.failure_kind, "capacity_limited")
+        request.assert_not_called()
+
+    def test_rest_request_releases_capacity_when_request_fails(self) -> None:
+        slots = threading.BoundedSemaphore(1)
+        client = RouterOSClient("http://router.example.test/rest", timeout=0.01)
+
+        with patch("routeros._ROUTEROS_REST_REQUEST_SLOTS", slots):
+            with patch.object(client, "_request_with_slot", side_effect=RuntimeError("failure")):
+                with self.assertRaisesRegex(RuntimeError, "failure"):
+                    client._request(
+                        "GET",
+                        "/system/resource",
+                        RouterOSCredentials("admin", "routerpass"),
+                    )
+            acquired = slots.acquire(blocking=False)
+            if acquired:
+                slots.release()
+
+        self.assertTrue(acquired)
+
     def test_routeros_credentials_are_not_forwarded_to_redirect_target(self) -> None:
         forwarded_authorization: list[str | None] = []
         target_url = ""
@@ -92,6 +171,19 @@ class RouterOSClientTests(unittest.TestCase):
         self.assertIn("operator", rendered)
         self.assertNotIn("router-password-sentinel", rendered)
         self.assertNotIn("password=", rendered)
+
+    def test_provisioned_profile_repr_omits_private_profile_bytes(self) -> None:
+        profile = ProvisionedProfile(
+            profile=b"private-profile-sentinel",
+            certificate_id="cert1",
+            certificate_name="vpn-client",
+            fingerprint="00:11:22:33",
+        )
+
+        rendered = repr(profile)
+
+        self.assertIn("vpn-client", rendered)
+        self.assertNotIn("private-profile-sentinel", rendered)
 
     def test_certificate_settings_rejects_stale_malformed_missing_or_wrong_ca_crls(self) -> None:
         with MockRouterOS() as mock:
