@@ -315,12 +315,14 @@ class ReleaseContractTests(unittest.TestCase):
             "No #806 rollback rehearsal or 30-minute soak has passed",
             rendered,
         )
-        self.assertIn("Sparse point samples over approximately nine minutes", rendered)
+        self.assertIn("A single resource sample showed approximately 0.7% CPU, 38 MiB memory", rendered)
+        self.assertIn("staged on the isolated canary on 2026-10-27", rendered)
+        self.assertIn("This is a startup checkpoint only; no 30-minute acceptance or production promotion is claimed.", rendered)
         self.assertIn("Production remains on its prior image", rendered)
-        self.assertIn("An earlier read-only RouterOS inventory on 2026-10-25 reported the canary stopped", rendered)
+        self.assertIn("This later observation supersedes an earlier inventory that reported the canary stopped", rendered)
         self.assertIn("latest read-only WinBox observation", rendered)
-        self.assertIn("0.7% CPU and 60.9 MiB memory", rendered)
-        self.assertIn("does not verify or accept PR #862", rendered)
+        self.assertIn("Stats view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap", rendered)
+        self.assertIn("or acceptance of PR #862", rendered)
         self.assertIn("PR #798", rendered)
 
     def test_operations_runbook_collects_live_evidence_before_evaluation(self) -> None:

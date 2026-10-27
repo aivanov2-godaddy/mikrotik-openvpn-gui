@@ -62,11 +62,11 @@ asset SHA-256 is
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-445c1d5ca0f28174629be8e8cd94f04de132f0fc-arm64` | `sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac` |
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-445c1d5ca0f28174629be8e8cd94f04de132f0fc-amd64` | `sha256:a6e59e2c7c67b89f77c8a6ef126e5e2541ff820f40f2e62ed10731c2cc9cf095` |
 
-PR #862 is a published artifact, not a numbered release or a RouterOS
-deployment. The latest canary read-back remains the older PR #806 image; no
-candidate-specific staging, 30-minute acceptance, or production promotion is
-claimed. Keep production promotion and v2.8.0 gated on the open acceptance
-criteria.
+PR #862 is a published artifact, not a numbered release. Its ARM64 image was
+staged on the isolated canary on 2026-10-27, and the private readiness probe
+reported the matching source revision. This is a startup checkpoint only; no
+30-minute acceptance or production promotion is claimed. Keep production
+promotion and v2.8.0 gated on the open acceptance criteria.
 
 ## PR #860 publication checks — 2026-10-27
 

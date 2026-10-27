@@ -572,14 +572,14 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "historical acceptance record for candidate PR #776", report
         )
         self.assertIn(
-            "older PR #806 image on 2026-10-24",
+            "The earlier qualitative live-UI check was on PR #806 and does not provide evidence for this candidate.",
             report,
         )
         self.assertIn(
             "No candidate-specific rollback drill has been completed for #806",
             report,
         )
-        self.assertIn("canary dashboard was at its application sign-in form", report)
+        self.assertIn("The browser view available at that checkpoint (2026-10-25) was the application sign-in form", report)
 
     def test_documented_contextual_login_limit_matches_runtime_defaults(self) -> None:
         limiter_module = ast.parse((ROOT / "security.py").read_text(encoding="utf-8"))
@@ -647,12 +647,14 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             releases,
         )
         self.assertIn(
-            "PR #862 is a published artifact, not a numbered release or a RouterOS deployment.",
+            "PR #862 is a published artifact, not a numbered release.",
             releases,
         )
+        self.assertIn("staged on the isolated canary on 2026-10-27", releases)
+        self.assertIn("This is a startup checkpoint only; no 30-minute acceptance or production promotion is claimed.", releases)
         self.assertNotIn("latest merged mainline source", roadmap)
         self.assertNotIn("latest merged mainline source", releases)
-        self.assertIn("The last recorded canary stage is PR #806", roadmap)
+        self.assertIn("The latest recorded canary stage is PR #862", roadmap)
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
         self.assertIn("The two bounded source reviews described above", self.document)
