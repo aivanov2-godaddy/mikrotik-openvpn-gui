@@ -203,11 +203,45 @@ test('API token creation and revocation require step-up without reloading the li
 
 test('VPN-user password changes require step-up and review active-session disconnects in place', async ({ page }) => {
   const navigations = { count: 0 };
+  let previewPayload;
+  let applyPayload;
   await signIn(page);
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigations.count += 1;
   });
   const originalDocument = await page.evaluate(() => window.__documentInstance);
+
+  // Keep the browser test isolated from the shared mock RouterOS session used
+  // by the other viewport projects. Backend mutation/revocation behavior is
+  // covered by the dedicated Python integration tests.
+  await page.route((url) => /\/api\/users\/[^/]+(?:\/preview)?$/.test(url.pathname), async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && pathname.endsWith('/preview')) {
+      previewPayload = request.postDataJSON();
+      return route.fulfill({ json: {
+        review_token: 'browser-test-review-token',
+        username: 'user-two',
+        reason: 'Rotate this VPN user password',
+        changes: {
+          email: 'user-two@example.test',
+          comment: 'Tablet test device',
+          disabled: false,
+          controls: { policy: 'full-tunnel' },
+          password_changed: true,
+          active_sessions_to_disconnect: 1,
+        },
+      } });
+    }
+    if (request.method() === 'PATCH' && /^\/api\/users\/[^/]+$/.test(pathname)) {
+      applyPayload = request.postDataJSON();
+      return route.fulfill({ json: {
+        verification: 'partial',
+        active_sessions_disconnected: 1,
+      } });
+    }
+    return route.continue();
+  });
 
   await page.locator('a[data-view-target="vpn-users"]').click();
   const userCard = page.locator('.user-card').filter({ hasText: 'user-two' });
@@ -236,6 +270,11 @@ test('VPN-user password changes require step-up and review active-session discon
   await reauthDialog.getByRole('button', { name: 'Re-authenticate session' }).click();
   expect((await reauthResponse).status()).toBe(200);
   expect((await previewResponse).status()).toBe(200);
+  expect(previewPayload).toMatchObject({
+    email: 'user-two@example.test',
+    password: 'browser-rotated-vpn-password',
+    reason: 'Rotate this VPN user password',
+  });
   await expect(reauthDialog).toBeHidden();
   await expect(editDialog.locator('#edit-review')).toContainText('1 active VPN device will be disconnected');
 
@@ -245,8 +284,13 @@ test('VPN-user password changes require step-up and review active-session discon
   ));
   await editDialog.getByRole('button', { name: 'Save changes' }).click();
   expect((await applyResponse).status()).toBe(200);
+  expect(applyPayload).toMatchObject({
+    password: 'browser-rotated-vpn-password',
+    reason: 'Rotate this VPN user password',
+    review_token: 'browser-test-review-token',
+  });
   await expect(editDialog).toBeHidden();
   await expect(editDialog.getByLabel('New password')).toHaveValue('');
-  await expect(page.getByText(/1 active VPN device was disconnected/)).toBeVisible();
+  await expect(page.locator('.toast-region')).toContainText('1 active VPN device was disconnected');
   await expectNoDocumentReload(page, originalDocument, navigations);
 });
