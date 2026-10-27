@@ -1017,6 +1017,30 @@ test window:
 - Complete an independent, requirement-by-requirement ASVS review and any
   required penetration testing before making a compliance claim.
 
+## Independent source review — 2026-10-27
+
+An independent internal reviewer checked the 42 control IDs in the declared
+matrix scope against ASVS 5.0.0 at source commit
+`35c2d75019ae311b5aae977b9ac2be358d82937a`. No additional omitted control ID
+or unsupported positive status was identified within that scope. This is a
+bounded internal review, not an external assessment, penetration test, or
+compliance attestation; it does not close the independent review gate above.
+
+The reviewer confirmed that V7.4.3 and V7.5.1 are explicitly excluded only for
+dashboard operator accounts. The application also changes VPN-user password
+and email attributes, which are a separate RouterOS identity domain; their
+reauthentication and post-change session behavior are not assessed by those
+matrix entries. No product-wide ASVS coverage claim should be inferred from
+this scoped matrix.
+
+The follow-up hardening on the current branch rejects Redis URL query options,
+rejects disabled RouterOS REST TLS verification both in environment parsing
+and direct client construction, and verifies effective RouterOS group policies
+before granting elevated dashboard roles. Regression coverage is in
+`tests/test_config.py`, `tests/test_integrations.py`, and
+`tests/test_routeros.py`. These are source-level controls; they do not verify
+the live router's configured groups, environment, certificates, or deployment.
+
 ## Non-goals
 
 This document is a narrow evidence index for the session/live-stream area. It

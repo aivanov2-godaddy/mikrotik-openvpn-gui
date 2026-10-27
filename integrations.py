@@ -13,7 +13,9 @@ import time
 import urllib.request
 import uuid
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
+from config import ConfigurationError, validate_redis_stream_url
 from event_safety import sanitize_integration_event
 
 
@@ -52,6 +54,9 @@ class RedisStreamPublisher:
         maxlen: int = 10_000,
         client: Any | None = None,
     ) -> None:
+        validated_url = validate_redis_stream_url(str(url))
+        if validated_url is None:
+            raise ConfigurationError("REDIS_STREAM_URL is required when Redis Streams are enabled")
         self.stream = str(stream)
         self.maxlen = max(100, min(int(maxlen), 1_000_000))
         self._metrics_lock = threading.Lock()
@@ -68,13 +73,15 @@ class RedisStreamPublisher:
             raise RuntimeError(
                 "Redis Streams is configured but the optional Redis dependency is not installed"
             ) from error
-        self._client = redis.Redis.from_url(
-            str(url),
-            decode_responses=True,
-            socket_connect_timeout=3,
-            socket_timeout=3,
-            health_check_interval=30,
-        )
+        options: dict[str, Any] = {
+            "decode_responses": True,
+            "socket_connect_timeout": 3,
+            "socket_timeout": 3,
+            "health_check_interval": 30,
+        }
+        if urlsplit(validated_url).scheme == "rediss":
+            options.update({"ssl_cert_reqs": "required", "ssl_check_hostname": True})
+        self._client = redis.Redis.from_url(validated_url, **options)
 
     def publish(self, event: dict[str, Any]) -> str:
         payload = sanitize_integration_event(event)

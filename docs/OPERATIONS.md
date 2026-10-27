@@ -8,7 +8,7 @@
   health timeline, and rollback visibility without exposing router credentials
   or VPN material. The same object is included in `/api/status` for the live
   dashboard refresh.
-- RouterOS REST certificate validation succeeds; `ROUTEROS_INSECURE_TLS` remains `false`.
+- RouterOS REST certificate validation succeeds; `ROUTEROS_INSECURE_TLS` is `false` (startup rejects `true`).
 - SQLite storage, RouterOS container storage, CPU, and memory stay below local alert thresholds.
 - Dashboard users, connected sessions, and interface counters agree with WinBox for a sample identity.
 - Audit events contain no passwords, tokens, private keys, profile bodies, or raw authorization headers.
@@ -57,7 +57,10 @@ Delivery is at-least-once and bounded by `REDIS_STREAM_MAXLEN`; consumers must
 deduplicate by `event_id`. Keep Redis on a private network, enable
 authentication, and persist its data directory. Use `rediss://` when Redis
 traffic crosses a network boundary that is not already protected by an
-isolated trusted transport.
+isolated trusted transport. For `rediss://`, the dashboard requires certificate
+and hostname verification. Select the Redis database in the URL path (such as
+`/0`); query parameters are rejected because redis-py otherwise lets URL
+options override the publisher's bounded timeouts and TLS settings.
 Before rolling back to an application version that predates schema v2,
 temporarily disable outbound integrations by unsetting `WEBHOOK_URL`,
 `WEBHOOK_SIGNING_SECRET`, and `REDIS_STREAM_URL`; older versions can forward the

@@ -70,7 +70,7 @@ endpoint on a private path. Do not give a public GitHub Actions workflow a path
 to your router or add GitHub-hosted runner ranges to a RouterOS allowlist.
 - Use a REST URL whose hostname is present exactly in the server certificate Subject Alternative Name.
 - If the URL uses an IP literal, the certificate needs the matching IP SAN; a DNS SAN or Common Name is not equivalent.
-- Keep `ROUTEROS_INSECURE_TLS=false` in every environment.
+- Keep `ROUTEROS_INSECURE_TLS=false` in every environment. The application rejects `true` at startup; install the RouterOS CA instead of bypassing certificate verification.
 - Replace or reissue a mismatched certificate. Do not disable verification.
 
 ### Network

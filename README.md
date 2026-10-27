@@ -141,7 +141,7 @@ populated environment file.
 | `PUBLIC_ORIGIN` | Yes | Public HTTPS origin, for example `https://vpn.example.com` |
 | `ROUTEROS_REST_URL` | Yes | RouterOS REST base URL ending in `/rest` |
 | `ROUTEROS_CA_FILE` | Yes | CA file used to verify RouterOS REST, recommended `/config/routeros-ca.crt` |
-| `ROUTEROS_INSECURE_TLS` | Yes | Keep `false` in production |
+| `ROUTEROS_INSECURE_TLS` | Yes | Must be `false`; startup rejects `true` so REST and Binary API always verify RouterOS TLS certificates |
 | `LIVE_TRANSPORT` | No | `rest` (default), `binary`, or `auto`. The effective public transport remains authenticated SSE until the Binary API canary is accepted; `binary`/`auto` do not change RouterOS configuration. |
 | `DATABASE_PATH` | Yes | Persistent SQLite path, recommended `/data/dashboard.sqlite` |
 | `HISTORY_RETENTION_DAYS` | No | Keep sanitized dashboard audit and completed connection history for 30–3650 days; defaults to 365. It never deletes RouterOS configuration or active sessions. |
@@ -151,7 +151,7 @@ populated environment file.
 | `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
 | `WEBHOOK_URL` | Optional | HTTPS endpoint without a query string for minimized, signed audit events (schema v2); disabled unless paired with `WEBHOOK_SIGNING_SECRET` |
 | `WEBHOOK_SIGNING_SECRET` | Optional | At least 32 characters; used only to calculate `X-VPN-Dashboard-Signature` and never displayed or audited |
-| `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL; enables optional Redis Streams fan-out and requires the Redis image extra |
+| `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL with the database selected in the path (for example `/0`); URL query parameters are rejected so they cannot override connection timeouts or TLS verification |
 | `REDIS_STREAM_KEY` | No | Bounded Redis stream name; defaults to `vpn-dashboard.events` |
 | `REDIS_STREAM_MAXLEN` | No | Approximate stream retention bound from 100 to 1,000,000; defaults to `10000` |
 | `TRUST_CLOUDFLARE` | Conditional | Enable only when every request reaches the app through a trusted Cloudflare origin proxy |
@@ -168,8 +168,8 @@ populated environment file.
 The Binary API always verifies the router certificate and hostname and enforces
 TLS 1.2 or newer. It rejects the legacy MD5 challenge login used by older
 RouterOS releases; Binary API mode requires the documented RouterOS 7
-one-step authentication. Setting `ROUTEROS_INSECURE_TLS=true` never weakens
-Binary API TLS and causes that connection to fail closed.
+one-step authentication. Setting `ROUTEROS_INSECURE_TLS=true` is rejected at
+startup, so REST and Binary API connections cannot disable certificate checks.
 
 Read-only router status remains available without the `OVPN_*` settings. User
 and profile actions fail closed until the OpenVPN topology is configured.
