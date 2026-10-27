@@ -639,15 +639,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #849 (`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest published runtime image source.",
+            "PR #860 (`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) is the latest published runtime image source",
             roadmap,
         )
         self.assertIn(
-            "PR #849 (`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest published runtime image source",
+            "PR #860 (`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) is the latest published runtime image source",
             releases,
         )
         self.assertIn(
-            "PR #849 has not been read back as the configured canary or production image",
+            "PR #860's immutable artifacts are published but have not been read back as the configured canary or production image",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)
