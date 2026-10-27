@@ -67,10 +67,24 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.14"
+      - name: Validate tagged release is on main and matches VERSION
+        if: github.ref_type == 'tag'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          main_ref="refs/remotes/origin/${DEFAULT_BRANCH}"
+          python scripts/validate_release.py \
+            --tag "$GITHUB_REF_NAME" \
+            --main-ref "$main_ref"
       - name: Install pre-commit
         run: python -m pip install --disable-pip-version-check "pre-commit==4.3.0"
       - name: Run repository pre-commit hooks
@@ -137,12 +151,6 @@ jobs:
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Sign in to GHCR
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Create image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -155,14 +163,15 @@ jobs:
             type=sha,format=long,prefix=sha-,enable=${{ matrix.suffix == 'arm64' }}
             type=raw,value=edge,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.suffix == 'arm64' }}
             type=ref,event=tag,enable=${{ matrix.suffix == 'arm64' }}
-      - name: Build and publish
+      - name: Build and load candidate image
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Containerfile
           platforms: ${{ matrix.platform }}
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -176,12 +185,53 @@ jobs:
           provenance: false
           cache-from: type=gha,scope=release-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.suffix }}
+      - name: Scan candidate image for OS and library vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-${{ matrix.suffix }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: false
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          timeout: 10m0s
+      - name: Sign in to GHCR after the candidate passes its scan
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish scanned image tags
+        id: publish_image
+        shell: bash
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          PRIMARY_TAG: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+          docker image inspect "$PRIMARY_TAG" >/dev/null
+          primary_push_output="$(docker push "$PRIMARY_TAG" 2>&1)" || {
+            printf '%s\n' "$primary_push_output" >&2
+            exit 1
+          }
+          printf '%s\n' "$primary_push_output"
+          digest="$(printf '%s\n' "$primary_push_output" | sed -n 's/^digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | tail -n 1)"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Primary image push did not return a canonical SHA-256 digest." >&2
+            exit 1
+          fi
+          while IFS= read -r image_tag; do
+            [[ -n "$image_tag" ]] || continue
+            [[ "$image_tag" == "$PRIMARY_TAG" ]] && continue
+            docker push "$image_tag" >/dev/null
+          done <<< "$IMAGE_TAGS"
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Record immutable digest
         run: |
           set -euo pipefail
-          digest='${{ steps.build.outputs.digest }}'
+          digest='${{ steps.publish_image.outputs.digest }}'
           if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Build did not return a canonical SHA-256 image digest." >&2
+            echo "Published image did not return a canonical SHA-256 digest." >&2
             exit 1
           fi
           {
@@ -203,7 +253,7 @@ jobs:
       - name: Generate detached SPDX SBOM for the published digest
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          image: ghcr.io/${{ github.repository }}@${{ steps.publish_image.outputs.digest }}
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: spdx-json
@@ -215,13 +265,13 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.publish_image.outputs.digest }}
           push-to-registry: false
       - name: Attest the SBOM against the exact image digest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.publish_image.outputs.digest }}
           sbom-path: sbom-${{ matrix.suffix }}.spdx.json
           push-to-registry: false
       - name: Verify detached provenance and SBOM attestations
@@ -229,7 +279,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.publish_image.outputs.digest }}
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -261,7 +311,7 @@ jobs:
       - name: Smoke-test the published runtime
         shell: bash
         env:
-          RELEASE_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          RELEASE_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.publish_image.outputs.digest }}
           TARGET_PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
@@ -277,6 +327,8 @@ jobs:
           done
           test "${payload:-}" != ""
           printf '%s' "$payload" | grep -Fq '"revision":"${{ github.sha }}"'
+          runtime_uids="$(docker exec "$container_id" awk '/^Uid:/ { print $2, $3, $4, $5; exit }' /proc/1/status)"
+          test "$runtime_uids" = "65534 65534 65534 65534"
           test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container_id")" = "${{ github.sha }}"
 
   publish-stable-manifest:
