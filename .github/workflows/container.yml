@@ -47,6 +47,7 @@ on:
       # package format. Publishing it with a matching manifest prevents a
       # reviewed package-name transition from stranding router-local updates.
       - "scripts/routeros/immutable-release-updater.rsc.example"
+      - "scripts/prune_runtime_build_tools.py"
       # The workflow itself defines the public release contract, including the
       # immutable RouterOS manifest.  It must publish when that contract
       # changes; otherwise a reviewed release change can never reach GHCR.
@@ -67,10 +68,24 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.14"
+      - name: Validate tagged release is on main and matches VERSION
+        if: github.ref_type == 'tag'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          main_ref="refs/remotes/origin/${DEFAULT_BRANCH}"
+          python scripts/validate_release.py \
+            --tag "$GITHUB_REF_NAME" \
+            --main-ref "$main_ref"
       - name: Install pre-commit
         run: python -m pip install --disable-pip-version-check "pre-commit==4.3.0"
       - name: Run repository pre-commit hooks
@@ -105,12 +120,129 @@ jobs:
       - name: Run rendered and accessibility browser suite
         run: npm run test:browser
 
-  publish:
-    name: Publish ${{ matrix.name }} image
+  build-candidate:
+    name: Build candidate ${{ matrix.name }} image
     needs: [verify, browser-verify]
     # A manual run can select any branch, so only publish artifacts from the
     # repository's default branch. Pushes are already restricted by
     # the workflow trigger to main and version tags.
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ARM64
+            platform: linux/arm64
+            suffix: arm64
+          - name: AMD64
+            platform: linux/amd64
+            suffix: amd64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Create image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long,prefix=sha-,suffix=-${{ matrix.suffix }}
+            type=raw,value=edge-${{ matrix.suffix }},enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=ref,event=tag,suffix=-${{ matrix.suffix }}
+            type=sha,format=long,prefix=sha-,enable=${{ matrix.suffix == 'arm64' }}
+            type=raw,value=edge,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.suffix == 'arm64' }}
+            type=ref,event=tag,enable=${{ matrix.suffix == 'arm64' }}
+      - name: Build candidate image archive
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Containerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=docker,dest=${{ github.workspace }}/candidate-image.tar
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+            INSTALL_REDIS=true
+          # RouterOS 7 compatibility takes precedence: attached attestations can
+          # turn a single-platform image into an OCI index RouterOS may not pull.
+          sbom: false
+          provenance: false
+          cache-from: type=gha,scope=release-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.suffix }}
+      - name: Checksum candidate image archive before scan
+        env:
+          IMAGE_ARCHIVE: candidate-image.tar
+        run: sha256sum "$IMAGE_ARCHIVE" > "$IMAGE_ARCHIVE.sha256"
+      - name: Preserve candidate image archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-image-${{ matrix.suffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            candidate-image.tar
+            candidate-image.tar.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  scan-candidate:
+    name: Scan candidate ${{ matrix.name }} image
+    needs: [verify, browser-verify, build-candidate]
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ARM64
+            platform: linux/arm64
+            suffix: arm64
+          - name: AMD64
+            platform: linux/amd64
+            suffix: amd64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download candidate image archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate-image-${{ matrix.suffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate-image
+      - name: Verify candidate image archive checksum
+        working-directory: candidate-image
+        run: sha256sum --check candidate-image.tar.sha256
+      - name: Scan candidate image for OS and library vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: candidate-image/candidate-image.tar
+          scan-type: image
+          format: table
+          exit-code: "1"
+          ignore-unfixed: false
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          timeout: 10m0s
+      - name: Verify candidate image archive unchanged after scan
+        working-directory: candidate-image
+        run: sha256sum --check candidate-image.tar.sha256
+
+  publish:
+    name: Publish ${{ matrix.name }} image
+    needs: [verify, browser-verify, build-candidate, scan-candidate]
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -133,16 +265,20 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Sign in to GHCR
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+      - name: Download scanned image archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          name: candidate-image-${{ matrix.suffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate-image
+      - name: Verify scanned image archive checksum and load it
+        shell: bash
+        env:
+          IMAGE_ARCHIVE: candidate-image.tar
+        run: |
+          set -euo pipefail
+          cd candidate-image
+          sha256sum --check "$IMAGE_ARCHIVE.sha256"
+          docker load --input "$IMAGE_ARCHIVE"
       - name: Create image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -155,33 +291,47 @@ jobs:
             type=sha,format=long,prefix=sha-,enable=${{ matrix.suffix == 'arm64' }}
             type=raw,value=edge,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.suffix == 'arm64' }}
             type=ref,event=tag,enable=${{ matrix.suffix == 'arm64' }}
-      - name: Build and publish
-        id: build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - name: Confirm scanned image contains expected primary tag
+        env:
+          PRIMARY_TAG: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-${{ matrix.suffix }}
+        run: docker image inspect "$PRIMARY_TAG" >/dev/null
+      - name: Sign in to GHCR after the candidate passes its scan
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
-          context: .
-          file: Containerfile
-          platforms: ${{ matrix.platform }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            REVISION=${{ github.sha }}
-            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
-            INSTALL_REDIS=true
-          # RouterOS 7 compatibility takes precedence: attached attestations can
-          # turn a single-platform image into an OCI index RouterOS may not pull.
-          sbom: false
-          provenance: false
-          cache-from: type=gha,scope=release-${{ matrix.suffix }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.suffix }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish scanned image tags
+        id: publish_image
+        shell: bash
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          PRIMARY_TAG: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+          docker image inspect "$PRIMARY_TAG" >/dev/null
+          primary_push_output="$(docker push "$PRIMARY_TAG" 2>&1)" || {
+            printf '%s\n' "$primary_push_output" >&2
+            exit 1
+          }
+          printf '%s\n' "$primary_push_output"
+          digest="$(printf '%s\n' "$primary_push_output" | python scripts/extract_registry_digest.py)"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Primary image push did not return a canonical SHA-256 digest." >&2
+            exit 1
+          fi
+          while IFS= read -r image_tag; do
+            [[ -n "$image_tag" ]] || continue
+            [[ "$image_tag" == "$PRIMARY_TAG" ]] && continue
+            docker push "$image_tag" >/dev/null
+          done <<< "$IMAGE_TAGS"
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Record immutable digest
         run: |
           set -euo pipefail
-          digest='${{ steps.build.outputs.digest }}'
+          digest='${{ steps.publish_image.outputs.digest }}'
           if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Build did not return a canonical SHA-256 image digest." >&2
+            echo "Published image did not return a canonical SHA-256 digest." >&2
             exit 1
           fi
           {
@@ -203,7 +353,7 @@ jobs:
       - name: Generate detached SPDX SBOM for the published digest
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          image: ghcr.io/${{ github.repository }}@${{ steps.publish_image.outputs.digest }}
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: spdx-json
@@ -215,13 +365,13 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.publish_image.outputs.digest }}
           push-to-registry: false
       - name: Attest the SBOM against the exact image digest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.publish_image.outputs.digest }}
           sbom-path: sbom-${{ matrix.suffix }}.spdx.json
           push-to-registry: false
       - name: Verify detached provenance and SBOM attestations
@@ -229,7 +379,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.publish_image.outputs.digest }}
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -261,7 +411,7 @@ jobs:
       - name: Smoke-test the published runtime
         shell: bash
         env:
-          RELEASE_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          RELEASE_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.publish_image.outputs.digest }}
           TARGET_PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
@@ -277,6 +427,8 @@ jobs:
           done
           test "${payload:-}" != ""
           printf '%s' "$payload" | grep -Fq '"revision":"${{ github.sha }}"'
+          runtime_uids="$(docker exec "$container_id" awk '/^Uid:/ { print $2, $3, $4, $5; exit }' /proc/1/status)"
+          test "$runtime_uids" = "65534 65534 65534 65534"
           test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container_id")" = "${{ github.sha }}"
 
   publish-stable-manifest:

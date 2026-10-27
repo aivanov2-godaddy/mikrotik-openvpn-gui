@@ -80,6 +80,28 @@ class ReleaseContractTests(unittest.TestCase):
         for workflow in ("ci.yml", "container.yml"):
             self.assertIn("exposure_doctor.py", (workflows / workflow).read_text(encoding="utf-8"))
 
+    def test_container_removes_build_only_python_packages_before_rootfs_copy(self) -> None:
+        containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
+        self.assertIn("scripts/prune_runtime_build_tools.py /tmp/prune_runtime_build_tools.py", containerfile)
+        self.assertLess(
+            containerfile.index("python /tmp/prune_runtime_build_tools.py"),
+            containerfile.index("&& tar -C /"),
+        )
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        self.assertIn('      - "scripts/prune_runtime_build_tools.py"', publish)
+
+    def test_runtime_pruner_is_included_in_docker_build_context(self) -> None:
+        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("scripts", dockerignore)
+        self.assertIn("!scripts/", dockerignore)
+        self.assertIn("scripts/*", dockerignore)
+        self.assertIn("!scripts/prune_runtime_build_tools.py", dockerignore)
+        self.assertLess(dockerignore.index("!scripts/"), dockerignore.index("scripts/*"))
+        self.assertLess(
+            dockerignore.index("scripts/*"),
+            dockerignore.index("!scripts/prune_runtime_build_tools.py"),
+        )
+
     def test_every_local_container_copy_input_triggers_mainline_publishing(self) -> None:
         containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
@@ -122,6 +144,104 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("npm run test:browser", browser_verify)
         self.assertIn("needs: [verify, browser-verify]", publish)
 
+    def test_version_tag_publish_requires_main_ancestry_and_version_match(self) -> None:
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        verify = publish.split("  browser-verify:\n", maxsplit=1)[0]
+        gate = verify.split("      - name: Validate tagged release is on main and matches VERSION\n", maxsplit=1)[1]
+        gate = gate.split("      - name:", maxsplit=1)[0]
+
+        self.assertIn("fetch-depth: 0", verify)
+        self.assertIn("if: github.ref_type == 'tag'", gate)
+        self.assertIn("git fetch --no-tags origin", gate)
+        self.assertIn('--tag "$GITHUB_REF_NAME"', gate)
+        self.assertIn('--main-ref "$main_ref"', gate)
+        self.assertIn("needs: [verify, browser-verify]", publish)
+
+        release_docs = (ROOT / "docs" / "RELEASES.md").read_text(encoding="utf-8")
+        self.assertIn("commit reachable from the default branch", release_docs)
+        self.assertIn("cannot retroactively protect old tag commits", release_docs)
+        self.assertIn("repository-level release-tag creation rule", release_docs)
+
+    def test_arm64_and_published_image_smokes_assert_unprivileged_runtime(self) -> None:
+        workflows = ROOT / ".github" / "workflows"
+        for workflow in ("ci.yml", "container.yml"):
+            source = (workflows / workflow).read_text(encoding="utf-8")
+            with self.subTest(workflow=workflow):
+                self.assertIn("awk '/^Uid:/ { print $2, $3, $4, $5; exit }' /proc/1/status", source)
+                self.assertIn('test "$runtime_uids" = "65534 65534 65534 65534"', source)
+                self.assertLess(source.index("/readyz"), source.index("runtime_uids="))
+
+    def test_container_publish_scans_immutable_candidate_before_registry_write(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        build_job = workflow.split("  build-candidate:\n", maxsplit=1)[1].split(
+            "  scan-candidate:\n", maxsplit=1
+        )[0]
+        scan_job = workflow.split("  scan-candidate:\n", maxsplit=1)[1].split(
+            "  publish:\n", maxsplit=1
+        )[0]
+        publish_job = workflow.split("  publish:\n", maxsplit=1)[1].split(
+            "  publish-stable-manifest:\n", maxsplit=1
+        )[0]
+        build = build_job.split("      - name: Build candidate image archive\n", maxsplit=1)[1].split(
+            "      - name:", maxsplit=1
+        )[0]
+
+        for job in (build_job, scan_job):
+            with self.subTest(job=job.splitlines()[0]):
+                self.assertIn("permissions:\n      contents: read", job)
+                self.assertNotIn("packages: write", job)
+                self.assertNotIn("id-token: write", job)
+                self.assertNotIn("attestations: write", job)
+        self.assertIn("outputs: type=docker,dest=${{ github.workspace }}/candidate-image.tar", build)
+        artifact = "candidate-image-${{ matrix.suffix }}-${{ github.run_id }}-${{ github.run_attempt }}"
+        self.assertIn("Checksum candidate image archive before scan", build_job)
+        self.assertLess(
+            build_job.index("Checksum candidate image archive before scan"),
+            build_job.index("Preserve candidate image archive"),
+        )
+        self.assertIn(f"name: {artifact}", build_job)
+        self.assertIn(f"name: {artifact}", scan_job)
+        self.assertIn(f"name: {artifact}", publish_job)
+        self.assertIn("needs: [verify, browser-verify, build-candidate]", scan_job)
+        self.assertIn("needs: [verify, browser-verify, build-candidate, scan-candidate]", publish_job)
+        self.assertIn("Download candidate image archive", scan_job)
+        self.assertIn("sha256sum --check candidate-image.tar.sha256", scan_job)
+        self.assertIn(
+            "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0",
+            scan_job,
+        )
+        self.assertIn("input: candidate-image/candidate-image.tar", scan_job)
+        self.assertIn("severity: HIGH,CRITICAL", scan_job)
+        self.assertIn("vuln-type: os,library", scan_job)
+        self.assertLess(
+            scan_job.index("Verify candidate image archive checksum"),
+            scan_job.index("Scan candidate image for OS and library vulnerabilities"),
+        )
+        self.assertLess(
+            scan_job.index("Scan candidate image for OS and library vulnerabilities"),
+            scan_job.index("Verify candidate image archive unchanged after scan"),
+        )
+        self.assertLess(
+            publish_job.index("Verify scanned image archive checksum and load it"),
+            publish_job.index("Sign in to GHCR after the candidate passes its scan"),
+        )
+        publish_load = publish_job.split(
+            "      - name: Verify scanned image archive checksum and load it\n", maxsplit=1
+        )[1].split("      - name:", maxsplit=1)[0]
+        self.assertLess(
+            publish_load.index('sha256sum --check "$IMAGE_ARCHIVE.sha256"'),
+            publish_load.index('docker load --input "$IMAGE_ARCHIVE"'),
+        )
+        self.assertIn("packages: write", publish_job)
+        self.assertNotIn("aquasecurity/trivy-action", publish_job)
+        self.assertIn("docker push \"$PRIMARY_TAG\"", publish_job)
+        self.assertIn("python scripts/extract_registry_digest.py", publish_job)
+        self.assertIn("printf 'digest=%s", publish_job)
+        self.assertIn('>> "$GITHUB_OUTPUT"', publish_job)
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("Scan ARM64 candidate image for OS and library vulnerabilities", ci)
+        self.assertIn("image-ref: local/mikrotik-openvpn-gui:ci", ci)
+
     def test_stable_manifest_publication_reconciles_and_verifies_readback(self) -> None:
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
         step = publish.split("      - name: Publish stable manifest asset\n", maxsplit=1)[1].split(
@@ -160,8 +280,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("provenance: false", publish)
         self.assertIn("anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3", publish)
         self.assertIn("actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2", publish)
-        self.assertIn("subject-digest: ${{ steps.build.outputs.digest }}", publish)
-        self.assertIn("image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}", publish)
+        self.assertIn("subject-digest: ${{ steps.publish_image.outputs.digest }}", publish)
+        self.assertIn("image: ghcr.io/${{ github.repository }}@${{ steps.publish_image.outputs.digest }}", publish)
         self.assertIn("push-to-registry: false", publish)
         self.assertIn("upload-release-assets: false", publish)
         self.assertIn("gh attestation verify \"oci://$IMAGE\"", publish)
