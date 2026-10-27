@@ -13,6 +13,7 @@ WORKDIR /app
 # Runtime code is part of the immutable image. Production must not mount over /app.
 COPY app.py automation.py config.py certificate_lifecycle.py connection_doctor.py diagnostic_bundle.py error_guidance.py event_safety.py exposure_doctor.py favicon.py icons.py integrations.py profile_diagnostics.py qr.py routeros.py security.py store.py templates.py telemetry_broker.py telemetry_canary.py telemetry_gateway.py telemetry_socketio_polling.py telemetry_runtime.py telemetry_state.py telemetry_supervisor.py routeros_binary.py ./
 COPY asgi.py entrypoint.py requirements-runtime.txt requirements-redis.txt ./
+COPY scripts/prune_runtime_build_tools.py /tmp/prune_runtime_build_tools.py
 COPY static ./static
 COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 
@@ -21,7 +22,9 @@ COPY LICENSE /usr/share/licenses/mikrotik-openvpn-gui/LICENSE
 RUN printf '%s\n' "$VERSION" > /app/VERSION \
     && printf '%s\n' "$REVISION" > /app/REVISION \
     && python -m pip install --disable-pip-version-check --no-cache-dir --no-compile --target /app/runtime -r /app/requirements-runtime.txt \
-    && if [ "$INSTALL_REDIS" = "true" ]; then python -m pip install --disable-pip-version-check --no-cache-dir --no-compile --target /app/runtime -r /app/requirements-redis.txt; fi
+    && if [ "$INSTALL_REDIS" = "true" ]; then python -m pip install --disable-pip-version-check --no-cache-dir --no-compile --target /app/runtime -r /app/requirements-redis.txt; fi \
+    && python /tmp/prune_runtime_build_tools.py \
+    && rm -f /tmp/prune_runtime_build_tools.py
 
 # The application prepares database ownership as root and then drops to UID/GID 65534.
 RUN mkdir -p /data \

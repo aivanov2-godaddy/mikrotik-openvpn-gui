@@ -80,6 +80,16 @@ class ReleaseContractTests(unittest.TestCase):
         for workflow in ("ci.yml", "container.yml"):
             self.assertIn("exposure_doctor.py", (workflows / workflow).read_text(encoding="utf-8"))
 
+    def test_container_removes_build_only_python_packages_before_rootfs_copy(self) -> None:
+        containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
+        self.assertIn("scripts/prune_runtime_build_tools.py /tmp/prune_runtime_build_tools.py", containerfile)
+        self.assertLess(
+            containerfile.index("python /tmp/prune_runtime_build_tools.py"),
+            containerfile.index("&& tar -C /"),
+        )
+        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        self.assertIn('      - "scripts/prune_runtime_build_tools.py"', publish)
+
     def test_every_local_container_copy_input_triggers_mainline_publishing(self) -> None:
         containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
         publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")

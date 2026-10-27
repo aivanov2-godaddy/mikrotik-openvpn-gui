@@ -47,6 +47,7 @@ on:
       # package format. Publishing it with a matching manifest prevents a
       # reviewed package-name transition from stranding router-local updates.
       - "scripts/routeros/immutable-release-updater.rsc.example"
+      - "scripts/prune_runtime_build_tools.py"
       # The workflow itself defines the public release contract, including the
       # immutable RouterOS manifest.  It must publish when that contract
       # changes; otherwise a reviewed release change can never reach GHCR.
