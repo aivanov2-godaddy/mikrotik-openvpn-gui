@@ -149,49 +149,63 @@ class ReleaseContractTests(unittest.TestCase):
                 self.assertIn('test "$runtime_uids" = "65534 65534 65534 65534"', source)
                 self.assertLess(source.index("/readyz"), source.index("runtime_uids="))
 
-    def test_container_publish_scans_local_candidate_before_registry_write(self) -> None:
+    def test_container_publish_scans_immutable_candidate_before_registry_write(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
-        build_scan = workflow.split("  build-scan:\n", maxsplit=1)[1].split("  publish:\n", maxsplit=1)[0]
+        build_job = workflow.split("  build-candidate:\n", maxsplit=1)[1].split(
+            "  scan-candidate:\n", maxsplit=1
+        )[0]
+        scan_job = workflow.split("  scan-candidate:\n", maxsplit=1)[1].split(
+            "  publish:\n", maxsplit=1
+        )[0]
         publish_job = workflow.split("  publish:\n", maxsplit=1)[1].split(
             "  publish-stable-manifest:\n", maxsplit=1
         )[0]
-        build = build_scan.split("      - name: Build candidate image archive\n", maxsplit=1)[1].split(
+        build = build_job.split("      - name: Build candidate image archive\n", maxsplit=1)[1].split(
             "      - name:", maxsplit=1
         )[0]
 
-        self.assertIn("permissions:\n      contents: read", build_scan)
-        self.assertNotIn("packages: write", build_scan)
-        self.assertNotIn("id-token: write", build_scan)
-        self.assertNotIn("attestations: write", build_scan)
+        for job in (build_job, scan_job):
+            with self.subTest(job=job.splitlines()[0]):
+                self.assertIn("permissions:\n      contents: read", job)
+                self.assertNotIn("packages: write", job)
+                self.assertNotIn("id-token: write", job)
+                self.assertNotIn("attestations: write", job)
         self.assertIn("outputs: type=docker,dest=${{ github.workspace }}/candidate-image.tar", build)
+        artifact = "candidate-image-${{ matrix.suffix }}-${{ github.run_id }}-${{ github.run_attempt }}"
+        self.assertIn("Checksum candidate image archive before scan", build_job)
+        self.assertLess(
+            build_job.index("Checksum candidate image archive before scan"),
+            build_job.index("Preserve candidate image archive"),
+        )
+        self.assertIn(f"name: {artifact}", build_job)
+        self.assertIn(f"name: {artifact}", scan_job)
+        self.assertIn(f"name: {artifact}", publish_job)
+        self.assertIn("needs: [verify, browser-verify, build-candidate]", scan_job)
+        self.assertIn("needs: [verify, browser-verify, build-candidate, scan-candidate]", publish_job)
+        self.assertIn("Download candidate image archive", scan_job)
+        self.assertIn("sha256sum --check candidate-image.tar.sha256", scan_job)
         self.assertIn(
             "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0",
-            build_scan,
+            scan_job,
         )
-        self.assertIn("input: ${{ github.workspace }}/candidate-image.tar", build_scan)
-        self.assertIn("severity: HIGH,CRITICAL", build_scan)
-        self.assertIn("vuln-type: os,library", build_scan)
+        self.assertIn("input: candidate-image/candidate-image.tar", scan_job)
+        self.assertIn("severity: HIGH,CRITICAL", scan_job)
+        self.assertIn("vuln-type: os,library", scan_job)
         self.assertLess(
-            build_scan.index("Build candidate image archive"),
-            build_scan.index("Checksum candidate image archive before scan"),
-        )
-        self.assertLess(
-            build_scan.index("Checksum candidate image archive before scan"),
-            build_scan.index("Scan candidate image for OS and library vulnerabilities"),
-        )
-        self.assertLess(
-            build_scan.index("Scan candidate image for OS and library vulnerabilities"),
-            build_scan.index("Verify scanned image archive checksum"),
-        )
-        self.assertLess(
-            build_scan.index("Verify scanned image archive checksum"),
-            build_scan.index("Preserve scanned image archive"),
+            scan_job.index("Verify candidate image archive checksum"),
+            scan_job.index("Scan candidate image for OS and library vulnerabilities"),
         )
         self.assertLess(
             publish_job.index("Verify scanned image archive checksum and load it"),
             publish_job.index("Sign in to GHCR after the candidate passes its scan"),
         )
-        self.assertIn("needs: [verify, browser-verify, build-scan]", publish_job)
+        publish_load = publish_job.split(
+            "      - name: Verify scanned image archive checksum and load it\n", maxsplit=1
+        )[1].split("      - name:", maxsplit=1)[0]
+        self.assertLess(
+            publish_load.index('sha256sum --check "$IMAGE_ARCHIVE.sha256"'),
+            publish_load.index('docker load --input "$IMAGE_ARCHIVE"'),
+        )
         self.assertIn("packages: write", publish_job)
         self.assertNotIn("aquasecurity/trivy-action", publish_job)
         self.assertIn("docker push \"$PRIMARY_TAG\"", publish_job)

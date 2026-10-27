@@ -1502,9 +1502,11 @@ The repository's planned next release version is kept in [`VERSION`](../VERSION)
 (currently `2.8.0`). Run `python scripts/validate_release.py --tag v2.8.0` before
 creating that tag, and only after candidate-specific canary acceptance passes.
 The publisher also requires a version tag to match `VERSION` and point to a
-commit reachable from the default branch. Each architecture image is built and
-scanned before registry publication; the read-only scan job passes its exact
-image archive, with a checksum, to the separately write-enabled publisher.
+commit reachable from the default branch. Each architecture image is built,
+scanned, and published in separate jobs. The scanner has read-only permissions
+and scans the immutable image archive downloaded from the build job. After that
+job succeeds, the publisher independently downloads the same archive, verifies
+its checksum, and then uses its registry-write permission to publish it.
 Published-image attestations and runtime smoke checks use the resulting digest.
 
 GitHub runs a tag-triggered workflow from the tagged commit. Therefore, this
