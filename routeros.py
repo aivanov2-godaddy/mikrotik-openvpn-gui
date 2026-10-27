@@ -9,6 +9,7 @@ import re
 import secrets
 import socket
 import ssl
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,6 +19,14 @@ from typing import Any, Callable
 
 from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from config import ConfigurationError, OpenVPNTopology
+
+# Bound each REST body and concurrent decode so a bad or compromised router
+# cannot make the dashboard retain unbounded response data in memory.
+MAX_ROUTEROS_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_CONCURRENT_ROUTEROS_REST_REQUESTS = 2
+_ROUTEROS_REST_REQUEST_SLOTS = threading.BoundedSemaphore(
+    MAX_CONCURRENT_ROUTEROS_REST_REQUESTS
+)
 
 
 class RouterOSError(RuntimeError):
@@ -56,7 +65,7 @@ class RouterOSCredentials:
 
 @dataclass(frozen=True, slots=True)
 class ProvisionedProfile:
-    profile: bytes
+    profile: bytes = field(repr=False)
     certificate_id: str | None
     certificate_name: str
     fingerprint: str | None
@@ -212,6 +221,31 @@ class RouterOSClient:
         body: dict[str, Any] | None = None,
         query: dict[str, Any] | None = None,
     ) -> Any:
+        if not _ROUTEROS_REST_REQUEST_SLOTS.acquire(timeout=self.timeout):
+            raise RouterOSError(
+                "RouterOS request capacity is temporarily exhausted",
+                failure_kind="capacity_limited",
+            )
+        try:
+            return self._request_with_slot(
+                method,
+                path,
+                credentials,
+                body=body,
+                query=query,
+            )
+        finally:
+            _ROUTEROS_REST_REQUEST_SLOTS.release()
+
+    def _request_with_slot(
+        self,
+        method: str,
+        path: str,
+        credentials: RouterOSCredentials,
+        *,
+        body: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+    ) -> Any:
         target = self.base_url + "/" + path.lstrip("/")
         if query:
             target += "?" + urllib.parse.urlencode(query, doseq=True, safe=".,*")
@@ -232,7 +266,12 @@ class RouterOSClient:
         )
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
-                payload = response.read()
+                payload = response.read(MAX_ROUTEROS_RESPONSE_BYTES + 1)
+                if len(payload) > MAX_ROUTEROS_RESPONSE_BYTES:
+                    raise RouterOSError(
+                        "RouterOS response exceeded the configured size limit",
+                        failure_kind="response_too_large",
+                    )
         except urllib.error.HTTPError as error:
             if error.code == 401:
                 error.close()
