@@ -37,6 +37,12 @@ class FakeSharedReviewRedis:
     def __init__(self):
         self.values = {}
         self.guard = threading.Lock()
+        self.run_id = "a" * 40
+
+    def info(self, section):
+        if section != "server":
+            raise AssertionError("only the Redis server identity may be read")
+        return {"run_id": self.run_id}
 
     def get(self, key):
         with self.guard:
@@ -141,6 +147,38 @@ class IntegrationTests(unittest.TestCase):
         with receipts.resource_lock(resource):
             with self.assertRaises(RedisReviewCoordinationError):
                 receipts.consume(token, "session-one", "intent-one", resource_key=resource)
+
+    def test_redis_review_coordination_fails_closed_if_revision_rolls_back_in_same_epoch(self):
+        client = FakeSharedReviewRedis()
+        coordinator = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        resource = "vpn-user:revision-rollback"
+        epoch = coordinator.current_epoch()
+        self.assertEqual(coordinator.current_revision(resource), 0)
+        self.assertTrue(coordinator.advance_if_current(resource, 0, epoch))
+        self.assertEqual(coordinator.current_revision(resource), 1)
+
+        # A Redis restore can preserve the generation key while restoring an
+        # older per-user revision. Existing receipts must remain invalidated.
+        client.values[coordinator._revision_key(resource)] = "0"
+        with self.assertRaises(RedisReviewCoordinationError):
+            coordinator.current_revision(resource)
+        with self.assertRaises(RedisReviewCoordinationError):
+            coordinator.advance_if_current(resource, 0, epoch)
+
+    def test_redis_review_coordination_fails_closed_after_server_restart_across_instances(self):
+        client = FakeSharedReviewRedis()
+        first = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        second = RedisReviewCoordinator(client, lock_wait_seconds=0.1)
+        resource = "vpn-user:cross-instance-restart"
+
+        self.assertEqual(first.current_revision(resource), 0)
+        self.assertEqual(second.current_revision(resource), 0)
+        self.assertTrue(first.advance_if_current(resource, 0, first.current_epoch()))
+        client.values[first._revision_key(resource)] = "0"
+        client.run_id = "b" * 40
+
+        with self.assertRaises(RedisReviewCoordinationError):
+            second.current_revision(resource)
 
     def test_redis_review_lock_renews_and_checks_ownership(self):
         client = FakeSharedReviewRedis()

@@ -791,6 +791,9 @@ class ReviewReceipt:
     coordination_epoch: str | None = None
 
 
+USER_PROVISIONING_GATE_RESOURCE = "vpn-user-provisioning-gate"
+
+
 class ReviewReceiptStore:
     """Bounded one-time session-bound review receipts with atomic claims."""
 
@@ -811,6 +814,11 @@ class ReviewReceiptStore:
         """Bind secret input to a review without retaining or exposing it."""
         return hmac.new(self._secret_key, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
+    @staticmethod
+    def assert_lock_owned(lock: Any | None) -> None:
+        if lock is not None:
+            lock.assert_owned()
+
     @contextlib.contextmanager
     def resource_lock(self, resource_key: str):
         digest = hashlib.sha256(resource_key.encode("utf-8")).digest()
@@ -821,6 +829,47 @@ class ReviewReceiptStore:
             else:
                 with self._coordinator.resource_lock(resource_key) as lock:
                     yield lock
+
+    @contextlib.contextmanager
+    def resource_locks(self, resource_keys: list[str] | tuple[str, ...]):
+        """Acquire multiple user locks in stable order to avoid deadlocks."""
+        with contextlib.ExitStack() as stack:
+            acquired = {
+                key: stack.enter_context(self.resource_lock(key))
+                for key in sorted(set(resource_keys))
+            }
+            yield acquired
+
+    @contextlib.contextmanager
+    def mutation_locks(self, resource_keys: list[str] | tuple[str, ...]):
+        """Acquire user locks behind the account-provisioning cleanup gate."""
+        resource_stack = contextlib.ExitStack()
+        try:
+            with self.resource_lock(USER_PROVISIONING_GATE_RESOURCE):
+                acquired = {
+                    key: resource_stack.enter_context(self.resource_lock(key))
+                    for key in sorted(set(resource_keys))
+                }
+            # Release the short global gate once resource ownership is secured.
+            # Provisioning holds the same gate through creation and cleanup.
+            yield acquired
+        finally:
+            resource_stack.close()
+
+    def invalidate(self, resource_key: str) -> None:
+        """Invalidate outstanding reviews after another path mutates a user."""
+        if self._coordinator is None:
+            with self._lock:
+                self._resource_revisions[resource_key] = (
+                    self._resource_revisions.get(resource_key, 0) + 1
+                )
+            return
+        epoch = self._coordinator.current_epoch()
+        revision = self._coordinator.current_revision(resource_key)
+        if not self._coordinator.advance_if_current(resource_key, revision, epoch):
+            raise RedisReviewCoordinationError(
+                "Redis review coordination state changed; restart the dashboard before retrying"
+            )
 
     def issue(
         self,
@@ -4491,6 +4540,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         data: dict[str, Any],
         audit_action: str,
         source_name: str | None = None,
+        review_lock: Any | None = None,
     ) -> None:
         credentials = self._credentials(session)
         user_id: str | None = None
@@ -4498,6 +4548,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         profile: ProvisionedProfile | None = None
         user_creation_confirmed = False
         rate_profile_recovery = "not_applicable"
+        mutation_attempted = False
+        coordination_lost = False
         rationale = str(data.get("_review_rationale", ""))
         try:
             username = self._validate_username(str(data.get("username", "")))
@@ -4520,12 +4572,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             if not self._checkpoint(session, audit_action):
                 return
+
+            def before_rate_profile_mutation() -> None:
+                nonlocal mutation_attempted
+                self.server.review_receipts.assert_lock_owned(review_lock)
+                mutation_attempted = True
+
             router_profile = self.server.context.router.ensure_rate_profile(
                 credentials,
                 username=username,
                 rate_limit_kbps=int(controls["rate_limit_kbps"]),
                 expected_state=data.get("_review_rate_profile_state"),
+                before_mutation=before_rate_profile_mutation,
             )
+            self.server.review_receipts.assert_lock_owned(review_lock)
+            mutation_attempted = True
             created = self.server.context.router.create_user(
                 credentials,
                 username=username,
@@ -4542,8 +4603,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 ), None)
             if not user_id:
                 raise RouterOSError("RouterOS did not confirm the created VPN user")
+            self.server.review_receipts.assert_lock_owned(review_lock)
             self.server.context.store.set_user_email(username, email)
+            self.server.review_receipts.assert_lock_owned(review_lock)
             self.server.context.store.set_user_controls(username, **controls)
+            self.server.review_receipts.assert_lock_owned(review_lock)
+            mutation_attempted = True
             profile = self.server.context.router.provision_profile(
                 credentials,
                 vpn_user=username,
@@ -4551,13 +4616,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 key_passphrase=key_passphrase,
                 policy=controls["policy"],
                 dns_mode=controls["dns_mode"],
+                before_mutation=lambda: self.server.review_receipts.assert_lock_owned(review_lock),
             )
+            self.server.review_receipts.assert_lock_owned(review_lock)
             self._record_profile(
                 session=session,
                 vpn_user=username,
                 device_name=device_name,
                 profile=profile,
             )
+            self.server.review_receipts.assert_lock_owned(review_lock)
             self.server.context.store.audit(
                 actor=session.username,
                 action=audit_action,
@@ -4568,36 +4636,59 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     **({"source": source_name} if source_name else {}),
                 },
             )
+            self.server.review_receipts.assert_lock_owned(review_lock)
             self._deliver_profile(profile, f"{username}-{device_name}.ovpn", delivery)
         except Exception as error:  # noqa: BLE001 - reconcile failures after RouterOS provisioning begins
+            coordination_lost = isinstance(error, RedisReviewCoordinationError)
+
+            def cleanup_lock_owned() -> bool:
+                nonlocal coordination_lost
+                if coordination_lost:
+                    return False
+                try:
+                    self.server.review_receipts.assert_lock_owned(review_lock)
+                    return True
+                except RedisReviewCoordinationError:
+                    coordination_lost = True
+                    return False
+
             certificate_cleanup = "verified"
             if profile is not None:
-                try:
-                    try:
-                        self.server.context.router.revoke_certificate(
-                            credentials, certificate_id=profile.certificate_id,
-                        )
-                    except RouterOSError:
-                        # Resolve an ambiguous mutation response only by exact certificate read-back.
-                        pass
-                    certificates = self.server.context.router.list_ovpn_client_certificates(
-                        credentials, include_legacy=True,
-                    )
-                    certificate = next(
-                        (item for item in certificates if str(item.get("id", "")) == profile.certificate_id),
-                        None,
-                    )
-                    certificate_cleanup = "verified" if certificate and certificate.get("revoked") else "mismatch"
-                except RouterOSError:
+                if not cleanup_lock_owned():
                     certificate_cleanup = "unknown"
+                else:
+                    try:
+                        if cleanup_lock_owned():
+                            try:
+                                self.server.context.router.revoke_certificate(
+                                    credentials, certificate_id=profile.certificate_id,
+                                )
+                            except RouterOSError:
+                                # Resolve an ambiguous mutation response only by exact certificate read-back.
+                                pass
+                            cleanup_lock_owned()
+                        certificates = self.server.context.router.list_ovpn_client_certificates(
+                            credentials, include_legacy=True,
+                        )
+                        certificate = next(
+                            (item for item in certificates if str(item.get("id", "")) == profile.certificate_id),
+                            None,
+                        )
+                        certificate_cleanup = "verified" if certificate and certificate.get("revoked") else "mismatch"
+                    except RouterOSError:
+                        certificate_cleanup = "unknown"
 
             account_absent: bool | None = None
             if user_id:
-                try:
-                    self.server.context.router.delete_user(credentials, user_id=user_id)
-                except RouterOSError:
-                    # The response can be lost after RouterOS commits DELETE.
-                    pass
+                if cleanup_lock_owned():
+                    try:
+                        self.server.context.router.delete_user(credentials, user_id=user_id)
+                    except RouterOSError:
+                        # The response can be lost after RouterOS commits DELETE.
+                        pass
+                    cleanup_lock_owned()
+                else:
+                    account_absent = None
             try:
                 remaining_users = self.server.context.router.list_ovpn_users(credentials)
                 remaining = [
@@ -4617,16 +4708,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     account_absent = not remaining
                     if remaining and remaining[0].get("id"):
                         user_id = str(remaining[0]["id"])
-                        try:
-                            self.server.context.router.delete_user(credentials, user_id=user_id)
-                        except RouterOSError:
-                            pass
-                        remaining_users = self.server.context.router.list_ovpn_users(credentials)
-                        account_absent = not any(
-                            str(item.get("id", "")) == user_id
-                            or str(item.get("name", "")) == username
-                            for item in remaining_users
-                        )
+                        if cleanup_lock_owned():
+                            try:
+                                self.server.context.router.delete_user(credentials, user_id=user_id)
+                            except RouterOSError:
+                                pass
+                            cleanup_lock_owned()
+                            if not coordination_lost:
+                                remaining_users = self.server.context.router.list_ovpn_users(credentials)
+                                account_absent = not any(
+                                    str(item.get("id", "")) == user_id
+                                    or str(item.get("name", "")) == username
+                                    for item in remaining_users
+                                )
+                        else:
+                            account_absent = None
             except RouterOSError:
                 account_absent = None
 
@@ -4659,23 +4755,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "unknown" if rate_profile_recovery == "unknown" or recovery == "unknown"
                         else "partial"
                     )
-            if username and recovery == "verified":
+            if username and recovery == "verified" and cleanup_lock_owned():
                 self.server.context.store.delete_user_email(username)
-                self.server.context.store.delete_user_controls(username)
+                if cleanup_lock_owned():
+                    self.server.context.store.delete_user_controls(username)
             self.server.context.store.audit(
                 actor=session.username,
                 action=audit_action,
                 target=username or "unresolved-user",
-                status="failed" if recovery == "verified" else recovery,
+                status="unknown" if coordination_lost else "failed" if recovery == "verified" else recovery,
                 details={
                     "reason": type(error).__name__,
                     "recovery": recovery,
                     "account_absent": account_absent,
                     "certificate_cleanup": certificate_cleanup,
                     "rate_profile_recovery": rate_profile_recovery,
+                    "review_coordination_lost": coordination_lost,
                     "rationale": rationale,
                 },
             )
+            if coordination_lost:
+                self._json({
+                    "code": "review.coordination_unavailable",
+                    "error": "Review coordination was lost during VPN user provisioning. No further cleanup was attempted; inspect VPN Users, Device Profiles, and generated PPP rate profiles before retrying.",
+                    "verified": False,
+                    "mutation_attempted": mutation_attempted,
+                }, status=HTTPStatus.SERVICE_UNAVAILABLE)
+                return
             if recovery != "verified":
                 self._json({
                     "code": "routeros.provision_recovery_incomplete",
@@ -4807,6 +4913,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self, session: Session, data: dict[str, Any], *, source_id: str = "",
     ) -> None:
         try:
+            with self.server.review_receipts.resource_lock(USER_PROVISIONING_GATE_RESOURCE) as review_lock:
+                self._provision_user_after_review_under_gate(
+                    session, data, source_id=source_id, review_lock=review_lock,
+                )
+        except RedisReviewCoordinationError as error:
+            self._json({
+                "code": "review.coordination_unavailable",
+                "error": str(error),
+                "mutation_attempted": False,
+            }, status=HTTPStatus.SERVICE_UNAVAILABLE)
+
+    def _provision_user_after_review_under_gate(
+        self,
+        session: Session,
+        data: dict[str, Any],
+        *,
+        source_id: str = "",
+        review_lock: Any | None = None,
+    ) -> None:
+        try:
             enriched, digest, _ = self._user_provision_review_context(
                 session, data, source_id=source_id, validate_secrets=True,
             )
@@ -4829,6 +4955,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             return
         supplied = str(data.get("review_token", ""))
+        self.server.review_receipts.assert_lock_owned(review_lock)
         if not self.server.review_receipts.consume(supplied, session.session_id, digest):
             self._json({
                 "code": "routeros.review_stale",
@@ -4840,6 +4967,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             data=enriched,
             audit_action="user.duplicate" if source_id else "user.create",
             source_name=enriched.get("_review_source_name"),
+            review_lock=review_lock,
         )
 
     def _create_user(self) -> None:
@@ -5072,7 +5200,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 == str(self.server.context.router.ovpn_ca or "")
                 else "migration" if source_certificate else ""
             )
-            token = self.server.review_receipts.issue(session.session_id, intent_digest)
+            token = self.server.review_receipts.issue(
+                session.session_id, intent_digest,
+                resource_key=f"vpn-user:{user_id}",
+            )
             self._json({
                 "user": str(user["name"]),
                 "device": device_name,
@@ -5093,13 +5224,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _create_profile(self, user_id: str) -> None:
+    def _create_profile(
+        self,
+        user_id: str,
+        *,
+        _data: dict[str, Any] | None = None,
+        _lock_held: bool = False,
+        _profile_lock: Any | None = None,
+        _mutation_state: dict[str, bool] | None = None,
+    ) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "profiles.manage"):
             return
         credentials = self._credentials(session)
         try:
-            data = self._read_json()
+            data = _data if _data is not None else self._read_json()
+            resource_key = f"vpn-user:{user_id}"
+            mutation_state = _mutation_state if _mutation_state is not None else {"attempted": False}
+            if not _lock_held:
+                with self.server.review_receipts.mutation_locks([resource_key]) as locks:
+                    self._create_profile(
+                        user_id,
+                        _data=data,
+                        _lock_held=True,
+                        _profile_lock=locks[resource_key],
+                        _mutation_state=mutation_state,
+                    )
+                return
             reason = str(data.get("reason", "")).strip()
             passphrase = self._validate_secret(
                 str(data.get("key_passphrase", "")), "Private-key passphrase"
@@ -5118,8 +5269,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else "migration" if source_certificate else ""
             )
             supplied_token = str(data.get("review_token", ""))
+            self.server.review_receipts.assert_lock_owned(_profile_lock)
             if not self.server.review_receipts.consume(
                 supplied_token, session.session_id, intent_digest,
+                resource_key=resource_key,
             ):
                 self.server.context.store.audit(
                     actor=session.username,
@@ -5135,6 +5288,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "profile.create"):
                 return
+
+            def before_routeros_mutation() -> None:
+                self.server.review_receipts.assert_lock_owned(_profile_lock)
+                mutation_state["attempted"] = True
+
             profile = self.server.context.router.provision_profile(
                 credentials,
                 vpn_user=str(user["name"]),
@@ -5142,8 +5300,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 key_passphrase=passphrase,
                 policy=str(controls.get("policy", "full-tunnel")),
                 dns_mode=str(controls.get("dns_mode", "router")),
+                before_mutation=before_routeros_mutation,
             )
+            self.server.review_receipts.assert_lock_owned(_profile_lock)
             try:
+                self.server.review_receipts.assert_lock_owned(_profile_lock)
                 self._record_profile(
                     session=session,
                     vpn_user=str(user["name"]),
@@ -5152,11 +5313,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     rationale=reason,
                 )
                 if legacy_certificate_name:
+                    self.server.review_receipts.assert_lock_owned(_profile_lock)
                     self.server.context.store.record_profile_migration(
                         legacy_certificate_name=legacy_certificate_name,
                         vpn_user=str(user["name"]),
                         replacement_certificate_name=profile.certificate_name,
                     )
+                    self.server.review_receipts.assert_lock_owned(_profile_lock)
                     self.server.context.store.audit(
                         actor=session.username,
                         action="profile.renew" if replacement_type == "renewal" else "profile.migrate",
@@ -5173,9 +5336,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 local_reconciled = False
                 try:
                     try:
+                        self.server.review_receipts.assert_lock_owned(_profile_lock)
+                        mutation_state["attempted"] = True
                         self.server.context.router.revoke_certificate(
                             credentials, certificate_id=profile.certificate_id,
                         )
+                        self.server.review_receipts.assert_lock_owned(_profile_lock)
                     except RouterOSError:
                         # A lost RouterOS response is resolved only by the exact certificate read-back.
                         pass
@@ -5195,6 +5361,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                     if recorded_device:
                         if router_verified:
+                            self.server.review_receipts.assert_lock_owned(_profile_lock)
                             self.server.context.store.mark_revoked(str(recorded_device["id"]))
                             updated_device = self.server.context.store.device_by_id(
                                 str(recorded_device["id"]),
@@ -5232,7 +5399,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     status=HTTPStatus.BAD_GATEWAY,
                 )
                 return
+            self.server.review_receipts.assert_lock_owned(_profile_lock)
             self._deliver_profile(profile, f"{user['name']}-{device_name}.ovpn", delivery)
+        except RedisReviewCoordinationError:
+            attempted = bool((_mutation_state or {}).get("attempted", False))
+            self._json({
+                "code": "review.coordination_unavailable",
+                "error": (
+                    "Review coordination was lost during profile issuance. No further RouterOS cleanup or profile delivery was attempted; inspect Device Profiles, RouterOS Certificates, and RouterOS Files before retrying."
+                    if attempted else
+                    "Review coordination is unavailable. No profile issuance was attempted."
+                ),
+                "mutation_attempted": attempted,
+                "verified": False,
+            }, status=HTTPStatus.SERVICE_UNAVAILABLE)
         except ValueError as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
         except RouterOSError as error:
@@ -5242,27 +5422,78 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self,
         credentials: RouterOSCredentials,
         username: str,
-        update_lock: Any | None = None,
+        reviewed_sessions: list[dict[str, str]],
+        *,
+        review_lock: Any | None = None,
+        mutation_state: dict[str, Any] | None = None,
     ) -> tuple[str, int]:
-        """Disconnect and verify every active OpenVPN tunnel for one user."""
-        try:
-            sessions_to_disconnect = [
-                item for item in self.server.context.router.list_active_ovpn_sessions(credentials)
-                if str(item.get("name", "")) == username
-            ]
-        except RouterOSError:
-            return "unknown", 0
+        """Revoke only reviewed RouterOS rows with the same unique session ID."""
+        reviewed = {
+            (str(item.get("id", "")), str(item.get("session_id", "")))
+            for item in reviewed_sessions
+            if item.get("id") and item.get("session_id")
+        }
+        identity_unknown: set[tuple[str, str]] = set()
 
-        for active_session in sessions_to_disconnect:
-            active_session_id = str(active_session.get("id", ""))
-            if not active_session_id:
+        def summarize_sessions(sessions: list[dict[str, Any]]) -> tuple[str, int]:
+            remaining_sessions = [
+                item for item in sessions if str(item.get("name", "")) == username
+            ]
+            remaining_reviewed = {
+                (str(item.get("id", "")), str(item.get("session_id", "")))
+                for item in remaining_sessions
+                if item.get("id") and item.get("session_id")
+            }
+            unresolved = set(identity_unknown)
+            for item in remaining_sessions:
+                if item.get("session_id"):
+                    continue
+                row_id = str(item.get("id", ""))
+                unresolved.update(pair for pair in reviewed if pair[0] == row_id)
+            incomplete = bool(reviewed.intersection(remaining_reviewed))
+            unresolved -= remaining_reviewed
+            disconnected = len(reviewed - remaining_reviewed - unresolved)
+            status = "incomplete" if incomplete else "unknown" if unresolved else "verified"
+            return status, disconnected
+
+        for active_session_id, reviewed_unique_id in sorted(reviewed):
+            try:
+                current_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+            except RouterOSError:
+                return "unknown", 0
+            current = next(
+                (
+                    item for item in current_sessions
+                    if str(item.get("id", "")) == active_session_id
+                    and str(item.get("name", "")) == username
+                ),
+                None,
+            )
+            if current is None:
+                continue
+            current_unique_id = str(current.get("session_id", ""))
+            if not current_unique_id:
+                identity_unknown.add((active_session_id, reviewed_unique_id))
+                continue
+            if current_unique_id != reviewed_unique_id:
+                # RouterOS reused the row ID for a different connection.
                 continue
             try:
-                if update_lock is not None:
-                    update_lock.assert_owned()
+                self.server.review_receipts.assert_lock_owned(review_lock)
                 self.server.context.router.terminate_session(
                     credentials, session_id=active_session_id,
                 )
+            except RedisReviewCoordinationError:
+                try:
+                    remaining_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+                except RouterOSError:
+                    status, disconnected = "unknown", 0
+                else:
+                    status, disconnected = summarize_sessions(remaining_sessions)
+                if mutation_state is not None:
+                    mutation_state["session_revocation"] = status
+                    mutation_state["active_sessions_disconnected"] = disconnected
+                raise
             except RouterOSError:
                 # A concurrent disconnect is resolved by the read-back below.
                 continue
@@ -5274,22 +5505,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ]
         except RouterOSError:
             return "unknown", 0
-
-        remaining_ids = {str(item.get("id", "")) for item in remaining_sessions}
-        original_ids = {
-            str(item.get("id", ""))
-            for item in sessions_to_disconnect
-            if str(item.get("id", ""))
-        }
-        disconnected = len(original_ids - remaining_ids)
-        incomplete = bool(remaining_sessions) or any(
-            not str(item.get("id", "")) for item in sessions_to_disconnect
-        )
-        return ("incomplete" if incomplete else "verified"), disconnected
+        return summarize_sessions(remaining_sessions)
 
     @staticmethod
     def _session_revocation_summary(status: str, disconnected: int) -> str:
-        return f"Active VPN session revocation: {status}; {disconnected} session(s) disconnected."
+        return f"Reviewed VPN session revocation: {status}; {disconnected} session(s) disconnected."
 
     @staticmethod
     def _router_update_definitely_rejected(error: RouterOSError) -> bool:
@@ -5315,19 +5535,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # changes the same RouterOS record as a password update and must not
         # race it or preserve a stale review receipt.
         resource_key = f"vpn-user:{user_id}"
-        mutation_state = {"attempted": False}
+        mutation_state: dict[str, Any] = {
+            "attempted": False,
+            "password_requested": False,
+            "session_revocation": "not_started",
+            "active_sessions_disconnected": 0,
+        }
         try:
-            with self.server.review_receipts.resource_lock(resource_key) as update_lock:
+            with self.server.review_receipts.mutation_locks([resource_key]) as locks:
+                update_lock = locks[resource_key]
                 self._update_user_payload(
                     user_id, preview, session, credentials, data, update_lock, mutation_state,
                 )
         except RedisReviewCoordinationError as error:
+            payload: dict[str, Any] = {
+                "error": str(error),
+                "code": "review.coordination_unavailable",
+                "mutation_attempted": mutation_state["attempted"],
+            }
+            if mutation_state["password_requested"]:
+                payload["session_revocation"] = mutation_state["session_revocation"]
+                payload["active_sessions_disconnected"] = mutation_state["active_sessions_disconnected"]
+                if mutation_state["session_revocation"] != "not_started":
+                    payload["error"] += " " + self._session_revocation_summary(
+                        str(mutation_state["session_revocation"]),
+                        int(mutation_state["active_sessions_disconnected"]),
+                    )
             self._json(
-                {
-                    "error": str(error),
-                    "code": "review.coordination_unavailable",
-                    "mutation_attempted": mutation_state["attempted"],
-                },
+                payload,
                 status=HTTPStatus.SERVICE_UNAVAILABLE,
             )
 
@@ -5386,7 +5621,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if int(controls["rate_limit_kbps"]) > 0
                 else None
             )
-            active_session_ids: list[str] = []
+            active_session_ids: list[dict[str, str]] = []
             if password:
                 try:
                     active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
@@ -5394,13 +5629,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._json(routeros_error_payload(error), status=HTTPStatus.BAD_GATEWAY)
                     return
                 active_session_ids = sorted(
-                    str(item.get("id", ""))
-                    for item in active_sessions
-                    if str(item.get("name", "")) == str(user["name"])
+                    (
+                        {
+                            "id": str(item.get("id", "")),
+                            "session_id": str(item.get("session_id", "")),
+                        }
+                        for item in active_sessions
+                        if str(item.get("name", "")) == str(user["name"])
+                    ),
+                    key=lambda item: (item["id"], item["session_id"]),
                 )
-                if any(not session_id for session_id in active_session_ids):
+                if any(not item["id"] or not item["session_id"] for item in active_session_ids):
                     self._json(
-                        {"error": "RouterOS did not provide a safe session identifier; the password change was not applied."},
+                        {"error": "RouterOS did not provide a safe unique session identifier; the password change was not applied."},
                         status=HTTPStatus.BAD_GATEWAY,
                     )
                     return
@@ -5449,20 +5690,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "user.update"):
                 return
-            if update_lock is not None:
-                update_lock.assert_owned()
-            if mutation_state is not None:
-                mutation_state["attempted"] = True
+            def before_rate_profile_mutation() -> None:
+                if update_lock is not None:
+                    update_lock.assert_owned()
+                if mutation_state is not None:
+                    mutation_state["attempted"] = True
+
             router_profile = self.server.context.router.ensure_rate_profile(
                 credentials,
                 username=str(user["name"]),
                 rate_limit_kbps=int(controls["rate_limit_kbps"]),
                 expected_state=state["router_rate_profile"],
+                before_mutation=before_rate_profile_mutation,
             )
             mutation_error: RouterOSError | None = None
             try:
                 if update_lock is not None:
                     update_lock.assert_owned()
+                if mutation_state is not None:
+                    mutation_state["attempted"] = True
+                    mutation_state["password_requested"] = bool(password)
                 self.server.context.router.update_user(
                     credentials,
                     user_id=user_id,
@@ -5509,10 +5756,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif password:
                 # On an ambiguous write, password values cannot be read back;
                 # revoke immediately to contain a possible committed change.
+                if mutation_state is not None:
+                    mutation_state["session_revocation"] = "in_progress"
                 session_revocation, active_sessions_disconnected = self._revoke_active_user_sessions(
-                    credentials, str(user["name"]), update_lock,
+                    credentials,
+                    str(user["name"]),
+                    active_session_ids,
+                    review_lock=update_lock,
+                    mutation_state=mutation_state,
                 )
+                if mutation_state is not None:
+                    mutation_state["session_revocation"] = session_revocation
+                    mutation_state["active_sessions_disconnected"] = active_sessions_disconnected
 
+            self.server.review_receipts.assert_lock_owned(update_lock)
             try:
                 verified_user = self._find_user(credentials, user_id)
             except (ValueError, RouterOSError) as error:
@@ -5766,18 +6023,40 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _policy_template_action(self, template_id: str, action: str) -> None:
+    def _policy_template_action(
+        self,
+        template_id: str,
+        action: str,
+        *,
+        _data: dict[str, Any] | None = None,
+        _locks_held: bool = False,
+        _held_locks: dict[str, Any] | None = None,
+        _mutation_state: dict[str, Any] | None = None,
+    ) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "policies.manage"):
             return
         try:
-            data = self._read_json()
+            data = _data if _data is not None else self._read_json()
             requested_ids = data.get("user_ids")
             if not isinstance(requested_ids, list) or not requested_ids or len(requested_ids) > 100:
                 raise ValueError("Select between 1 and 100 VPN users before continuing")
             requested = {str(value) for value in requested_ids if str(value)}
             if len(requested) != len(requested_ids):
                 raise ValueError("Each selected VPN user must be unique")
+            resource_keys = [f"vpn-user:{user_id}" for user_id in requested]
+            if action == "apply" and not _locks_held:
+                mutation_state = {"attempted": False}
+                with self.server.review_receipts.mutation_locks(resource_keys) as held_locks:
+                    self._policy_template_action(
+                        template_id,
+                        action,
+                        _data=data,
+                        _locks_held=True,
+                        _held_locks=held_locks,
+                        _mutation_state=mutation_state,
+                    )
+                return
             rationale = str(data.get("reason", "")).strip()
             if not 12 <= len(rationale) <= 240 or any(ord(character) < 32 for character in rationale):
                 raise ValueError("Provide a reason between 12 and 240 printable characters")
@@ -5852,26 +6131,45 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "policy-template-apply"):
                 return
+            for resource_key in resource_keys:
+                self.server.review_receipts.invalidate(resource_key)
             applied: list[str] = []
             outcomes: list[dict[str, str]] = []
+            if _mutation_state is not None:
+                _mutation_state["outcomes"] = outcomes
             reviewed_profiles = {str(item["id"]): item["router_rate_profile"] for item in review_basis}
             for item in preview:
+                if _mutation_state is not None:
+                    _mutation_state["current_username"] = str(item["username"])
+                    _mutation_state["current_mutation_started"] = False
+                resource_lock = (_held_locks or {}).get(f"vpn-user:{item['id']}")
+                self.server.review_receipts.assert_lock_owned(resource_lock)
                 if not item["changes"]:
+                    if _mutation_state is not None:
+                        _mutation_state["attempted"] = True
                     self.server.context.store.assign_policy_template(item["username"], template_id)
                     outcomes.append({"username": item["username"], "status": "unchanged"})
                     continue
                 try:
+                    self.server.review_receipts.assert_lock_owned(resource_lock)
+                    if _mutation_state is not None:
+                        _mutation_state["attempted"] = True
+                        _mutation_state["current_mutation_started"] = True
                     router_profile = self.server.context.router.ensure_rate_profile(
                         credentials,
                         username=item["username"],
                         rate_limit_kbps=int(controls["rate_limit_kbps"]),
                         expected_state=reviewed_profiles.get(str(item["id"])),
+                        before_mutation=lambda: self.server.review_receipts.assert_lock_owned(resource_lock),
                     )
                 except (RouterOSError, ValueError) as error:
                     outcomes.append({"username": item["username"], "status": "failed", "reason": type(error).__name__})
                     continue
                 mutation_error: RouterOSError | None = None
                 try:
+                    self.server.review_receipts.assert_lock_owned(resource_lock)
+                    if _mutation_state is not None:
+                        _mutation_state["attempted"] = True
                     self.server.context.router.update_user(
                         credentials, user_id=item["id"], profile=router_profile,
                     )
@@ -5895,6 +6193,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "reason": "readback_mismatch" if mutation_error is None else type(mutation_error).__name__,
                     })
                     continue
+                self.server.review_receipts.assert_lock_owned(resource_lock)
                 self.server.context.store.set_enforcement_state(item["username"], "")
                 self.server.context.store.set_user_controls(item["username"], **controls)
                 self.server.context.store.assign_policy_template(item["username"], template_id)
@@ -5917,6 +6216,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "template": template, "applied": applied,
                 "selected": len(preview), "outcomes": outcomes,
             })
+        except RedisReviewCoordinationError as error:
+            attempted = bool((_mutation_state or {}).get("attempted", False))
+            outcomes = list((_mutation_state or {}).get("outcomes", []))
+            current_username = str((_mutation_state or {}).get("current_username", ""))
+            if (
+                (_mutation_state or {}).get("current_mutation_started")
+                and current_username
+                and not any(item.get("username") == current_username for item in outcomes)
+            ):
+                outcomes.append({"username": current_username, "status": "unknown", "reason": "coordination_lost"})
+            self._json({
+                "code": "review.coordination_unavailable",
+                "error": (
+                    "Review coordination was lost during the template apply. Check VPN Users before retrying."
+                    if attempted else str(error)
+                ),
+                "mutation_attempted": attempted,
+                "outcomes": outcomes,
+            }, status=HTTPStatus.SERVICE_UNAVAILABLE)
         except (ValueError, RouterOSError) as error:
             self.server.context.store.audit(
                 actor=session.username, action=f"policy_template.{action}", target=template_id,
@@ -5927,7 +6245,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _bulk_user_action(self, *, preview: bool) -> None:
+    def _bulk_user_action(
+        self,
+        *,
+        preview: bool,
+        _data: dict[str, Any] | None = None,
+        _locks_held: bool = False,
+        _held_locks: dict[str, Any] | None = None,
+        _mutation_state: dict[str, Any] | None = None,
+    ) -> None:
         """Preview or apply an idempotent bulk user operation.
 
         The endpoint deliberately operates on the selected RouterOS user IDs
@@ -5940,7 +6266,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not session or not self._require_csrf(session):
             return
         try:
-            data = self._read_json()
+            data = _data if _data is not None else self._read_json()
             action = str(data.get("action", "")).strip().lower()
             if action not in BULK_ACTIONS:
                 raise ValueError("Bulk action must be suspend, revoke, or tag")
@@ -5953,6 +6279,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             requested = [str(value).strip() for value in requested_ids]
             if any(not value for value in requested) or len(set(requested)) != len(requested):
                 raise ValueError("Each selected VPN user must be unique")
+            resource_keys = [f"vpn-user:{user_id}" for user_id in requested]
+            if not preview and action in {"suspend", "revoke"} and not _locks_held:
+                mutation_state: dict[str, Any] = {
+                    "attempted": False, "outcomes": [],
+                    "current_username": "", "current_mutation_started": False,
+                }
+                with self.server.review_receipts.mutation_locks(resource_keys) as held_locks:
+                    self._bulk_user_action(
+                        preview=False,
+                        _data=data,
+                        _locks_held=True,
+                        _held_locks=held_locks,
+                        _mutation_state=mutation_state,
+                    )
+                return
             tag = str(data.get("tag", "")).strip()
             reason = str(data.get("reason", "")).strip()
             if action in {"suspend", "revoke"} and (
@@ -6049,17 +6390,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if action in {"suspend", "revoke"} and not self._checkpoint(session, f"bulk-{action}"):
                 return
+            if action in {"suspend", "revoke"}:
+                for resource_key in resource_keys:
+                    self.server.review_receipts.invalidate(resource_key)
             outcomes: list[dict[str, Any]] = []
+            if _mutation_state is not None:
+                _mutation_state["outcomes"] = outcomes
             for row in preview_rows:
                 user_id = str(row["id"])
                 username = str(row["username"])
+                if _mutation_state is not None:
+                    _mutation_state["current_username"] = username
+                    _mutation_state["current_mutation_started"] = False
                 try:
+                    resource_lock = (_held_locks or {}).get(f"vpn-user:{user_id}")
+                    if action in {"suspend", "revoke"}:
+                        self.server.review_receipts.assert_lock_owned(resource_lock)
                     if action == "suspend":
                         if row["state"] == "already_suspended":
                             outcomes.append({"username": username, "status": "skipped", "reason": "already_suspended"})
                             continue
                         mutation_error: RouterOSError | None = None
                         try:
+                            self.server.review_receipts.assert_lock_owned(resource_lock)
+                            if _mutation_state is not None:
+                                _mutation_state["attempted"] = True
+                                _mutation_state["current_mutation_started"] = True
                             self.server.context.router.update_user(credentials, user_id=user_id, disabled=True)
                         except RouterOSError as error:
                             mutation_error = error
@@ -6093,15 +6449,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                 if str(active.get("name", "")) != username:
                                     continue
                                 try:
+                                    self.server.review_receipts.assert_lock_owned(resource_lock)
+                                    if _mutation_state is not None:
+                                        _mutation_state["attempted"] = True
                                     self.server.context.router.terminate_session(credentials, session_id=str(active["id"]))
                                     disconnected += 1
                                 except RouterOSError:
                                     pass
                             refreshed = self.server.context.router.list_active_ovpn_sessions(credentials)
+                            self.server.review_receipts.assert_lock_owned(resource_lock)
                             self.server.context.store.observe_sessions(refreshed)
                             remaining = sum(1 for item in refreshed if str(item.get("name", "")) == username)
                         except RouterOSError:
                             pass
+                        self.server.review_receipts.assert_lock_owned(resource_lock)
                         self.server.context.store.set_enforcement_state(username, "")
                         outcomes.append({
                             "username": username,
@@ -6125,6 +6486,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             certificate_id = str(device["certificate_id"])
                             mutation_error: RouterOSError | None = None
                             try:
+                                self.server.review_receipts.assert_lock_owned(resource_lock)
+                                if _mutation_state is not None:
+                                    _mutation_state["attempted"] = True
+                                    _mutation_state["current_mutation_started"] = True
                                 self.server.context.router.revoke_certificate(credentials, certificate_id=certificate_id)
                             except RouterOSError as error:
                                 mutation_error = error
@@ -6150,6 +6515,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                 None,
                             )
                             if certificate is not None and bool(certificate.get("revoked")):
+                                self.server.review_receipts.assert_lock_owned(resource_lock)
                                 self.server.context.store.mark_revoked(str(device["id"]))
                                 revoked += 1
                             else:
@@ -6169,6 +6535,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         outcomes.append({"username": username, "status": "applied" if changed else "skipped", "reason": "already_tagged" if not changed else "tagged", "tag": tag})
                 except (RouterOSError, ValueError) as error:
                     outcomes.append({"username": username, "status": "failed", "reason": type(error).__name__})
+                finally:
+                    if _mutation_state is not None:
+                        _mutation_state["outcomes"] = outcomes
             failed = sum(1 for item in outcomes if item["status"] in {"failed", "partial", "unknown"})
             applied = sum(1 for item in outcomes if item["status"] in {"applied", "verified"})
             unknown = sum(1 for item in outcomes if item["status"] == "unknown")
@@ -6181,6 +6550,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 details={"selected": len(requested), "applied": applied, "failed": failed, "unknown": unknown, "tagged": tag if action == "tag" else "", **({"rationale": reason} if reason else {})},
             )
             self._json({"ok": True, "action": action, "status": status, "selected": len(requested), "outcomes": outcomes})
+        except RedisReviewCoordinationError as error:
+            attempted = bool((_mutation_state or {}).get("attempted", False))
+            outcomes = list((_mutation_state or {}).get("outcomes", []))
+            current_username = str((_mutation_state or {}).get("current_username", ""))
+            if (
+                (_mutation_state or {}).get("current_mutation_started")
+                and current_username
+                and not any(item.get("username") == current_username for item in outcomes)
+            ):
+                outcomes.append({"username": current_username, "status": "unknown", "reason": "coordination_lost"})
+            self._json({
+                "code": "review.coordination_unavailable",
+                "error": (
+                    "Review coordination was lost during the bulk operation. Check VPN Users and Device Profiles before retrying."
+                    if attempted else str(error)
+                ),
+                "mutation_attempted": attempted,
+                "outcomes": outcomes,
+                "selected": len(requested_ids) if isinstance(requested_ids, list) else 0,
+                "applied": sum(item.get("status") in {"applied", "verified"} for item in outcomes),
+                "failed": sum(item.get("status") in {"failed", "partial", "unknown"} for item in outcomes),
+            }, status=HTTPStatus.SERVICE_UNAVAILABLE)
         except (ValueError, RouterOSError) as error:
             self.server.context.store.audit(
                 actor=session.username,
@@ -6289,7 +6680,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "active_sessions": active_count,
             "effect": "Block new logins and disconnect the active sessions currently shown; device profiles remain issued.",
             "reason": reason,
-            "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
+            "review_token": self.server.review_receipts.issue(
+                session.session_id, intent_digest, resource_key=f"vpn-user:{user_id}",
+            ),
         })
 
     def _preview_user_restore(self, user_id: str) -> None:
@@ -6312,16 +6705,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json({
             "user": str(user["name"]),
             "effect": "Allow this account to establish new VPN connections again.",
-            "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
+            "review_token": self.server.review_receipts.issue(
+                session.session_id, intent_digest, resource_key=f"vpn-user:{user_id}",
+            ),
         })
 
-    def _set_user_access(self, user_id: str, *, suspended: bool) -> None:
+    def _set_user_access(
+        self,
+        user_id: str,
+        *,
+        suspended: bool,
+        _data: dict[str, Any] | None = None,
+        _lock_held: bool = False,
+        _update_lock: Any | None = None,
+        _mutation_state: dict[str, bool] | None = None,
+    ) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         credentials = self._credentials(session)
         try:
-            data = self._read_json()
+            data = _data if _data is not None else self._read_json()
+            resource_key = f"vpn-user:{user_id}"
+            if not _lock_held:
+                mutation_state = {"attempted": False}
+                with self.server.review_receipts.mutation_locks([resource_key]) as locks:
+                    update_lock = locks[resource_key]
+                    self._set_user_access(
+                        user_id,
+                        suspended=suspended,
+                        _data=data,
+                        _lock_held=True,
+                        _update_lock=update_lock,
+                        _mutation_state=mutation_state,
+                    )
+                return
             user = self._find_user(credentials, user_id)
             username = str(user["name"])
             reason = str(data.get("reason", "")).strip() if suspended else ""
@@ -6344,6 +6762,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 supplied_receipt = str(data.get("review_token", ""))
                 if not self.server.review_receipts.consume(
                     supplied_receipt, session.session_id, expected_digest,
+                    resource_key=resource_key,
                 ):
                     self.server.context.store.audit(
                         actor=session.username, action="user.suspend", target=username,
@@ -6358,6 +6777,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 expected_digest = self._user_suspend_intent_digest(user, [])
                 if not self.server.review_receipts.consume(
                     str(data.get("review_token", "")), session.session_id, expected_digest,
+                    resource_key=resource_key,
                 ):
                     self.server.context.store.audit(
                         actor=session.username, action="user.restore", target=username,
@@ -6370,6 +6790,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     return
             if not self._checkpoint(session, "user.suspend" if suspended else "user.restore"):
                 return
+            self.server.review_receipts.assert_lock_owned(_update_lock)
+            if _mutation_state is not None:
+                _mutation_state["attempted"] = True
             mutation_error: RouterOSError | None = None
             try:
                 self.server.context.router.update_user(
@@ -6433,17 +6856,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # A manual action always takes precedence over a previous
             # automated quota/schedule state. The next telemetry poll will
             # re-evaluate the policy if the restriction still applies.
+            self.server.review_receipts.assert_lock_owned(_update_lock)
             self.server.context.store.set_enforcement_state(username, "")
 
             disconnected = 0
             remaining: int | None = 0
             if suspended:
                 try:
-                    active_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
                     for active in active_sessions:
                         if str(active.get("name", "")) != username:
                             continue
                         try:
+                            self.server.review_receipts.assert_lock_owned(_update_lock)
                             self.server.context.router.terminate_session(
                                 credentials, session_id=str(active["id"])
                             )
@@ -6455,6 +6879,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         1 for active in refreshed
                         if str(active.get("name", "")) == username
                     )
+                    self.server.review_receipts.assert_lock_owned(_update_lock)
                     self.server.context.store.observe_sessions(refreshed)
                 except RouterOSError:
                     remaining = None
@@ -6485,6 +6910,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "remaining": remaining,
                 }
             )
+        except RedisReviewCoordinationError as error:
+            attempted = bool((_mutation_state or {}).get("attempted", False))
+            self._json({
+                "code": "review.coordination_unavailable",
+                "error": (
+                    "Review coordination was lost during the account change. Check VPN Users and Connections before retrying."
+                    if attempted else str(error)
+                ),
+                "mutation_attempted": attempted,
+            }, status=HTTPStatus.SERVICE_UNAVAILABLE)
         except (ValueError, RouterOSError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
 
@@ -6547,16 +6982,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
         ).encode("utf-8")).hexdigest()
         return user, devices, active_session_count, intent_digest
 
-    def _delete_user(self, user_id: str, *, preview: bool = False) -> None:
+    def _delete_user(
+        self,
+        user_id: str,
+        *,
+        preview: bool = False,
+        _data: dict[str, Any] | None = None,
+        _lock_held: bool = False,
+        _update_lock: Any | None = None,
+        _mutation_state: dict[str, bool] | None = None,
+    ) -> None:
         session = self._require_session(api=True)
         if not session or not self._require_csrf(session) or not self._require_capability(session, "users.manage"):
             return
         credentials = self._credentials(session)
         try:
-            data = self._read_json()
+            data = _data if _data is not None else self._read_json()
             reason = str(data.get("reason", "")).strip()
             if not 12 <= len(reason) <= 240 or any(ord(character) < 32 for character in reason):
                 raise ValueError("Provide a reason between 12 and 240 printable characters")
+            resource_key = f"vpn-user:{user_id}"
+            if not preview and not _lock_held:
+                mutation_state = {"attempted": False}
+                with self.server.review_receipts.mutation_locks([resource_key]) as locks:
+                    update_lock = locks[resource_key]
+                    self._delete_user(
+                        user_id,
+                        preview=False,
+                        _data=data,
+                        _lock_held=True,
+                        _update_lock=update_lock,
+                        _mutation_state=mutation_state,
+                    )
+                return
             user, devices, active_session_count, intent_digest = self._user_delete_review_context(
                 credentials, user_id, reason,
             )
@@ -6568,13 +7026,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "active_sessions": active_session_count,
                     "confirmation": username,
                     "reason": reason,
-                    "review_token": self.server.review_receipts.issue(session.session_id, intent_digest),
+                    "review_token": self.server.review_receipts.issue(
+                        session.session_id, intent_digest, resource_key=resource_key,
+                    ),
                 })
                 return
             if not self._require_target_confirmation(data, username):
                 return
             if not self.server.review_receipts.consume(
                 str(data.get("review_token", "")), session.session_id, intent_digest,
+                resource_key=resource_key,
             ):
                 self.server.context.store.audit(
                     actor=session.username,
@@ -6593,6 +7054,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if not self._checkpoint(session, "user.delete"):
                 return
+            self.server.review_receipts.assert_lock_owned(_update_lock)
 
             # Deleting the PPP secret alone does not reliably terminate an
             # established tunnel. Disable first to prevent reconnects, then
@@ -6600,6 +7062,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # revoking certificates or deleting the account.
             if not bool(user.get("disabled")):
                 try:
+                    self.server.review_receipts.assert_lock_owned(_update_lock)
+                    if _mutation_state is not None:
+                        _mutation_state["attempted"] = True
                     self.server.context.router.update_user(
                         credentials, user_id=user_id, disabled=True,
                     )
@@ -6659,6 +7124,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     if str(active.get("name", "")) != username:
                         continue
                     try:
+                        self.server.review_receipts.assert_lock_owned(_update_lock)
+                        if _mutation_state is not None:
+                            _mutation_state["attempted"] = True
                         self.server.context.router.terminate_session(
                             credentials, session_id=str(active["id"]),
                         )
@@ -6666,6 +7134,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     except RouterOSError:
                         pass
                 remaining_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+                self.server.review_receipts.assert_lock_owned(_update_lock)
                 self.server.context.store.observe_sessions(remaining_sessions)
                 active_session_count = sum(
                     1 for active in remaining_sessions
@@ -6705,6 +7174,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 certificate_id = str(device["certificate_id"])
                 mutation_error: RouterOSError | None = None
                 try:
+                    self.server.review_receipts.assert_lock_owned(_update_lock)
+                    if _mutation_state is not None:
+                        _mutation_state["attempted"] = True
                     self.server.context.router.revoke_certificate(
                         credentials, certificate_id=certificate_id
                     )
@@ -6776,6 +7248,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             delete_error: RouterOSError | None = None
             try:
+                self.server.review_receipts.assert_lock_owned(_update_lock)
+                if _mutation_state is not None:
+                    _mutation_state["attempted"] = True
                 self.server.context.router.delete_user(credentials, user_id=user_id)
             except RouterOSError as error:
                 # Reconcile a lost DELETE response against the authoritative
@@ -6854,6 +7329,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "retired_devices": len(revoked_device_ids),
                 "disconnected_sessions": disconnected_sessions,
             })
+        except RedisReviewCoordinationError as error:
+            attempted = bool((_mutation_state or {}).get("attempted", False))
+            self._json({
+                "code": "review.coordination_unavailable",
+                "error": (
+                    "Review coordination was lost during the deletion. Check VPN Users and Device Profiles before retrying."
+                    if attempted else str(error)
+                ),
+                "mutation_attempted": attempted,
+                "verified": False,
+            }, status=HTTPStatus.SERVICE_UNAVAILABLE)
         except RouterOSError as error:
             self.server.context.store.audit(
                 actor=session.username,

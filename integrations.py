@@ -224,7 +224,9 @@ class RedisReviewCoordinator:
         self._lock_lease_ms = max(60_000, int(lock_lease_ms))
         self._state_lock = threading.Lock()
         self._observed_epoch: str | None = None
+        self._observed_server_run_id: str | None = None
         self._observed_revision_keys: set[str] = set()
+        self._observed_revision_high_water: dict[str, int] = {}
 
     @staticmethod
     def _resource_digest(resource_key: str) -> str:
@@ -242,6 +244,16 @@ class RedisReviewCoordinator:
         """Return the Redis data-generation marker, failing closed on its loss."""
         with self._state_lock:
             try:
+                server_info = self._client.info("server")
+                server_run_id = str(server_info.get("run_id", ""))
+                if not server_run_id:
+                    raise ValueError("Redis server identity is unavailable")
+                if (
+                    self._observed_server_run_id is not None
+                    and server_run_id != self._observed_server_run_id
+                ):
+                    raise ValueError("Redis server process changed")
+                self._observed_server_run_id = server_run_id
                 value = self._client.get(self._EPOCH_KEY)
                 if value is None and self._observed_epoch is None:
                     self._client.set(self._EPOCH_KEY, uuid.uuid4().hex, nx=True)
@@ -261,22 +273,25 @@ class RedisReviewCoordinator:
     def current_revision(self, resource_key: str) -> int:
         self.current_epoch()
         key = self._revision_key(resource_key)
-        try:
-            value = self._client.get(key)
-            if value is None:
-                if key in self._observed_revision_keys:
-                    raise ValueError("Redis review revision disappeared")
-                self._client.set(key, "0", nx=True)
+        with self._state_lock:
+            try:
                 value = self._client.get(key)
-            revision = int(value)
-            if revision < 0:
-                raise ValueError("negative revision")
-            self._observed_revision_keys.add(key)
-            return revision
-        except Exception:
-            raise RedisReviewCoordinationError(
-                "Redis review coordination state changed; restart the dashboard before retrying"
-            ) from None
+                if value is None:
+                    if key in self._observed_revision_keys:
+                        raise ValueError("Redis review revision disappeared")
+                    self._client.set(key, "0", nx=True)
+                    value = self._client.get(key)
+                revision = int(value)
+                high_water = self._observed_revision_high_water.get(key, -1)
+                if revision < 0 or revision < high_water:
+                    raise ValueError("Redis review revision moved backwards")
+                self._observed_revision_keys.add(key)
+                self._observed_revision_high_water[key] = revision
+                return revision
+            except Exception:
+                raise RedisReviewCoordinationError(
+                    "Redis review coordination state changed; restart the dashboard before retrying"
+                ) from None
 
     def advance_if_current(
         self,
@@ -284,16 +299,32 @@ class RedisReviewCoordinator:
         expected_revision: int,
         expected_epoch: str,
     ) -> bool:
+        key = self._revision_key(resource_key)
         try:
-            result = self._client.eval(
-                self._ADVANCE_REVISION,
-                2,
-                self._EPOCH_KEY,
-                self._revision_key(resource_key),
-                expected_epoch,
-                int(expected_revision),
-            )
-            return int(result or 0) == int(expected_revision) + 1
+            self.current_epoch()
+            with self._state_lock:
+                high_water = self._observed_revision_high_water.get(key, -1)
+                if int(expected_revision) < high_water:
+                    raise RedisReviewCoordinationError(
+                        "Redis review coordination state changed; restart the dashboard before retrying"
+                    )
+                result = self._client.eval(
+                    self._ADVANCE_REVISION,
+                    2,
+                    self._EPOCH_KEY,
+                    key,
+                    expected_epoch,
+                    int(expected_revision),
+                )
+                advanced = int(result or 0) == int(expected_revision) + 1
+                if advanced:
+                    self._observed_revision_high_water[key] = max(
+                        high_water, int(expected_revision) + 1,
+                    )
+                    self._observed_revision_keys.add(key)
+                return advanced
+        except RedisReviewCoordinationError:
+            raise
         except Exception:
             raise RedisReviewCoordinationError(
                 "Redis review coordination is unavailable"

@@ -151,7 +151,7 @@ populated environment file.
 | `RUN_UID`, `RUN_GID` | No | Runtime identity; both default to `65534` |
 | `WEBHOOK_URL` | Optional | HTTPS endpoint without a query string for minimized, signed audit events (schema v2); disabled unless paired with `WEBHOOK_SIGNING_SECRET` |
 | `WEBHOOK_SIGNING_SECRET` | Optional | At least 32 characters; used only to calculate `X-VPN-Dashboard-Signature` and never displayed or audited |
-| `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL with the database selected in the path (for example `/0`); URL query parameters are rejected. When set, it also coordinates direct VPN-user account-edit reviews across app instances. |
+| `REDIS_STREAM_URL` | Optional | `redis://` or `rediss://` URL with the database selected in the path (for example `/0`); URL query parameters are rejected. When set, it also coordinates reviewed VPN-user mutations across app instances. The Redis ACL needs `vpn-dashboard.events` and `vpn-dashboard.review.*` key scopes plus the documented review coordination commands. |
 | `REDIS_STREAM_KEY` | No | Bounded Redis stream name; defaults to `vpn-dashboard.events` |
 | `REDIS_STREAM_MAXLEN` | No | Approximate stream retention bound from 100 to 1,000,000; defaults to `10000` |
 | `TRUST_CLOUDFLARE` | Conditional | Enable only when every request reaches the app through a trusted Cloudflare origin proxy |
@@ -182,13 +182,22 @@ For multi-instance deployments, every writable instance targeting the same
 RouterOS must share `REDIS_STREAM_URL`. Redis also stores hashed per-user
 account-edit review revisions, a coordination-generation marker, and renewable
 locks under
-`vpn-dashboard.review.*`; the ACL needs `GET`, `SET`, `INCR`, `DEL`, `EVAL`, and
-`PEXPIRE` scoped to that prefix, in addition to the event-stream permissions
-documented in [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Direct VPN-user
-account edits fail closed if configured Redis coordination is unavailable or
-loses state.
-Without Redis, in-process locks and revisions are suitable only for a single
-writable app process.
+`vpn-dashboard.review.*`; the ACL needs `GET`, `SET`, `INCR`, `DEL`, `EVAL`,
+and `PEXPIRE` scoped to that prefix, plus `INFO` to check the Redis process
+run ID and the event-stream permissions documented in
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md). Reviewed direct, bulk, template,
+and automated VPN-user mutations share locks and
+invalidate older review receipts. A coordination gate also protects user
+provisioning and cleanup from overlapping account edits. The app binds
+coordination to the Redis server run ID; if Redis restarts while the app is
+running, coordination fails closed until dashboard instances are restarted.
+Observed revision regressions, missing coordination state, and Redis outages
+fail closed. A privileged in-place rewrite of an unobserved revision while
+Redis stays in the same process is not detectable; it is outside the supported
+restore procedure. Stop dashboard writers before restoring Redis, then restart
+all dashboard instances before accepting account changes. This invalidates
+process-local sessions and review receipts. Without Redis, in-process locks and
+revisions are suitable only for a single writable app process.
 
 Read-only router status remains available without the `OVPN_*` settings. User
 and profile actions fail closed until the OpenVPN topology is configured.

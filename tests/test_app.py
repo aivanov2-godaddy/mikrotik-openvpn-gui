@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, ReviewReceiptStore, _certificate_remaining_seconds, _origin_header_relation, _spreadsheet_safe_csv_cell, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
+from app import AppContext, DashboardHandler, DashboardServer, ProfileShareStore, RedirectHandler, ReviewReceiptStore, USER_PROVISIONING_GATE_RESOURCE, _certificate_remaining_seconds, _origin_header_relation, _spreadsheet_safe_csv_cell, container_image_target, operations_timeline, resolve_client_ip, service_health_snapshot
 from config import RuntimeConfig
 from integrations import RedisReviewCoordinationError
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError
@@ -6259,6 +6259,49 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(set(self.mock.state.certificates), before_certificates)
         self.assertNotIn(b"review-race-password", payload)
 
+    def test_user_provisioning_lock_loss_skips_compensating_account_delete(self) -> None:
+        self.login()
+        intent = {
+            "username": "review-lock-loss", "email": "lock-loss@example.test",
+            "device_name": "New phone", "delivery": "zip", "policy": "full-tunnel",
+            "reason": "Approved remote access after lock loss",
+        }
+        preview = self.preview_user_provision(intent)
+
+        class LoseAfterAccountCreation:
+            calls = 0
+
+            def assert_owned(self) -> None:
+                self.calls += 1
+                if self.calls == 4:
+                    raise RedisReviewCoordinationError("review lock lost")
+
+        lock = LoseAfterAccountCreation()
+
+        @contextlib.contextmanager
+        def lock_context(_resource_key: str):
+            yield lock
+
+        with mock.patch.object(self.server.review_receipts, "resource_lock", side_effect=lock_context):
+            status, _, payload = self.json_request("POST", "/api/users", {
+                **intent, "password": "lock-loss-password",
+                "key_passphrase": "lock-loss-key-passphrase",
+                "review_token": preview["review_token"],
+            })
+
+        result = json.loads(payload)
+        self.assertEqual(status, 503)
+        self.assertTrue(result["mutation_attempted"])
+        created = next(
+            item for item in self.mock.state.users.values()
+            if item["name"] == "review-lock-loss"
+        )
+        self.assertIsNotNone(created)
+        self.assertFalse(any(
+            request.startswith("DELETE /ppp/secret/")
+            for request in self.mock.state.mutation_requests
+        ))
+
     def test_user_creation_review_rejects_changed_access_intent_before_mutation(self) -> None:
         self.login()
         create_intent = {
@@ -6760,37 +6803,90 @@ class DashboardIntegrationTests(unittest.TestCase):
             "device_name": "Single issue tablet", "reason": preview["reason"], "key_passphrase": "private-file-passphrase",
             "delivery": "zip", "review_token": preview["review_token"],
         }
-        review_barrier = threading.Barrier(2)
-        original_context = DashboardHandler._profile_review_context
-
-        def synchronized_context(handler: DashboardHandler, *args: Any, **kwargs: Any) -> Any:
-            result = original_context(handler, *args, **kwargs)
-            review_barrier.wait(timeout=10)
-            return result
-
         results: list[tuple[int, dict[str, str], bytes]] = []
         result_lock = threading.Lock()
+        start_barrier = threading.Barrier(2)
 
         def apply_profile() -> None:
+            start_barrier.wait(timeout=10)
             response = self.json_request("POST", path, request_data)
             with result_lock:
                 results.append(response)
 
         before_certificates = len(self.mock.state.certificates)
         before_devices = len(self.server.context.store.devices_for_user("user-two"))
-        with mock.patch.object(
-            DashboardHandler, "_profile_review_context", autospec=True, side_effect=synchronized_context,
-        ):
-            workers = [threading.Thread(target=apply_profile) for _ in range(2)]
-            for worker in workers:
-                worker.start()
-            for worker in workers:
-                worker.join(timeout=15)
+        workers = [threading.Thread(target=apply_profile) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=15)
 
         self.assertTrue(all(not worker.is_alive() for worker in workers))
         self.assertEqual(sorted(status for status, _, _ in results), [200, 409])
         self.assertEqual(len(self.mock.state.certificates), before_certificates + 1)
         self.assertEqual(len(self.server.context.store.devices_for_user("user-two")), before_devices + 1)
+
+    def test_profile_issuance_serializes_with_user_deletion(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass"),
+            ) if item["name"] == "user-two"
+        )
+        user_id = str(user["id"])
+        profile_review = self.preview_profile(user_id, "Deletion race phone")
+        delete_review = self.preview_user_delete(user_id)
+        profile_path = f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles"
+        delete_path = f"/api/users/{urllib.parse.quote(user_id, safe='*')}"
+        profile_data = {
+            "device_name": "Deletion race phone",
+            "reason": profile_review["reason"],
+            "key_passphrase": "private-file-passphrase",
+            "delivery": "zip",
+            "review_token": profile_review["review_token"],
+        }
+        provision_entered = threading.Event()
+        continue_provision = threading.Event()
+        results: dict[str, tuple[int, dict[str, str], bytes]] = {}
+        original_provision = self.server.context.router.provision_profile
+
+        def blocked_provision(*args: Any, **kwargs: Any) -> Any:
+            provision_entered.set()
+            if not continue_provision.wait(5):
+                raise AssertionError("timed out waiting to resume profile provisioning")
+            return original_provision(*args, **kwargs)
+
+        def apply_profile() -> None:
+            results["profile"] = self.json_request("POST", profile_path, profile_data)
+
+        def delete_user() -> None:
+            results["delete"] = self.json_request(
+                "DELETE", delete_path, self.user_delete_apply(delete_review, "user-two"),
+            )
+
+        with mock.patch.object(
+            self.server.context.router, "provision_profile", side_effect=blocked_provision,
+        ):
+            profile_worker = threading.Thread(target=apply_profile)
+            delete_worker = threading.Thread(target=delete_user)
+            profile_worker.start()
+            try:
+                self.assertTrue(provision_entered.wait(5))
+                delete_worker.start()
+                time.sleep(0.05)
+                self.assertTrue(delete_worker.is_alive(), "delete must wait for the profile's user lock")
+            finally:
+                continue_provision.set()
+                profile_worker.join(10)
+                if delete_worker.ident is not None:
+                    delete_worker.join(10)
+
+        self.assertFalse(profile_worker.is_alive())
+        self.assertFalse(delete_worker.is_alive())
+        self.assertEqual(results["profile"][0], 200, results["profile"][2][:200])
+        self.assertEqual(results["delete"][0], 409, results["delete"][2][:200])
+        self.assertIn(user_id, self.mock.state.users)
+        self.assertEqual(len(self.server.context.store.devices_for_user("user-two")), 1)
 
     def _review_user_edit(self, path: str, values: dict[str, Any]) -> dict[str, Any]:
         reviewed = {**values, "reason": "Unit-test reviewed account change"}
@@ -6823,7 +6919,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         ) as resource_lock:
             status, _, _payload = self.json_request("POST", path + "/preview", values)
         self.assertEqual(status, 200)
-        resource_lock.assert_called_once_with(f"vpn-user:{user['id']}")
+        self.assertEqual(
+            [call.args for call in resource_lock.call_args_list],
+            [
+                (USER_PROVISIONING_GATE_RESOURCE,),
+                (f"vpn-user:{user['id']}",),
+            ],
+        )
 
         first = self._review_user_edit(path, values)
         stale = self._review_user_edit(path, values)
@@ -6857,7 +6959,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.assertEqual(status, 503)
         self.assertFalse(json.loads(payload)["mutation_attempted"])
-        lock.assert_called_once_with(f"vpn-user:{user['id']}")
+        lock.assert_called_once_with(USER_PROVISIONING_GATE_RESOURCE)
         list_users.assert_not_called()
 
     def test_user_update_reconciles_lost_routeros_response_from_readback(self) -> None:
@@ -7015,6 +7117,99 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn("private RouterOS response", payload.decode())
         self.assertEqual(self.server.context.store.recent_audit(1)[0]["status"], "unknown")
 
+    def test_password_update_lock_loss_stops_after_first_reviewed_session(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        self.mock.state.active_sessions["*A2"] = {
+            ".id": "*A2",
+            "name": "user-two",
+            "service": "ovpn",
+            "caller-id": "198.51.100.42",
+            "address": "198.18.0.50",
+            "uptime": "2m",
+            "encoding": "AES-256-GCM/[test-digest]",
+            "session-id": "0x81E0000D",
+            "comment": "Second disposable test session",
+        }
+        reviewed = self._review_user_edit(
+            path,
+            {"password": "lock-loss-password", "reason": "Rotate the VPN user's password"},
+        )
+        update_user = router.update_user
+
+        class LoseAfterMutation:
+            calls = 0
+
+            def assert_owned(self):
+                self.calls += 1
+                if self.calls == 3:
+                    raise RedisReviewCoordinationError("review lock lost")
+
+        lock = LoseAfterMutation()
+
+        @contextlib.contextmanager
+        def lock_context(_resource_key):
+            yield lock
+
+        def update_and_open_new_session(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+            fresh = dict(self.mock.state.active_sessions["*A1"])
+            fresh[".id"] = "*NEW"
+            fresh["session-id"] = "new-session-after-password-update"
+            self.mock.state.active_sessions["*NEW"] = fresh
+
+        with (
+            mock.patch.object(self.server.review_receipts, "resource_lock", side_effect=lock_context),
+            mock.patch.object(router, "update_user", side_effect=update_and_open_new_session),
+        ):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        result = json.loads(payload)
+        self.assertEqual(status, 503)
+        self.assertTrue(result["mutation_attempted"])
+        self.assertEqual(result["session_revocation"], "incomplete")
+        self.assertEqual(result["active_sessions_disconnected"], 1)
+        self.assertNotIn("*A1", self.mock.state.active_sessions)
+        self.assertIn("*A2", self.mock.state.active_sessions)
+        self.assertIn("*NEW", self.mock.state.active_sessions)
+        self.assertNotIn("lock-loss-password", payload.decode())
+
+    def test_password_update_does_not_disconnect_reused_routeros_session_row(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {"password": "reuse-row-password", "reason": "Rotate the VPN user's password"},
+        )
+        update_user = router.update_user
+
+        def update_and_reuse_session_row(*args: Any, **kwargs: Any) -> None:
+            update_user(*args, **kwargs)
+            previous = self.mock.state.active_sessions["*A1"]
+            self.mock.state.active_sessions["*A1"] = {
+                **previous, "session-id": "0x81E0000C", "caller-id": "198.51.100.41",
+            }
+
+        with mock.patch.object(router, "update_user", side_effect=update_and_reuse_session_row):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        result = json.loads(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["session_revocation"], "verified")
+        self.assertEqual(result["active_sessions_disconnected"], 1)
+        self.assertIn("*A1", self.mock.state.active_sessions)
+        self.assertEqual(self.mock.state.active_sessions["*A1"]["session-id"], "0x81E0000C")
+
     def test_password_change_invalidates_other_previews_without_active_sessions(self) -> None:
         self.login()
         router = self.server.context.router
@@ -7148,6 +7343,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         self.mock.state.active_sessions["*A2"] = {
             ".id": "*A2", "name": "user-two", "service": "ovpn", "address": "198.18.0.49",
+            "session-id": "0x81E0000D",
         }
         status, _, payload = self.json_request("PATCH", path, reviewed)
         self.assertEqual(status, 409)
@@ -7298,6 +7494,46 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertFalse(second.consume(
                 second_token, "session-two", "intent-two", resource_key=resource_key,
             ))
+
+    def test_external_user_mutation_invalidation_rejects_existing_review_receipt(self) -> None:
+        receipts = ReviewReceiptStore()
+        resource_key = "vpn-user:alternate-mutation"
+        token = receipts.issue("session-one", "intent-one", resource_key=resource_key)
+
+        with receipts.resource_lock(resource_key):
+            receipts.invalidate(resource_key)
+
+        self.assertFalse(receipts.consume(
+            token, "session-one", "intent-one", resource_key=resource_key,
+        ))
+
+    def test_account_mutations_wait_behind_user_provisioning_cleanup_gate(self) -> None:
+        receipts = ReviewReceiptStore()
+        mutation_acquired = threading.Event()
+        release_mutation = threading.Event()
+        errors: list[BaseException] = []
+
+        def mutate_user() -> None:
+            try:
+                with receipts.mutation_locks(["vpn-user:*new"]):
+                    mutation_acquired.set()
+                    release_mutation.wait(2)
+            except BaseException as error:  # capture worker assertion/lock failures
+                errors.append(error)
+
+        worker = threading.Thread(target=mutate_user, daemon=True)
+        with receipts.resource_lock(USER_PROVISIONING_GATE_RESOURCE):
+            worker.start()
+            self.assertFalse(mutation_acquired.wait(0.05))
+
+        try:
+            self.assertTrue(mutation_acquired.wait(1))
+        finally:
+            release_mutation.set()
+            worker.join(1)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+
     def test_user_edit_receipt_rejects_tampering_staleness_and_other_session(self) -> None:
         self.login()
         user = next(item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass")) if item["name"] == "user-one")
@@ -9333,6 +9569,40 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
         self.assertEqual(self.mock.state.users[user["id"]]["disabled"], "no")
 
+    def test_user_suspend_lock_loss_after_disable_stops_session_termination(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        review = self.preview_user_suspend(user["id"])
+
+        class LoseAfterAccountMutation:
+            calls = 0
+
+            def assert_owned(self) -> None:
+                self.calls += 1
+                if self.calls == 3:
+                    raise RedisReviewCoordinationError("review lock lost")
+
+        lock = LoseAfterAccountMutation()
+
+        @contextlib.contextmanager
+        def lock_context(_resource_key: str):
+            yield lock
+
+        with mock.patch.object(self.server.review_receipts, "resource_lock", side_effect=lock_context):
+            status, _, payload = self.json_request(
+                "POST", f"/api/users/{urllib.parse.quote(user['id'], safe='*')}/suspend",
+                self.user_suspend_apply(review, "user-two"),
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 503)
+        self.assertTrue(result["mutation_attempted"])
+        self.assertEqual(self.mock.state.users[user["id"]]["disabled"], "yes")
+        self.assertIn("*A1", self.mock.state.active_sessions)
+
     def test_user_suspend_requires_reason_and_binds_it_to_review(self) -> None:
         self.login()
         user = next(
@@ -9784,6 +10054,91 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertTrue(result["outcomes"][0]["reconciled"])
         self.assertTrue(next(item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass")) if item["id"] == user["id"])["disabled"])
         self.assertNotIn("private RouterOS response", payload.decode())
+
+    def test_bulk_suspend_lock_loss_after_disable_stops_session_termination(self) -> None:
+        self.login()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        review = self.preview_bulk_action("suspend", [user["id"]])
+
+        class LoseAfterAccountMutation:
+            calls = 0
+
+            def assert_owned(self) -> None:
+                self.calls += 1
+                if self.calls == 3:
+                    raise RedisReviewCoordinationError("review lock lost")
+
+        lock = LoseAfterAccountMutation()
+
+        @contextlib.contextmanager
+        def lock_context(_resource_key: str):
+            yield lock
+
+        with mock.patch.object(self.server.review_receipts, "resource_lock", side_effect=lock_context):
+            status, _, payload = self.json_request(
+                "POST", "/api/bulk/apply",
+                {
+                    "action": "suspend", "user_ids": [user["id"]],
+                    "confirmation": "APPLY SUSPEND TO 1 USERS",
+                    "reason": review["reason"], "review_token": review["review_token"],
+                },
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 503)
+        self.assertTrue(result["mutation_attempted"])
+        self.assertEqual(self.mock.state.users[user["id"]]["disabled"], "yes")
+        self.assertIn("*A1", self.mock.state.active_sessions)
+
+    def test_bulk_coordination_loss_preserves_completed_and_unknown_user_outcomes(self) -> None:
+        self.login()
+        users = {
+            item["name"]: item
+            for item in self.server.context.router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+        }
+        selected = [users["user-one"]["id"], users["user-two"]["id"]]
+        review = self.preview_bulk_action("suspend", selected)
+
+        class LoseDuringSecondUser:
+            calls = 0
+
+            def assert_owned(self) -> None:
+                self.calls += 1
+                if self.calls == 7:
+                    raise RedisReviewCoordinationError("review lock lost")
+
+        lock = LoseDuringSecondUser()
+
+        @contextlib.contextmanager
+        def lock_context(_resource_key: str):
+            yield lock
+
+        with mock.patch.object(self.server.review_receipts, "resource_lock", side_effect=lock_context):
+            status, _, payload = self.json_request(
+                "POST", "/api/bulk/apply",
+                {
+                    "action": "suspend", "user_ids": selected,
+                    "confirmation": "APPLY SUSPEND TO 2 USERS",
+                    "reason": review["reason"], "review_token": review["review_token"],
+                },
+            )
+
+        result = json.loads(payload)
+        self.assertEqual(status, 503)
+        self.assertTrue(result["mutation_attempted"])
+        self.assertEqual(result["selected"], 2)
+        self.assertEqual(result["applied"], 1)
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(
+            [(item["username"], item["status"]) for item in result["outcomes"]],
+            [("user-one", "verified"), ("user-two", "unknown")],
+        )
+        self.assertEqual(self.mock.state.users[users["user-one"]["id"]]["disabled"], "yes")
+        self.assertEqual(self.mock.state.users[users["user-two"]["id"]]["disabled"], "yes")
+        self.assertIn("*A1", self.mock.state.active_sessions)
 
     def test_bulk_suspend_readback_unavailable_does_not_clear_local_enforcement(self) -> None:
         self.login()

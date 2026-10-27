@@ -19,11 +19,15 @@ the new one. Schedule Redis restarts in a quiet maintenance window.
 - Use an authenticated RouterOS account limited to the required container,
   file, and environment-list operations. RouterOS container environment values
   contain the Redis URL in plaintext; restrict who may inspect that config.
-- The dashboard publisher only needs to append sanitized events to
-  `vpn-dashboard.events`. Give it the dedicated `vpn-dashboard` ACL identity,
-  key-pattern scope for that stream, and only the connection, `PING`, and
-  `XADD` commands. Do not leave the application on Redis's `default` identity
-  after the migration succeeds.
+- The dashboard app appends sanitized events to `vpn-dashboard.events` and
+  coordinates reviewed RouterOS user mutations across instances. Give its
+  dedicated `vpn-dashboard` ACL identity access only to the event stream and
+  `vpn-dashboard.review.*` coordination keys. It needs connection setup,
+  `PING`, `XADD`, `GET`, `SET`, `INCR`, `DEL`, `EVAL`, `PEXPIRE`, and `INFO`;
+  these commands support stream delivery, per-user locks, review generations,
+  and Redis server-run-ID checks. `INFO` is used only to detect a Redis process
+  restart; the dashboard fails closed until its instances are restarted.
+  Do not leave the application on Redis's `default` identity after migration.
 - Do not continue if the Redis ACL file, data directory, or persistence mode
   cannot be identified. Do not paste passwords or hashes into screenshots,
   tickets, issues, pull requests, or chat.
@@ -73,7 +77,7 @@ the app-specific account:
 
 ```text
 user default on #CURRENT_DEFAULT_SHA256 ~vpn-dashboard.events +@connection +xadd +ping
-user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events +@connection +xadd +ping
+user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info
 ```
 
 Preserve the exact existing `default` line (including any active hashes or
@@ -83,7 +87,7 @@ other users, preserve their lines too. For a two-line file, RouterOS Terminal
 can write a CRLF between the lines using the documented `\r\n` string escape:
 
 ```routeros
-:local eol "\r\n"; /file set [find where name="<REDIS_FOLDER>/acl.txt"] contents=("user default on #CURRENT_DEFAULT_SHA256 ~vpn-dashboard.events +@connection +xadd +ping".$eol."user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events +@connection +xadd +ping")
+:local eol "\r\n"; /file set [find where name="<REDIS_FOLDER>/acl.txt"] contents=("user default on #CURRENT_DEFAULT_SHA256 ~vpn-dashboard.events +@connection +xadd +ping".$eol."user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info")
 ```
 
 Replace the path and values with the actual values. This example assumes the
@@ -121,7 +125,7 @@ and file path. The `vpn-dashboard` rule should temporarily contain both
 SHA-256 hashes, for example:
 
 ```text
-user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events +@connection +xadd +ping
+user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info
 ```
 
 Replace `OLD_SHA256` with the old digest for user `vpn-dashboard` and
@@ -135,7 +139,7 @@ If editing through RouterOS Terminal, use the actual RouterOS property name
 single line. Substitute only the path and generated digest values:
 
 ```routeros
-/file set [find where name="<REDIS_FOLDER>/acl.txt"] contents="user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events +@connection +xadd +ping"
+/file set [find where name="<REDIS_FOLDER>/acl.txt"] contents="user vpn-dashboard on #OLD_SHA256 #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info"
 ```
 
 Use the existing exact file path; do not create a second ACL file or alter the
@@ -188,7 +192,7 @@ When both dashboard containers use the new password and publish successfully,
 remove the old hash from the ACL file, leaving only the new one:
 
 ```text
-user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events +@connection +xadd +ping
+user vpn-dashboard on #NEW_SHA256 ~vpn-dashboard.events ~vpn-dashboard.review.* +@connection +xadd +ping +get +set +incr +del +eval +pexpire +info
 ```
 
 Apply the changed ACL file. Removing an old password prevents new

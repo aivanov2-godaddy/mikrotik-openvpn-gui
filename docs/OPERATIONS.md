@@ -45,16 +45,22 @@ remains a separate service and is enabled only when `REDIS_STREAM_URL` is set.
 After completing the migration in [REDIS_ROTATION.md](REDIS_ROTATION.md), the
 publisher URL must use the dedicated `vpn-dashboard` ACL identity, restricted
 to its event stream and `vpn-dashboard.review.*` keys; do not use the shared
-`default` user. The publisher needs `XADD` and `PING` for event delivery. When
+`default` user. The app needs `XADD` and `PING` for event delivery. When
 `REDIS_STREAM_URL` is configured, it also needs `GET`, `SET`, `INCR`, `DEL`,
-`EVAL`, and `PEXPIRE` for hashed per-user account-edit review revisions, a coordination
-generation marker, and renewable mutation locks. Keep these commands limited
-to the two key patterns above. Every process that can handle direct VPN-user
-account edits on the same RouterOS must share this Redis endpoint. Those edits fail
-closed before RouterOS access if Redis coordination is unavailable or loses
-state; restart app instances after restoring Redis coordination state. Without
-Redis, review serialization is process-local and suitable only for a single
-writable application process.
+`EVAL` and `PEXPIRE` for hashed per-user review revisions, a coordination
+generation marker, and renewable mutation locks, plus `INFO` to check the Redis
+server run ID. Keep key commands limited to the two patterns above. Every
+process that can make reviewed or automated VPN-user changes on the same
+RouterOS must share this Redis endpoint. These paths serialize by user,
+invalidate older review receipts, and fail closed if coordination is
+unavailable or observed state regresses. If Redis restarts or its data is
+restored, stop all dashboard writers before the restore and restart every
+dashboard instance afterward, before accepting account changes. Restarting
+clears process-local sessions and review receipts. A privileged in-place
+rewrite of an unobserved revision while Redis remains in the same process is
+not detectable and is outside the supported restore procedure. Without Redis,
+review serialization is process-local and suitable only for a single writable
+application process.
 The Redis Streams sink currently forwards minimized audit/outbox events (not
 the dashboard's live RouterOS telemetry). Remote webhook and Redis payloads use
 schema v2: `schema_version`, `event`, a UUIDv4 `event_id`, and, when valid, the

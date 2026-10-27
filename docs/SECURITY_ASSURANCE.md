@@ -1047,6 +1047,31 @@ before granting elevated dashboard roles. Regression coverage is in
 `tests/test_routeros.py`. These are source-level controls; they do not verify
 the live router's configured groups, environment, certificates, or deployment.
 
+The follow-up account-mutation hardening serializes direct edits, suspend and
+restore, deletion, bulk suspend/revoke, policy-template apply, and automatic
+policy enforcement by RouterOS user ID. A short shared provisioning gate also
+keeps account creation and compensating cleanup from racing reviewed edits.
+Non-direct mutation paths advance the same review generation so earlier
+account-edit receipts cannot be reused. Each running coordinator binds its
+state to the Redis server run ID and fails closed when that ID changes; a
+same-epoch revision rollback also fails closed for revisions observed by that
+process. A privileged in-place rewrite of an unobserved revision without a
+Redis process restart is not detectable by this mechanism and is outside the
+supported restore procedure; follow the stop, restore, and restart sequence in
+the [operations runbook](OPERATIONS.md) to invalidate process-local sessions
+and review receipts. Provisioning checks lock ownership before RouterOS writes
+and skips compensating mutations after coordination loss. Generated rate-profile
+writes check ownership after their read and immediately before each RouterOS
+write. Password-change cleanup verifies both the reviewed RouterOS row ID and
+MikroTik's unique session ID before disconnecting; it checks ownership before
+each termination and stops with a partial or unknown result if coordination is
+lost. It does not terminate a replacement session that reuses the row ID. Bulk
+operations retain per-user outcomes if coordination is lost mid-apply, and
+automation recalculates policy and session caps after acquiring the user lock.
+These changes have repository tests only. The live Redis ACL must grant the
+documented review key pattern and commands before deployment; deployed Redis
+and RouterOS behavior remain unverified.
+
 ## Non-goals
 
 This document is a narrow evidence index for the session/live-stream area. It
