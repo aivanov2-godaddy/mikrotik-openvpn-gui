@@ -135,6 +135,11 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('--main-ref "$main_ref"', gate)
         self.assertIn("needs: [verify, browser-verify]", publish)
 
+        release_docs = (ROOT / "docs" / "RELEASES.md").read_text(encoding="utf-8")
+        self.assertIn("commit reachable from the default branch", release_docs)
+        self.assertIn("cannot retroactively protect old tag commits", release_docs)
+        self.assertIn("repository-level release-tag creation rule", release_docs)
+
     def test_arm64_and_published_image_smokes_assert_unprivileged_runtime(self) -> None:
         workflows = ROOT / ".github" / "workflows"
         for workflow in ("ci.yml", "container.yml"):
@@ -144,35 +149,42 @@ class ReleaseContractTests(unittest.TestCase):
                 self.assertIn('test "$runtime_uids" = "65534 65534 65534 65534"', source)
 
     def test_container_publish_scans_local_candidate_before_registry_write(self) -> None:
-        publish = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
-        publish_job = publish.split("  publish:\n", maxsplit=1)[1].split(
+        workflow = (ROOT / ".github" / "workflows" / "container.yml").read_text(encoding="utf-8")
+        build_scan = workflow.split("  build-scan:\n", maxsplit=1)[1].split("  publish:\n", maxsplit=1)[0]
+        publish_job = workflow.split("  publish:\n", maxsplit=1)[1].split(
             "  publish-stable-manifest:\n", maxsplit=1
         )[0]
-        build = publish_job.split("      - name: Build and load candidate image\n", maxsplit=1)[1].split(
+        build = build_scan.split("      - name: Build candidate image archive\n", maxsplit=1)[1].split(
             "      - name:", maxsplit=1
         )[0]
 
-        self.assertIn("push: false", build)
-        self.assertIn("load: true", build)
+        self.assertIn("permissions:\n      contents: read", build_scan)
+        self.assertNotIn("packages: write", build_scan)
+        self.assertIn("outputs: type=docker,dest=${{ github.workspace }}/candidate-image.tar", build)
         self.assertIn(
             "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0",
-            publish_job,
+            build_scan,
         )
-        self.assertIn("severity: HIGH,CRITICAL", publish_job)
-        self.assertIn("vuln-type: os,library", publish_job)
+        self.assertIn("input: ${{ github.workspace }}/candidate-image.tar", build_scan)
+        self.assertIn("severity: HIGH,CRITICAL", build_scan)
+        self.assertIn("vuln-type: os,library", build_scan)
         self.assertLess(
-            publish_job.index("Build and load candidate image"),
-            publish_job.index("Scan candidate image for OS and library vulnerabilities"),
+            build_scan.index("Build candidate image archive"),
+            build_scan.index("Scan candidate image for OS and library vulnerabilities"),
         )
         self.assertLess(
-            publish_job.index("Scan candidate image for OS and library vulnerabilities"),
+            build_scan.index("Scan candidate image for OS and library vulnerabilities"),
+            build_scan.index("Preserve scanned image archive"),
+        )
+        self.assertLess(
+            publish_job.index("Verify scanned image archive checksum and load it"),
             publish_job.index("Sign in to GHCR after the candidate passes its scan"),
         )
-        self.assertLess(
-            publish_job.index("Sign in to GHCR after the candidate passes its scan"),
-            publish_job.index("Publish scanned image tags"),
-        )
-        self.assertIn('docker push "$PRIMARY_TAG"', publish_job)
+        self.assertIn("needs: [verify, browser-verify, build-scan]", publish_job)
+        self.assertIn("packages: write", publish_job)
+        self.assertNotIn("aquasecurity/trivy-action", publish_job)
+        self.assertIn("docker push \"$PRIMARY_TAG\"", publish_job)
+        self.assertIn("python scripts/extract_registry_digest.py", publish_job)
         self.assertIn("printf 'digest=%s", publish_job)
         self.assertIn('>> "$GITHUB_OUTPUT"', publish_job)
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

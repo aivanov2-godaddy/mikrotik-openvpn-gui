@@ -1487,8 +1487,9 @@ repository.
 
 1. Create an issue describing the release scope and migration impact.
 2. Open a focused pull request with tests, docs, and `CHANGELOG.md` updates.
-3. Require CI, including pre-commit, secret-pattern checks, unit tests, and
-   the ARM64 image build, to pass.
+3. Require CI, including pre-commit, secret-pattern checks, unit tests, the
+   ARM64 image build, and high/critical OS and library vulnerability scans, to
+   pass.
 4. Merge the reviewed pull request to `main`.
 5. Verify the architecture-specific image tags and their digests in GHCR.
 6. Verify the image's GitHub provenance attestation and download its matching
@@ -1500,6 +1501,18 @@ repository.
 The repository's planned next release version is kept in [`VERSION`](../VERSION)
 (currently `2.8.0`). Run `python scripts/validate_release.py --tag v2.8.0` before
 creating that tag, and only after candidate-specific canary acceptance passes.
+The publisher also requires a version tag to match `VERSION` and point to a
+commit reachable from the default branch. Each architecture image is built and
+scanned before registry publication; the read-only scan job passes its exact
+image archive, with a checksum, to the separately write-enabled publisher.
+Published-image attestations and runtime smoke checks use the resulting digest.
+
+GitHub runs a tag-triggered workflow from the tagged commit. Therefore, this
+branch-controlled gate cannot retroactively protect old tag commits containing
+an earlier publisher workflow. Do not create or move a release tag to an old
+commit. A repository-level release-tag creation rule and a default-branch
+controlled tag-creation path remain required to close that bootstrap gap.
+
 The
 `Release notes` workflow previews GitHub-generated notes without changing a
 release when run manually with `dry_run=true`; a pushed, matching `v*` tag is
