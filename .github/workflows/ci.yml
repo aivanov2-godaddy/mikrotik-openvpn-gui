@@ -99,6 +99,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends redis-server
           redis-server --version
+      - name: Start Redis and verify readiness
+        run: |
+          sudo service redis-server start
+          redis-cli -h 127.0.0.1 ping | grep -qx PONG
       - name: Verify live Redis review coordination
         env:
           REDIS_TEST_URL: redis://127.0.0.1:6379/0

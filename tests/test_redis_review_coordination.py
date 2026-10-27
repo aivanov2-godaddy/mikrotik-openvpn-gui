@@ -52,7 +52,8 @@ class RedisReviewCoordinationIntegrationTests(unittest.TestCase):
 
         self.assertTrue(self.first.advance_if_current(self.resource, 0, epoch))
         self.assertEqual(self.second.current_revision(self.resource), 1)
-        self.assertFalse(self.second.advance_if_current(self.resource, 0, epoch))
+        with self.assertRaises(RedisReviewCoordinationError):
+            self.second.advance_if_current(self.resource, 0, epoch)
 
     def test_same_epoch_revision_rollback_fails_closed(self) -> None:
         epoch = self.first.current_epoch()

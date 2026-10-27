@@ -794,6 +794,21 @@ class ReviewReceipt:
 USER_PROVISIONING_GATE_RESOURCE = "vpn-user-provisioning-gate"
 
 
+def _username_lock_resource(username: str) -> str:
+    return f"vpn-username:{username.strip().casefold()}"
+
+
+class ReviewLockGroup:
+    """Assert all leases protecting one RouterOS operation remain owned."""
+
+    def __init__(self, *locks: Any | None) -> None:
+        self._locks = tuple({id(lock): lock for lock in locks if lock is not None}.values())
+
+    def assert_owned(self) -> None:
+        for lock in self._locks:
+            lock.assert_owned()
+
+
 class ReviewReceiptStore:
     """Bounded one-time session-bound review receipts with atomic claims."""
 
@@ -4913,7 +4928,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self, session: Session, data: dict[str, Any], *, source_id: str = "",
     ) -> None:
         try:
-            with self.server.review_receipts.resource_lock(USER_PROVISIONING_GATE_RESOURCE) as review_lock:
+            username_resource = _username_lock_resource(str(data.get("username", "")))
+            with self.server.review_receipts.resource_locks(
+                [USER_PROVISIONING_GATE_RESOURCE, username_resource],
+            ) as locks:
+                review_lock = ReviewLockGroup(
+                    locks[USER_PROVISIONING_GATE_RESOURCE], locks[username_resource],
+                )
                 self._provision_user_after_review_under_gate(
                     session, data, source_id=source_id, review_lock=review_lock,
                 )
@@ -5426,6 +5447,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         *,
         review_lock: Any | None = None,
         mutation_state: dict[str, Any] | None = None,
+        update_outcome_ambiguous: bool = False,
     ) -> tuple[str, int]:
         """Revoke only reviewed RouterOS rows with the same unique session ID."""
         reviewed = {
@@ -5433,7 +5455,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
             for item in reviewed_sessions
             if item.get("id") and item.get("session_id")
         }
+        apply_reviewed_row_ids = {active_id for active_id, _ in reviewed}
         identity_unknown: set[tuple[str, str]] = set()
+        post_update_inventory_unknown = False
+
+        # A connection can arrive after the apply-time snapshot but before
+        # RouterOS commits the password update. Capture again after the update
+        # so that session is also revoked. Old credentials cannot establish
+        # another session once the password write has committed.
+        try:
+            post_update_sessions = self.server.context.router.list_active_ovpn_sessions(credentials)
+        except RouterOSError:
+            post_update_inventory_unknown = True
+        else:
+            for item in post_update_sessions:
+                if str(item.get("name", "")) != username:
+                    continue
+                active_id = str(item.get("id", ""))
+                unique_id = str(item.get("session_id", ""))
+                if not active_id or not unique_id:
+                    post_update_inventory_unknown = True
+                    continue
+                if (
+                    active_id in apply_reviewed_row_ids
+                    and (active_id, unique_id) not in reviewed
+                ):
+                    # RouterOS reused this row for a different connection
+                    # after review. Never revoke a session that was not reviewed.
+                    continue
+                reviewed.add((active_id, unique_id))
 
         def summarize_sessions(sessions: list[dict[str, Any]]) -> tuple[str, int]:
             remaining_sessions = [
@@ -5445,15 +5495,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if item.get("id") and item.get("session_id")
             }
             unresolved = set(identity_unknown)
+            unreviewed_active = False
+            unreviewed_identity_unknown = False
             for item in remaining_sessions:
-                if item.get("session_id"):
-                    continue
                 row_id = str(item.get("id", ""))
-                unresolved.update(pair for pair in reviewed if pair[0] == row_id)
-            incomplete = bool(reviewed.intersection(remaining_reviewed))
+                unique_id = str(item.get("session_id", ""))
+                if not row_id or not unique_id:
+                    matching_reviewed = {pair for pair in reviewed if pair[0] == row_id} if row_id else set()
+                    if matching_reviewed:
+                        unresolved.update(matching_reviewed)
+                    else:
+                        unreviewed_identity_unknown = True
+                    continue
+                if (row_id, unique_id) not in reviewed and row_id not in apply_reviewed_row_ids:
+                    unreviewed_active = True
+            incomplete = bool(reviewed.intersection(remaining_reviewed)) or unreviewed_active
             unresolved -= remaining_reviewed
             disconnected = len(reviewed - remaining_reviewed - unresolved)
-            status = "incomplete" if incomplete else "unknown" if unresolved else "verified"
+            status = (
+                "incomplete" if incomplete
+                else "unknown" if (
+                    unresolved or unreviewed_identity_unknown or post_update_inventory_unknown
+                    or update_outcome_ambiguous
+                )
+                else "verified"
+            )
             return status, disconnected
 
         for active_session_id, reviewed_unique_id in sorted(reviewed):
@@ -5764,6 +5830,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     active_session_ids,
                     review_lock=update_lock,
                     mutation_state=mutation_state,
+                    update_outcome_ambiguous=mutation_error is not None,
                 )
                 if mutation_state is not None:
                     mutation_state["session_revocation"] = session_revocation
@@ -6990,6 +7057,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         _data: dict[str, Any] | None = None,
         _lock_held: bool = False,
         _update_lock: Any | None = None,
+        _locked_username: str | None = None,
         _mutation_state: dict[str, bool] | None = None,
     ) -> None:
         session = self._require_session(api=True)
@@ -7004,14 +7072,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             resource_key = f"vpn-user:{user_id}"
             if not preview and not _lock_held:
                 mutation_state = {"attempted": False}
-                with self.server.review_receipts.mutation_locks([resource_key]) as locks:
-                    update_lock = locks[resource_key]
+                current_user = self._find_user(credentials, user_id)
+                locked_username = str(current_user["name"])
+                username_resource = _username_lock_resource(locked_username)
+                with self.server.review_receipts.mutation_locks(
+                    [resource_key, username_resource],
+                ) as locks:
+                    update_lock = ReviewLockGroup(
+                        locks[resource_key], locks[username_resource],
+                    )
                     self._delete_user(
                         user_id,
                         preview=False,
                         _data=data,
                         _lock_held=True,
                         _update_lock=update_lock,
+                        _locked_username=locked_username,
                         _mutation_state=mutation_state,
                     )
                 return
@@ -7019,6 +7095,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 credentials, user_id, reason,
             )
             username = str(user["name"])
+            if (
+                _locked_username is not None
+                and _username_lock_resource(_locked_username) != _username_lock_resource(username)
+            ):
+                self._json({
+                    "code": "routeros.review_stale",
+                    "error": "The VPN username changed while deletion was being coordinated. Review the deletion again.",
+                }, status=HTTPStatus.CONFLICT)
+                return
             if preview:
                 self._json({
                     "username": username,
@@ -7308,10 +7393,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            self.server.context.store.delete_user_email(username)
-            self.server.context.store.delete_user_controls(username)
-            self.server.context.store.clear_policy_template_assignment(username)
-            self.server.context.store.remove_user_tags(username)
+            for cleanup in (
+                self.server.context.store.delete_user_email,
+                self.server.context.store.delete_user_controls,
+                self.server.context.store.clear_policy_template_assignment,
+                self.server.context.store.remove_user_tags,
+            ):
+                self.server.review_receipts.assert_lock_owned(_update_lock)
+                cleanup(username)
             self.server.context.store.audit(
                 actor=session.username,
                 action="user.delete",

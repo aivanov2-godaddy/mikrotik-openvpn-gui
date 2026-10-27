@@ -209,7 +209,7 @@ test('VPN-user password changes require step-up and review active-session discon
   });
   const originalDocument = await page.evaluate(() => window.__documentInstance);
 
-  await page.locator('[data-view-target="vpn-users"]').click();
+  await page.locator('a[data-view-target="vpn-users"]').click();
   const userCard = page.locator('.user-card').filter({ hasText: 'user-two' });
   await userCard.getByRole('button', { name: 'Edit user' }).click();
   const editDialog = page.locator('#edit-dialog');

@@ -1060,13 +1060,20 @@ Redis process restart is not detectable by this mechanism and is outside the
 supported restore procedure; follow the stop, restore, and restart sequence in
 the [operations runbook](OPERATIONS.md) to invalidate process-local sessions
 and review receipts. Provisioning checks lock ownership before RouterOS writes
-and skips compensating mutations after coordination loss. Generated rate-profile
+and skips compensating mutations after coordination loss. Creation and deletion
+also share a normalized username lock through local metadata cleanup, preventing
+a same-name recreation from losing its new metadata. Generated rate-profile
 writes check ownership after their read and immediately before each RouterOS
 write. Password-change cleanup verifies both the reviewed RouterOS row ID and
-MikroTik's unique session ID before disconnecting; it checks ownership before
-each termination and stops with a partial or unknown result if coordination is
-lost. It does not terminate a replacement session that reuses the row ID. Bulk
-operations retain per-user outcomes if coordination is lost mid-apply, and
+MikroTik's unique session ID before disconnecting; after changing the password,
+it refreshes the session inventory to catch sessions that connected between the
+review snapshot and the RouterOS commit. It checks ownership before each
+termination and performs a final inventory read-back; newly observed sessions
+are reported as incomplete, while a replacement session reusing a reviewed row
+ID is not terminated. A lost password-write response remains unknown even when
+the session inventory is empty. User deletion rechecks lock ownership before
+each local metadata cleanup mutation and stops cleanup on coordination loss.
+Bulk operations retain per-user outcomes if coordination is lost mid-apply, and
 automation recalculates policy and session caps after acquiring the user lock.
 These changes have repository tests only. The live Redis ACL must grant the
 documented review key pattern and commands before deployment; deployed Redis
