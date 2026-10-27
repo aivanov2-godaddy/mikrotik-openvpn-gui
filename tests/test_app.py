@@ -7044,6 +7044,43 @@ class DashboardIntegrationTests(unittest.TestCase):
             for item in self.mock.state.mutation_requests[len(before_mutations):]
         ))
 
+    def test_user_update_revalidates_role_after_final_lock_assertion(self) -> None:
+        self.login()
+        router = self.server.context.router
+        user = next(
+            item for item in router.list_ovpn_users(RouterOSCredentials("admin", "routerpass"))
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        reviewed = self._review_user_edit(
+            path,
+            {"comment": "permission changed during final lock check", "reason": "Review the account edit"},
+        )
+        resource_key = f"vpn-user:{user['id']}"
+        before_mutations = list(self.mock.state.mutation_requests)
+
+        class DowngradeOnLockAssertion:
+            def assert_owned(_self) -> None:
+                self.mock.state.admin_group = "security-operator"
+
+        @contextlib.contextmanager
+        def mutation_lock(_resource_keys):
+            yield {resource_key: DowngradeOnLockAssertion()}
+
+        with mock.patch.object(
+            self.server.review_receipts,
+            "mutation_locks",
+            side_effect=mutation_lock,
+        ):
+            status, _, payload = self.json_request("PATCH", path, reviewed)
+
+        self.assertEqual(status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(json.loads(payload)["required_capability"], "users.manage")
+        self.assertFalse(any(
+            item.startswith(("PATCH /ppp/secret/", "PUT /ppp/secret/"))
+            for item in self.mock.state.mutation_requests[len(before_mutations):]
+        ))
+
     def test_user_update_revalidates_users_manage_before_rate_profile_write(self) -> None:
         self.login()
         router = self.server.context.router
@@ -7777,6 +7814,51 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("not allowed", json.loads(payload)["error"])
         self.assertIn("*A1", self.mock.state.active_sessions)
         self.assertFalse(any(item.startswith("PATCH /ppp/secret/") for item in self.mock.state.mutation_requests))
+
+    def test_user_password_change_checks_capabilities_from_one_role_snapshot(self) -> None:
+        self.login()
+        session = self.server.context.sessions.get(self.cookie.split("=", 1)[1], touch=False)
+        self.assertIsNotNone(session)
+        session.reauthenticated_at = time.time()
+        user = next(
+            item for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+            if item["name"] == "user-two"
+        )
+        path = f"/api/users/{urllib.parse.quote(user['id'], safe='*')}"
+        edit = {"password": "rotated-vpn-password", "reason": "Rotate the VPN user's password"}
+        required_capability_checks: list[tuple[str, ...]] = []
+        original_require_capabilities = DashboardHandler._require_capabilities
+
+        def record_capability_check(
+            handler, checked_session, capabilities, *, action="",
+        ):
+            if handler.path == path + "/preview":
+                required_capability_checks.append(tuple(capabilities))
+            return original_require_capabilities(
+                handler, checked_session, capabilities, action=action,
+            )
+
+        with mock.patch.object(
+            DashboardHandler,
+            "_require_capabilities",
+            new=record_capability_check,
+        ):
+            status, _, payload = self.json_request("POST", path + "/preview", edit)
+
+        self.assertEqual(status, HTTPStatus.OK, payload.decode())
+        # The route checks users.manage once before entering the handler and
+        # once after acquiring the account lock. The password path then checks
+        # both users.manage and session.manage with one shared fresh snapshot.
+        self.assertEqual(
+            required_capability_checks,
+            [("users.manage",), ("users.manage",), ("users.manage", "session.manage")],
+        )
+        self.assertFalse(any(
+            item.startswith("PATCH /ppp/secret/")
+            for item in self.mock.state.mutation_requests
+        ))
 
     def test_user_password_change_reports_unverified_disconnect_without_leaking_router_error(self) -> None:
         self.login()

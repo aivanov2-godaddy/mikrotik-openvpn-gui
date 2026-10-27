@@ -1274,14 +1274,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json({"error": "CSRF validation failed"}, status=HTTPStatus.FORBIDDEN)
         return False
 
-    def _require_capability(self, session: Session, capability: str, *, action: str = "") -> bool:
+    def _require_capabilities(
+        self,
+        session: Session,
+        capabilities: tuple[str, ...],
+        *,
+        action: str = "",
+    ) -> bool:
         """Enforce a named dashboard capability and record denied attempts.
 
         The audit entry contains only the actor, route, role, and capability;
         credentials, cookies, private keys, and profile contents are never
         included.
         """
-        role_revalidated = session.auth_method == "routeros" and capability.endswith(".manage")
+        required = tuple(dict.fromkeys(capabilities))
+        role_revalidated = session.auth_method == "routeros" and any(
+            capability.endswith(".manage") for capability in required
+        )
         if role_revalidated:
             session = self.server.telemetry_runtime.revalidate_session(
                 session.session_id,
@@ -1290,15 +1299,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if session is None:
                 self._json({"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED)
                 return False
-        # Management routes already performed the forced RouterOS role check
-        # above. Evaluate that returned session directly rather than forcing a
-        # second role lookup through _capability_allowed.
-        allowed = (
-            self._session_has_capability(session, capability)
-            if role_revalidated
-            else self._capability_allowed(session, capability)
-        )
-        if allowed:
+        # Evaluate a multi-capability requirement from the same refreshed role
+        # snapshot so a concurrent role change cannot satisfy each part using
+        # different RouterOS reads.
+        missing = next((
+            capability for capability in required
+            if not (
+                self._session_has_capability(session, capability)
+                if role_revalidated
+                else self._capability_allowed(session, capability)
+            )
+        ), None)
+        if missing is None:
             return True
         target = action or urllib.parse.urlsplit(self.path).path
         normalized = normalize_role(session.role)
@@ -1307,17 +1319,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             action="role.denied",
             target=target,
             status="denied",
-            details={"role": normalized, "capability": capability},
+            details={"role": normalized, "capability": missing},
         )
         self._json(
             {
                 "error": "This role is not allowed to perform that action.",
                 "role": normalized,
-                "required_capability": capability,
+                "required_capability": missing,
             },
             status=HTTPStatus.FORBIDDEN,
         )
         return False
+
+    def _require_capability(self, session: Session, capability: str, *, action: str = "") -> bool:
+        return self._require_capabilities(session, (capability,), action=action)
 
     def _require_recent_reauthentication(
         self, session: Session, *, action: str = "changing API tokens",
@@ -5652,26 +5667,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
             user = self._find_user(credentials, user_id)
             password_raw = str(data.get("password", ""))
             password = self._validate_secret(password_raw, "VPN password") if password_raw else None
-            if password and not self._require_capability(session, "session.manage"):
-                return
-            if password and not self._require_recent_reauthentication(
-                session, action="changing this VPN user's password",
-            ):
-                return
 
             class _UserUpdateAuthorizationRevoked(Exception):
                 """Stop profile reconciliation when the actor lost access."""
 
             def revalidate_user_update_authorization() -> bool:
-                if not self._require_capability(session, "users.manage"):
-                    return False
-                if password and not self._require_capability(session, "session.manage"):
+                required_capabilities = (
+                    ("users.manage", "session.manage") if password else ("users.manage",)
+                )
+                if not self._require_capabilities(session, required_capabilities):
                     return False
                 if password and not self._require_recent_reauthentication(
                     session, action="changing this VPN user's password",
                 ):
                     return False
                 return True
+
+            if password and not revalidate_user_update_authorization():
+                return
 
             email = (
                 self._validate_email(str(data.get("email", "")))
@@ -5805,10 +5818,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             mutation_error: RouterOSError | None = None
             try:
-                if not revalidate_user_update_authorization():
-                    return
                 if update_lock is not None:
                     update_lock.assert_owned()
+                if not revalidate_user_update_authorization():
+                    return
                 if mutation_state is not None:
                     mutation_state["attempted"] = True
                     mutation_state["password_requested"] = bool(password)
