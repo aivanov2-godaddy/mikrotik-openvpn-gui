@@ -13,38 +13,40 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published runtime candidate is PR
-#862, commit `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. Main CI run
-40511812292, push-on-main run 40511812762, and publisher run 40511812393 passed.
-The publisher verified provenance and SPDX SBOM attestations for both exact
-architecture image digests and published/read back the stable manifest. Exact
-immutable tags and digests are recorded in [`RELEASES.md`](RELEASES.md). This
-publication alone does not establish RouterOS compatibility or acceptance.
+prove RouterOS compatibility. The latest published image is PR #871, commit
+`eb29581c8430ec862a8b47ee62268a74fec14518`. Main CI run 40602936825 and
+publisher run 40602936692 passed. The publisher scanned, smoke-tested, and
+verified provenance and SPDX SBOM attestations for both exact architecture
+digests, then published and read back the stable manifest. Exact immutable
+tags and digests are recorded in [`RELEASES.md`](RELEASES.md). PR #871 has not
+been staged. A 2026-10-28 read-only WinBox observation showed the
+canary's configured image digest prefix matching PR #862's published ARM64
+digest and its container `HEALTHY`. One Stats sample showed 0.7% CPU, 38.8 MiB
+memory, 0 B swap, 69.7 MiB app size, and 0.0 MiB data size. The exact image
+reference and readiness revision were not fully read back; this sample is not
+a soak. This supersedes older #785/#200 notes that PR #862 had not been read
+back. Publication and a point-in-time container observation do not establish
+RouterOS compatibility or acceptance.
 
-## Current canary checkpoint — PR #862 — 2026-10-27
+## Candidate status — PR #862 — partial read-back
 
-The isolated canary was updated to the exact ARM64 image tag recorded in
-[`RELEASES.md`](RELEASES.md), using the RouterOS stop/update/start sequence.
-After startup, RouterOS reported the container `HEALTHY`; a private `/readyz`
-probe returned `status=ready`, version `edge-arm64`, and revision
-`445c1d5ca0f28174629be8e8cd94f04de132f0fc`. A point-in-time RouterOS sample
-showed approximately 0.7% CPU, 38 MiB memory, and 69.7 MiB container size.
-These are startup observations, not a sustained resource measurement.
+PR #862 was published and has immutable architecture tags and digests recorded
+in [`RELEASES.md`](RELEASES.md). The latest WinBox readback showed a configured
+image digest prefix matching its published ARM64 digest and container status
+`HEALTHY`, with one point-in-time Stats sample. This supersedes the older #785
+and #200 comments that said it had not been read back. The exact image
+reference, `/readyz` revision, sustained health/resource impact, and soak are
+not verified. PR #871 is the latest published image and has not been staged.
 
-The active VPN session count was zero immediately before the canary update, so
-this checkpoint provides no candidate-specific session-event, traffic-freshness,
-latency, reconnect, snapshot-recovery, or authorization evidence. The earlier
-live Connections-page observation was on PR #806 and must not be attributed to
-PR #862. A 30-minute candidate-bound soak, Redis failure/recovery checks,
+Candidate-specific session-event, traffic-freshness, latency, reconnect,
+snapshot-recovery, and authorization evidence remain unavailable for PR #862
+and PR #871. The active VPN session seen in RouterOS was not correlated with
+an authenticated dashboard. A 30-minute candidate-bound soak, Redis failure/recovery checks,
 SQLite backup/restore rehearsal, counter-reset and event-integrity checks, and a
-candidate-specific rollback rehearsal remain outstanding. The previous PR #806
-image is the identified canary rollback target; rollback has not been tested.
-
-Only the canary dashboard container was changed. Production, RouterOS VPN
-policy, CA/certificates, user data, and the Redis container were not modified.
-No production promotion or numbered release is claimed. The installed
-RouterOS updater and scheduler bindings remain unreconciled and were not run;
-do not use that updater until its source and promotion behavior are reconciled.
+candidate-specific rollback rehearsal remain outstanding. Production
+promotion is not claimed. The installed RouterOS updater and scheduler bindings
+remain unreconciled and the updater was not run; do not use it until its source
+and promotion behavior are reconciled.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 

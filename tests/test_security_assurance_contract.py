@@ -20,6 +20,7 @@ ASVS_CONTROL_FIXTURE = ROOT / "tests" / "fixtures" / "asvs_5_0_0_scoped_control_
 VALID_MATRIX_STATUSES = {"TESTED", "PARTIAL", "GAP", "N/A", "EXTERNAL"}
 EXPECTED_ASVS_VERSION = "5.0.0"
 EXPECTED_ASVS_SOURCE = "https://github.com/OWASP/ASVS/tree/v5.0.0_release"
+EXPECTED_ASVS_SOURCE_COMMIT = "5cf9b032440be53ce345ab3c130fda46ba1ce7a2"
 EXPECTED_ASVS_SOURCE_ARTIFACT = (
     "https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0_release/5.0/docs_en/"
     "OWASP_Application_Security_Verification_Standard_5.0.0_en.json"
@@ -329,6 +330,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         fixture = _load_asvs_control_fixture()
         self.assertEqual(fixture.get("asvs_version"), EXPECTED_ASVS_VERSION)
         self.assertEqual(fixture.get("source_url"), EXPECTED_ASVS_SOURCE)
+        self.assertEqual(fixture.get("source_commit"), EXPECTED_ASVS_SOURCE_COMMIT)
         self.assertEqual(fixture.get("source_artifact_url"), EXPECTED_ASVS_SOURCE_ARTIFACT)
 
         source_sha256 = fixture.get("source_sha256")
@@ -639,22 +641,28 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest published runtime image source",
+            "PR #871 (`eb29581c8430ec862a8b47ee62268a74fec14518`) is the latest published image source",
             roadmap,
         )
         self.assertIn(
-            "PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest published runtime image source",
+            "PR #871 (`eb29581c8430ec862a8b47ee62268a74fec14518`) is the latest published image source",
             releases,
         )
         self.assertIn(
             "PR #862 is a published artifact, not a numbered release.",
             releases,
         )
-        self.assertIn("staged on the isolated canary on 2026-10-27", releases)
-        self.assertIn("This is a startup checkpoint only; no 30-minute acceptance or production promotion is claimed.", releases)
+        self.assertIn(
+            "read-only WinBox observation showed the canary's configured image digest prefix matching the ARM64 digest above",
+            releases,
+        )
+        self.assertIn(
+            "The exact readiness revision, sustained health/resource impact, live-event behavior, and acceptance window remain unverified.",
+            releases,
+        )
         self.assertNotIn("latest merged mainline source", roadmap)
         self.assertNotIn("latest merged mainline source", releases)
-        self.assertIn("The latest recorded canary stage is PR #862", roadmap)
+        self.assertIn("The latest confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
         self.assertIn("The two bounded source reviews described above", self.document)
