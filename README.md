@@ -171,6 +171,13 @@ RouterOS releases; Binary API mode requires the documented RouterOS 7
 one-step authentication. Setting `ROUTEROS_INSECURE_TLS=true` is rejected at
 startup, so REST and Binary API connections cannot disable certificate checks.
 
+The Binary API decoder also applies hard response bounds: 1 MiB per word,
+4 MiB per sentence, 4,096 words per reply, 65,536 words across the command
+response, 10,000 replies, and 16 MiB per command response. Request/reply tags must match. A limit or protocol failure
+closes the connection so unread or mismatched bytes cannot be reused as the
+next command's response. These parser and connection guards are covered by
+`tests/test_routeros_binary.py`.
+
 Read-only router status remains available without the `OVPN_*` settings. User
 and profile actions fail closed until the OpenVPN topology is configured.
 
