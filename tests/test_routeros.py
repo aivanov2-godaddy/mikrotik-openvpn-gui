@@ -8,9 +8,10 @@ import urllib.error
 import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 from unittest.mock import patch
 
-from config import OpenVPNTopology
+from config import ConfigurationError, OpenVPNTopology
 from routeros import RouterOSClient, RouterOSCredentials, RouterOSError, harden_profile
 from tests.mock_routeros import MockRouterOS
 
@@ -194,11 +195,109 @@ class RouterOSClientTests(unittest.TestCase):
     def test_admin_role_lookup_accepts_routeros_enabled_status_encodings(self) -> None:
         client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
         credentials = RouterOSCredentials("admin", "routerpass")
+        full_policy = "local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,rest-api,romon"
 
         for status in ("no", "false"):
             record = {"name": "admin", "group": "full", "disabled": status}
-            with self.subTest(status=status), patch.object(client, "_request", return_value=[record]):
+            def response(_method: str, path: str, *_args: Any, **_kwargs: Any) -> list[dict[str, str]]:
+                if path == "/user":
+                    return [record]
+                if path == "/user/group":
+                    return [{"name": "full", "policy": full_policy}]
+                return []
+
+            with self.subTest(status=status), patch.object(client, "_request", side_effect=response):
                 self.assertEqual(client.get_admin_role(credentials), "owner")
+
+    def test_builtin_full_group_downgrades_when_effective_policy_is_restricted(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            mock.state.user_groups = [{"name": "full", "policy": "read,api,rest-api"}]
+
+            self.assertEqual(
+                client.get_admin_role(RouterOSCredentials("admin", "routerpass")),
+                "read_only",
+            )
+
+    def test_builtin_write_group_downgrades_when_effective_policy_is_restricted(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            mock.state.admin_group = "write"
+            mock.state.user_groups = [{
+                "name": "write",
+                "policy": "read,api,rest-api,!write",
+            }]
+
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+
+            mock.state.user_groups = [{
+                "name": "write",
+                "policy": "read,write,api,rest-api,!policy",
+            }]
+            self.assertEqual(client.get_admin_role(credentials), "administrator")
+
+    def test_custom_role_group_read_failure_or_missing_record_fails_closed(self) -> None:
+        client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
+        credentials = RouterOSCredentials("admin", "routerpass")
+
+        def missing_group(_method: str, path: str, *_args: Any, **_kwargs: Any) -> list[dict[str, str]]:
+            if path == "/user":
+                return [{"name": "admin", "group": "owner", "disabled": "no"}]
+            return []
+
+        with patch.object(client, "_request", side_effect=missing_group):
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+
+        def unavailable_group(_method: str, path: str, *_args: Any, **_kwargs: Any) -> list[dict[str, str]]:
+            if path == "/user":
+                return [{"name": "admin", "group": "owner", "disabled": "no"}]
+            raise RouterOSError("unavailable")
+
+        with patch.object(client, "_request", side_effect=unavailable_group):
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+            with self.assertRaisesRegex(RouterOSError, "group permissions"):
+                client.get_admin_role(credentials, raise_on_error=True)
+
+    def test_rest_client_refuses_to_disable_tls_certificate_verification(self) -> None:
+        with self.assertRaisesRegex(ConfigurationError, "cannot be disabled"):
+            RouterOSClient("https://router.example.test/rest", insecure_tls=True)
+
+    def test_custom_routeros_owner_group_requires_effective_admin_policies(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            mock.state.admin_group = "owner"
+            mock.state.user_groups = [{"name": "owner", "policy": "read,api,rest-api"}]
+
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+
+            mock.state.user_groups = [{
+                "name": "owner",
+                "policy": "read,write,policy,api,rest-api,!write",
+            }]
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+
+            mock.state.user_groups = [{
+                "name": "owner",
+                "policy": "read,write,policy,api,rest-api,!ftp",
+            }]
+            self.assertEqual(client.get_admin_role(credentials), "owner")
+
+    def test_custom_routeros_admin_group_requires_effective_read_write_api_policies(self) -> None:
+        with MockRouterOS() as mock:
+            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            credentials = RouterOSCredentials("admin", "routerpass")
+            mock.state.admin_group = "administrator"
+            mock.state.user_groups = [{"name": "administrator", "policy": "read,api,rest-api"}]
+
+            self.assertEqual(client.get_admin_role(credentials), "read_only")
+
+            mock.state.user_groups = [{
+                "name": "administrator",
+                "policy": "read,write,api,rest-api,!policy",
+            }]
+            self.assertEqual(client.get_admin_role(credentials), "administrator")
 
     def test_rate_profile_change_requires_reviewed_state_and_exact_readback(self) -> None:
         with MockRouterOS() as mock:

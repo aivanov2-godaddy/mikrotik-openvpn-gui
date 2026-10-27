@@ -190,11 +190,12 @@ class RouterOSClient:
         self.ovpn_server = self.topology.server_name
         self.ovpn_ca = self.topology.ca_name
         self.ovpn_host = self.topology.host
+        if insecure_tls:
+            raise ConfigurationError(
+                "RouterOS REST TLS certificate verification cannot be disabled"
+            )
         if self.base_url.startswith("https://"):
-            if insecure_tls:
-                self.ssl_context = ssl._create_unverified_context()  # noqa: SLF001 - explicit test option
-            else:
-                self.ssl_context = ssl.create_default_context(cafile=ca_file)
+            self.ssl_context = ssl.create_default_context(cafile=ca_file)
         else:
             self.ssl_context = None
         self._opener = urllib.request.build_opener(
@@ -348,20 +349,66 @@ class RouterOSClient:
             # An incomplete identity record must never inherit Owner access.
             return "read_only"
         group = raw_group.strip().lower()
-        # RouterOS groups are the identity source.  The additional named
-        # groups are optional custom groups; unknown groups fail closed in the
-        # dashboard's role normalizer rather than inheriting owner access.
+        # A RouterOS group name is only a label: built-in and custom groups can
+        # have different effective policies. Verify the policy before granting
+        # dashboard capabilities beyond read-only access.
         if group in {"read", "readonly", "read-only"}:
             return "read_only"
-        if group in {"audit", "auditor"}:
-            return "auditor"
-        if group in {"security", "security-operator", "security_operator"}:
-            return "security_operator"
-        if group in {"write", "operator", "policy", "administrator", "admin"}:
-            return "administrator"
-        if group in {"full", "owner"}:
-            return "owner"
-        return "read_only"
+        role_requirements = {
+            "audit": ("auditor", {"read"}),
+            "auditor": ("auditor", {"read"}),
+            "security": ("security_operator", {"read", "write", "api", "rest-api"}),
+            "security-operator": ("security_operator", {"read", "write", "api", "rest-api"}),
+            "security_operator": ("security_operator", {"read", "write", "api", "rest-api"}),
+            "write": ("administrator", {"read", "write", "api", "rest-api"}),
+            "operator": ("administrator", {"read", "write", "api", "rest-api"}),
+            "policy": ("administrator", {"read", "write", "api", "rest-api"}),
+            "administrator": ("administrator", {"read", "write", "api", "rest-api"}),
+            "admin": ("administrator", {"read", "write", "api", "rest-api"}),
+            "full": ("owner", {"read", "write", "policy", "api", "rest-api"}),
+            "owner": ("owner", {"read", "write", "policy", "api", "rest-api"}),
+        }
+        requirement = role_requirements.get(group)
+        if requirement is None:
+            return "read_only"
+        try:
+            group_records = _records(
+                self._request(
+                    "GET",
+                    "/user/group",
+                    credentials,
+                    query={"name": group, ".proplist": "name,policy"},
+                )
+            )
+        except RouterOSError:
+            if raise_on_error:
+                raise RouterOSError(
+                    "RouterOS account group permissions could not be verified",
+                    failure_kind="role_lookup",
+                ) from None
+            return "read_only"
+        group_record = next(
+            (item for item in group_records if str(item.get("name", "")).casefold() == group),
+            None,
+        )
+        policies = self._effective_routeros_policies(
+            group_record.get("policy") if group_record else None
+        )
+        role, required = requirement
+        return role if required <= policies else "read_only"
+
+    @staticmethod
+    def _effective_routeros_policies(value: Any) -> set[str]:
+        if isinstance(value, str):
+            items = value.split(",")
+        elif isinstance(value, (list, tuple, set)):
+            items = [str(item) for item in value]
+        else:
+            return set()
+        normalized = {item.strip().casefold() for item in items if item.strip()}
+        denied = {item[1:] for item in normalized if item.startswith("!")}
+        allowed = {item for item in normalized if not item.startswith("!")}
+        return allowed - denied
 
     def get_management_exposure(self, credentials: RouterOSCredentials) -> dict[str, Any]:
         """Read a tightly allowlisted RouterOS access snapshot; never mutate state."""

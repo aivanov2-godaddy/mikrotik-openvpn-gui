@@ -149,6 +149,18 @@ class State:
         self.user_groups = [{
             "name": "full",
             "policy": "local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,rest-api,romon",
+        }, {
+            "name": "audit",
+            "policy": "read",
+        }, {
+            "name": "security-operator",
+            "policy": "read,write,api,rest-api",
+        }, {
+            "name": "operator",
+            "policy": "read,write,api,rest-api",
+        }, {
+            "name": "owner",
+            "policy": "read,write,policy,api,rest-api",
         }]
         self.ip_services = [
             {"name": "www", "disabled": "yes", "address": "", "certificate": "none"},

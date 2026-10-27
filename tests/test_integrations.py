@@ -3,6 +3,7 @@ import hmac
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Any
 import unittest
 from unittest import mock
@@ -26,6 +27,34 @@ class FakeRedis:
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_redis_stream_publisher_rejects_url_query_options(self):
+        url = "rediss://publisher:private-password@redis.example.test:6380/0?ssl_cert_reqs=none"
+
+        with self.assertRaisesRegex(ValueError, "must not include query parameters") as error:
+            RedisStreamPublisher(url)
+
+        self.assertNotIn("private-password", str(error.exception))
+
+    def test_redis_client_keeps_timeouts_and_verifies_rediss_certificates(self):
+        client = FakeRedis()
+        from_url = mock.Mock(return_value=client)
+        redis_module = SimpleNamespace(Redis=SimpleNamespace(from_url=from_url))
+        url = "rediss://publisher:private-password@redis.example.test:6380/0"
+
+        with mock.patch.dict("sys.modules", {"redis": redis_module}):
+            publisher = RedisStreamPublisher(url)
+
+        self.assertIs(publisher._client, client)
+        from_url.assert_called_once_with(
+            url,
+            decode_responses=True,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            health_check_interval=30,
+            ssl_cert_reqs="required",
+            ssl_check_hostname=True,
+        )
+
     def test_integration_event_omits_unclassified_values_and_private_fields(self):
         payload = sanitize_integration_event(
             {

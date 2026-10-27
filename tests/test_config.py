@@ -17,6 +17,13 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.redis_stream_key, "vpn-dashboard.events")
         self.assertEqual(config.redis_stream_maxlen, 10_000)
 
+    def test_routeros_rest_tls_verification_cannot_be_disabled_by_environment(self) -> None:
+        with self.assertRaisesRegex(
+            ConfigurationError,
+            "ROUTEROS_INSECURE_TLS must be false",
+        ):
+            RuntimeConfig.from_environ({"ROUTEROS_INSECURE_TLS": "true"})
+
     def test_redis_stream_configuration_is_optional_and_bounded(self) -> None:
         config = RuntimeConfig.from_environ(
             {
@@ -30,6 +37,21 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.redis_stream_maxlen, 5000)
         with self.assertRaisesRegex(ConfigurationError, "redis:// or rediss://"):
             RuntimeConfig.from_environ({"REDIS_STREAM_URL": "https://redis.example.test"})
+        for query in (
+            "ssl_cert_reqs=none",
+            "ssl_check_hostname=false",
+            "socket_timeout=0",
+            "health_check_interval=0",
+            "db=2",
+        ):
+            with self.subTest(query=query):
+                url = f"rediss://publisher:private-password@redis.example.test:6380/0?{query}"
+                with self.assertRaisesRegex(
+                    ConfigurationError,
+                    "must not include query parameters",
+                ) as error:
+                    RuntimeConfig.from_environ({"REDIS_STREAM_URL": url})
+                self.assertNotIn("private-password", str(error.exception))
         with self.assertRaisesRegex(ConfigurationError, "between 100 and 1000000"):
             RuntimeConfig.from_environ({"REDIS_STREAM_MAXLEN": "99"})
 

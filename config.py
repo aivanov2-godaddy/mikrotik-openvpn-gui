@@ -41,6 +41,14 @@ def _boolean(values: Mapping[str, str], name: str, default: bool = False) -> boo
     raise ConfigurationError(f"{name} must be true or false")
 
 
+def _routeros_insecure_tls(values: Mapping[str, str]) -> bool:
+    if _boolean(values, "ROUTEROS_INSECURE_TLS"):
+        raise ConfigurationError(
+            "ROUTEROS_INSECURE_TLS must be false; install the RouterOS CA certificate instead"
+        )
+    return False
+
+
 def _live_transport(values: Mapping[str, str]) -> str:
     value = _value(values, "LIVE_TRANSPORT", "rest").casefold()
     if value not in _LIVE_TRANSPORTS:
@@ -163,12 +171,14 @@ def _webhook_url(value: str) -> str | None:
     return value
 
 
-def _redis_url(value: str) -> str | None:
+def validate_redis_stream_url(value: str) -> str | None:
     if not value:
         return None
     parsed = urlsplit(value)
     if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname or parsed.fragment:
         raise ConfigurationError("REDIS_STREAM_URL must be a redis:// or rediss:// URL")
+    if parsed.query:
+        raise ConfigurationError("REDIS_STREAM_URL must not include query parameters")
     try:
         parsed.port
     except ValueError as error:
@@ -357,12 +367,12 @@ class RuntimeConfig:
             raise ConfigurationError("WEBHOOK_URL and WEBHOOK_SIGNING_SECRET must be set together")
         if webhook_secret and len(webhook_secret) < 32:
             raise ConfigurationError("WEBHOOK_SIGNING_SECRET must be at least 32 characters")
-        redis_stream_url = _redis_url(_value(source, "REDIS_STREAM_URL"))
+        redis_stream_url = validate_redis_stream_url(_value(source, "REDIS_STREAM_URL"))
         return cls(
             public_origin=public_origin,
             routeros_rest_url=routeros_rest_url,
             routeros_ca_file=_value(source, "ROUTEROS_CA_FILE") or None,
-            routeros_insecure_tls=_boolean(source, "ROUTEROS_INSECURE_TLS"),
+            routeros_insecure_tls=_routeros_insecure_tls(source),
             database_path=_value(source, "DATABASE_PATH", "/data/dashboard.sqlite"),
             trust_cloudflare=trust_cloudflare,
             trusted_proxy_sources=sources,
