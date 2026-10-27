@@ -18,36 +18,75 @@ RouterOS state, live measurements, and operator/session details remain in
 private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #849
-(`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest published runtime
-image source. It distinguishes RouterOS HTTP 401 credential rejection from
-HTTP 403 permission denial during sign-in and reauthentication. Permission
-denials and RouterOS availability failures do not consume the bad-password
-lockout budget, retain their audit classification, and preserve the signed-in
-session. This follows PR #846's session/audit transaction safeguards and is not
-a numbered release or evidence of RouterOS deployment.
+version, v2.8.0, has not been tagged or published. PR #860
+(`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) is the latest published runtime
+image source; it hardens CSV and profile diagnostics. PR #849
+(`f4708f519a6810ceb7d253c37c199032800ea625`) added the most recent
+application-level authentication classification, distinguishing RouterOS HTTP
+401 credential rejection from HTTP 403 permission denial. Publication is not a
+numbered release or evidence of RouterOS deployment.
 
-For PR #849, main CI rerun
-[#40239111663](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40239111663),
+For PR #860, main CI run
+[#40498616546](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40498616546),
 CodeQL run
-[#40239111237](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40239111237),
+[#40498616642](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40498616642),
 and publisher run
-[#40239111661](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40239111661)
+[#40498616545](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40498616545)
 passed. The publisher built and smoke-tested both architecture images,
 verified provenance and SPDX SBOM attestations against the exact image
 digests, and published/read back the stable `routeros-release.json` manifest.
 The manifest asset SHA-256 is
-`sha256:563139236aab98d524c7a829d07a975a827445d2fa023109660e96f25c7143f1`.
+`sha256:b25c8a3fca3722a12a67b2c01cd2433aeffe9130d5c1d09dee3365492bffce46`.
 Exact immutable tags and digests are recorded below.
 
-PR #849 has not been read back as the configured canary or production image.
-The last documented candidate-bound RouterOS read-back is the older PR #806
-revision; it does not establish PR #849 staging, rollback, live telemetry
-acceptance, or an independent security review. The installed updater and its
-scheduler bindings are not fully reconciled and were not run. Keep production
-promotion and v2.8.0 gated until candidate-specific acceptance passes.
+## Latest published mainline image — PR #860 — 2026-10-27
 
-## Latest published mainline image — PR #849 — 2026-10-25
+PR [#860](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/860)
+merged as `d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`. Main CI run
+[#40498616546](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40498616546),
+CodeQL run
+[#40498616642](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40498616642),
+and publisher run
+[#40498616545](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40498616545)
+passed. The stable manifest was published and read back; both architecture
+images passed runtime smoke tests, and their provenance and SPDX SBOM
+attestations were verified against the exact digests. The stable manifest
+asset SHA-256 is
+`sha256:b25c8a3fca3722a12a67b2c01cd2433aeffe9130d5c1d09dee3365492bffce46`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-d3be28625e9d3beb48e2bdf94855ac2b5f7111b1-arm64` | `sha256:0c8c7c5764bd92f2dcb250474c84a07902d83972bcbe68c98bf45878d079f252` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-d3be28625e9d3beb48e2bdf94855ac2b5f7111b1-amd64` | `sha256:59e304b3337d3f99bbc404a6d0866461cd13dcaca2439fe577881e0a1f2ca59b` |
+
+PR #860's immutable artifacts are published but have not been read back as the
+configured canary or production image. The last documented candidate-bound
+RouterOS read-back is the older PR #806 revision; it does not establish PR #860
+staging, rollback, live telemetry acceptance, or an independent security
+review. The updater and scheduler bindings are not fully reconciled and the
+updater was not run. Keep production promotion and v2.8.0 gated until
+candidate-specific acceptance passes.
+
+## Previous published mainline image — PR #859 — 2026-10-27
+
+PR [#859](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/859)
+merged as `17cc88d5bf7e59752f569fb7ec253c9706e0a6ea`. Main CI run
+[#40422360203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40422360203),
+CodeQL run
+[#40422359603](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40422359603),
+and publisher run
+[#40422360096](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40422360096)
+passed. Both architecture images passed runtime smoke tests, and their
+provenance and SPDX SBOM attestations were verified against the exact digests.
+The stable manifest asset SHA-256 was
+`sha256:a7bf9db0a77a48ee03435b69ee7ad907031d731c4a718fbecad9b01d659d7850`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-17cc88d5bf7e59752f569fb7ec253c9706e0a6ea-arm64` | `sha256:877ec4893c075958ee639d003e375e06d323a67396bbe05514efee98234eab76` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-17cc88d5bf7e59752f569fb7ec253c9706e0a6ea-amd64` | `sha256:7236887299c7eb2f3c53768c5d8710ff4238a5ee8f354f90c6afc8048fcd8b7c` |
+
+## Previous published mainline image — PR #849 — 2026-10-25
 
 PR [#849](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/849)
 merged as `f4708f519a6810ceb7d253c37c199032800ea625`. Main CI rerun
@@ -59,6 +98,8 @@ and publisher run
 passed. The stable manifest was published and read back; both architecture
 images passed runtime smoke tests and their provenance and SPDX SBOM
 attestations were verified against the exact digests.
+The stable manifest asset SHA-256 at that publication checkpoint was
+`sha256:563139236aab98d524c7a829d07a975a827445d2fa023109660e96f25c7143f1`.
 
 | Platform | Immutable image tag | Registry digest |
 | --- | --- | --- |
