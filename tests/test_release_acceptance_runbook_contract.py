@@ -88,10 +88,10 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "PR #849 (`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest published runtime source",
+            "PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest published runtime source",
             report,
         )
-        self.assertIn("PR #849 has no candidate-specific staging/read-back or acceptance evidence.", report)
+        self.assertIn("PR #862 has no candidate-specific staging/read-back or acceptance evidence.", report)
         self.assertNotIn("PR #791 has been published but not staged", report)
 
 

@@ -1,16 +1,16 @@
 # Live telemetry acceptance status
 
-Status: **PR #849 (`f4708f519a6810ceb7d253c37c199032800ea625`) is the latest
-published runtime source, with immutable ARM64 and AMD64 images. Main CI rerun
-40239111663, CodeQL run 40239111237, and publisher run 40239111661 passed. The
-stable manifest was published/read back, and digest-bound provenance/SBOM were
-verified for both architecture-specific images.
-Exact image tags and digests are in [`RELEASES.md`](RELEASES.md).
+Status: **PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest
+published runtime source, with immutable ARM64 and AMD64 images. Main CI run
+40511812292, push-on-main run 40511812762, and publisher run 40511812393 passed.
+The publisher verified provenance and SPDX SBOM attestations for both exact
+image digests and published/read back the stable manifest. Code scanning showed
+zero open alerts on 2026-10-27. Exact tags and digests are in
+[`RELEASES.md`](RELEASES.md).
 
-PR #849 has no candidate-specific staging/read-back or acceptance evidence. The
-last candidate-bound canary read-back is the older PR #806 image, observed on
-2026-10-24;
-its immutable ARM64 digest was
+PR #862 has no candidate-specific staging/read-back or acceptance evidence.
+The last exact canary tag-and-digest read-back was the older PR #806 image on
+2026-10-24; its immutable ARM64 digest was
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
 That point-in-time read-back showed a healthy container and matching embedded
 revision. Sparse samples over approximately nine minutes showed 0.6–0.8% CPU
@@ -25,10 +25,22 @@ complete configured tag and digest were not read back. The WinBox Stats view
 showed 0.7% CPU, 60.9 MiB memory, and 0 B swap, which is not a soak or
 acceptance result. This
 supersedes the earlier stopped-state observation but does not verify or accept
-PR #849. The PR #849 image has not been read back as configured on RouterOS.
-No RouterOS configuration was changed. The installed updater and its scheduler
-bindings remain unreconciled and were not run. Candidate-specific acceptance
-and production promotion remain gated.**
+PR #862. A 2026-10-27 RouterOS container listing still showed the older PR #806
+canary revision, not PR #862. The PR #862 image has not been read back as
+configured on RouterOS.
+The installed updater and its scheduler bindings remain unreconciled and were
+not run. Candidate-specific acceptance and production promotion remain gated.**
+
+## Live UI spot check — 2026-10-27
+
+On the existing PR #806 canary image, an authenticated Connections page showed
+the Socket.IO live indicator and changing five-second traffic-rate samples.
+After the disposable test session was terminated, the same page showed zero
+active devices and the ended session in history without a page reload. This is
+qualitative evidence of live UI delivery only; no event-latency clock offset was
+established, and it is not a 30-minute soak, reconnect/snapshot-recovery result,
+or acceptance of PR #862. A reconnect/snapshot check and the controlled soak
+remain outstanding. No production image change is claimed.
 
 ## Last recorded canary checkpoint — PR #806
 
@@ -41,10 +53,10 @@ registry digest is
 RouterOS read-back confirmed the exact candidate revision and healthy
 readiness on canary. Sparse point samples are not a 30-minute soak and do not
 prove sustained resource impact. No candidate-specific rollback drill has
-been completed for #806. Production remains unchanged. The current browser
-observation is the application sign-in form, so authenticated live-event
-acceptance, event-age/freshness, reconnect/snapshot recovery, and session
-authorization are unverified.
+been completed for #806. No production image promotion is recorded. The browser
+view available at that checkpoint (2026-10-25) was the application sign-in form,
+so it did not verify authenticated live-event acceptance, event-age/freshness,
+reconnect/snapshot recovery, or session authorization.
 
 ## Public artifact evidence
 

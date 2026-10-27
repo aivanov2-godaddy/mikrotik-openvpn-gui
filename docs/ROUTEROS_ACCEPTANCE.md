@@ -14,12 +14,12 @@ domain names into an issue, pull request, or test result.
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
 prove RouterOS compatibility. The latest published runtime candidate is PR
-#849, commit `f4708f519a6810ceb7d253c37c199032800ea625`. Main CI rerun 40239111663,
-CodeQL run 40239111237, and publisher run 40239111661 passed; its stable
-manifest and digest-bound provenance/SBOM were verified for the ARM64 and AMD64
-images. Exact immutable tags and digests are recorded in
-[`RELEASES.md`](RELEASES.md). This publication does not establish RouterOS
-compatibility, staging, or acceptance.
+#862, commit `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. Main CI run
+40511812292, push-on-main run 40511812762, and publisher run 40511812393 passed.
+The publisher verified provenance and SPDX SBOM attestations for both exact
+architecture image digests and published/read back the stable manifest. Exact
+immutable tags and digests are recorded in [`RELEASES.md`](RELEASES.md). This
+publication does not establish RouterOS compatibility, staging, or acceptance.
 The last candidate-bound canary ARM64
 digest is
 `sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
@@ -31,22 +31,27 @@ On 2026-10-24, the exact PR #806 ARM64 tag and embedded revision were read back
 on the isolated canary; RouterOS reported healthy readiness. Sparse point
 samples over approximately nine minutes showed 0.6–0.8% CPU and 38.6 MiB
 memory. These samples do not satisfy the 30-minute soak requirement. No
-candidate-specific rollback rehearsal has been completed for #806. Production
-remains on its prior image and was not changed. The latest browser observation
-shows the canary app sign-in form, so authenticated event latency, traffic
-freshness, reconnect/snapshot recovery, and session authorization are not
-verified. Readiness and point samples alone do not constitute full hardware
-acceptance or production promotion.
+candidate-specific rollback rehearsal has been completed for #806. No production
+image promotion was recorded at that checkpoint. The browser view available on
+2026-10-25 showed the canary app sign-in form, so authenticated event latency,
+traffic freshness, reconnect/snapshot recovery, and session authorization were
+not verified in that observation. On 2026-10-27, an authenticated Connections
+page on the same older PR #806 image showed changing traffic samples and a
+disposable test-session disconnect reflected without a reload. This is
+qualitative stream evidence only; it does not establish measured latency or
+freshness, reconnect/snapshot recovery, a 30-minute soak, or PR #862 acceptance.
+Readiness and point samples alone do not constitute full hardware acceptance or
+production promotion.
 
 An earlier read-only RouterOS inventory on 2026-10-25 reported the canary
 stopped. The latest read-only WinBox observation on that date showed the
 container healthy, architecture `arm64`, and OCI revision
 `79816625e493f9581e7389b95760403ac6c9a327` (PR #806). The complete configured
 tag and registry digest were not read back. The WinBox Stats view showed 0.7%
-CPU, 60.9 MiB memory, and 0 B swap; this is not a soak or acceptance result.
+CPU and 60.9 MiB memory, with 0 B swap; this is not a soak or acceptance result.
 This supersedes the
-earlier stopped-state observation, but does not verify or accept PR #849.
-Production was not changed.
+earlier stopped-state observation, but does not verify or accept PR #862. No
+production image change is claimed.
 
 The PR #803 canary staging, rollback, and readiness-only observation described
 in older records are historical and do not transfer acceptance evidence to
