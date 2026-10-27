@@ -19,49 +19,32 @@ prove RouterOS compatibility. The latest published runtime candidate is PR
 The publisher verified provenance and SPDX SBOM attestations for both exact
 architecture image digests and published/read back the stable manifest. Exact
 immutable tags and digests are recorded in [`RELEASES.md`](RELEASES.md). This
-publication does not establish RouterOS compatibility, staging, or acceptance.
-The last candidate-bound canary ARM64
-digest is
-`sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
-Main CI run 40143943796, CodeQL run 40143943935, ARM64 image build, Redis
-recovery integration, rendered-browser/accessibility regression, secret-pattern
-checks, and dependency audit passed.
+publication alone does not establish RouterOS compatibility or acceptance.
 
-On 2026-10-24, the exact PR #806 ARM64 tag and embedded revision were read back
-on the isolated canary; RouterOS reported healthy readiness. Sparse point
-samples over approximately nine minutes showed 0.6–0.8% CPU and 38.6 MiB
-memory. These samples do not satisfy the 30-minute soak requirement. No
-candidate-specific rollback rehearsal has been completed for #806. No production
-image promotion was recorded at that checkpoint. The browser view available on
-2026-10-25 showed the canary app sign-in form, so authenticated event latency,
-traffic freshness, reconnect/snapshot recovery, and session authorization were
-not verified in that observation. On 2026-10-27, an authenticated Connections
-page on the same older PR #806 image showed changing traffic samples and a
-disposable test-session disconnect reflected without a reload. This is
-qualitative stream evidence only; it does not establish measured latency or
-freshness, reconnect/snapshot recovery, a 30-minute soak, or PR #862 acceptance.
-Readiness and point samples alone do not constitute full hardware acceptance or
-production promotion.
+## Current canary checkpoint — PR #862 — 2026-10-27
 
-An earlier read-only RouterOS inventory on 2026-10-25 reported the canary
-stopped. The latest read-only WinBox observation on that date showed the
-container healthy, architecture `arm64`, and OCI revision
-`79816625e493f9581e7389b95760403ac6c9a327` (PR #806). The complete configured
-tag and registry digest were not read back. The WinBox Stats view showed 0.7%
-CPU and 60.9 MiB memory, with 0 B swap; this is not a soak or acceptance result.
-This supersedes the
-earlier stopped-state observation, but does not verify or accept PR #862. No
-production image change is claimed.
+The isolated canary was updated to the exact ARM64 image tag recorded in
+[`RELEASES.md`](RELEASES.md), using the RouterOS stop/update/start sequence.
+After startup, RouterOS reported the container `HEALTHY`; a private `/readyz`
+probe returned `status=ready`, version `edge-arm64`, and revision
+`445c1d5ca0f28174629be8e8cd94f04de132f0fc`. A point-in-time RouterOS sample
+showed approximately 0.7% CPU, 38 MiB memory, and 69.7 MiB container size.
+These are startup observations, not a sustained resource measurement.
 
-The PR #803 canary staging, rollback, and readiness-only observation described
-in older records are historical and do not transfer acceptance evidence to
-PR #806.
+The active VPN session count was zero immediately before the canary update, so
+this checkpoint provides no candidate-specific session-event, traffic-freshness,
+latency, reconnect, snapshot-recovery, or authorization evidence. The earlier
+live Connections-page observation was on PR #806 and must not be attributed to
+PR #862. A 30-minute candidate-bound soak, Redis failure/recovery checks,
+SQLite backup/restore rehearsal, counter-reset and event-integrity checks, and a
+candidate-specific rollback rehearsal remain outstanding. The previous PR #806
+image is the identified canary rollback target; rollback has not been tested.
 
-The installed RouterOS updater differs from the reviewed repository template
-and was not executed. Its original generic `invalid request` is no longer
-present in retained logs, so the failing statement remains unknown. Do not run
-that installed updater until its source and promotion behavior are reconciled.
-PR #772 and earlier deployment checkpoints below are historical.
+Only the canary dashboard container was changed. Production, RouterOS VPN
+policy, CA/certificates, user data, and the Redis container were not modified.
+No production promotion or numbered release is claimed. The installed
+RouterOS updater and scheduler bindings remain unreconciled and were not run;
+do not use that updater until its source and promotion behavior are reconciled.
 
 ## Previous deployment checkpoint — PR #745 — 2026-10-15
 

@@ -8,28 +8,36 @@ image digests and published/read back the stable manifest. Code scanning showed
 zero open alerts on 2026-10-27. Exact tags and digests are in
 [`RELEASES.md`](RELEASES.md).
 
-PR #862 has no candidate-specific staging/read-back or acceptance evidence.
-The last exact canary tag-and-digest read-back was the older PR #806 image on
-2026-10-24; its immutable ARM64 digest was
-`sha256:dd646c8b25a5b4e24653d2268719b89513da85c7164e68e499b5ebd4cf292dce`.
-That point-in-time read-back showed a healthy container and matching embedded
-revision. Sparse samples over approximately nine minutes showed 0.6–0.8% CPU
-and 38.6 MiB memory, but no 30-minute soak or candidate-specific rollback
-rehearsal has passed. The canary dashboard was at its application sign-in form
-in that observation, so authenticated live events, latency/freshness, and
-reconnect/snapshot recovery remain unverified. An earlier read-only RouterOS
-inventory on 2026-10-25 reported the canary stopped. The latest read-only
-WinBox observation on that date showed it healthy, with architecture `arm64`
-and OCI revision `79816625e493f9581e7389b95760403ac6c9a327` (PR #806); the
-complete configured tag and digest were not read back. The WinBox Stats view
-showed 0.7% CPU, 60.9 MiB memory, and 0 B swap, which is not a soak or
-acceptance result. This
-supersedes the earlier stopped-state observation but does not verify or accept
-PR #862. A 2026-10-27 RouterOS container listing still showed the older PR #806
-canary revision, not PR #862. The PR #862 image has not been read back as
-configured on RouterOS.
-The installed updater and its scheduler bindings remain unreconciled and were
-not run. Candidate-specific acceptance and production promotion remain gated.**
+PR #862 is now staged on the isolated RouterOS canary. The post-start container
+state was `HEALTHY`, and the private `/readyz` response matched the full PR #862
+revision. A single resource sample showed approximately 0.7% CPU, 38 MiB memory,
+and 69.7 MiB container size. This verifies candidate staging and startup only;
+it is not a 30-minute soak or acceptance result. The test client was not active
+at the pre-update check, so candidate-specific live-session behavior remains
+unverified. Production was not changed.**
+
+## Canary staging checkpoint — PR #862 — 2026-10-27
+
+RouterOS was configured with the exact immutable ARM64 tag listed in
+[`RELEASES.md`](RELEASES.md); its verified registry digest is:
+
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-445c1d5ca0f28174629be8e8cd94f04de132f0fc-arm64`
+(`sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac`).
+
+After the canary-only stop/update/start sequence, RouterOS reported `HEALTHY`.
+The private readiness endpoint returned `status=ready`, version `edge-arm64`,
+and revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. The resource values are
+one point sample only. No production image, VPN policy, CA/certificates, user
+data, or Redis container was changed.
+
+The following candidate-bound gates remain open: a 30-minute resource and
+freshness soak; connect/disconnect event latency; API interruption and
+reconnect/snapshot recovery; counter reset and duplicate/loss/order checks;
+Redis outage/restart delivery recovery; SQLite restore and interrupted-write
+checks; authenticated authorization/privacy checks; and canary rollback
+rehearsal. The earlier qualitative live-UI check was on PR #806 and does not
+provide evidence for this candidate. The installed RouterOS updater remains
+unreconciled and was not run.
 
 ## Live UI spot check — 2026-10-27
 
