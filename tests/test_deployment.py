@@ -250,6 +250,8 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertIn('"$REVISION" > /app/REVISION', containerfile)
         self.assertIn("integrations.py", containerfile)
         self.assertIn("http://127.0.0.1:8080/readyz", containerfile)
+        self.assertIn("HEALTHCHECK --interval=30s --timeout=3s", containerfile)
+        self.assertIn("timeout -t 2 wget -q -T 2 -O /dev/null", containerfile)
         self.assertNotIn("http://127.0.0.1:8080/healthz", containerfile)
 
     def test_waf_plan_creates_updates_and_is_idempotent(self) -> None:

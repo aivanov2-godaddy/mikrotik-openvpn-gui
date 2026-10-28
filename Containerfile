@@ -79,6 +79,6 @@ EXPOSE 8080 8081
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1:8080/readyz || exit 1
+    CMD timeout -t 2 wget -q -T 2 -O /dev/null http://127.0.0.1:8080/readyz || exit 1
 
 CMD ["python3", "-B", "/app/entrypoint.py"]
