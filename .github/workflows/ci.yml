@@ -232,9 +232,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          container_id="$(docker run --platform linux/arm64 --detach local/mikrotik-openvpn-gui:ci)"
-          trap 'docker logs "$container_id" || true; docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
-          for attempt in $(seq 1 30); do
+          container_id="$(docker run --platform linux/arm64 --health-interval=1s --detach local/mikrotik-openvpn-gui:ci)"
+          trap 'docker inspect --format "{{json .State.Health}}" "$container_id" || true; docker logs "$container_id" || true; docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 120); do
             payload="$(docker exec "$container_id" wget -q -O - http://127.0.0.1:8080/readyz 2>/dev/null || true)"
             if printf '%s' "$payload" | grep -Fq '"status":"ready"'; then
               break
@@ -243,7 +243,11 @@ jobs:
           done
           test "${payload:-}" != ""
           printf '%s' "$payload" | grep -Fq '"status":"ready"'
-          for attempt in $(seq 1 40); do
+          if ! docker exec "$container_id" timeout -t 2 wget -q -T 2 -O /dev/null http://127.0.0.1:8080/readyz; then
+            echo "Image healthcheck command failed after /readyz became ready"
+            exit 1
+          fi
+          for attempt in $(seq 1 30); do
             health_status="$(docker inspect --format '{{.State.Health.Status}}' "$container_id")"
             if [ "$health_status" = "healthy" ]; then
               break
