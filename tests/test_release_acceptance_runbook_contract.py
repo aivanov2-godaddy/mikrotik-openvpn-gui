@@ -88,15 +88,15 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "PR #871 (`eb29581c8430ec862a8b47ee62268a74fec14518`) is the latest published image source",
+            "PR #873 (`e7163beebda530f16619094e9e498f3da873f980`) is the latest published image source",
             report,
         )
         self.assertIn(
-            "The latest confirmed candidate-bound read-back is PR #862",
+            "The latest confirmed candidate-image read-back is PR #862",
             report,
         )
         self.assertIn("digest prefix matching its published ARM64 digest", report)
-        self.assertIn("PR #871 has not been staged", report)
+        self.assertIn("PR #873 has not been staged", report)
         self.assertIn("exact `/readyz` revision claim remains unverified", report)
         self.assertNotIn("PR #862 has not been read back on RouterOS", report)
         self.assertNotIn("PR #791 has been published but not staged", report)
