@@ -13,35 +13,39 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published image is PR #871, commit
-`eb29581c8430ec862a8b47ee62268a74fec14518`. Main CI run 40602936825 and
-publisher run 40602936692 passed. The publisher scanned, smoke-tested, and
+prove RouterOS compatibility. The latest published image is PR #873, commit
+`e7163beebda530f16619094e9e498f3da873f980`. Main CI run 40770342669 and
+publisher run 40770342526 passed. The publisher scanned, smoke-tested, and
 verified provenance and SPDX SBOM attestations for both exact architecture
 digests, then published and read back the stable manifest. Exact immutable
-tags and digests are recorded in [`RELEASES.md`](RELEASES.md). PR #871 has not
-been staged. A 2026-10-28 read-only WinBox observation showed the
+tags and digests are recorded in [`RELEASES.md`](RELEASES.md). PR #873 has not
+been staged. An earlier 2026-10-28 read-only WinBox observation showed the
 canary's configured image digest prefix matching PR #862's published ARM64
 digest and its container `HEALTHY`. One Stats sample showed 0.7% CPU, 38.8 MiB
 memory, 0 B swap, 69.7 MiB app size, and 0.0 MiB data size. The exact image
 reference and readiness revision were not fully read back; this sample is not
 a soak. This supersedes older #785/#200 notes that PR #862 had not been read
-back. Publication and a point-in-time container observation do not establish
-RouterOS compatibility or acceptance.
+back. A later read-only check on 2026-10-28 found the signed-in dashboard's
+live stream stale/reconnecting with zero connected devices; RouterOS Active
+Connections showed no active sessions. No router changes were made.
+Publication and point-in-time observations do not establish RouterOS
+compatibility or acceptance.
 
 ## Candidate status — PR #862 — partial read-back
 
 PR #862 was published and has immutable architecture tags and digests recorded
-in [`RELEASES.md`](RELEASES.md). The latest WinBox readback showed a configured
+in [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
 image digest prefix matching its published ARM64 digest and container status
 `HEALTHY`, with one point-in-time Stats sample. This supersedes the older #785
 and #200 comments that said it had not been read back. The exact image
 reference, `/readyz` revision, sustained health/resource impact, and soak are
-not verified. PR #871 is the latest published image and has not been staged.
+not verified. PR #873 is the latest published image and has not been staged.
 
 Candidate-specific session-event, traffic-freshness, latency, reconnect,
 snapshot-recovery, and authorization evidence remain unavailable for PR #862
-and PR #871. The active VPN session seen in RouterOS was not correlated with
-an authenticated dashboard. A 30-minute candidate-bound soak, Redis failure/recovery checks,
+and PR #873. The earlier observed VPN session was not correlated with an
+authenticated dashboard; the latest read-only check showed no active session.
+A 30-minute candidate-bound soak, Redis failure/recovery checks,
 SQLite backup/restore rehearsal, counter-reset and event-integrity checks, and a
 candidate-specific rollback rehearsal remain outstanding. Production
 promotion is not claimed. The installed RouterOS updater and scheduler bindings

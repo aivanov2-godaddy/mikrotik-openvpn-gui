@@ -1,34 +1,37 @@
 # Live telemetry acceptance status
 
-Status: **PR #871 (`eb29581c8430ec862a8b47ee62268a74fec14518`) is the latest
+Status: **PR #873 (`e7163beebda530f16619094e9e498f3da873f980`) is the latest
 published image source, with immutable ARM64 and AMD64 images. Main CI run
-40602936825 and publisher run 40602936692 passed; both images were scanned,
+40770342669 and publisher run 40770342526 passed; both images were scanned,
 smoke-tested, and verified with provenance and SPDX SBOM attestations. The
 stable manifest was published and read back. Exact tags and digests are in
 [`RELEASES.md`](RELEASES.md).
 
-The 2026-10-28 read-only WinBox observation showed the canary container
+An earlier 2026-10-28 read-only WinBox observation showed the canary container
 `HEALTHY` and its configured GHCR digest prefix matched PR #862's published
 ARM64 digest. A single Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
-69.7 MiB app size, and 0.0 MiB data size. This is a point-in-time observation;
-the full configured image reference, exact readiness revision, and sustained
-resource impact were not verified. PR #871 has not been staged. An active VPN
-session was visible in RouterOS, but the authenticated canary dashboard was not
-available to correlate events or measure freshness/latency. Production
-promotion and the 30-minute acceptance window remain unverified.**
+69.7 MiB app size, and 0.0 MiB data size. A later point check found the
+signed-in dashboard's live stream stale/reconnecting with zero connected
+devices; RouterOS Active Connections showed no active sessions. No router
+changes were made. The full configured image reference, exact
+readiness revision, and sustained resource impact remain unverified. PR #873
+has not been staged. Production promotion and the 30-minute acceptance window
+remain unverified.**
 
-## RouterOS candidate status — PR #862 and PR #871
+## RouterOS candidate status — PR #862 and PR #873
 
 PR #862 is a published artifact with immutable digests recorded in
-[`RELEASES.md`](RELEASES.md). The current WinBox readback showed a configured
+[`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
 image digest prefix matching its published ARM64 digest and a `HEALTHY`
 container. The Stats view provided one CPU/memory/swap/app-size/data-size
 sample. The earlier draft's exact `/readyz` revision claim remains unverified;
 the old issue notes saying PR #862 had not been read back are superseded by
-this observation. PR #871 is the latest published image and has not been
-staged on RouterOS. The latest confirmed candidate-bound read-back is PR #862,
+this earlier observation. PR #873 is the latest published image and has not been
+staged on RouterOS. The latest confirmed candidate-image read-back is PR #862,
 limited to the image digest prefix and point-in-time container status/resource
-sample described above.
+sample described above. The later stale-stream/no-session check shows that
+live telemetry acceptance remains incomplete; neither point check establishes
+acceptance of PR #873.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and
@@ -47,7 +50,7 @@ After the disposable test session was terminated, the same page showed zero
 active devices and the ended session in history without a page reload. This is
 qualitative evidence of live UI delivery only; no event-latency clock offset was
 established, and it is not a 30-minute soak, reconnect/snapshot-recovery result,
-or acceptance of PR #871. A reconnect/snapshot check and the controlled soak
+or acceptance of PR #873. A reconnect/snapshot check and the controlled soak
 remain outstanding. No production image change is claimed.
 
 ## Last recorded canary checkpoint — PR #806

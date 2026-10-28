@@ -69,6 +69,8 @@ semantic-version style release tags.
 
 ### Fixed
 
+- Preserve SQLite outbox insertion order for events with the same creation
+  timestamp, including when pending events are drained in bounded batches.
 - Preserve nested RouterOS interface counters and measured rates when
   projecting broker events into live telemetry frames; reject incomplete or
   invalid cumulative counters in the acceptance observer.
