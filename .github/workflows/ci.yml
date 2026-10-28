@@ -243,6 +243,14 @@ jobs:
           done
           test "${payload:-}" != ""
           printf '%s' "$payload" | grep -Fq '"status":"ready"'
+          for attempt in $(seq 1 40); do
+            health_status="$(docker inspect --format '{{.State.Health.Status}}' "$container_id")"
+            if [ "$health_status" = "healthy" ]; then
+              break
+            fi
+            sleep 1
+          done
+          test "${health_status:-}" = "healthy"
           runtime_uids="$(docker exec "$container_id" awk '/^Uid:/ { print $2, $3, $4, $5; exit }' /proc/1/status)"
           test "$runtime_uids" = "65534 65534 65534 65534"
           core_limits="$(docker exec "$container_id" cat /proc/1/limits)"
