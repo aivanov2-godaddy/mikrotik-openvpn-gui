@@ -293,6 +293,33 @@ class IntegrationTests(unittest.TestCase):
 
         self.assertNotIn("event_id", payload)
 
+    def test_outbox_preserves_insertion_order_when_events_share_timestamp(self):
+        timestamp = 1_700_000_000
+        event_count = 8
+        with TemporaryDirectory() as directory:
+            store = MetadataStore(str(Path(directory) / "dashboard.db"))
+            store.set_audit_hook(lambda _event: None)
+            events = [
+                {
+                    "actor": "test-operator",
+                    "action": "user.update",
+                    "target": f"test-user-{index}",
+                    "status": "success",
+                    "details": {"ordinal": index},
+                }
+                for index in range(event_count)
+            ]
+
+            with mock.patch("store.time.time", return_value=timestamp):
+                store.audit_many(events)
+                observed = []
+                while pending := store.pending_integration_events(3, now=timestamp):
+                    for record in pending:
+                        observed.append(record["payload"]["details"]["ordinal"])
+                        store.mark_integration_delivered(record["event_id"], now=timestamp)
+
+        self.assertEqual(observed, list(range(event_count)))
+
     def test_full_audit_remains_local_while_remote_stream_is_minimized(self):
         with TemporaryDirectory() as directory:
             store = MetadataStore(str(Path(directory) / "dashboard.db"))
