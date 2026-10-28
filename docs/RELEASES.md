@@ -13,14 +13,18 @@ tags: `vMAJOR.MINOR.PATCH`.
 Operator-visible changes are summarized in [CHANGELOG.md](../CHANGELOG.md).
 
 This public release record documents repository commits, published artifacts,
-CI provenance, and redacted deployment-gate status. Router identity, detailed
-RouterOS state, live measurements, and operator/session details remain in
-private operational records.
+CI provenance, and redacted deployment-gate status. It may include coarse,
+candidate-bound point samples and aggregate outcomes. Router identity, detailed
+RouterOS configuration, raw time-series telemetry, and session-level details
+remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #862
-(`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest published runtime
-image source; it hardens RouterOS and Redis transport policy. PR #860
+version, v2.8.0, has not been tagged or published. PR #871
+(`eb29581c8430ec862a8b47ee62268a74fec14518`) is the latest published image
+source; it fixes the published ARM64 runtime-smoke setup in CI. PR #868
+(`388baa247b2a12658c66f02d2d40826fe4759553`) bounds RouterOS REST response handling. PR #862
+(`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) hardened RouterOS and Redis
+transport policy. PR #860
 (`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) hardens CSV and profile
 diagnostics. PR #849
 (`f4708f519a6810ceb7d253c37c199032800ea625`) added the most recent
@@ -28,21 +32,67 @@ application-level authentication classification, distinguishing RouterOS HTTP
 401 credential rejection from HTTP 403 permission denial. Publication is not a
 numbered release or evidence of RouterOS deployment.
 
-For PR #862, main CI run
-[#40511812292](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40511812292),
-push-on-main run
-[#40511812762](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40511812762),
+For PR #871, main CI run
+[#40602936825](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40602936825)
 and publisher run
-[#40511812393](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40511812393)
-passed. The publisher built and smoke-tested both architecture images,
-verified provenance and SPDX SBOM attestations against the exact image
-digests, and published/read back the stable `routeros-release.json` manifest.
-The manifest asset SHA-256 is
-`sha256:21210234eb81c96ee0dc2194e1a3166c46c46526ad70cb769dd11c66c4ac41b0`.
+[#40602936692](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40602936692)
+passed. The publisher built, scanned, attested, and smoke-tested both
+architecture images and published/read back the stable
+[`routeros-release.json`](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/releases/download/routeros-stable/routeros-release.json)
+manifest. The manifest asset SHA-256 is
+`sha256:02e2ec88e9591d0d7686edfeb4c5c0afbf3f4e28807dcdb9521b2035bbb2c84d`.
 Code scanning reported zero open alerts on 2026-10-27. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #862 — 2026-10-27
+## Latest published mainline image — PR #871 — 2026-10-28
+
+PR [#871](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/871)
+merged as `eb29581c8430ec862a8b47ee62268a74fec14518`. Main CI run
+[#40602936825](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40602936825)
+and publisher run
+[#40602936692](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40602936692)
+passed. The publisher built and scanned both architecture images, verified
+provenance and SPDX SBOM attestations against their exact digests, smoke-tested
+the published runtimes, and read back the stable manifest. The manifest SHA-256
+is `sha256:02e2ec88e9591d0d7686edfeb4c5c0afbf3f4e28807dcdb9521b2035bbb2c84d`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-eb29581c8430ec862a8b47ee62268a74fec14518-arm64` | `sha256:e6288dcc70eed59d29bfb697ffd5809de604463d718689e0fa9ca9d5bc615d17` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-eb29581c8430ec862a8b47ee62268a74fec14518-amd64` | `sha256:d737a8ae1c727ee7e1fb0b1da0c5ccdbeb17f035e1a611bd3242e6ee46c1976f` |
+
+This is a published image, not a numbered release or RouterOS deployment.
+
+## Previous published mainline image — PR #868 — 2026-10-27
+
+PR [#868](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/868)
+merged as `388baa247b2a12658c66f02d2d40826fe4759553`. Main CI run
+[#40588404193](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40588404193),
+push-on-main run
+[#40588403979](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40588403979),
+and publisher run
+[#40588404460](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40588404460)
+passed. The stable manifest was published and read back; both architecture
+images passed runtime smoke tests, and provenance and SPDX SBOM attestations
+were verified against the exact digests. Its manifest asset SHA-256 is
+`sha256:02a13a8a237c92e324f6960245907a16aa7627ecb0249d2af592e08afabdeac6`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-388baa247b2a12658c66f02d2d40826fe4759553-arm64` | `sha256:fc9146deef164b6c537149e9ab81d73eda7f174e9b986010bd1bd0426a5e6740` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-388baa247b2a12658c66f02d2d40826fe4759553-amd64` | `sha256:d155e1edf32dde2472afa6cf2ff10512c471dc5bbaef6596c0887c64f568c868` |
+
+This is a published image, not a numbered release or RouterOS deployment.
+The 2026-10-28 read-only WinBox view showed the canary's configured image
+digest prefix matching the PR #862 ARM64 digest below and container status
+`HEALTHY`. A single Stats sample showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
+69.7 MiB app size, and 0.0 MiB data size. This supersedes the earlier issue
+notes that PR #862 had not been read back. The exact readiness revision and a
+sustained soak remain unverified. PR #868 has not been staged or accepted on
+RouterOS. Keep production promotion and v2.8.0 gated on the open acceptance
+criteria.
+
+## Previous published mainline image — PR #862 — 2026-10-27
 
 PR [#862](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/862)
 merged as `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. Main CI run
@@ -62,11 +112,14 @@ asset SHA-256 is
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-445c1d5ca0f28174629be8e8cd94f04de132f0fc-arm64` | `sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac` |
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-445c1d5ca0f28174629be8e8cd94f04de132f0fc-amd64` | `sha256:a6e59e2c7c67b89f77c8a6ef126e5e2541ff820f40f2e62ed10731c2cc9cf095` |
 
-PR #862 is a published artifact, not a numbered release. Its ARM64 image was
-staged on the isolated canary on 2026-10-27, and the private readiness probe
-reported the matching source revision. This is a startup checkpoint only; no
-30-minute acceptance or production promotion is claimed. Keep production
-promotion and v2.8.0 gated on the open acceptance criteria.
+PR #862 is a published artifact, not a numbered release. The 2026-10-28
+read-only WinBox observation showed the canary's configured image digest
+prefix matching the ARM64 digest above and container status `HEALTHY`; one
+Stats sample is recorded in the latest-image entry. This supersedes the older
+#785/#200 comments that said PR #862 had not been read back. The exact
+readiness revision, sustained health/resource impact, live-event behavior, and
+acceptance window remain unverified. Keep production promotion and v2.8.0
+gated on the open acceptance criteria.
 
 ## PR #860 publication checks — 2026-10-27
 

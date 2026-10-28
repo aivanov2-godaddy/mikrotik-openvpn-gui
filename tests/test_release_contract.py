@@ -337,7 +337,9 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #862", release_record)
+        self.assertIn("## Latest published mainline image — PR #871", release_record)
+        self.assertIn("## Previous published mainline image — PR #868", release_record)
+        self.assertIn("## Previous published mainline image — PR #862", release_record)
         self.assertIn("## Previous published mainline image — PR #860", release_record)
         self.assertIn("## Previous published mainline image — PR #859", release_record)
         self.assertIn("## Previous published mainline image — PR #849", release_record)
@@ -350,6 +352,15 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #824", release_record)
         self.assertIn("## Previous published mainline image — PR #817", release_record)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
+        self.assertIn("eb29581c8430ec862a8b47ee62268a74fec14518", rendered)
+        self.assertIn("sha256:e6288dcc70eed59d29bfb697ffd5809de604463d718689e0fa9ca9d5bc615d17", rendered)
+        self.assertIn("sha256:d737a8ae1c727ee7e1fb0b1da0c5ccdbeb17f035e1a611bd3242e6ee46c1976f", rendered)
+        self.assertIn("sha256:02e2ec88e9591d0d7686edfeb4c5c0afbf3f4e28807dcdb9521b2035bbb2c84d", rendered)
+        roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+        self.assertIn("PR #871 has not been staged on RouterOS", roadmap)
+        self.assertIn("latest confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
+        self.assertIn("Exact readiness revision and sustained resource impact remain unverified.", roadmap)
+        self.assertIn("Public records may include redacted candidate-bound point samples", roadmap)
         self.assertIn("c88bc730a8e75bcd89ab73dcf85d87df37db7884", rendered)
         self.assertIn("273e9ed1c3618e605c3af106a59b76dfb8686769", rendered)
         self.assertIn("f4708f519a6810ceb7d253c37c199032800ea625", rendered)
@@ -401,15 +412,15 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Current published artifact: commit `d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`",
+            "PR #871, commit `eb29581c8430ec862a8b47ee62268a74fec14518`",
             installation,
         )
         self.assertIn(
-            "sha256:0c8c7c5764bd92f2dcb250474c84a07902d83972bcbe68c98bf45878d079f252",
+            "sha256:e6288dcc70eed59d29bfb697ffd5809de604463d718689e0fa9ca9d5bc615d17",
             installation,
         )
         self.assertIn(
-            "sha256:59e304b3337d3f99bbc404a6d0866461cd13dcaca2439fe577881e0a1f2ca59b",
+            "sha256:d737a8ae1c727ee7e1fb0b1da0c5ccdbeb17f035e1a611bd3242e6ee46c1976f",
             installation,
         )
         self.assertIn("### Latest published authentication-denial classification — PR #849", security_assurance)
@@ -447,9 +458,10 @@ class ReleaseContractTests(unittest.TestCase):
             "No #806 rollback rehearsal or 30-minute soak has passed",
             rendered,
         )
-        self.assertIn("A single resource sample showed approximately 0.7% CPU, 38 MiB memory", rendered)
-        self.assertIn("staged on the isolated canary on 2026-10-27", rendered)
-        self.assertIn("This is a startup checkpoint only; no 30-minute acceptance or production promotion is claimed.", rendered)
+        self.assertIn("Stats view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap", rendered)
+        self.assertIn("PR #871 has not been staged on RouterOS", rendered)
+        self.assertIn("digest prefix matching the PR #862 ARM64 digest", rendered)
+        self.assertIn("exact readiness revision and a sustained soak remain unverified", rendered)
         self.assertIn("Production remains on its prior image", rendered)
         self.assertIn("This later observation supersedes an earlier inventory that reported the canary stopped", rendered)
         self.assertIn("latest read-only WinBox observation", rendered)

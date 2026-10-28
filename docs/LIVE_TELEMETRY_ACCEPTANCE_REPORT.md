@@ -1,34 +1,34 @@
 # Live telemetry acceptance status
 
-Status: **PR #862 (`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) is the latest
-published runtime source, with immutable ARM64 and AMD64 images. Main CI run
-40511812292, push-on-main run 40511812762, and publisher run 40511812393 passed.
-The publisher verified provenance and SPDX SBOM attestations for both exact
-image digests and published/read back the stable manifest. Code scanning showed
-zero open alerts on 2026-10-27. Exact tags and digests are in
+Status: **PR #871 (`eb29581c8430ec862a8b47ee62268a74fec14518`) is the latest
+published image source, with immutable ARM64 and AMD64 images. Main CI run
+40602936825 and publisher run 40602936692 passed; both images were scanned,
+smoke-tested, and verified with provenance and SPDX SBOM attestations. The
+stable manifest was published and read back. Exact tags and digests are in
 [`RELEASES.md`](RELEASES.md).
 
-PR #862 is now staged on the isolated RouterOS canary. The post-start container
-state was `HEALTHY`, and the private `/readyz` response matched the full PR #862
-revision. A single resource sample showed approximately 0.7% CPU, 38 MiB memory,
-and 69.7 MiB container size. This verifies candidate staging and startup only;
-it is not a 30-minute soak or acceptance result. The test client was not active
-at the pre-update check, so candidate-specific live-session behavior remains
-unverified. Production was not changed.**
+The 2026-10-28 read-only WinBox observation showed the canary container
+`HEALTHY` and its configured GHCR digest prefix matched PR #862's published
+ARM64 digest. A single Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
+69.7 MiB app size, and 0.0 MiB data size. This is a point-in-time observation;
+the full configured image reference, exact readiness revision, and sustained
+resource impact were not verified. PR #871 has not been staged. An active VPN
+session was visible in RouterOS, but the authenticated canary dashboard was not
+available to correlate events or measure freshness/latency. Production
+promotion and the 30-minute acceptance window remain unverified.**
 
-## Canary staging checkpoint — PR #862 — 2026-10-27
+## RouterOS candidate status — PR #862 and PR #871
 
-RouterOS was configured with the exact immutable ARM64 tag listed in
-[`RELEASES.md`](RELEASES.md); its verified registry digest is:
-
-`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-445c1d5ca0f28174629be8e8cd94f04de132f0fc-arm64`
-(`sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac`).
-
-After the canary-only stop/update/start sequence, RouterOS reported `HEALTHY`.
-The private readiness endpoint returned `status=ready`, version `edge-arm64`,
-and revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. The resource values are
-one point sample only. No production image, VPN policy, CA/certificates, user
-data, or Redis container was changed.
+PR #862 is a published artifact with immutable digests recorded in
+[`RELEASES.md`](RELEASES.md). The current WinBox readback showed a configured
+image digest prefix matching its published ARM64 digest and a `HEALTHY`
+container. The Stats view provided one CPU/memory/swap/app-size/data-size
+sample. The earlier draft's exact `/readyz` revision claim remains unverified;
+the old issue notes saying PR #862 had not been read back are superseded by
+this observation. PR #871 is the latest published image and has not been
+staged on RouterOS. The latest confirmed candidate-bound read-back is PR #862,
+limited to the image digest prefix and point-in-time container status/resource
+sample described above.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and
@@ -47,7 +47,7 @@ After the disposable test session was terminated, the same page showed zero
 active devices and the ended session in history without a page reload. This is
 qualitative evidence of live UI delivery only; no event-latency clock offset was
 established, and it is not a 30-minute soak, reconnect/snapshot-recovery result,
-or acceptance of PR #862. A reconnect/snapshot check and the controlled soak
+or acceptance of PR #871. A reconnect/snapshot check and the controlled soak
 remain outstanding. No production image change is claimed.
 
 ## Last recorded canary checkpoint — PR #806
@@ -187,8 +187,8 @@ reconnect, and snapshot recovery remain unverified.
 Use the read-only collectors and private RouterOS prerequisites documented in
 [`ROUTEROS_ACCEPTANCE.md`](ROUTEROS_ACCEPTANCE.md). Do not put credentials,
 cookies, private origins, router exports, client profiles, IP addresses, raw
-logs, or deployment measurements in GitHub issues, pull requests, public
-artifacts, or this file.
+logs, or session-level/unredacted deployment measurements in GitHub issues,
+pull requests, public artifacts, or this file.
 
 The release evaluator also requires an operator-attested, redacted certificate
 lifecycle record bound to the canary image tag and digest. Its schema and

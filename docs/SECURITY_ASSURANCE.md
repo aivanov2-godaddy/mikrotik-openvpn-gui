@@ -1021,11 +1021,14 @@ test window:
 ## Independent source review — 2026-10-27
 
 An independent internal reviewer checked the 42 control IDs in the declared
-matrix scope against ASVS 5.0.0 at source commit
-`35c2d75019ae311b5aae977b9ac2be358d82937a`. No additional omitted control ID
-or unsupported positive status was identified within that scope. This is a
-bounded internal review, not an external assessment, penetration test, or
-compliance attestation; it does not close the independent review gate above.
+matrix scope against ASVS 5.0.0 at the official [`v5.0.0_release`](https://github.com/OWASP/ASVS/releases/tag/v5.0.0_release)
+commit `5cf9b032440be53ce345ab3c130fda46ba1ce7a2`. The review found that the
+previously recorded commit identifier was invalid; the release tag and the
+JSON artifact digest are now pinned in the fixture. No additional omitted
+control ID or unsupported positive status was identified within that scope.
+This is a bounded internal review, not an external assessment, penetration
+test, or compliance attestation; it does not close the independent review gate
+above.
 
 The reviewer confirmed that V7.4.3 and V7.5.1 are explicitly excluded only for
 dashboard operator accounts. VPN-user passwords belong to a separate RouterOS
