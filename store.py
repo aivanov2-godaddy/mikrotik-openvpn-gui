@@ -1281,7 +1281,7 @@ class MetadataStore:
                 """
                 SELECT * FROM integration_outbox
                 WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND next_attempt_at <= ?
-                ORDER BY created_at, event_id
+                ORDER BY created_at, rowid
                 LIMIT ?
                 """,
                 (current, safe_limit),
