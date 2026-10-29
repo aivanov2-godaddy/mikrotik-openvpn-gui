@@ -1102,13 +1102,14 @@ verified. RouterOS passwords remain in process memory; application core dumps
 are disabled, but host dump-collector policy and deployed log retention remain
 unverified.
 
-One low-severity defense-in-depth gap remains: normal application
-configuration rejects non-HTTPS RouterOS REST URLs, but direct construction of
-`RouterOSClient` does not enforce HTTPS itself and its request path attaches
-Basic credentials. No non-test production call site bypassing the validated
-configuration was found in this review. Keep the URL validation in force and
-close this constructor-level gap before treating the REST client as safe for
-independent direct use. This does not establish a deployed cleartext exposure.
+The constructor-level cleartext gap identified in this review is closed in
+this source revision. `RouterOSClient` now rejects remote non-HTTPS endpoints
+before any request credentials are constructed. Loopback HTTP requires the
+explicit `allow_insecure_loopback_for_tests` opt-in and an IP-literal loopback
+address; the production `RuntimeConfig` continues to reject all HTTP. Tests
+verify that the opt-in cannot allow remote HTTP and that loopback HTTP requires
+the opt-in. This is repository evidence only; it does not establish that the
+new revision is deployed or independently verify runtime configuration.
 
 The matrix remains scoped to selected ASVS 5.0.0 controls. No overall
 conformance claim follows from this review, and issue #200 remains open pending
