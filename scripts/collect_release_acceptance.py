@@ -139,6 +139,7 @@ def apply_stream_acceptance(
     if summary.get("evidence", {}).get("deployments"):
         canary_record = summary["evidence"]["deployments"][0]
         canary_record["session_event_p95_ms"] = browser.get("session_event_latency_p95_ms")
+        canary_record["session_event_max_ms"] = browser.get("session_event_latency_max_ms")
         canary_record["session_event_latency_started_at"] = browser.get("observation_started_at")
         canary_record["session_event_latency_ended_at"] = browser.get("observation_ended_at")
         canary_record["session_event_max_age_seconds"] = browser.get("session_event_age_max_seconds")
@@ -1664,6 +1665,7 @@ def main() -> int:
             browser_lines,
             limits={
                 "latency_p95_ms": 1000,
+                "session_event_max_ms": 1000,
                 "event_age_seconds": 2,
                 "router_cpu_percent": 80,
                 "router_memory_percent": 90,

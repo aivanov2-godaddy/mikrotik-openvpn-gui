@@ -12,6 +12,7 @@ from scripts.telemetry_acceptance import evaluate as _evaluate, main, observe_ca
 
 LIMITS = {
     "latency_p95_ms": 1000.0,
+    "session_event_max_ms": 1000.0,
     "event_age_seconds": 2.0,
     "router_cpu_percent": 80.0,
     "router_memory_percent": 90.0,
@@ -255,7 +256,7 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertTrue(result["healthy"])
-        self.assertEqual(result["format"], "vpn-dashboard-telemetry-acceptance-v2")
+        self.assertEqual(result["format"], "vpn-dashboard-telemetry-acceptance-v3")
         self.assertEqual(result["origin"], "https://vpn-dev.wanted.sx")
         self.assertEqual(result["candidate_revision"], "a" * 40)
         self.assertEqual(result["observed_revision"], "a" * 40)
@@ -263,6 +264,7 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["session_transition_visible_count"], 2)
         self.assertIs(result["ordered_connect_disconnect_observed"], True)
         self.assertEqual(result["session_event_latency_p95_ms"], 220)
+        self.assertEqual(result["session_event_latency_max_ms"], 220)
         self.assertEqual(result["session_event_age_max_seconds"], 0.7)
         self.assertEqual(result["traffic_sample_age_max_seconds"], 0.8)
         self.assertEqual(result["event_sequence_observation_count"], 31)
@@ -717,6 +719,22 @@ class TelemetryAcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("session_event_latency_exceeded", result["failed_gates"])
         self.assertIn("traffic_sample_stale", result["failed_gates"])
+
+    def test_each_session_transition_uses_the_explicit_maximum_latency_limit(self) -> None:
+        window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})
+        records_by_type = [json.loads(line) for line in window]
+        for record in records_by_type:
+            if record.get("type") == "session_transition":
+                record["latency_ms"] = 900
+
+        limits = {**LIMITS, "latency_p95_ms": 1000, "session_event_max_ms": 800}
+        code, result = evaluate(
+            [json.dumps(record) for record in records_by_type], limits=limits
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("session_event_latency_exceeded", result["failed_gates"])
+        self.assertEqual(result["session_event_latency_max_ms"], 900)
 
     def test_transition_and_traffic_records_without_linked_measurement_fail(self) -> None:
         window = acceptance_window({"type": "sample", "observed_at": 1_728_000_000})

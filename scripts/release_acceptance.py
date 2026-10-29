@@ -276,7 +276,7 @@ def evaluate(
         stream_acceptance = collection.get("stream_acceptance")
         if collection_passed and (
             not isinstance(stream_acceptance, dict) or stream_acceptance.get("format") != (
-                "vpn-dashboard-stream-acceptance-v2"
+                "vpn-dashboard-stream-acceptance-v3"
             )
         ):
             failures.append("stream_acceptance_missing_or_invalid")
@@ -371,6 +371,7 @@ def evaluate(
             record, "production_untouched_on_canary_failure", optional=prior_production_baseline
         )
         latency = _optional_number(record, "session_event_p95_ms", optional=True)
+        latency_max = _optional_number(record, "session_event_max_ms", optional=True)
         latency_started = _optional_timestamp(
             record, "session_event_latency_started_at", optional=prior_production_baseline
         )
@@ -468,10 +469,14 @@ def evaluate(
             failures.append(f"{expected_environment}_sqlite_restore_unverified")
         if not prior_production_baseline and not restore_timestamp_in_window:
             failures.append(f"{expected_environment}_sqlite_restore_evidence_stale_or_outside_window")
-        if not prior_production_baseline and latency is None:
+        if not prior_production_baseline and (latency is None or latency_max is None):
             failures.append(f"{expected_environment}_session_event_latency_unobserved")
         elif not prior_production_baseline and latency is not None and latency > 1000:
             failures.append(f"{expected_environment}_session_event_latency_exceeded")
+        if not prior_production_baseline and latency_max is not None and latency_max > 1000:
+            failures.append(f"{expected_environment}_session_event_latency_max_exceeded")
+        if latency is not None and latency_max is not None and latency > latency_max:
+            failures.append(f"{expected_environment}_session_event_latency_inconsistent")
         if not prior_production_baseline and not latency_window_valid:
             failures.append(f"{expected_environment}_session_event_latency_evidence_stale_or_outside_window")
         if not prior_production_baseline and (
@@ -532,6 +537,7 @@ def evaluate(
                 else restore_verified_at.isoformat()
             ),
             "session_event_p95_ms": None if prior_production_baseline else latency,
+            "session_event_max_ms": None if prior_production_baseline else latency_max,
             "session_event_latency_started_at": (
                 None if prior_production_baseline or latency_started is None else latency_started.isoformat()
             ),

@@ -37,6 +37,7 @@ BROWSER_FIELDS = frozenset({
     "session_transition_visible_count", "connected_transition_observed",
     "disconnected_transition_observed", "ordered_connect_disconnect_observed",
     "session_event_latency_p95_ms",
+    "session_event_latency_max_ms",
     "session_event_age_max_seconds",
     "traffic_update_count", "traffic_update_visible_count",
     "traffic_sample_age_max_seconds", "event_sequence_observation_count",
@@ -123,7 +124,7 @@ def validate_stream_acceptance(
         raise ValueError("evaluation time must include a timezone")
 
     failed: list[str] = []
-    safe: dict[str, Any] = {"format": "vpn-dashboard-stream-acceptance-v2"}
+    safe: dict[str, Any] = {"format": "vpn-dashboard-stream-acceptance-v3"}
 
     if not isinstance(observer, dict):
         failed.append("stream_observation_missing")
@@ -259,7 +260,7 @@ def validate_stream_acceptance(
             now.astimezone(timezone.utc) - browser_end
         ).total_seconds() > MAX_REPORT_AGE_SECONDS:
             failed.append("browser_telemetry_stale")
-        if browser.get("format") != "vpn-dashboard-telemetry-acceptance-v2":
+        if browser.get("format") != "vpn-dashboard-telemetry-acceptance-v3":
             failed.append("browser_telemetry_format_invalid")
         if (
             browser.get("origin") != CANARY_ORIGIN
@@ -291,17 +292,24 @@ def validate_stream_acceptance(
                 "reconnect_test_count", "reconnect_success_count",
             )
         }
-        latency = _finite_number(browser.get("session_event_latency_p95_ms"))
+        latency_p95 = _finite_number(browser.get("session_event_latency_p95_ms"))
+        latency_max = _finite_number(browser.get("session_event_latency_max_ms"))
         session_age = _finite_number(browser.get("session_event_age_max_seconds"))
         traffic_age = _finite_number(browser.get("traffic_sample_age_max_seconds"))
         if any(value is None for value in numbers.values()):
             failed.append("browser_telemetry_counts_invalid")
-        if latency is None:
-            failed.append("browser_event_latency_missing")
-        elif latency < 0:
+        if latency_p95 is None:
+            failed.append("browser_event_latency_p95_missing")
+        elif latency_p95 < 0:
             failed.append("browser_event_latency_invalid")
-        elif latency > MAX_BROWSER_EVENT_LATENCY_MS:
+        if latency_max is None:
+            failed.append("browser_event_latency_max_missing")
+        elif latency_max < 0:
+            failed.append("browser_event_latency_invalid")
+        elif latency_max > MAX_BROWSER_EVENT_LATENCY_MS:
             failed.append("browser_event_latency_exceeded")
+        if latency_p95 is not None and latency_max is not None and latency_p95 > latency_max:
+            failed.append("browser_event_latency_inconsistent")
         if session_age is None:
             failed.append("browser_session_freshness_missing")
         elif session_age < 0:
@@ -336,7 +344,7 @@ def validate_stream_acceptance(
         ):
             failed.append("browser_reconnect_evidence_failed")
         safe["browser_telemetry"] = {
-            "format": "vpn-dashboard-telemetry-acceptance-v2",
+            "format": "vpn-dashboard-telemetry-acceptance-v3",
             "origin": browser.get("origin") if browser.get("origin") == CANARY_ORIGIN else None,
             "candidate_revision": browser.get("candidate_revision")
             if isinstance(browser.get("candidate_revision"), str)
@@ -349,7 +357,8 @@ def validate_stream_acceptance(
             "observation_started_at": browser.get("observation_started_at") if browser_start else None,
             "observation_ended_at": browser.get("observation_ended_at") if browser_end else None,
             **numbers,
-            "session_event_latency_p95_ms": latency,
+            "session_event_latency_p95_ms": latency_p95,
+            "session_event_latency_max_ms": latency_max,
             "session_event_age_max_seconds": session_age,
             "traffic_sample_age_max_seconds": traffic_age,
             "connected_transition_observed": browser.get("connected_transition_observed") is True,

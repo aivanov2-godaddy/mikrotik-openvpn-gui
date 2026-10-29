@@ -729,7 +729,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
                     "sqlite_restore_verified_at", "rollback_drill_at", "production_protection_observed_at",
                     "session_event_latency_started_at", "session_event_latency_ended_at",
-                    "session_event_p95_ms", "traffic_sample_age_seconds", "stale_sample_count",
+                    "session_event_p95_ms", "session_event_max_ms", "traffic_sample_age_seconds", "stale_sample_count",
                     "lost_event_count", "duplicate_event_count", "out_of_order_event_count",
                     "redis_delivery_failure_count", "router_cpu_peak_percent",
                     "router_memory_peak_percent", "router_storage_peak_percent",
@@ -935,7 +935,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         }
         verified_identity = report.pop("_verified_deployment_identity", None)
         browser = {
-            "format": "vpn-dashboard-telemetry-acceptance-v2", "healthy": True,
+            "format": "vpn-dashboard-telemetry-acceptance-v3", "healthy": True,
             "origin": CANARY_ORIGIN,
             "candidate_revision": REVISION, "observed_revision": REVISION,
             "identity_verified": verified_identity is not None,
@@ -945,6 +945,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             "disconnected_transition_observed": True,
             "ordered_connect_disconnect_observed": True,
             "session_event_latency_p95_ms": 400,
+            "session_event_latency_max_ms": 550,
             "session_event_age_max_seconds": 0.5,
             "traffic_update_count": 2, "traffic_update_visible_count": 2,
             "traffic_sample_age_max_seconds": 1.0, "event_sequence_observation_count": 30,
@@ -978,6 +979,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(len(collected["deployments"]), 2)
         self.assertGreaterEqual(collected["deployments"][0]["health_sample_count"], 2)
         self.assertEqual(report["deployments"][0]["metrics_sample_count"], 31)
+        self.assertEqual(collected["deployments"][0]["session_event_max_ms"], 550)
         self.assertTrue(collected["deployments"][0]["redis_publish_verified"])
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_last"], 0)
         self.assertEqual(report["deployments"][0]["metrics"]["outbox_pending_max"], 0)

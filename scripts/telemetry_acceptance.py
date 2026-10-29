@@ -315,7 +315,9 @@ def evaluate(
                 failures.append("session_event_visibility")
             if "latency_ms" not in record:
                 failures.append("session_event_latency_missing")
-            elif _number(record["latency_ms"], "latency_ms") > limits["latency_p95_ms"]:
+            elif _number(record["latency_ms"], "latency_ms") > limits.get(
+                "session_event_max_ms", limits["latency_p95_ms"]
+            ):
                 failures.append("session_event_latency_exceeded")
         elif record_type == "traffic_update":
             traffic_updates.append(record)
@@ -535,6 +537,7 @@ def evaluate(
         ordered_transition_latencies[max(0, math.ceil(0.95 * len(ordered_transition_latencies)) - 1)]
         if ordered_transition_latencies else None
     )
+    latency_max = max(transition_latencies) if transition_latencies else None
     traffic_ages = [
         _number(item["event_age_seconds"], "event_age_seconds")
         for item in traffic_updates
@@ -603,7 +606,7 @@ def evaluate(
     elif not identity_verified:
         failures.append("deployment_identity_mismatch")
     result = {
-        "format": "vpn-dashboard-telemetry-acceptance-v2",
+        "format": "vpn-dashboard-telemetry-acceptance-v3",
         "healthy": not failures and baseline_code == 0,
         "failed_gates": sorted(set(failures)),
         "observation_started_at": iso_timestamp(window_start),
@@ -617,6 +620,7 @@ def evaluate(
             for earlier, later in zip(transition_states, transition_states[1:])
         ),
         "session_event_latency_p95_ms": latency_p95,
+        "session_event_latency_max_ms": latency_max,
         "session_event_age_max_seconds": max(session_event_ages) if session_event_ages else None,
         "traffic_update_count": len(traffic_updates),
         "traffic_update_visible_count": len(visible_traffic_updates),
@@ -659,6 +663,10 @@ def main() -> int:
     parser.add_argument("--input", default="-", help="redacted NDJSON file, or - for stdin")
     parser.add_argument("--candidate-revision", required=True, help="full candidate commit SHA to verify at the fixed canary /readyz endpoint")
     parser.add_argument("--max-latency-p95-ms", type=float, default=1000.0)
+    parser.add_argument(
+        "--max-session-event-latency-ms", type=float, default=1000.0,
+        help="maximum allowed latency for every observed session transition",
+    )
     parser.add_argument("--max-event-age-seconds", type=float, default=2.0)
     parser.add_argument("--max-router-cpu-percent", type=float, default=80.0)
     parser.add_argument("--max-router-memory-percent", type=float, default=90.0)
@@ -670,6 +678,7 @@ def main() -> int:
     try:
         limits = {
             "latency_p95_ms": args.max_latency_p95_ms,
+            "session_event_max_ms": args.max_session_event_latency_ms,
             "event_age_seconds": args.max_event_age_seconds,
             "router_cpu_percent": args.max_router_cpu_percent,
             "router_memory_percent": args.max_router_memory_percent,

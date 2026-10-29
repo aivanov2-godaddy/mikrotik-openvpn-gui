@@ -48,7 +48,7 @@ def reports() -> tuple[dict[str, object], dict[str, object]]:
         "observed_stream_healthy": True,
     }
     browser = {
-        "format": "vpn-dashboard-telemetry-acceptance-v2",
+        "format": "vpn-dashboard-telemetry-acceptance-v3",
         "origin": CANARY_ORIGIN,
         "candidate_revision": "a" * 40,
         "observed_revision": "a" * 40,
@@ -63,6 +63,7 @@ def reports() -> tuple[dict[str, object], dict[str, object]]:
         "disconnected_transition_observed": True,
         "ordered_connect_disconnect_observed": True,
         "session_event_latency_p95_ms": 450,
+        "session_event_latency_max_ms": 650,
         "session_event_age_max_seconds": 0.8,
         "traffic_update_count": 2,
         "traffic_update_visible_count": 2,
@@ -93,9 +94,10 @@ class StreamAcceptanceTests(unittest.TestCase):
     def test_complete_redacted_browser_and_stream_evidence_passes(self) -> None:
         safe, failures = self.validate(*reports())
         self.assertEqual(failures, [])
-        self.assertEqual(safe["format"], "vpn-dashboard-stream-acceptance-v2")
+        self.assertEqual(safe["format"], "vpn-dashboard-stream-acceptance-v3")
         self.assertEqual(safe["stream_observation"]["reconnect_snapshot_count"], 1)
         self.assertEqual(safe["browser_telemetry"]["session_event_latency_p95_ms"], 450)
+        self.assertEqual(safe["browser_telemetry"]["session_event_latency_max_ms"], 650)
         self.assertEqual(safe["browser_telemetry"]["security_tests"], 1)
         self.assertEqual(safe["browser_telemetry"]["verification"], {name: True for name in VERIFICATION_FIELDS})
 
@@ -187,12 +189,14 @@ class StreamAcceptanceTests(unittest.TestCase):
     def test_browser_latency_freshness_visibility_and_reconnect_fail_closed(self) -> None:
         observer, browser = reports()
         browser["session_event_latency_p95_ms"] = None
+        browser["session_event_latency_max_ms"] = None
         browser["session_event_age_max_seconds"] = 2.01
         browser["traffic_sample_age_max_seconds"] = 2.01
         browser["session_transition_visible_count"] = 1
         browser["reconnect_success_count"] = 0
         _, failures = self.validate(observer, browser)
-        self.assertIn("browser_event_latency_missing", failures)
+        self.assertIn("browser_event_latency_p95_missing", failures)
+        self.assertIn("browser_event_latency_max_missing", failures)
         self.assertIn("browser_session_event_stale", failures)
         self.assertIn("browser_traffic_sample_stale", failures)
         self.assertIn("browser_session_visibility_incomplete", failures)
@@ -208,6 +212,7 @@ class StreamAcceptanceTests(unittest.TestCase):
     def test_browser_future_dated_metrics_and_unordered_transitions_fail_closed(self) -> None:
         observer, browser = reports()
         browser["session_event_latency_p95_ms"] = -1
+        browser["session_event_latency_max_ms"] = -1
         browser["session_event_age_max_seconds"] = -0.01
         browser["traffic_sample_age_max_seconds"] = -0.01
         browser["ordered_connect_disconnect_observed"] = False
@@ -216,6 +221,15 @@ class StreamAcceptanceTests(unittest.TestCase):
         self.assertIn("browser_session_event_future_dated", failures)
         self.assertIn("browser_traffic_sample_future_dated", failures)
         self.assertIn("browser_session_visibility_incomplete", failures)
+
+    def test_every_transition_must_meet_the_one_second_maximum(self) -> None:
+        observer, browser = reports()
+        browser["session_event_latency_p95_ms"] = 900
+        browser["session_event_latency_max_ms"] = 1001
+
+        _safe, failures = self.validate(observer, browser)
+
+        self.assertIn("browser_event_latency_exceeded", failures)
 
     def test_unknown_fields_are_rejected_and_never_copied(self) -> None:
         observer, browser = reports()
@@ -246,7 +260,7 @@ class StreamAcceptanceTests(unittest.TestCase):
 
     def test_browser_projection_keeps_only_allowlisted_verification_details(self) -> None:
         projection = browser_acceptance_projection({
-            "format": "vpn-dashboard-telemetry-acceptance-v2",
+            "format": "vpn-dashboard-telemetry-acceptance-v3",
             "security_tests": 2,
             "verification": {**{name: True for name in VERIFICATION_FIELDS}, "private": "secret"},
             "private": "PRIVATE-SENTINEL",
