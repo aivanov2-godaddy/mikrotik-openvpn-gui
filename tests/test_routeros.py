@@ -34,7 +34,36 @@ TEST_TOPOLOGY = OpenVPNTopology(
 )
 
 
+def _mock_routeros_client(base_url: str, **kwargs: Any) -> RouterOSClient:
+    return RouterOSClient(
+        base_url,
+        allow_insecure_loopback_for_tests=True,
+        **kwargs,
+    )
+
+
 class RouterOSClientTests(unittest.TestCase):
+    def test_rest_client_rejects_non_loopback_cleartext_urls(self) -> None:
+        for url in (
+            "http://router.example.test/rest",
+            "http://192.0.2.1/rest",
+        ):
+            for allow_test_override in (False, True):
+                with self.subTest(url=url, allow_test_override=allow_test_override):
+                    with self.assertRaisesRegex(ConfigurationError, "requires HTTPS"):
+                        RouterOSClient(
+                            url,
+                            allow_insecure_loopback_for_tests=allow_test_override,
+                        )
+
+    def test_loopback_http_requires_explicit_test_opt_in(self) -> None:
+        url = "http://127.0.0.1:8080/rest"
+        with self.assertRaisesRegex(ConfigurationError, "requires HTTPS"):
+            RouterOSClient(url)
+
+        client = RouterOSClient(url, allow_insecure_loopback_for_tests=True)
+        self.assertIsNone(client.ssl_context)
+
     def test_rest_response_body_is_bounded_without_content_length(self) -> None:
         class LargeResponseHandler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
@@ -56,7 +85,10 @@ class RouterOSClientTests(unittest.TestCase):
             return original_read(response, amount)
 
         try:
-            client = RouterOSClient(f"http://127.0.0.1:{server.server_port}/rest")
+            client = RouterOSClient(
+                f"http://127.0.0.1:{server.server_port}/rest",
+                allow_insecure_loopback_for_tests=True,
+            )
             with patch("http.client.HTTPResponse.read", new=record_read):
                 with patch("routeros.MAX_ROUTEROS_RESPONSE_BYTES", 16):
                     with self.assertRaises(RouterOSError) as raised:
@@ -77,7 +109,7 @@ class RouterOSClientTests(unittest.TestCase):
     def test_rest_request_capacity_limits_concurrent_body_parsing(self) -> None:
         slots = threading.BoundedSemaphore(1)
         slots.acquire()
-        client = RouterOSClient("http://router.example.test/rest", timeout=0.01)
+        client = RouterOSClient("https://router.example.test/rest", timeout=0.01)
         credentials = RouterOSCredentials("admin", "routerpass")
 
         with patch("routeros._ROUTEROS_REST_REQUEST_SLOTS", slots):
@@ -91,7 +123,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_rest_request_releases_capacity_when_request_fails(self) -> None:
         slots = threading.BoundedSemaphore(1)
-        client = RouterOSClient("http://router.example.test/rest", timeout=0.01)
+        client = RouterOSClient("https://router.example.test/rest", timeout=0.01)
 
         with patch("routeros._ROUTEROS_REST_REQUEST_SLOTS", slots):
             with patch.object(client, "_request_with_slot", side_effect=RuntimeError("failure")):
@@ -145,7 +177,8 @@ class RouterOSClientTests(unittest.TestCase):
             thread.start()
         try:
             client = RouterOSClient(
-                f"http://127.0.0.1:{redirect_server.server_port}/rest"
+                f"http://127.0.0.1:{redirect_server.server_port}/rest",
+                allow_insecure_loopback_for_tests=True,
             )
             with self.assertRaises(RouterOSError) as raised:
                 client._request(
@@ -187,7 +220,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_certificate_settings_rejects_stale_malformed_missing_or_wrong_ca_crls(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             mock.state.certificate_settings[0].update({
                 "crl-download": "true",
@@ -228,7 +261,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_admin_role_lookup_fails_closed_for_unknown_disabled_or_unavailable_accounts(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             self.assertEqual(client.get_admin_role(credentials), "owner")
 
@@ -251,14 +284,14 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_admin_role_lookup_fails_closed_when_user_endpoint_is_unsupported(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             mock.state.admin_user_read_error = 404
 
             self.assertIsNone(client.get_admin_role(credentials))
 
     def test_admin_role_lookup_fails_closed_when_group_is_missing_or_empty(self) -> None:
-        client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
+        client = RouterOSClient("https://router.example.test", topology=TEST_TOPOLOGY)
         credentials = RouterOSCredentials("admin", "routerpass")
         for record in (
             {"name": "admin", "disabled": "no"},
@@ -269,7 +302,7 @@ class RouterOSClientTests(unittest.TestCase):
                 self.assertEqual(client.get_admin_role(credentials), "read_only")
 
     def test_admin_role_lookup_requires_explicit_enabled_status(self) -> None:
-        client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
+        client = RouterOSClient("https://router.example.test", topology=TEST_TOPOLOGY)
         credentials = RouterOSCredentials("admin", "routerpass")
         records = (
             {"name": "admin", "group": "full"},
@@ -285,7 +318,7 @@ class RouterOSClientTests(unittest.TestCase):
                 self.assertIsNone(client.get_admin_role(credentials))
 
     def test_admin_role_lookup_accepts_routeros_enabled_status_encodings(self) -> None:
-        client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
+        client = RouterOSClient("https://router.example.test", topology=TEST_TOPOLOGY)
         credentials = RouterOSCredentials("admin", "routerpass")
         full_policy = "local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,rest-api,romon"
 
@@ -303,7 +336,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_builtin_full_group_downgrades_when_effective_policy_is_restricted(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             mock.state.user_groups = [{"name": "full", "policy": "read,api,rest-api"}]
 
             self.assertEqual(
@@ -313,7 +346,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_builtin_write_group_downgrades_when_effective_policy_is_restricted(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             mock.state.admin_group = "write"
             mock.state.user_groups = [{
@@ -330,7 +363,7 @@ class RouterOSClientTests(unittest.TestCase):
             self.assertEqual(client.get_admin_role(credentials), "administrator")
 
     def test_custom_role_group_read_failure_or_missing_record_fails_closed(self) -> None:
-        client = RouterOSClient("http://router.example.test", topology=TEST_TOPOLOGY)
+        client = RouterOSClient("https://router.example.test", topology=TEST_TOPOLOGY)
         credentials = RouterOSCredentials("admin", "routerpass")
 
         def missing_group(_method: str, path: str, *_args: Any, **_kwargs: Any) -> list[dict[str, str]]:
@@ -357,7 +390,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_custom_routeros_owner_group_requires_effective_admin_policies(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             mock.state.admin_group = "owner"
             mock.state.user_groups = [{"name": "owner", "policy": "read,api,rest-api"}]
@@ -378,7 +411,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_custom_routeros_admin_group_requires_effective_read_write_api_policies(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             mock.state.admin_group = "administrator"
             mock.state.user_groups = [{"name": "administrator", "policy": "read,api,rest-api"}]
@@ -393,7 +426,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_rate_profile_change_requires_reviewed_state_and_exact_readback(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             reviewed = client.rate_profile_snapshot(credentials, username="user-one")
             self.assertEqual(reviewed, {"exists": False})
@@ -410,7 +443,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_rate_profile_refuses_stale_state_before_mutation(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             expected = {"exists": True, "id": "*P9", "rate_limit": "1k/1k"}
             with self.assertRaisesRegex(RouterOSError, "changed since it was reviewed"):
@@ -422,7 +455,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_rate_profile_lease_loss_after_snapshot_prevents_write(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
 
             def lose_lease() -> None:
@@ -441,7 +474,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_rate_profile_mismatch_after_write_is_not_reported_as_success(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             with patch.object(
                 client, "rate_profile_snapshot",
@@ -458,7 +491,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_rate_profile_reconciles_lost_write_response_by_exact_readback(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -482,7 +515,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_management_exposure_uses_only_allowlisted_read_probes(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
 
         self.assertEqual(snapshot["account"]["name"], "admin")
@@ -503,7 +536,7 @@ class RouterOSClientTests(unittest.TestCase):
     def test_management_exposure_falls_back_for_legacy_routeros_service_property(self) -> None:
         with MockRouterOS() as mock:
             mock.state.reject_available_from_service_property = True
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
 
         service_queries = [query[".proplist"][0] for path, query in mock.state.rest_reads if path == "/ip/service"]
@@ -519,7 +552,7 @@ class RouterOSClientTests(unittest.TestCase):
             mock.state.ip_services = [
                 {"name": "api-ssl", "disabled": "no", "available-from": "192.0.2.0/24", "certificate": "private-cert"},
             ]
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
 
         self.assertEqual(snapshot["services"], [
@@ -532,7 +565,7 @@ class RouterOSClientTests(unittest.TestCase):
             mock.state.active_router_users.append({
                 "name": "admin", "via": "rest-api", "address": "203.0.113.77",
             })
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             ambiguous = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
             self.assertIsNone(ambiguous["active_source"])
             self.assertEqual(ambiguous["active_source_status"], "unknown")
@@ -549,7 +582,7 @@ class RouterOSClientTests(unittest.TestCase):
             mock.state.active_router_users = [{
                 "name": "admin", "via": "rest-api", "address": "private-hostname",
             }]
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
 
         self.assertIsNone(snapshot["active_source"])
@@ -558,7 +591,7 @@ class RouterOSClientTests(unittest.TestCase):
     def test_missing_routeros_group_is_unknown_not_verified(self) -> None:
         with MockRouterOS() as mock:
             mock.state.user_groups = []
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
 
         self.assertIsNone(snapshot["group"])
@@ -568,7 +601,7 @@ class RouterOSClientTests(unittest.TestCase):
     def test_unsupported_management_service_endpoint_is_not_misreported(self) -> None:
         with MockRouterOS() as mock:
             mock.state.unsupported_management_services = True
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             snapshot = client.get_management_exposure(RouterOSCredentials("admin", "routerpass"))
 
         self.assertIsNone(snapshot["services"])
@@ -577,7 +610,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_certificate_inventory_treats_revocation_timestamp_as_revoked(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             mock.state.certificates["*CL1"]["revoked"] = "2026-09-15 12:34:56"
 
@@ -624,7 +657,7 @@ class RouterOSClientTests(unittest.TestCase):
                 })
                 mock.state.certificates[record[".id"]] = record
 
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             inventory = client.list_ovpn_client_certificates(
                 RouterOSCredentials("admin", "routerpass")
             )
@@ -667,7 +700,7 @@ class RouterOSClientTests(unittest.TestCase):
                 incomplete.pop(field, None)
             mock.state.certificates["*MISSING-FIELDS"] = incomplete
 
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             inventory = client.list_ovpn_client_certificates(
                 RouterOSCredentials("admin", "routerpass"), include_legacy=True
             )
@@ -692,7 +725,7 @@ class RouterOSClientTests(unittest.TestCase):
             server.update({".id": "*SERVER", "name": "server-certificate", "key-usage": "tls-server"})
             mock.state.certificates[server[".id"]] = server
 
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             current_only = client.list_ovpn_client_certificates(credentials)
             include_legacy = client.list_ovpn_client_certificates(credentials, include_legacy=True)
@@ -713,7 +746,7 @@ class RouterOSClientTests(unittest.TestCase):
     def test_certificate_inventory_errors_do_not_echo_routeros_error_details(self) -> None:
         secret_marker = "SYNTHETIC-PRIVATE-KEY-ERROR-DO-NOT-LEAK"
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             response_body = json.dumps({"detail": f"RouterOS echoed {secret_marker}"}).encode()
             http_error = urllib.error.HTTPError(
                 f"{mock.url}/rest/certificate",
@@ -740,7 +773,7 @@ class RouterOSClientTests(unittest.TestCase):
     def test_certificate_inventory_sanitization_preserves_safe_failure_metadata(self) -> None:
         secret_marker = "SYNTHETIC-ERROR-DETAIL-DO-NOT-LEAK"
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             with patch.object(
                 client,
                 "_request",
@@ -765,7 +798,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_authentication_and_crud(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             resource = client.verify_credentials(credentials)
             self.assertEqual(resource["architecture-name"], "arm64")
@@ -848,7 +881,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_provisioning_and_cleanup(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             profile = client.provision_profile(
                 credentials,
@@ -871,7 +904,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_export_files_are_cleaned_when_ca_export_fails(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             with patch.object(
                 client,
@@ -895,7 +928,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_readback_failure_fails_closed_for_unidentified_artifact(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             read_file_by_id = client._file_contents_by_id
 
@@ -928,7 +961,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_provisioning_fails_closed_when_temporary_file_delete_fails(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -952,7 +985,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_provisioning_identifies_its_export_among_concurrent_profiles(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -977,7 +1010,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_cleanup_does_not_delete_same_name_file_replaced_by_another_actor(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             delete_file = client._delete_file
             replaced: dict[str, str] = {}
@@ -1014,7 +1047,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_delete_file_reconciles_lost_response_when_readback_confirms_deletion(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             record = mock.state.file("temporary.key", "private material", ".key file")
             request = client._request
@@ -1032,7 +1065,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_delete_file_fails_closed_when_readback_cannot_be_verified(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             record = mock.state.file("temporary.key", "private material", ".key file")
 
@@ -1059,7 +1092,7 @@ class RouterOSClientTests(unittest.TestCase):
         )
         for field, value, expected_error in invalid_readbacks:
             with self.subTest(field=field, value=value), MockRouterOS() as mock:
-                client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+                client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
                 credentials = RouterOSCredentials("admin", "routerpass")
                 request = client._request
 
@@ -1098,7 +1131,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_provisioning_accepts_routeros_without_optional_status_fields(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -1131,7 +1164,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_provisioning_stops_all_router_writes_after_lease_loss(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             checks = 0
 
@@ -1162,7 +1195,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_profile_provisioning_uses_relative_expiry_not_router_local_absolute_date(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -1194,7 +1227,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_failed_profile_cleanup_reports_unremoved_certificate(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -1223,7 +1256,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_live_session_telemetry_and_termination(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             sessions = client.list_active_ovpn_sessions(credentials)
             self.assertEqual(len(sessions), 1)
@@ -1244,7 +1277,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_active_session_identity_survives_interface_counter_read_failure(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -1267,7 +1300,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_malformed_interface_counter_is_marked_incomplete(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url, topology=TEST_TOPOLOGY)
+            client = _mock_routeros_client(mock.url, topology=TEST_TOPOLOGY)
             credentials = RouterOSCredentials("admin", "routerpass")
             request = client._request
 
@@ -1286,7 +1319,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_authentication_http_statuses_distinguish_rejection_from_permission_denial(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url)
+            client = _mock_routeros_client(mock.url)
             credentials = RouterOSCredentials("admin", "routerpass")
             for status, failure_kind in (
                 (HTTPStatus.UNAUTHORIZED, "credentials_rejected"),
@@ -1308,7 +1341,7 @@ class RouterOSClientTests(unittest.TestCase):
 
     def test_bad_credentials(self) -> None:
         with MockRouterOS() as mock:
-            client = RouterOSClient(mock.url)
+            client = _mock_routeros_client(mock.url)
             with self.assertRaises(RouterOSError):
                 client.verify_credentials(RouterOSCredentials("admin", "wrong"))
 
