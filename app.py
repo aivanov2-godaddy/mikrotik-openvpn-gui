@@ -4123,14 +4123,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
         identity = self._client_ip()
         reservation = self.server.context.limiter.reserve(identity)
         if reservation is None:
-            try:
-                self.server.context.store.audit(
-                    actor="unknown", action="login.rate_limited", target="dashboard",
-                    status="failed", details={"source": identity},
+            suppressed_attempts = (
+                self.server.context.limiter.reserve_rate_limited_login_audit()
+            )
+            if suppressed_attempts is not None:
+                try:
+                    self.server.context.store.audit(
+                        actor="unknown",
+                        action="login.rate_limited",
+                        target="dashboard",
+                        status="failed",
+                        details={"suppressed_attempts": suppressed_attempts},
+                    )
+                except Exception:
+                    self.server.context.limiter.complete_rate_limited_login_audit(
+                        succeeded=False
+                    )
+                    audit_unavailable()
+                    return
+                self.server.context.limiter.complete_rate_limited_login_audit(
+                    succeeded=True
                 )
-            except Exception:
-                audit_unavailable()
-                return
             self._html(
                 login_page(
                     "Too many attempts. Try again in a few minutes.",

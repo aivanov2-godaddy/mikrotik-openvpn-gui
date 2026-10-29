@@ -1105,6 +1105,37 @@ class SecurityTests(unittest.TestCase):
         self.assertIsNone(limiter.reserve("ip", now=3))
         self.assertIsNotNone(limiter.reserve("ip", now=12.1))
 
+    def test_rate_limited_login_audit_is_globally_coalesced_under_concurrency(self) -> None:
+        limiter = LoginRateLimiter(rate_limited_login_audit_interval_seconds=60)
+        concurrent_attempts = 20
+        start = threading.Barrier(concurrent_attempts)
+
+        def reserve_audit_slot() -> int | None:
+            start.wait(timeout=5)
+            return limiter.reserve_rate_limited_login_audit(now=100)
+
+        with ThreadPoolExecutor(max_workers=concurrent_attempts) as executor:
+            results = list(executor.map(lambda _index: reserve_audit_slot(), range(concurrent_attempts)))
+
+        self.assertEqual([value for value in results if value is not None], [0])
+        limiter.complete_rate_limited_login_audit(succeeded=True)
+        self.assertIsNone(limiter.reserve_rate_limited_login_audit(now=159.99))
+        self.assertEqual(limiter.reserve_rate_limited_login_audit(now=160), 20)
+        limiter.complete_rate_limited_login_audit(succeeded=True)
+        self.assertIsNone(limiter.reserve_rate_limited_login_audit(now=160.1))
+
+    def test_rate_limited_login_audit_retains_count_after_failed_write(self) -> None:
+        limiter = LoginRateLimiter(rate_limited_login_audit_interval_seconds=60)
+        self.assertEqual(limiter.reserve_rate_limited_login_audit(now=10), 0)
+        self.assertIsNone(limiter.reserve_rate_limited_login_audit(now=11))
+        limiter.complete_rate_limited_login_audit(succeeded=False)
+
+        self.assertIsNone(limiter.reserve_rate_limited_login_audit(now=69.99))
+        self.assertEqual(limiter.reserve_rate_limited_login_audit(now=70), 3)
+        limiter.complete_rate_limited_login_audit(succeeded=True)
+        self.assertEqual(limiter.reserve_rate_limited_login_audit(now=130), 0)
+        limiter.complete_rate_limited_login_audit(succeeded=True)
+
     def test_rate_limiter_bounds_distinct_identity_history_and_prunes_expired_entries(self) -> None:
         limiter = LoginRateLimiter(
             limit=2, window_seconds=10, max_tracked_identities=3,
