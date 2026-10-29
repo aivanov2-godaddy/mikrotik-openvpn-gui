@@ -19,24 +19,17 @@ RouterOS configuration, raw time-series telemetry, and session-level details
 remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #875
-(`bd27e608f074f357461e41fa906b87e84553a363`) is the latest published image
-source; it bounds the container readiness probe with Alpine BusyBox-compatible
-timeout syntax. PR #873
-(`e7163beebda530f16619094e9e498f3da873f980`) preserves SQLite outbox
-insertion order when events share a timestamp, including across bounded
-delivery batches. PR #871
-(`eb29581c8430ec862a8b47ee62268a74fec14518`) fixed the published ARM64
-runtime-smoke setup in CI. PR #868
+version, v2.8.0, has not been tagged or published. PR #879
+(`c0e9ac980da5694a2be9560dcbad0f9234cb9009`) is the latest published image source; it rejects cleartext
+RouterOS REST endpoints except for the explicit test-only loopback opt-in.
+PR #875
+(`bd27e608f074f357461e41fa906b87e84553a363`) bounds the container readiness probe with Alpine BusyBox-compatible timeout syntax. PR #873
+(`e7163beebda530f16619094e9e498f3da873f980`) preserves SQLite outbox insertion order when events share a timestamp, including across bounded delivery batches. PR #871
+(`eb29581c8430ec862a8b47ee62268a74fec14518`) fixed the published ARM64 runtime-smoke setup in CI. PR #868
 (`388baa247b2a12658c66f02d2d40826fe4759553`) bounds RouterOS REST response handling. PR #862
-(`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) hardened RouterOS and Redis
-transport policy. PR #860
-(`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) hardens CSV and profile
-diagnostics. PR #849
-(`f4708f519a6810ceb7d253c37c199032800ea625`) added the most recent
-application-level authentication classification, distinguishing RouterOS HTTP
-401 credential rejection from HTTP 403 permission denial. Publication is not a
-numbered release or evidence of RouterOS deployment.
+(`445c1d5ca0f28174629be8e8cd94f04de132f0fc`) hardened RouterOS and Redis transport policy. PR #860
+(`d3be28625e9d3beb48e2bdf94855ac2b5f7111b1`) hardens CSV and profile diagnostics. PR #849
+(`f4708f519a6810ceb7d253c37c199032800ea625`) added the most recent application-level authentication classification, distinguishing RouterOS HTTP 401 credential rejection from HTTP 403 permission denial. Publication is not a numbered release or evidence of RouterOS deployment.
 
 For PR #871, main CI run
 [#40602936825](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40602936825)
@@ -50,7 +43,30 @@ manifest. The manifest asset SHA-256 is
 Code scanning reported zero open alerts on 2026-10-29. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #875 — 2026-10-29
+## Latest published mainline image — PR #879 — 2026-10-29
+
+PR [#879](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/879)
+merged as `c0e9ac980da5694a2be9560dcbad0f9234cb9009`. Main CI run
+[#40930360829](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40930360829),
+CodeQL run
+[#40930361050](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40930361050),
+and publisher run
+[#40930361153](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/40930361153)
+passed. The publisher built and scanned both architecture images, verified
+their provenance and SPDX SBOM attestations, smoke-tested both published
+runtimes, and read back the stable manifest.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-c0e9ac980da5694a2be9560dcbad0f9234cb9009-arm64` | `sha256:3f92563ef0ae0c5d55a09fe81eaa950afe6a6d1d028fbebd5a4d36e229688832` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-c0e9ac980da5694a2be9560dcbad0f9234cb9009-amd64` | `sha256:8e47c68dcdc1bfab6643a15e7e31139e8018960b8879539ec16a452f8e8764d1` |
+
+Publication is not a numbered release or RouterOS deployment. The latest
+recorded RouterOS image read-back predates PR #879 publication; no device
+read-back confirms that this image is staged or accepted, and production
+promotion is unverified.
+
+## Previous published mainline image — PR #875 — 2026-10-29
 
 PR [#875](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/875)
 merged as `bd27e608f074f357461e41fa906b87e84553a363`. Main CI run
@@ -72,7 +88,7 @@ asset SHA-256 is
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-bd27e608f074f357461e41fa906b87e84553a363-amd64` | `sha256:728d22cc3543709ec29e5a0a5f93d1dd1273d654034c76eeda942273bbf0ee9c` |
 
 This is a published image, not a numbered release or RouterOS deployment.
-The PR #875 image has not been staged on RouterOS; production remains unchanged.
+The last recorded RouterOS checkpoint predates PR #879 publication; it does not establish whether PR #875 or PR #879 is currently staged.
 
 ## Previous published mainline image — PR #873 — 2026-10-28
 
