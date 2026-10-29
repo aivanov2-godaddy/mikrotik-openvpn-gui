@@ -11,6 +11,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -24,17 +25,24 @@ from scripts.compare_routeros_updater import TEMPLATE_PATH, _is_local_filesystem
 from routeros_binary import RouterOSBinaryConnection, RouterOSBinaryError, RouterOSReply
 
 
-FORMAT = "vpn-dashboard-routeros-updater-inventory-v1"
+FORMAT = "vpn-dashboard-routeros-updater-inventory-v2"
 SCRIPT_PATH = "/system/script/print"
 SCHEDULER_PATH = "/system/scheduler/print"
-SCRIPT_PROPLIST = "name,source"
+SCRIPT_PROPLIST = ".id,name,source"
 SCHEDULER_PROPLIST = "name,on-event,disabled"
 MAX_SCRIPTS = 128
 MAX_SCHEDULERS = 512
 MAX_SOURCE_BYTES = 1_048_576
 MAX_TOTAL_SOURCE_BYTES = 8_388_608
 MAX_NAME_CHARS = 256
+MAX_ID_CHARS = 128
 MAX_EVENT_CHARS = 4_096
+_SCRIPT_RUN_PATTERN = re.compile(
+    r"^\s*/system(?:/|\s+)script(?:/|\s+)run\s+"
+    r"(?P<target>\*[0-9a-f]+|[a-z0-9_.:-]+)"
+    r"(?:\s+use-script-permissions)?\s*$",
+    re.IGNORECASE,
+)
 
 
 def _rows(replies: Iterable[RouterOSReply], required: frozenset[str]) -> list[dict[str, str]]:
@@ -74,6 +82,43 @@ def _enabled(value: str) -> bool:
     raise ValueError("invalid RouterOS scheduler state")
 
 
+def _resolve_scheduler_target(
+    event: str,
+    indexes_by_name: Mapping[str, list[int]],
+    indexes_by_id: Mapping[str, list[int]],
+) -> tuple[str, int] | None:
+    """Resolve only exact names or a single, simple script-run command.
+
+    Internal-ID matches are candidates: RouterOS documents scheduler
+    ``on-event`` as a script name, so an ID-shaped selector is not treated as
+    proof of which script RouterOS will execute.
+    """
+    name_matches = indexes_by_name.get(event, []) if event else []
+    if len(name_matches) == 1:
+        return "listed_script", name_matches[0]
+    if name_matches:
+        return None
+
+    target = event
+    command = _SCRIPT_RUN_PATTERN.fullmatch(event)
+    if command:
+        target = command.group("target")
+
+    target_names = indexes_by_name.get(target, [])
+    target_ids = indexes_by_id.get(target, [])
+    if len(target_names) == 1 and not target_ids:
+        return "listed_script", target_names[0]
+    if target.startswith("*"):
+        if len(target_ids) == 1 and (
+            not target_names or target_names[0] == target_ids[0]
+        ):
+            return "script_id_candidate", target_ids[0]
+        return None
+    if len(target_names) == 1:
+        return "listed_script", target_names[0]
+    return None
+
+
 def collect_inventory(
     connection: RouterOSBinaryConnection,
     reference: bytes,
@@ -83,7 +128,7 @@ def collect_inventory(
     """Read all returned script/scheduler rows and compare source in memory."""
     script_rows = _rows(
         connection.execute(SCRIPT_PATH, query=(f".proplist={SCRIPT_PROPLIST}",)),
-        frozenset({"name", "source"}),
+        frozenset({".id", "name", "source"}),
     )
     scheduler_rows = _rows(
         connection.execute(SCHEDULER_PATH, query=(f".proplist={SCHEDULER_PROPLIST}",)),
@@ -94,8 +139,10 @@ def collect_inventory(
 
     scripts: list[dict[str, Any]] = []
     indexes_by_name: dict[str, list[int]] = {}
+    indexes_by_id: dict[str, list[int]] = {}
     total_source_bytes = 0
     for index, row in enumerate(script_rows, start=1):
+        script_id = _text(row[".id"], limit=MAX_ID_CHARS)
         name = _text(row["name"], limit=MAX_NAME_CHARS)
         source = _text(row["source"], limit=MAX_SOURCE_BYTES, allow_empty=True)
         source_bytes = source.encode("utf-8")
@@ -113,9 +160,11 @@ def collect_inventory(
             }
         )
         indexes_by_name.setdefault(name, []).append(index)
+        indexes_by_id.setdefault(script_id, []).append(index)
 
     schedulers: list[dict[str, Any]] = []
     direct_binding_count = 0
+    script_id_candidate_count = 0
     opaque_scheduler_count = 0
     enabled_scheduler_count = 0
     disabled_scheduler_count = 0
@@ -125,12 +174,21 @@ def collect_inventory(
         enabled = _enabled(row["disabled"])
         enabled_scheduler_count += int(enabled)
         disabled_scheduler_count += int(not enabled)
-        matches = indexes_by_name.get(event, []) if event else []
-        if len(matches) == 1:
+        match = _resolve_scheduler_target(event, indexes_by_name, indexes_by_id)
+        if match is not None:
+            target_kind, script_index = match
             schedulers.append(
-                {"scheduler_index": index, "enabled": enabled, "target_kind": "listed_script", "script_index": matches[0]}
+                {
+                    "scheduler_index": index,
+                    "enabled": enabled,
+                    "target_kind": target_kind,
+                    "script_index": script_index,
+                }
             )
-            direct_binding_count += 1
+            if target_kind == "listed_script":
+                direct_binding_count += 1
+            else:
+                script_id_candidate_count += 1
         else:
             schedulers.append(
                 {"scheduler_index": index, "enabled": enabled, "target_kind": "opaque"}
@@ -150,9 +208,13 @@ def collect_inventory(
         "scheduler_enabled_count": enabled_scheduler_count,
         "scheduler_disabled_count": disabled_scheduler_count,
         "direct_scheduler_binding_count": direct_binding_count,
+        "script_id_candidate_scheduler_count": script_id_candidate_count,
         "opaque_scheduler_count": opaque_scheduler_count,
-        "scheduler_binding_scope": "exact on-event name matches only; other events are opaque",
+        "scheduler_binding_scope": (
+            "exact script-name matches and simple script-run forms; API .id matches are candidates, not confirmed bindings"
+        ),
         "ambiguous_script_name_count": sum(len(indexes) > 1 for indexes in indexes_by_name.values()),
+        "ambiguous_script_id_count": sum(len(indexes) > 1 for indexes in indexes_by_id.values()),
         "scripts": scripts,
         "schedulers": schedulers,
         "read_only_api_paths": [SCRIPT_PATH, SCHEDULER_PATH],
@@ -239,6 +301,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "exact_template_match_count": report["exact_template_match_count"],
             "scheduler_count": report["scheduler_count"],
             "direct_scheduler_binding_count": report["direct_scheduler_binding_count"],
+            "script_id_candidate_scheduler_count": report["script_id_candidate_scheduler_count"],
             "opaque_scheduler_count": report["opaque_scheduler_count"],
             "report_written": True,
         }, sort_keys=True))

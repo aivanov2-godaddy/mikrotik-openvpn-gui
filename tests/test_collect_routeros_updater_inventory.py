@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+from itertools import count
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -35,8 +36,13 @@ class FakeConnection:
         self.closed = True
 
 
+_script_ids = count(1)
+
+
 def _script(name: str, source: str, **extra: str) -> RouterOSReply:
-    return RouterOSReply("re", {"name": name, "source": source, **extra})
+    attributes = {".id": f"*{next(_script_ids):X}", "name": name, "source": source}
+    attributes.update(extra)
+    return RouterOSReply("re", attributes)
 
 
 def _scheduler(name: str, event: str, disabled: str = "false", **extra: str) -> RouterOSReply:
@@ -84,6 +90,7 @@ class CollectRouterOSUpdaterInventoryTests(unittest.TestCase):
         self.assertEqual(report["script_count"], 2)
         self.assertEqual(report["exact_template_match_count"], 1)
         self.assertEqual(report["direct_scheduler_binding_count"], 1)
+        self.assertEqual(report["script_id_candidate_scheduler_count"], 0)
         self.assertEqual(report["opaque_scheduler_count"], 1)
         self.assertEqual(report["schedulers"][0]["script_index"], 1)
         self.assertEqual(report["schedulers"][1]["target_kind"], "opaque")
@@ -114,6 +121,69 @@ class CollectRouterOSUpdaterInventoryTests(unittest.TestCase):
         self.assertEqual(report["ambiguous_script_name_count"], 1)
         self.assertEqual(report["opaque_scheduler_count"], 1)
         self.assertEqual(report["schedulers"][0]["target_kind"], "opaque")
+
+    def test_script_run_by_internal_id_is_a_redacted_candidate(self) -> None:
+        connection = FakeConnection(
+            [_script("updater-private-name", "reviewed", **{".id": "*8"}), _done()],
+            [_scheduler("scheduler-private-name", "/system/script/run *8"), _done()],
+        )
+
+        report = inventory.collect_inventory(connection, b"reviewed")
+
+        self.assertEqual(report["direct_scheduler_binding_count"], 0)
+        self.assertEqual(report["script_id_candidate_scheduler_count"], 1)
+        self.assertEqual(report["opaque_scheduler_count"], 0)
+        self.assertEqual(report["schedulers"][0]["target_kind"], "script_id_candidate")
+        self.assertEqual(report["schedulers"][0]["script_index"], 1)
+        self.assertIn("not confirmed bindings", report["scheduler_binding_scope"])
+        for private_value in ("updater-private-name", "scheduler-private-name", "*8", "/system/script/run *8"):
+            self.assertNotIn(private_value, json.dumps(report))
+
+    def test_script_run_by_name_resolves_but_unknown_or_complex_targets_stay_opaque(self) -> None:
+        connection = FakeConnection(
+            [_script("named-updater", "reviewed", **{".id": "*8"}), _done()],
+            [
+                _scheduler("by-name", "/system script run named-updater use-script-permissions"),
+                _scheduler("unknown-id", "/system/script/run *9"),
+                _scheduler("complex", "/system/script/run *8; /system/reboot"),
+                _done(),
+            ],
+        )
+
+        report = inventory.collect_inventory(connection, b"reviewed")
+
+        self.assertEqual(report["direct_scheduler_binding_count"], 1)
+        self.assertEqual(report["script_id_candidate_scheduler_count"], 0)
+        self.assertEqual(report["opaque_scheduler_count"], 2)
+        self.assertEqual(report["schedulers"][0]["target_kind"], "listed_script")
+        self.assertEqual(report["schedulers"][1]["target_kind"], "opaque")
+        self.assertEqual(report["schedulers"][2]["target_kind"], "opaque")
+
+    def test_duplicate_script_ids_are_not_resolved(self) -> None:
+        connection = FakeConnection(
+            [
+                _script("one", "first", **{".id": "*8"}),
+                _script("two", "second", **{".id": "*8"}),
+                _done(),
+            ],
+            [_scheduler("scheduler", "/system/script/run *8"), _done()],
+        )
+
+        report = inventory.collect_inventory(connection, b"reviewed")
+
+        self.assertEqual(report["ambiguous_script_id_count"], 1)
+        self.assertEqual(report["script_id_candidate_scheduler_count"], 0)
+        self.assertEqual(report["opaque_scheduler_count"], 1)
+        self.assertEqual(report["schedulers"][0]["target_kind"], "opaque")
+
+    def test_script_inventory_requires_internal_id_for_safe_target_matching(self) -> None:
+        connection = FakeConnection(
+            [RouterOSReply("re", {"name": "missing-id", "source": "source"}), _done()],
+            [_done()],
+        )
+
+        with self.assertRaises(ValueError):
+            inventory.collect_inventory(connection, b"reviewed")
 
     def test_incomplete_or_malformed_routeros_responses_fail_closed(self) -> None:
         invalid_responses = [
