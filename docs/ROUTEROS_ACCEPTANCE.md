@@ -13,11 +13,10 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #875 (`bd27e608f074f357461e41fa906b87e84553a363`)
+prove RouterOS compatibility. PR #879 (`c0e9ac980da5694a2be9560dcbad0f9234cb9009`)
 is the latest published image. Its CI, CodeQL, image scans, runtime smoke tests,
 provenance and SPDX SBOM checks passed; the stable manifest was read back. See
-[`RELEASES.md`](RELEASES.md) for immutable tags and digests. PR #875 has not
-been staged on RouterOS.
+[`RELEASES.md`](RELEASES.md) for immutable tags and digests. No RouterOS read-back confirms PR #879 staging or acceptance.
 
 ## Current read-only checkpoint — 2026-10-29
 
@@ -29,7 +28,7 @@ resource soak. The PPP Active Connections table was empty. Public `/readyz`
 requests returned HTTP 200 Cloudflare Access sign-in HTML in both environments,
 not application readiness JSON; direct private-container readiness probes from
 the workstation timed out. The exact current application revision therefore
-could not be read back. PR #875 remains unstaged, and no live-session acceptance
+could not be read back. PR #879 staging remains unverified, and no live-session acceptance
 or production promotion is claimed. RouterOS configuration was not changed.
 A follow-up WinBox read after the owner reported reconnecting still showed zero
 PPP Active Connections; the reported client session is not yet corroborated by
@@ -58,11 +57,11 @@ image digest prefix matching its published ARM64 digest and container status
 `HEALTHY`, with one point-in-time Stats sample. This supersedes the older #785
 and #200 comments that said it had not been read back. The exact image
 reference, `/readyz` revision, sustained health/resource impact, and soak are
-not verified. PR #875 is the latest published image and has not been staged.
+not verified. PR #879 is the latest published image; no RouterOS read-back confirms it is staged.
 
 Candidate-specific session-event, traffic-freshness, latency, reconnect,
 snapshot-recovery, and authorization evidence remain unavailable for PR #862
-and PR #875. The earlier observed VPN session was not correlated with an
+and PR #879. The earlier observed VPN session was not correlated with an
 authenticated dashboard; the latest read-only check showed no active session.
 A 30-minute candidate-bound soak, Redis failure/recovery checks,
 SQLite backup/restore rehearsal, counter-reset and event-integrity checks, and a

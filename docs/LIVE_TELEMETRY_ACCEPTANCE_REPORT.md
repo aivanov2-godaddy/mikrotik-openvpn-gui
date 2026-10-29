@@ -1,10 +1,10 @@
 # Live telemetry acceptance status
 
-Status: **PR #875 (`bd27e608f074f357461e41fa906b87e84553a363`) is the latest
+Status: **PR #879 (`c0e9ac980da5694a2be9560dcbad0f9234cb9009`) is the latest
 published image source, with immutable ARM64 and AMD64 images. Main CI,
 CodeQL, image scans, runtime smoke tests, provenance and SPDX SBOM checks
 passed; the stable manifest was read back. Exact tags and digests are in
-[`RELEASES.md`](RELEASES.md). PR #875 has not been staged on RouterOS.**
+[`RELEASES.md`](RELEASES.md). No RouterOS read-back confirms PR #879 staging or acceptance.**
 
 ## Current read-only RouterOS checkpoint — 2026-10-29
 
@@ -16,7 +16,7 @@ Connections showed zero entries. Public `/readyz` requests returned HTTP 200
 Cloudflare Access sign-in HTML rather than readiness JSON, and direct private
 container readiness probes from the workstation timed out. The current
 application revision could not be independently read back. No live-session
-acceptance, PR #875 staging, or production promotion is claimed; RouterOS
+acceptance, PR #879 staging, or production promotion is verified; RouterOS
 configuration was not changed.
 A follow-up WinBox read after the owner reported reconnecting still showed zero
 PPP Active Connections, so the reported client session is not corroborated by
@@ -32,7 +32,7 @@ showed a stale/reconnecting live stream and zero connected devices. Those
 historical point checks do not establish sustained resource impact. The
 30-minute acceptance window and production promotion remain unverified.
 
-## RouterOS candidate status — PR #862 and PR #875
+## RouterOS candidate status — PR #862 and PR #879
 
 PR #862 is a published artifact with immutable digests recorded in
 [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -40,12 +40,10 @@ image digest prefix matching its published ARM64 digest and a `HEALTHY`
 container. The Stats view provided one CPU/memory/swap/app-size/data-size
 sample. The earlier draft's exact `/readyz` revision claim remains unverified;
 the old issue notes saying PR #862 had not been read back are superseded by
-this earlier observation. PR #875 is the latest published image and has not been
-staged on RouterOS. The latest confirmed candidate-image read-back is PR #862,
-limited to the image digest prefix and point-in-time container status/resource
+this earlier observation. PR #879 is the latest published image; no RouterOS read-back confirms it is staged. The latest confirmed candidate-image read-back is PR #862; it predates PR #879 publication and is limited to the image digest prefix and point-in-time container status/resource
 sample described above. The later stale-stream/no-session check shows that
 live telemetry acceptance remains incomplete; neither point check establishes
-acceptance of PR #875.
+acceptance of PR #879.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and
