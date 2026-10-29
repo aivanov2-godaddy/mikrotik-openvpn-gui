@@ -247,18 +247,24 @@ Remove-Item Env:ROUTEROS_INVENTORY_HOST, Env:ROUTEROS_INVENTORY_USERNAME, `
 The script source and scheduler event values are processed in memory and are
 not included in the report or console summary. The private JSON report does
 contain per-script SHA-256 fingerprints, exact template-match flags, redacted
-risk flags, scheduler enabled state, and direct name-to-script matches; hashes
+risk flags, scheduler enabled state, direct name-to-script matches, and
+separately labeled internal-ID candidates; hashes
 can fingerprint known content, so keep the report private and out of GitHub,
 CI artifacts, and shared Ruflo memory. No script names, scheduler names, IDs,
 credentials, router identity, source text, or raw event strings are emitted.
 
 Every script row returned by the completed print response is compared in
 memory with the checked-in immutable-release updater template. A scheduler is
-classified as a direct binding only when its entire `on-event` value exactly
-matches one unique script name from that response. Inline, command-form,
-unresolved, or ambiguous events remain `opaque` and require private operator
-review; the collector does not interpret them. The report separately says
-that caller authorization and RouterOS-side visibility are unverified. A
+classified as a direct name binding only when its entire `on-event` value, or
+the target of one simple `/system script run` command, exactly matches one
+unique script name from that response. A target exactly matching a returned
+RouterOS `.id` is reported only as an internal-ID candidate, not a confirmed
+binding: scheduler documentation describes `on-event` as a script name, and
+this repository has not verified the installed router's execution semantics.
+Inline, complex, unresolved, and ambiguous events remain `opaque` and require
+private operator review; the collector does not interpret them. The report
+separately says that caller authorization and RouterOS-side visibility are
+unverified. A
 successful collection is not proof that the account saw every device record,
 that every indirect invocation was understood, that a script is safe, or that
 the updater was executed. Do not run the unknown updater to learn its behavior.
