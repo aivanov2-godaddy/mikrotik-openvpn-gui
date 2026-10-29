@@ -2194,15 +2194,35 @@ document.addEventListener('click', async (event) => {
     } catch (_) {
       toast('The browser could not copy the VPN endpoint.', 'error');
     }
+  } else if (button.matches('[data-admin-account-revoke]')) {
+    const username = button.dataset.username || '';
+    if (!username) return;
+    const form = $('#admin-session-reauth-form');
+    delete form.dataset.sessionId;
+    delete form.dataset.revokeOthers;
+    form.dataset.revokeAccount = username;
+    form.reset();
+    $('#admin-session-reauth-confirmation-field').hidden = false;
+    $('#admin-session-reauth-confirmation').required = true;
+    $('#admin-session-reauth-confirmation-field span').textContent =
+      'Type REVOKE ALL DASHBOARD SESSIONS FOR ' + username;
+    $('#admin-session-reauth-title').textContent = 'End all dashboard sessions for this account?';
+    $('#admin-session-reauth-description').textContent =
+      'This signs out every dashboard login for ' + username + '. VPN tunnels stay connected.';
+    $('#admin-session-reauth-submit').textContent = 'Verify and end all sessions';
+    openDialog('admin-session-reauth-dialog');
+    $('#admin-session-reauth-confirmation')?.focus();
   } else if (button.matches('[data-admin-session-revoke]')) {
     const sessionId = button.dataset.sessionId || '';
     if (!sessionId) return;
     const form = $('#admin-session-reauth-form');
     form.dataset.sessionId = sessionId;
     delete form.dataset.revokeOthers;
+    delete form.dataset.revokeAccount;
     form.reset();
     $('#admin-session-reauth-confirmation-field').hidden = true;
     $('#admin-session-reauth-confirmation').required = false;
+    $('#admin-session-reauth-confirmation-field span').textContent = 'Type SIGN OUT MY OTHER SESSIONS';
     $('#admin-session-reauth-title').textContent = 'Revoke administrator session';
     $('#admin-session-reauth-description').textContent = 'Confirm your RouterOS account password to end this dashboard login.';
     $('#admin-session-reauth-submit').textContent = 'Verify and revoke session';
@@ -2211,10 +2231,12 @@ document.addEventListener('click', async (event) => {
   } else if (button.matches('[data-own-session-revoke-others]')) {
     const form = $('#admin-session-reauth-form');
     delete form.dataset.sessionId;
+    delete form.dataset.revokeAccount;
     form.dataset.revokeOthers = 'true';
     form.reset();
     $('#admin-session-reauth-confirmation-field').hidden = false;
     $('#admin-session-reauth-confirmation').required = true;
+    $('#admin-session-reauth-confirmation-field span').textContent = 'Type SIGN OUT MY OTHER SESSIONS';
     $('#admin-session-reauth-title').textContent = 'Sign out my other sessions?';
     $('#admin-session-reauth-description').textContent = 'This affects only dashboard logins for your RouterOS account.';
     $('#admin-session-reauth-submit').textContent = 'Verify and sign out my other sessions';
@@ -3120,6 +3142,8 @@ function renderAdminSessions(payload) {
   if (!body) return;
   const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
   const currentSession = sessions.find((item) => item.current);
+  const currentUsername = String(currentSession?.username || '').toLowerCase();
+  const accountsWithRevokeAction = new Set();
   const ownOtherCount = currentSession
     ? sessions.filter((item) => !item.current
       && String(item.username || '').toLowerCase() === String(currentSession.username || '').toLowerCase()).length
@@ -3147,7 +3171,26 @@ function renderAdminSessions(payload) {
       revoke.type = 'button';
       revoke.dataset.adminSessionRevoke = '';
       revoke.dataset.sessionId = item.id || '';
-      action.append(revoke);
+      const actionGroup = node('div', 'table-action-group');
+      actionGroup.append(revoke);
+      const username = String(item.username || '');
+      const accountKey = username.toLowerCase();
+      if (
+        item.auth_method === 'routeros'
+        && accountKey
+        && accountKey !== currentUsername
+        && !accountsWithRevokeAction.has(accountKey)
+      ) {
+        const revokeAccount = node('button', 'table-action danger', 'End all');
+        revokeAccount.type = 'button';
+        revokeAccount.dataset.adminAccountRevoke = '';
+        revokeAccount.dataset.username = username;
+        revokeAccount.setAttribute('aria-label', 'End all dashboard sessions for ' + username);
+        revokeAccount.title = 'End all dashboard sessions for ' + username;
+        actionGroup.append(revokeAccount);
+        accountsWithRevokeAction.add(accountKey);
+      }
+      action.append(actionGroup);
     } else action.append(node('span', 'muted-label', 'Read-only'));
     row.append(identity, source, activity, expiry, action);
     return row;
@@ -3174,24 +3217,34 @@ $('#admin-session-reauth-form')?.addEventListener('submit', async (event) => {
   const password = form.elements.password.value;
   const sessionId = form.dataset.sessionId || '';
   const revokeOthers = form.dataset.revokeOthers === 'true';
+  const revokeAccount = form.dataset.revokeAccount || '';
   const confirmation = form.elements.confirmation.value;
-  if ((!sessionId && !revokeOthers) || !password) return;
+  if ((!sessionId && !revokeOthers && !revokeAccount) || !password) return;
   setBusy(form, true);
-  setStatus(form, revokeOthers
-    ? 'Verifying your RouterOS sign-in before ending other dashboard sessions…'
-    : 'Verifying your RouterOS sign-in before revoking the selected dashboard session…');
+  setStatus(form, revokeAccount
+    ? 'Verifying your RouterOS sign-in before ending dashboard sessions for ' + revokeAccount + '…'
+    : revokeOthers
+      ? 'Verifying your RouterOS sign-in before ending other dashboard sessions…'
+      : 'Verifying your RouterOS sign-in before revoking the selected dashboard session…');
   try {
-    await resultOrError(await api(revokeOthers
-      ? '/api/auth/sessions/revoke-others'
-      : `/api/admin/sessions/${encodeURIComponent(sessionId)}`, {
-      method: revokeOthers ? 'POST' : 'DELETE',
-      body: revokeOthers ? { password, confirmation } : { password },
+    await resultOrError(await api(revokeAccount
+      ? '/api/admin/sessions/revoke-account'
+      : revokeOthers
+        ? '/api/auth/sessions/revoke-others'
+        : '/api/admin/sessions/' + encodeURIComponent(sessionId), {
+      method: sessionId ? 'DELETE' : 'POST',
+      body: revokeAccount
+        ? { username: revokeAccount, password, confirmation }
+        : revokeOthers ? { password, confirmation } : { password },
     }));
     form.reset();
     delete form.dataset.sessionId;
     delete form.dataset.revokeOthers;
+    delete form.dataset.revokeAccount;
     form.closest('dialog')?.close();
-    toast(revokeOthers ? 'Your other dashboard sessions were signed out.' : 'Administrator session revoked.');
+    toast(revokeAccount
+      ? 'All dashboard sessions for ' + revokeAccount + ' were signed out.'
+      : revokeOthers ? 'Your other dashboard sessions were signed out.' : 'Administrator session revoked.');
     loadAdminSessions();
   } catch (error) {
     form.elements.password.value = '';
