@@ -530,14 +530,15 @@ observer only accepts an explicitly named canary/development HTTPS origin; it
 does not record event payloads, identities, addresses, or credentials.
 
 The telemetry-acceptance evaluator emits a
-`vpn-dashboard-telemetry-acceptance-v2` aggregate with its sample window,
+`vpn-dashboard-telemetry-acceptance-v3` aggregate with its sample window,
 browser-visible connect/disconnect and traffic-update counts, transition
-latency p95, maximum traffic-sample age, sequence/gap/duplicate/order counts,
+latency p95 and maximum, maximum traffic-sample age, sequence/gap/duplicate/order counts,
 and reconnect-test outcome. The release collector takes only those allowlisted
 aggregates; it does not copy raw NDJSON records or extra caller fields into the
 final evidence. A passing window requires visible connect and disconnect
-transitions without refresh, visible changing traffic updates, session-event
-p95 at most 1,000 ms, session-event and traffic-sample ages at most 2 seconds,
+transitions without refresh, visible changing traffic updates, every measured
+session transition at most 1,000 ms (with p95 retained as a summary), session-event
+and traffic-sample ages at most 2 seconds,
 at least 30 sequence observations, zero sequence gaps/duplicates/out-of-order
 events, and a successful API-interruption plus snapshot-recovery test. The Socket.IO
 observer independently requires a reconnect, a snapshot after that reconnect,
@@ -631,7 +632,7 @@ environment with only the `health.read` capability, and enter the canary token
 at a secure PowerShell prompt for the pre-promotion run. The collector does
 not create or revoke tokens:
 
-The operator-measured session-event p95 must include measurement start/end
+The operator-measured session-event latency maximum and p95 must include measurement start/end
 timestamps no more than 15 minutes before the collector window begins (or
 during that window). The restore rehearsal is performed and timestamped by the
 collector. Canary rollback and production-protection checks remain operator

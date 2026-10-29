@@ -79,7 +79,7 @@ Every attestation timestamp below falls inside that same interval.
 ```
 
 ```text
-python scripts/telemetry_acceptance.py --input private-acceptance.ndjson --candidate-revision <full-candidate-sha>
+python scripts/telemetry_acceptance.py --input private-acceptance.ndjson --candidate-revision <full-candidate-sha> --max-session-event-latency-ms 1000
 ```
 
 The release collector independently samples `https://vpn-dev.wanted.sx/readyz`
@@ -158,8 +158,8 @@ For the release gate, `collect_release_acceptance.py` invokes the telemetry
 evaluator with the readiness samples it directly collected over the same soak.
 The standalone one-shot command cannot supply that trusted interval. The release
 gate emits a redacted
-`vpn-dashboard-telemetry-acceptance-v2` aggregate: measured session-transition
-p95 and no-refresh visibility counts, traffic-update visibility and maximum
+`vpn-dashboard-telemetry-acceptance-v3` aggregate: measured session-transition
+p95 and maximum latency plus no-refresh visibility counts, traffic-update visibility and maximum
 sample age, sequence/gap/duplicate/order counts, and API reconnect/snapshot
 results with the sample window. `collect_release_acceptance.py` combines that
 with the independent `telemetry_stream_observer.py` report. Both must cover

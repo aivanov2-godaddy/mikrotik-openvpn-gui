@@ -222,6 +222,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                     "production_untouched_on_canary_failure": True,
                     "production_protection_observed_at": "2026-10-02T10:27:00Z",
                     "session_event_p95_ms": 450,
+                    "session_event_max_ms": 650,
                     "session_event_latency_started_at": "2026-10-02T10:10:00Z",
                     "session_event_latency_ended_at": "2026-10-02T10:20:00Z",
                     "session_event_max_age_seconds": 0.5,
@@ -274,7 +275,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "failed_gates": [], "observed_stream_healthy": True,
         }
         browser = {
-            "format": "vpn-dashboard-telemetry-acceptance-v2", "healthy": True,
+            "format": "vpn-dashboard-telemetry-acceptance-v3", "healthy": True,
             "origin": "https://vpn-dev.wanted.sx",
             "candidate_revision": revision, "observed_revision": revision,
             "identity_verified": True,
@@ -284,6 +285,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "disconnected_transition_observed": True,
             "ordered_connect_disconnect_observed": True,
             "session_event_latency_p95_ms": 450,
+            "session_event_latency_max_ms": 650,
             "session_event_age_max_seconds": 0.5,
             "traffic_update_count": 2, "traffic_update_visible_count": 2,
             "traffic_sample_age_max_seconds": 1.2, "event_sequence_observation_count": 30,
@@ -308,7 +310,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertNotIn("details", report["deployments"][0])
         self.assertTrue(report["registry_tag_digests_verified"])
         self.assertFalse(report["router_runtime_digest_verified"])
-        self.assertEqual(report["stream_acceptance"]["format"], "vpn-dashboard-stream-acceptance-v2")
+        self.assertEqual(report["stream_acceptance"]["format"], "vpn-dashboard-stream-acceptance-v3")
         self.assertEqual(
             report["evidence_authenticity"],
             {
@@ -599,9 +601,20 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertIn("canary_session_event_stale", report["failed_gates"])
 
+    def test_any_session_event_over_one_second_fails_even_when_p95_passes(self) -> None:
+        evidence = deepcopy(self.evidence)
+        evidence["deployments"][0]["session_event_p95_ms"] = 900
+        evidence["deployments"][0]["session_event_max_ms"] = 1001
+
+        code, report = evaluate(evidence, now=self.NOW)
+
+        self.assertEqual(code, 1)
+        self.assertIn("canary_session_event_latency_max_exceeded", report["failed_gates"])
+
     def test_manual_latency_restore_and_rollback_evidence_must_be_fresh(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["deployments"][0]["session_event_p95_ms"] = None
+        evidence["deployments"][0]["session_event_max_ms"] = None
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
         self.assertIn("canary_session_event_latency_unobserved", report["failed_gates"])
@@ -716,7 +729,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "reconnect_recovered", "snapshot_recovered", "sqlite_restore_verified",
             "sqlite_restore_verified_at", "rollback_drill_at", "production_protection_observed_at",
             "session_event_latency_started_at", "session_event_latency_ended_at",
-            "session_event_p95_ms", "traffic_sample_age_seconds", "stale_sample_count",
+            "session_event_p95_ms", "session_event_max_ms", "traffic_sample_age_seconds", "stale_sample_count",
             "lost_event_count", "duplicate_event_count", "out_of_order_event_count",
             "redis_delivery_failure_count", "router_cpu_peak_percent",
             "router_memory_peak_percent", "router_storage_peak_percent",
@@ -744,6 +757,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(accepted_production["digest"], "sha256:" + "c" * 64)
         self.assertIsNone(accepted_production["transport"])
         self.assertIsNone(accepted_production["session_event_p95_ms"])
+        self.assertIsNone(accepted_production["session_event_max_ms"])
         self.assertIsNone(accepted_production["router_cpu_peak_percent"])
         self.assertIsNone(accepted_production["stale_sample_count"])
         self.assertIsNone(accepted_production["rollback_drill_passed"])
