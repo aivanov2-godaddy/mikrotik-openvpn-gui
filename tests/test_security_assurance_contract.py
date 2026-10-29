@@ -525,10 +525,11 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("RouterOS supplies no account-disable push event", rows["V7.4.2"][2])
         self.assertEqual(rows["V7.4.5"][1], "PARTIAL")
         self.assertIn(
-            "revokes the other dashboard sessions for the current RouterOS account",
+            "self-service action remains limited to the current account",
             rows["V7.4.5"][2],
         )
-        self.assertIn("preserving the caller's session", rows["V7.4.5"][2])
+        self.assertIn("preserves the caller's session", rows["V7.4.5"][2])
+        self.assertIn("account-wide action to revoke every active dashboard session", rows["V7.4.5"][2])
         self.assertNotIn("There is no operation to terminate all sessions", rows["V7.4.5"][2])
         self.assertEqual(rows["V7.5.2"][1], "PARTIAL")
         self.assertIn("PR #817 adds a self-service action", rows["V7.5.2"][2])

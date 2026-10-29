@@ -2541,6 +2541,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/auth/sessions/revoke-others":
             self._revoke_own_other_sessions()
             return
+        if path == "/api/admin/sessions/revoke-account":
+            self._revoke_admin_account_sessions()
+            return
         if path == "/logout":
             self._logout()
             return
@@ -2972,6 +2975,169 @@ class DashboardHandler(BaseHTTPRequestHandler):
             details={"session_ref_hash": hashlib.sha256(revocation_ref.encode("utf-8")).hexdigest()[:16]},
         )
         self._json({"ok": True})
+
+    def _revoke_admin_account_sessions(self) -> None:
+        session = self._require_session(api=True)
+        if (
+            not session
+            or not self._require_csrf(session)
+            or not self._require_capability(session, "session.manage")
+        ):
+            return
+        if not self._require_routeros_session(session):
+            return
+
+        try:
+            data = self._read_json()
+            requested_username = data.get("username")
+            password = data.get("password")
+            confirmation = data.get("confirmation")
+            if (
+                not isinstance(requested_username, str)
+                or not requested_username.strip()
+                or len(requested_username) > 128
+                or any(ord(character) < 32 for character in requested_username)
+            ):
+                raise ValueError("Select an active RouterOS account")
+            requested_username = requested_username.strip()
+            active_sessions = self.server.context.sessions.snapshot()
+            matching_sessions = [
+                item for item in active_sessions
+                if item.get("auth_method") == "routeros"
+                and str(item.get("username", "")).casefold() == requested_username.casefold()
+            ]
+            if not matching_sessions:
+                self._json(
+                    {"error": "No active dashboard sessions were found for that account"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            target_username = str(matching_sessions[0].get("username", "")).strip()
+            if target_username.casefold() == session.username.casefold():
+                raise ValueError(
+                    "Use the self-service sign-out action for your own account; it preserves this login"
+                )
+            expected_confirmation = (
+                f"REVOKE ALL DASHBOARD SESSIONS FOR {target_username}"
+            )
+            if not isinstance(confirmation, str) or not hmac.compare_digest(
+                confirmation, expected_confirmation
+            ):
+                raise ValueError(f"Type {expected_confirmation} to confirm this action")
+            if (
+                not isinstance(password, str)
+                or not password
+                or len(password) > MAX_ROUTEROS_PASSWORD_LENGTH
+            ):
+                raise ValueError("Enter your RouterOS password to confirm this action")
+        except (ValueError, TypeError) as error:
+            self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        audit_details = {"target_username": target_username}
+        identity = self._client_ip()
+        reservation = self.server.context.limiter.reserve(identity)
+        if reservation is None:
+            if self.server.context.limiter.reserve_admin_account_rate_limited_audit():
+                self.server.context.store.audit(
+                    actor=session.username,
+                    action="admin-account-sessions.reauth.rate_limited",
+                    target="administrator-sessions",
+                    status="denied",
+                    details=audit_details,
+                )
+            self._json(
+                {"error": "Too many authentication attempts. Try again later."},
+                status=HTTPStatus.TOO_MANY_REQUESTS,
+            )
+            return
+        try:
+            self.server.context.router.verify_credentials(
+                RouterOSCredentials(session.username, password)
+            )
+        except RouterOSError as error:
+            failure_kind = _routeros_auth_failure_kind(error)
+            rejected = failure_kind == "credentials_rejected"
+            permission_denied = failure_kind == "permission_denied"
+            self.server.context.limiter.finish(
+                reservation, failed=True if rejected else None
+            )
+            self.server.context.store.audit(
+                actor=session.username,
+                action=(
+                    "admin-account-sessions.reauth.failed" if rejected
+                    else "admin-account-sessions.reauth.denied" if permission_denied
+                    else "admin-account-sessions.reauth.unavailable"
+                ),
+                target="administrator-sessions",
+                status="denied" if rejected or permission_denied else "unavailable",
+                details=audit_details,
+            )
+            if rejected:
+                self._json(
+                    {"error": "Authentication failed. No dashboard sessions were revoked."},
+                    status=HTTPStatus.UNAUTHORIZED,
+                )
+            elif permission_denied:
+                self._json(
+                    {"error": "RouterOS denied the required API permission. No dashboard sessions were revoked."},
+                    status=HTTPStatus.FORBIDDEN,
+                )
+            else:
+                self._json(
+                    {"error": "RouterOS could not verify the password right now. No dashboard sessions were revoked."},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            return
+        except Exception:
+            self.server.context.limiter.finish(reservation, failed=None)
+            raise
+        self.server.context.limiter.finish(reservation, failed=False)
+        self.server.context.store.audit(
+            actor=session.username,
+            action="admin-account-sessions.reauth.success",
+            target="administrator-sessions",
+            status="success",
+            details=audit_details,
+        )
+
+        refreshed = self.server.telemetry_runtime.revalidate_session(
+            session.session_id,
+            force_role_check=True,
+        )
+        if (
+            refreshed is None
+            or not self._session_has_capability(refreshed, "session.manage")
+            or refreshed.username.casefold() == target_username.casefold()
+        ):
+            self.server.context.store.audit(
+                actor=session.username,
+                action="admin-account-sessions.revoke.denied",
+                target="administrator-sessions",
+                status="denied",
+                details=audit_details,
+            )
+            self._json(
+                {"error": "Authentication or session-management permission changed; no sessions were revoked"},
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return
+
+        revoked_count = self.server.context.sessions.revoke_account_sessions(
+            target_username
+        )
+        self.server.context.store.audit(
+            actor=refreshed.username,
+            action="admin-account-sessions.revoke",
+            target="administrator-sessions",
+            status="success",
+            details={**audit_details, "revoked_count": revoked_count},
+        )
+        self._json({
+            "ok": True,
+            "username": target_username,
+            "revoked_count": revoked_count,
+        })
 
     def _revoke_own_other_sessions(self) -> None:
         session = self._require_session(api=True)

@@ -73,7 +73,7 @@ test('self-service sign-out requires typed confirmation and retains the current 
   await expect(page.locator('[data-own-session-count]')).toContainText('other dashboard session');
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('only dashboard logins for your RouterOS account');
-  await expect(dialog).toContainText('VPN tunnels are not disconnected');
+  await expect(dialog).toContainText('does not disconnect any VPN tunnel');
   await dialog.getByLabel('Type SIGN OUT MY OTHER SESSIONS').fill('wrong phrase');
   await dialog.getByLabel('RouterOS password').fill('routerpass');
   const rejected = page.waitForResponse((response) => (
@@ -98,6 +98,119 @@ test('self-service sign-out requires typed confirmation and retains the current 
   expect(await page.evaluate(async () => (
     await fetch('/api/telemetry', { credentials: 'same-origin' })
   ).status)).toBe(200);
+  await expectNoDocumentReload(page, originalDocument);
+});
+
+test('administrator can revoke all dashboard sessions for one other account in place', async ({ page }) => {
+  let revoked = false;
+  let submitted;
+  await page.route('**/api/admin/sessions**', async (route) => {
+    if (route.request().method() === 'GET') {
+      const sessions = [{
+        id: 'current-session',
+        username: 'admin',
+        role: 'owner',
+        source_address: '10.10.10.20',
+        auth_method: 'routeros',
+        created_at: 1700000000,
+        last_seen: 1700000010,
+        idle_remaining: 1800,
+        absolute_remaining: 28800,
+        current: true,
+      }];
+      if (!revoked) {
+        sessions.push(
+          {
+            id: 'operator-session-a',
+            username: 'operator',
+            role: 'operator',
+            source_address: '10.10.10.21',
+            auth_method: 'routeros',
+            created_at: 1700000000,
+            last_seen: 1700000010,
+            idle_remaining: 1800,
+            absolute_remaining: 28800,
+            current: false,
+          },
+          {
+            id: 'operator-session-b',
+            username: 'OPERATOR',
+            role: 'operator',
+            source_address: '10.10.10.22',
+            auth_method: 'routeros',
+            created_at: 1700000000,
+            last_seen: 1700000010,
+            idle_remaining: 1700,
+            absolute_remaining: 28700,
+            current: false,
+          },
+        );
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          sessions,
+          idle_timeout_seconds: 1800,
+          absolute_timeout_seconds: 28800,
+          generated_at: 1700000010,
+        }),
+      });
+    }
+
+    submitted = route.request().postDataJSON();
+    const phrase = 'REVOKE ALL DASHBOARD SESSIONS FOR operator';
+    if (submitted.confirmation !== phrase) {
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Type ' + phrase + ' to confirm this action' }),
+      });
+    }
+    revoked = true;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, username: 'operator', revoked_count: 2 }),
+    });
+  });
+
+  await signIn(page);
+  const originalDocument = await page.evaluate(() => window.__documentInstance);
+  await expect(page.getByRole('button', { name: 'End all dashboard sessions for operator' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'End all dashboard sessions for admin' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'End all dashboard sessions for operator' }).click();
+  const dialog = page.locator('#admin-session-reauth-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('VPN tunnels stay connected');
+  const phrase = 'REVOKE ALL DASHBOARD SESSIONS FOR operator';
+  await dialog.getByLabel('Type ' + phrase).fill('wrong phrase');
+  await dialog.getByLabel('RouterOS password').fill('routerpass');
+
+  const rejected = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/admin/sessions/revoke-account'
+  ));
+  await dialog.getByRole('button', { name: 'Verify and end all sessions' }).click();
+  expect((await rejected).status()).toBe(400);
+  await expect(dialog.getByRole('status')).toContainText('Type ' + phrase);
+
+  await dialog.getByLabel('Type ' + phrase).fill(phrase);
+  await dialog.getByLabel('RouterOS password').fill('routerpass');
+  const accepted = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/admin/sessions/revoke-account'
+  ));
+  await dialog.getByRole('button', { name: 'Verify and end all sessions' }).click();
+  expect((await accepted).status()).toBe(200);
+  expect(submitted).toMatchObject({
+    username: 'operator',
+    password: 'routerpass',
+    confirmation: phrase,
+  });
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('[data-admin-session-row]').filter({ hasText: 'operator' })).toHaveCount(0);
   await expectNoDocumentReload(page, originalDocument);
 });
 

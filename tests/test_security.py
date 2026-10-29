@@ -1124,6 +1124,22 @@ class SecurityTests(unittest.TestCase):
         limiter.complete_rate_limited_login_audit(succeeded=True)
         self.assertIsNone(limiter.reserve_rate_limited_login_audit(now=160.1))
 
+    def test_admin_account_rate_limited_audit_is_coalesced_under_concurrency(self) -> None:
+        limiter = LoginRateLimiter()
+        concurrent_attempts = 20
+        start = threading.Barrier(concurrent_attempts)
+
+        def reserve_audit_slot() -> bool:
+            start.wait(timeout=5)
+            return limiter.reserve_admin_account_rate_limited_audit(now=100)
+
+        with ThreadPoolExecutor(max_workers=concurrent_attempts) as executor:
+            outcomes = list(executor.map(lambda _index: reserve_audit_slot(), range(concurrent_attempts)))
+
+        self.assertEqual(sum(outcomes), 1)
+        self.assertFalse(limiter.reserve_admin_account_rate_limited_audit(now=159.99))
+        self.assertTrue(limiter.reserve_admin_account_rate_limited_audit(now=160))
+
     def test_rate_limited_login_audit_retains_count_after_failed_write(self) -> None:
         limiter = LoginRateLimiter(rate_limited_login_audit_interval_seconds=60)
         self.assertEqual(limiter.reserve_rate_limited_login_audit(now=10), 0)

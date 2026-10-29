@@ -1230,6 +1230,7 @@ class SessionStore:
 
 class LoginRateLimiter:
     RATE_LIMITED_LOGIN_AUDIT_INTERVAL_SECONDS = 60.0
+    ADMIN_ACCOUNT_RATE_LIMITED_AUDIT_INTERVAL_SECONDS = 60.0
     MAX_SUPPRESSED_LOGIN_AUDIT_COUNT = 1_000_000_000
 
     def __init__(
@@ -1255,7 +1256,21 @@ class LoginRateLimiter:
         self._rate_limited_login_audit_in_flight = False
         self._reserved_rate_limited_login_audit_count = 0
         self._suppressed_during_rate_limited_login_audit = 0
+        self._last_admin_account_rate_limited_audit_at: float | None = None
         self._lock = threading.Lock()
+
+    def reserve_admin_account_rate_limited_audit(self, now: float | None = None) -> bool:
+        """Allow at most one admin-account rate-limit audit event per interval."""
+        current = time.monotonic() if now is None else float(now)
+        with self._lock:
+            previous = self._last_admin_account_rate_limited_audit_at
+            if (
+                previous is not None
+                and current - previous < self.ADMIN_ACCOUNT_RATE_LIMITED_AUDIT_INTERVAL_SECONDS
+            ):
+                return False
+            self._last_admin_account_rate_limited_audit_at = current
+            return True
 
     def reserve_rate_limited_login_audit(self, now: float | None = None) -> int | None:
         """Coalesce public login-limit audit writes to one per interval.

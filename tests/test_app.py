@@ -3844,6 +3844,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             "/api/auth/sessions/revoke-others",
             "/api/bulk/apply", "/api/bulk/views", "/api/setup-plan",
             "/api/openvpn-foundation-plan", "/api/admin/api-tokens",
+            "/api/admin/sessions/revoke-account",
             "/api/admin/break-glass/plan", "/api/network/segment-plan",
             "/api/profile/diagnose", "/api/connection-doctor",
             "/api/security/exposure-doctor", "/api/backups/preflight",
@@ -4116,6 +4117,11 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("policies.manage", "POST", "/api/network/segment-plan", {}),
             ("session.manage", "POST", "/api/sessions/session-1/preview", {}),
             ("session.manage", "DELETE", "/api/admin/sessions/session-1", {}),
+            ("session.manage", "POST", "/api/admin/sessions/revoke-account", {
+                "username": "operator",
+                "password": "routerpass",
+                "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+            }),
             ("session.manage", "DELETE", "/api/sessions/session-1", {}),
             ("device.manage", "POST", "/api/devices/device-1/revoke/preview", {}),
             ("device.manage", "POST", "/api/devices/device-1/revoke", {}),
@@ -4159,7 +4165,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                         )
                         allowed_cases += 1
 
-        self.assertEqual(denied_cases, 118)
+        self.assertEqual(denied_cases, 120)
         self.assertEqual(allowed_cases + denied_cases, len(role_groups) * len(route_cases))
         self.assertEqual(self.mock.state.mutation_requests, before_mutations)
 
@@ -4181,6 +4187,11 @@ class DashboardIntegrationTests(unittest.TestCase):
             ("GET", literal("/api/events"), "/api/events", ("sessions.read",), {}),
             ("GET", literal("/api/telemetry"), "/api/telemetry", (), {}),
             ("GET", literal("/api/admin/sessions"), "/api/admin/sessions", ("sessions.read",), {}),
+            ("POST", literal("/api/admin/sessions/revoke-account"), "/api/admin/sessions/revoke-account", ("session.manage",), {
+                "username": "operator",
+                "password": "routerpass",
+                "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+            }),
             ("GET", literal("/api/admin/api-tokens"), "/api/admin/api-tokens", ("security.manage",), {}),
             ("GET", literal("/api/reports/compliance.zip"), "/api/reports/compliance.zip", ("audit.read", "sessions.read"), {}),
             ("GET", literal("/api/reports/diagnostics.zip"), "/api/reports/diagnostics.zip", ("health.read",), {}),
@@ -4734,6 +4745,113 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 429)
         self.assertNotIn(b"routerpass", payload)
         self.assertIsNotNone(self.server.context.sessions.get(target.session_id, touch=False))
+
+    def test_admin_account_session_revocation_is_csrf_protected_scoped_and_audited(self) -> None:
+        self.login()
+        current_session_id = self.cookie.split("=", 1)[1]
+        target_one = self.server.context.sessions.create(
+            "operator", "operator-secret", role="operator",
+        )
+        target_two = self.server.context.sessions.create(
+            "OPERATOR", "operator-secret", role="operator",
+        )
+        unrelated = self.server.context.sessions.create(
+            "auditor", "auditor-secret", role="audit",
+        )
+        path = "/api/admin/sessions/revoke-account"
+        valid = {
+            "username": "operator",
+            "password": "routerpass",
+            "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+        }
+
+        status, _, _ = self.json_request("POST", path, valid, csrf=False)
+        self.assertEqual(status, 403)
+        self.assertIsNotNone(self.server.context.sessions.get(target_one.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(target_two.session_id, touch=False))
+
+        wrong_confirmation = {**valid, "confirmation": "REVOKE operator"}
+        status, _, payload = self.json_request("POST", path, wrong_confirmation)
+        self.assertEqual(status, 400)
+        self.assertIn(b"Type REVOKE ALL DASHBOARD SESSIONS FOR operator", payload)
+
+        own_account = {
+            **valid,
+            "username": "ADMIN",
+            "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR admin",
+        }
+        status, _, payload = self.json_request("POST", path, own_account)
+        self.assertEqual(status, 400)
+        self.assertIn(b"self-service sign-out", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
+
+        missing_account = {
+            **valid,
+            "username": "not-active",
+            "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR not-active",
+        }
+        status, _, _ = self.json_request("POST", path, missing_account)
+        self.assertEqual(status, 404)
+
+        wrong_password = {**valid, "password": "incorrect"}
+        status, _, payload = self.json_request("POST", path, wrong_password)
+        self.assertEqual(status, 401)
+        self.assertNotIn(b"incorrect", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(target_one.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(target_two.session_id, touch=False))
+
+        status, _, payload = self.json_request("POST", path, valid)
+        self.assertEqual(status, 200, payload.decode("utf-8"))
+        result = json.loads(payload)
+        self.assertEqual(result, {
+            "ok": True,
+            "username": "operator",
+            "revoked_count": 2,
+        })
+        self.assertIsNone(self.server.context.sessions.get(target_one.session_id, touch=False))
+        self.assertIsNone(self.server.context.sessions.get(target_two.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(unrelated.session_id, touch=False))
+        self.assertIsNotNone(self.server.context.sessions.get(current_session_id, touch=False))
+
+        audit = self.server.context.store.recent_audit(1)[0]
+        self.assertEqual(audit["action"], "admin-account-sessions.revoke")
+        self.assertEqual(
+            json.loads(audit["details"]),
+            {"target_username": "operator", "revoked_count": 2},
+        )
+        events = self.server.context.store.recent_audit(20)
+        self.assertNotIn(target_one.session_id, json.dumps(events))
+        self.assertNotIn(target_two.session_id, json.dumps(events))
+        self.assertNotIn("routerpass", json.dumps(events))
+        self.assertNotIn("operator-secret", json.dumps(events))
+
+    def test_admin_account_session_revocation_reauthentication_is_rate_limited(self) -> None:
+        self.login()
+        target = self.server.context.sessions.create(
+            "operator", "operator-secret", role="operator",
+        )
+        path = "/api/admin/sessions/revoke-account"
+        body = {
+            "username": "operator",
+            "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+        }
+        for _ in range(5):
+            status, _, _ = self.json_request(
+                "POST", path, {**body, "password": "wrong-password"},
+            )
+            self.assertEqual(status, 401)
+        for _ in range(20):
+            status, _, payload = self.json_request(
+                "POST", path, {**body, "password": "routerpass"},
+            )
+            self.assertEqual(status, 429)
+            self.assertNotIn(b"routerpass", payload)
+        self.assertIsNotNone(self.server.context.sessions.get(target.session_id, touch=False))
+        rate_limited_events = [
+            item for item in self.server.context.store.recent_audit(100)
+            if item["action"] == "admin-account-sessions.reauth.rate_limited"
+        ]
+        self.assertEqual(len(rate_limited_events), 1)
 
     def test_own_other_session_revocation_is_account_scoped_csrf_protected_and_audited(self) -> None:
         self.login()

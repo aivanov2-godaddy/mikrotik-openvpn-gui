@@ -615,6 +615,13 @@ def dashboard_page(
         "admin-session.reauth.rate_limited": "Rate-limited administrator re-authentication",
         "admin-session.reauth.success": "Verified administrator re-authentication",
         "admin-session.reauth.unavailable": "Administrator re-authentication unavailable",
+        "admin-account-sessions.reauth.failed": "Failed account-session re-authentication",
+        "admin-account-sessions.reauth.denied": "Account-session re-authentication lacks RouterOS permission",
+        "admin-account-sessions.reauth.rate_limited": "Rate-limited account-session re-authentication",
+        "admin-account-sessions.reauth.success": "Verified account-session re-authentication",
+        "admin-account-sessions.reauth.unavailable": "Account-session re-authentication unavailable",
+        "admin-account-sessions.revoke.denied": "Denied account-session revocation",
+        "admin-account-sessions.revoke": "Signed out account dashboard sessions",
         "session.reauth.denied": "Re-authentication lacks RouterOS permission",
         "session.revoke-others.reauth.denied": "Session revocation lacks RouterOS permission",
         "checkpoint.create": "Created safety checkpoint",
@@ -1063,6 +1070,7 @@ def dashboard_page(
     rollback_class = "healthy" if rollback.get("available") else "warning"
 
     admin_session_rows = []
+    admin_accounts_with_revoke_action: set[str] = set()
     own_other_session_count = sum(
         1 for item in admin_sessions
         if not item.get("current")
@@ -1071,14 +1079,31 @@ def dashboard_page(
     for item in admin_sessions:
         session_id = html.escape(str(item.get("id", "")), quote=True)
         role = html.escape(role_label(str(item.get("role", "read_only"))))
-        username = html.escape(str(item.get("username", "unknown")))
+        raw_username = str(item.get("username", "unknown"))
+        username = html.escape(raw_username)
         source = html.escape(str(item.get("source_address", "unknown")))
         created = time.strftime("%d %b %Y · %H:%M", time.localtime(int(item.get("created_at", 0) or 0)))
         last_seen = time.strftime("%d %b %Y · %H:%M", time.localtime(int(item.get("last_seen", 0) or 0)))
-        current_label = '<span class="posture-badge healthy">Current session</span>' if item.get("current") else (
-            f'<button class="table-action danger" type="button" data-admin-session-revoke data-session-id="{session_id}">{_icon("remove")}<span>Revoke</span></button>'
-            if can_manage_sessions else '<span class="muted-label">Read-only</span>'
-        )
+        if item.get("current"):
+            current_label = '<span class="posture-badge healthy">Current session</span>'
+        elif not can_manage_sessions:
+            current_label = '<span class="muted-label">Read-only</span>'
+        else:
+            buttons = [
+                f'<button class="table-action danger" type="button" data-admin-session-revoke data-session-id="{session_id}">{_icon("remove")}<span>Revoke</span></button>'
+            ]
+            account_key = raw_username.casefold()
+            if (
+                item.get("auth_method", "routeros") == "routeros"
+                and account_key != str(actor).casefold()
+                and account_key not in admin_accounts_with_revoke_action
+            ):
+                safe_username = html.escape(raw_username, quote=True)
+                buttons.append(
+                    f'<button class="table-action danger" type="button" data-admin-account-revoke data-username="{safe_username}" aria-label="End all dashboard sessions for {safe_username}"><span>End all</span></button>'
+                )
+                admin_accounts_with_revoke_action.add(account_key)
+            current_label = f'<div class="table-action-group">{"".join(buttons)}</div>'
         admin_session_rows.append(
             f'<tr data-admin-session-row data-session-id="{session_id}"><td><strong>{username}</strong><small>{role}</small></td><td>{source}<small>{html.escape(str(item.get("auth_method", "routeros")))}</small></td><td><time>{html.escape(created)}</time><small>Last activity {html.escape(last_seen)}</small></td><td><span>{int(item.get("idle_remaining", 0) or 0) // 60}m idle remaining</span><small>{int(item.get("absolute_remaining", 0) or 0) // 3600}h absolute remaining</small></td><td>{current_label}</td></tr>'
         )
@@ -1269,7 +1294,7 @@ def dashboard_page(
 
 <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-<dialog id="admin-session-reauth-dialog" aria-labelledby="admin-session-reauth-title"><form id="admin-session-reauth-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">SECURITY CONFIRMATION</p><h2 id="admin-session-reauth-title">Revoke administrator session</h2><p id="admin-session-reauth-description">Confirm your RouterOS account password to end this dashboard login.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="dialog-fields"><label id="admin-session-reauth-confirmation-field" hidden><span>Type SIGN OUT MY OTHER SESSIONS</span><input id="admin-session-reauth-confirmation" name="confirmation" maxlength="32" autocomplete="off"><small>This ends other dashboard logins for your RouterOS account only. Your current login stays active; VPN tunnels are not disconnected.</small></label><label><span>RouterOS password</span><input id="admin-session-reauth-password" name="password" type="password" required maxlength="256" autocomplete="current-password"><small>Used for a fresh RouterOS check only; it is not saved. This does not disconnect any VPN client.</small></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button id="admin-session-reauth-submit" type="submit" class="danger">Verify and revoke session</button></footer></form></dialog>
+<dialog id="admin-session-reauth-dialog" aria-labelledby="admin-session-reauth-title"><form id="admin-session-reauth-form" method="dialog" class="dialog-card"><header><div><p class="eyebrow">SECURITY CONFIRMATION</p><h2 id="admin-session-reauth-title">Revoke administrator session</h2><p id="admin-session-reauth-description">Confirm your RouterOS account password to end this dashboard login.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="dialog-fields"><label id="admin-session-reauth-confirmation-field" hidden><span>Type SIGN OUT MY OTHER SESSIONS</span><input id="admin-session-reauth-confirmation" name="confirmation" maxlength="192" autocomplete="off"><small>This signs out dashboard sessions only; it does not disconnect any VPN tunnel.</small></label><label><span>RouterOS password</span><input id="admin-session-reauth-password" name="password" type="password" required maxlength="256" autocomplete="current-password"><small>Used for a fresh RouterOS check only; it is not saved. This does not disconnect any VPN client.</small></label></div><p class="form-status" role="status"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button id="admin-session-reauth-submit" type="submit" class="danger">Verify and revoke session</button></footer></form></dialog>
 
 {'<dialog id="session-reauthenticate-dialog" aria-labelledby="session-reauthenticate-title"><form id="session-reauthenticate-form" class="dialog-card"><header><div><p class="eyebrow">SESSION SECURITY</p><h2 id="session-reauthenticate-title">Re-authenticate this session</h2><p>Verify your RouterOS account password to rotate this dashboard session token. Your current live view stays open.</p></div><button type="button" class="icon" data-close aria-label="Close">×</button></header><div class="dialog-fields"><label><span>RouterOS password</span><input id="session-reauthenticate-password" name="password" type="password" required maxlength="256" autocomplete="current-password"><small>Cleared from this form after the check; retained only in the existing in-memory RouterOS session.</small></label></div><p class="form-status" role="status" aria-live="polite"></p><footer><button type="button" class="quiet" data-close>Cancel</button><button type="submit" class="primary">Re-authenticate session</button></footer></form></dialog>' if can_reauthenticate else ''}
 
