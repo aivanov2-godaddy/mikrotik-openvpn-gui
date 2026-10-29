@@ -3039,13 +3039,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
         reservation = self.server.context.limiter.reserve(identity)
         if reservation is None:
             if self.server.context.limiter.reserve_admin_account_rate_limited_audit():
-                self.server.context.store.audit(
-                    actor=session.username,
-                    action="admin-account-sessions.reauth.rate_limited",
-                    target="administrator-sessions",
-                    status="denied",
-                    details=audit_details,
-                )
+                audit_succeeded = False
+                try:
+                    self.server.context.store.audit(
+                        actor=session.username,
+                        action="admin-account-sessions.reauth.rate_limited",
+                        target="administrator-sessions",
+                        status="denied",
+                        details=audit_details,
+                    )
+                    audit_succeeded = True
+                except Exception:
+                    # Keep the 429 response stable while allowing the next
+                    # limited request to retry the failed audit write.
+                    print("audit event=admin-account-sessions.reauth.rate_limited status=failed")
+                finally:
+                    self.server.context.limiter.complete_admin_account_rate_limited_audit(
+                        succeeded=audit_succeeded
+                    )
             self._json(
                 {"error": "Too many authentication attempts. Try again later."},
                 status=HTTPStatus.TOO_MANY_REQUESTS,
@@ -3123,16 +3134,91 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
 
+        operation_details = {
+            **audit_details,
+            "operation_id": secrets.token_urlsafe(12),
+        }
+        try:
+            self.server.context.store.audit(
+                actor=refreshed.username,
+                action="admin-account-sessions.revoke.started",
+                target="administrator-sessions",
+                status="pending",
+                details=operation_details,
+            )
+        except Exception:
+            print("audit event=admin-account-sessions.revoke.started status=failed")
+            self._json(
+                {
+                    "error": "The audit log is unavailable. No dashboard sessions were revoked.",
+                    "outcome": "not_applied",
+                    "audit_status": "unavailable",
+                },
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+
         revoked_count = self.server.context.sessions.revoke_account_sessions(
             target_username
         )
-        self.server.context.store.audit(
-            actor=refreshed.username,
-            action="admin-account-sessions.revoke",
-            target="administrator-sessions",
-            status="success",
-            details={**audit_details, "revoked_count": revoked_count},
-        )
+        if revoked_count is None:
+            pending_audit_succeeded = False
+            try:
+                self.server.context.store.audit(
+                    actor=refreshed.username,
+                    action="admin-account-sessions.revoke.pending",
+                    target="administrator-sessions",
+                    status="pending",
+                    details={**operation_details, "outcome": "retry_queued"},
+                )
+                pending_audit_succeeded = True
+            except Exception:
+                print("audit event=admin-account-sessions.revoke.pending status=failed")
+            self._json(
+                {
+                    "ok": True,
+                    "username": target_username,
+                    "revoked_count": 0,
+                    "outcome": "pending",
+                    "audit_status": "pending" if pending_audit_succeeded else "incomplete",
+                },
+                status=HTTPStatus.ACCEPTED,
+            )
+            return
+        try:
+            self.server.context.store.audit(
+                actor=refreshed.username,
+                action="admin-account-sessions.revoke",
+                target="administrator-sessions",
+                status="success",
+                details={**operation_details, "revoked_count": revoked_count},
+            )
+        except Exception:
+            print("audit event=admin-account-sessions.revoke status=failed")
+            try:
+                self.server.context.store.audit(
+                    actor=refreshed.username,
+                    action="admin-account-sessions.revoke.audit_incomplete",
+                    target="administrator-sessions",
+                    status="partial",
+                    details={**operation_details, "revoked_count": revoked_count},
+                )
+            except Exception:
+                print("audit event=admin-account-sessions.revoke.audit_incomplete status=failed")
+            self._json(
+                {
+                    "error": (
+                        "Dashboard sessions were revoked, but the completion could not be "
+                        "written to the audit log. Review the pending audit entry before retrying."
+                    ),
+                    "outcome": "applied",
+                    "audit_status": "incomplete",
+                    "username": target_username,
+                    "revoked_count": revoked_count,
+                },
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
         self._json({
             "ok": True,
             "username": target_username,

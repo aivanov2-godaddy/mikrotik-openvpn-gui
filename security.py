@@ -931,13 +931,14 @@ class SessionStore:
 
     def revoke_account_sessions(
         self, username: str, *, already_invalidating: bool = False
-    ) -> int:
+    ) -> int | None:
         """Revoke every active RouterOS dashboard session for one account.
 
         The account is denied from the moment invalidation begins. Session-set
         locking prevents a concurrent login or rotation from escaping the
         sweep, and each per-session delivery lock drains already-authorized
-        live sends before credentials are dropped.
+        live sends before credentials are dropped. ``None`` means a retry was
+        queued because the synchronous caller could not safely wait for a lock.
         """
         if not isinstance(username, str):
             return 0
@@ -959,7 +960,7 @@ class SessionStore:
                 self._acquire_sync_lock(self._session_set_lock)
             except SessionStoreLockUnavailable:
                 self._schedule_account_revocation_retry(username_key)
-                return 0
+                return None
             session_set_acquired = True
             with self._lock:
                 candidates = sorted(
@@ -979,7 +980,7 @@ class SessionStore:
                     )
                 except SessionStoreLockUnavailable:
                     self._schedule_account_revocation_retry(username_key)
-                    return 0
+                    return None
                 if acquired_in_loop is not None:
                     acquired.extend(acquired_in_loop)
 
@@ -1075,7 +1076,7 @@ class SessionStore:
                 else:
                     self._pending_account_revocation_retries[username_key] = retries - 1
 
-    async def revoke_account_sessions_async(self, username: str) -> int:
+    async def revoke_account_sessions_async(self, username: str) -> int | None:
         return await asyncio.to_thread(self.revoke_account_sessions, username)
 
     def revoke_account_sessions_except(
@@ -1257,12 +1258,19 @@ class LoginRateLimiter:
         self._reserved_rate_limited_login_audit_count = 0
         self._suppressed_during_rate_limited_login_audit = 0
         self._last_admin_account_rate_limited_audit_at: float | None = None
+        self._admin_account_rate_limited_audit_in_flight = False
         self._lock = threading.Lock()
 
     def reserve_admin_account_rate_limited_audit(self, now: float | None = None) -> bool:
-        """Allow at most one admin-account rate-limit audit event per interval."""
+        """Reserve one admin-account rate-limit audit write per interval.
+
+        The reservation must be completed after persistence so a failed write
+        does not suppress the next retry for the full interval.
+        """
         current = time.monotonic() if now is None else float(now)
         with self._lock:
+            if self._admin_account_rate_limited_audit_in_flight:
+                return False
             previous = self._last_admin_account_rate_limited_audit_at
             if (
                 previous is not None
@@ -1270,7 +1278,17 @@ class LoginRateLimiter:
             ):
                 return False
             self._last_admin_account_rate_limited_audit_at = current
+            self._admin_account_rate_limited_audit_in_flight = True
             return True
+
+    def complete_admin_account_rate_limited_audit(self, *, succeeded: bool) -> None:
+        """Keep a successful audit bounded or release a failed-write slot."""
+        with self._lock:
+            if not self._admin_account_rate_limited_audit_in_flight:
+                return
+            self._admin_account_rate_limited_audit_in_flight = False
+            if not succeeded:
+                self._last_admin_account_rate_limited_audit_at = None
 
     def reserve_rate_limited_login_audit(self, now: float | None = None) -> int | None:
         """Coalesce public login-limit audit writes to one per interval.

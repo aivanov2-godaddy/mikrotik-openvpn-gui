@@ -221,7 +221,7 @@ class SecurityTests(unittest.TestCase):
                 autospec=True,
                 side_effect=start_after_transient_failure,
             ):
-                self.assertEqual(store.revoke_account_sessions("admin"), 0)
+                self.assertIsNone(store.revoke_account_sessions("admin"))
                 self.assertIsNone(store.get(session.session_id, touch=False))
                 self.assertGreater(store._invalidating_usernames.get("admin", 0), 0)
                 store._session_set_lock.release()
@@ -243,7 +243,7 @@ class SecurityTests(unittest.TestCase):
         role_lock.acquire()
 
         async def revoke_in_event_loop() -> None:
-            self.assertEqual(store.revoke_account_sessions("admin"), 0)
+            self.assertIsNone(store.revoke_account_sessions("admin"))
             self.assertIsNone(store.get(session.session_id, touch=False))
             self.assertGreater(store._invalidating_usernames.get("admin", 0), 0)
             role_lock.release()
@@ -1137,8 +1137,22 @@ class SecurityTests(unittest.TestCase):
             outcomes = list(executor.map(lambda _index: reserve_audit_slot(), range(concurrent_attempts)))
 
         self.assertEqual(sum(outcomes), 1)
+        limiter.complete_admin_account_rate_limited_audit(succeeded=True)
         self.assertFalse(limiter.reserve_admin_account_rate_limited_audit(now=159.99))
         self.assertTrue(limiter.reserve_admin_account_rate_limited_audit(now=160))
+        limiter.complete_admin_account_rate_limited_audit(succeeded=True)
+
+    def test_admin_account_rate_limited_audit_can_retry_after_failed_write(self) -> None:
+        limiter = LoginRateLimiter()
+        self.assertTrue(limiter.reserve_admin_account_rate_limited_audit(now=100))
+        self.assertFalse(limiter.reserve_admin_account_rate_limited_audit(now=101))
+        limiter.complete_admin_account_rate_limited_audit(succeeded=False)
+
+        self.assertTrue(limiter.reserve_admin_account_rate_limited_audit(now=101))
+        limiter.complete_admin_account_rate_limited_audit(succeeded=True)
+        self.assertFalse(limiter.reserve_admin_account_rate_limited_audit(now=160.99))
+        self.assertTrue(limiter.reserve_admin_account_rate_limited_audit(now=161))
+        limiter.complete_admin_account_rate_limited_audit(succeeded=True)
 
     def test_rate_limited_login_audit_retains_count_after_failed_write(self) -> None:
         limiter = LoginRateLimiter(rate_limited_login_audit_interval_seconds=60)

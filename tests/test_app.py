@@ -4815,15 +4815,129 @@ class DashboardIntegrationTests(unittest.TestCase):
 
         audit = self.server.context.store.recent_audit(1)[0]
         self.assertEqual(audit["action"], "admin-account-sessions.revoke")
-        self.assertEqual(
-            json.loads(audit["details"]),
-            {"target_username": "operator", "revoked_count": 2},
-        )
+        audit_details = json.loads(audit["details"])
+        self.assertEqual(audit_details["target_username"], "operator")
+        self.assertEqual(audit_details["revoked_count"], 2)
+        self.assertTrue(audit_details["operation_id"])
         events = self.server.context.store.recent_audit(20)
         self.assertNotIn(target_one.session_id, json.dumps(events))
         self.assertNotIn(target_two.session_id, json.dumps(events))
         self.assertNotIn("routerpass", json.dumps(events))
         self.assertNotIn("operator-secret", json.dumps(events))
+
+    def test_admin_account_session_revocation_requires_durable_start_audit(self) -> None:
+        self.login()
+        target = self.server.context.sessions.create(
+            "operator", "operator-secret", role="operator",
+        )
+        store = self.server.context.store
+        original_audit = store.audit
+
+        def fail_start_audit(*args, **kwargs):
+            if kwargs.get("action") == "admin-account-sessions.revoke.started":
+                raise RuntimeError("injected audit persistence failure")
+            return original_audit(*args, **kwargs)
+
+        with mock.patch.object(store, "audit", side_effect=fail_start_audit):
+            status, _, payload = self.json_request(
+                "POST",
+                "/api/admin/sessions/revoke-account",
+                {
+                    "username": "operator",
+                    "password": "routerpass",
+                    "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+                },
+            )
+
+        self.assertEqual(status, 503, payload.decode("utf-8"))
+        result = json.loads(payload)
+        self.assertEqual(result["outcome"], "not_applied")
+        self.assertEqual(result["audit_status"], "unavailable")
+        self.assertIsNotNone(self.server.context.sessions.get(target.session_id, touch=False))
+
+    def test_admin_account_session_revocation_reports_incomplete_completion_audit(self) -> None:
+        self.login()
+        target = self.server.context.sessions.create(
+            "operator", "operator-secret", role="operator",
+        )
+        store = self.server.context.store
+        original_audit = store.audit
+
+        def fail_completion_audit(*args, **kwargs):
+            if kwargs.get("action") == "admin-account-sessions.revoke":
+                raise RuntimeError("injected audit persistence failure")
+            return original_audit(*args, **kwargs)
+
+        with mock.patch.object(store, "audit", side_effect=fail_completion_audit):
+            status, _, payload = self.json_request(
+                "POST",
+                "/api/admin/sessions/revoke-account",
+                {
+                    "username": "operator",
+                    "password": "routerpass",
+                    "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+                },
+            )
+
+        self.assertEqual(status, 503, payload.decode("utf-8"))
+        result = json.loads(payload)
+        self.assertEqual(result["outcome"], "applied")
+        self.assertEqual(result["audit_status"], "incomplete")
+        self.assertEqual(result["revoked_count"], 1)
+        self.assertIsNone(self.server.context.sessions.get(target.session_id, touch=False))
+        events = self.server.context.store.recent_audit(20)
+        started = next(
+            item for item in events
+            if item["action"] == "admin-account-sessions.revoke.started"
+        )
+        incomplete = next(
+            item for item in events
+            if item["action"] == "admin-account-sessions.revoke.audit_incomplete"
+        )
+        started_details = json.loads(started["details"])
+        incomplete_details = json.loads(incomplete["details"])
+        self.assertEqual(started["status"], "pending")
+        self.assertEqual(incomplete["status"], "partial")
+        self.assertEqual(started_details["operation_id"], incomplete_details["operation_id"])
+        self.assertNotIn(target.session_id, json.dumps(events))
+        self.assertNotIn("routerpass", json.dumps(events))
+
+    def test_admin_account_session_revocation_reports_queued_cleanup(self) -> None:
+        self.login()
+        target = self.server.context.sessions.create(
+            "operator", "operator-secret", role="operator",
+        )
+
+        with mock.patch.object(
+            self.server.context.sessions,
+            "revoke_account_sessions",
+            return_value=None,
+        ):
+            status, _, payload = self.json_request(
+                "POST",
+                "/api/admin/sessions/revoke-account",
+                {
+                    "username": "operator",
+                    "password": "routerpass",
+                    "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+                },
+            )
+
+        self.assertEqual(status, 202, payload.decode("utf-8"))
+        result = json.loads(payload)
+        self.assertEqual(result["outcome"], "pending")
+        self.assertEqual(result["audit_status"], "pending")
+        self.assertEqual(result["revoked_count"], 0)
+        self.assertIsNotNone(self.server.context.sessions.get(target.session_id, touch=False))
+        events = self.server.context.store.recent_audit(20)
+        self.assertTrue(any(
+            item["action"] == "admin-account-sessions.revoke.pending"
+            for item in events
+        ))
+        self.assertFalse(any(
+            item["action"] == "admin-account-sessions.revoke"
+            for item in events
+        ))
 
     def test_admin_account_session_revocation_reauthentication_is_rate_limited(self) -> None:
         self.login()
@@ -4849,6 +4963,51 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.server.context.sessions.get(target.session_id, touch=False))
         rate_limited_events = [
             item for item in self.server.context.store.recent_audit(100)
+            if item["action"] == "admin-account-sessions.reauth.rate_limited"
+        ]
+        self.assertEqual(len(rate_limited_events), 1)
+
+    def test_admin_account_rate_limited_audit_retries_after_persistence_failure(self) -> None:
+        self.login()
+        self.server.context.sessions.create(
+            "operator", "operator-secret", role="operator",
+        )
+        body = {
+            "username": "operator",
+            "confirmation": "REVOKE ALL DASHBOARD SESSIONS FOR operator",
+        }
+        for _ in range(5):
+            status, _, _ = self.json_request(
+                "POST",
+                "/api/admin/sessions/revoke-account",
+                {**body, "password": "wrong-password"},
+            )
+            self.assertEqual(status, 401)
+
+        store = self.server.context.store
+        original_audit = store.audit
+        attempts = 0
+
+        def fail_once(*args, **kwargs):
+            nonlocal attempts
+            if kwargs.get("action") == "admin-account-sessions.reauth.rate_limited":
+                attempts += 1
+                if attempts == 1:
+                    raise RuntimeError("injected audit persistence failure")
+            return original_audit(*args, **kwargs)
+
+        with mock.patch.object(store, "audit", side_effect=fail_once):
+            for _ in range(2):
+                status, _, payload = self.json_request(
+                    "POST",
+                    "/api/admin/sessions/revoke-account",
+                    {**body, "password": "routerpass"},
+                )
+                self.assertEqual(status, 429, payload.decode("utf-8"))
+
+        self.assertEqual(attempts, 2)
+        rate_limited_events = [
+            item for item in store.recent_audit(100)
             if item["action"] == "admin-account-sessions.reauth.rate_limited"
         ]
         self.assertEqual(len(rate_limited_events), 1)
