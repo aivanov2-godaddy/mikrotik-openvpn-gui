@@ -520,7 +520,11 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.mock.__enter__()
         self.config = test_runtime_config()
         context = AppContext(
-            router=RouterOSClient(self.mock.url, topology=self.config.topology),
+            router=RouterOSClient(
+                self.mock.url,
+                topology=self.config.topology,
+                allow_insecure_loopback_for_tests=True,
+            ),
             store=MetadataStore(str(Path(self.temporary.name) / "dashboard.sqlite")),
             sessions=SessionStore(),
             limiter=LoginRateLimiter(),

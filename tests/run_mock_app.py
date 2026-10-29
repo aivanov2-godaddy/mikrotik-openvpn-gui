@@ -30,7 +30,11 @@ def main() -> None:
             }
         )
         context = AppContext(
-            router=RouterOSClient(mock.url, topology=config.topology),
+            router=RouterOSClient(
+                mock.url,
+                topology=config.topology,
+                allow_insecure_loopback_for_tests=True,
+            ),
             store=MetadataStore(f"{temporary}/dashboard.sqlite"),
             # Browser regression tests repeatedly create isolated login
             # contexts against one shared mock server and do not model

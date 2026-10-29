@@ -191,6 +191,7 @@ class RouterOSClient:
         timeout: float = 15,
         insecure_tls: bool = False,
         topology: OpenVPNTopology | None = None,
+        allow_insecure_loopback_for_tests: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -203,10 +204,29 @@ class RouterOSClient:
             raise ConfigurationError(
                 "RouterOS REST TLS certificate verification cannot be disabled"
             )
-        if self.base_url.startswith("https://"):
+        try:
+            parsed_url = urllib.parse.urlsplit(self.base_url)
+        except ValueError as error:
+            raise ConfigurationError("RouterOS REST URL is invalid") from error
+        scheme = parsed_url.scheme.casefold()
+        hostname = parsed_url.hostname
+        if scheme == "https" and hostname:
             self.ssl_context = ssl.create_default_context(cafile=ca_file)
-        else:
+        elif scheme == "http" and hostname:
+            try:
+                is_loopback = ipaddress.ip_address(hostname).is_loopback
+            except ValueError:
+                is_loopback = False
+            # Local test servers may opt in; application configuration remains HTTPS-only.
+            if not (allow_insecure_loopback_for_tests and is_loopback):
+                raise ConfigurationError(
+                    "RouterOS REST requires HTTPS unless loopback HTTP is explicitly enabled for tests"
+                )
             self.ssl_context = None
+        else:
+            raise ConfigurationError(
+                "RouterOS REST requires an HTTPS URL with a hostname"
+            )
         self._opener = urllib.request.build_opener(
             _NoRedirectHandler(),
             urllib.request.HTTPSHandler(context=self.ssl_context),
