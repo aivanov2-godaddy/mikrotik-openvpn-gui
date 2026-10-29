@@ -13,23 +13,39 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. The latest published image is PR #873, commit
-`e7163beebda530f16619094e9e498f3da873f980`. Main CI run 40770342669 and
-publisher run 40770342526 passed. The publisher scanned, smoke-tested, and
-verified provenance and SPDX SBOM attestations for both exact architecture
-digests, then published and read back the stable manifest. Exact immutable
-tags and digests are recorded in [`RELEASES.md`](RELEASES.md). PR #873 has not
-been staged. An earlier 2026-10-28 read-only WinBox observation showed the
-canary's configured image digest prefix matching PR #862's published ARM64
-digest and its container `HEALTHY`. One Stats sample showed 0.7% CPU, 38.8 MiB
-memory, 0 B swap, 69.7 MiB app size, and 0.0 MiB data size. The exact image
-reference and readiness revision were not fully read back; this sample is not
-a soak. This supersedes older #785/#200 notes that PR #862 had not been read
-back. A later read-only check on 2026-10-28 found the signed-in dashboard's
-live stream stale/reconnecting with zero connected devices; RouterOS Active
-Connections showed no active sessions. No router changes were made.
-Publication and point-in-time observations do not establish RouterOS
-compatibility or acceptance.
+prove RouterOS compatibility. PR #875 (`bd27e608f074f357461e41fa906b87e84553a363`)
+is the latest published image. Its CI, CodeQL, image scans, runtime smoke tests,
+provenance and SPDX SBOM checks passed; the stable manifest was read back. See
+[`RELEASES.md`](RELEASES.md) for immutable tags and digests. PR #875 has not
+been staged on RouterOS.
+
+## Current read-only checkpoint — 2026-10-29
+
+WinBox showed the canary container's configured digest prefix matching PR #862's
+published ARM64 digest, while production still displayed the immutable tag
+prefix for PR #788. The list showed the canary and production rows with `H`
+markers and Redis with `R`; this is a point-in-time UI observation, not a
+resource soak. The PPP Active Connections table was empty. Public `/readyz`
+requests returned HTTP 200 Cloudflare Access sign-in HTML in both environments,
+not application readiness JSON; direct private-container readiness probes from
+the workstation timed out. The exact current application revision therefore
+could not be read back. PR #875 remains unstaged, and no live-session acceptance
+or production promotion is claimed. RouterOS configuration was not changed.
+A follow-up WinBox read after the owner reported reconnecting still showed zero
+PPP Active Connections; the reported client session is not yet corroborated by
+RouterOS or authenticated canary telemetry.
+
+The preserved 2026-10-28 operator-transcribed updater manifests were rechecked
+offline on 2026-10-29. The project-updater subset lists three non-exact copies;
+all three lack the reviewed canary restore verifier. The larger five-script,
+three-scheduler manifest is explicitly non-exhaustive. It records two enabled
+scheduler entries invoking a separate `autoupdate` script and one disabled
+project-updater scheduler with zero runs whose `/system/script/run *8` target
+remains unresolved. The comparator's credential, private-key, destructive-
+operation, and fetch-marker heuristics reported no added markers; this is not
+a safety approval. The original invalid-request cause was not recovered from
+the retained audit bundle and remains unknown. No script or scheduler was run
+or changed; keep the project updater disabled.
 
 ## Candidate status — PR #862 — partial read-back
 
@@ -39,11 +55,11 @@ image digest prefix matching its published ARM64 digest and container status
 `HEALTHY`, with one point-in-time Stats sample. This supersedes the older #785
 and #200 comments that said it had not been read back. The exact image
 reference, `/readyz` revision, sustained health/resource impact, and soak are
-not verified. PR #873 is the latest published image and has not been staged.
+not verified. PR #875 is the latest published image and has not been staged.
 
 Candidate-specific session-event, traffic-freshness, latency, reconnect,
 snapshot-recovery, and authorization evidence remain unavailable for PR #862
-and PR #873. The earlier observed VPN session was not correlated with an
+and PR #875. The earlier observed VPN session was not correlated with an
 authenticated dashboard; the latest read-only check showed no active session.
 A 30-minute candidate-bound soak, Redis failure/recovery checks,
 SQLite backup/restore rehearsal, counter-reset and event-integrity checks, and a

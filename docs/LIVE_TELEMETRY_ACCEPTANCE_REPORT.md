@@ -1,24 +1,34 @@
 # Live telemetry acceptance status
 
-Status: **PR #873 (`e7163beebda530f16619094e9e498f3da873f980`) is the latest
-published image source, with immutable ARM64 and AMD64 images. Main CI run
-40770342669 and publisher run 40770342526 passed; both images were scanned,
-smoke-tested, and verified with provenance and SPDX SBOM attestations. The
-stable manifest was published and read back. Exact tags and digests are in
-[`RELEASES.md`](RELEASES.md).
+Status: **PR #875 (`bd27e608f074f357461e41fa906b87e84553a363`) is the latest
+published image source, with immutable ARM64 and AMD64 images. Main CI,
+CodeQL, image scans, runtime smoke tests, provenance and SPDX SBOM checks
+passed; the stable manifest was read back. Exact tags and digests are in
+[`RELEASES.md`](RELEASES.md). PR #875 has not been staged on RouterOS.**
 
-An earlier 2026-10-28 read-only WinBox observation showed the canary container
-`HEALTHY` and its configured GHCR digest prefix matched PR #862's published
-ARM64 digest. A single Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
-69.7 MiB app size, and 0.0 MiB data size. A later point check found the
-signed-in dashboard's live stream stale/reconnecting with zero connected
-devices; RouterOS Active Connections showed no active sessions. No router
-changes were made. The full configured image reference, exact
-readiness revision, and sustained resource impact remain unverified. PR #873
-has not been staged. Production promotion and the 30-minute acceptance window
-remain unverified.**
+## Current read-only RouterOS checkpoint — 2026-10-29
 
-## RouterOS candidate status — PR #862 and PR #873
+WinBox showed the canary's configured digest prefix matching the published
+PR #862 ARM64 digest and production's configured immutable tag prefix matching
+PR #788. The dashboard container rows displayed `H` markers and Redis displayed
+`R`; these are point-in-time UI readings, not a resource soak. PPP Active
+Connections showed zero entries. Public `/readyz` requests returned HTTP 200
+Cloudflare Access sign-in HTML rather than readiness JSON, and direct private
+container readiness probes from the workstation timed out. The current
+application revision could not be independently read back. No live-session
+acceptance, PR #875 staging, or production promotion is claimed; RouterOS
+configuration was not changed.
+A follow-up WinBox read after the owner reported reconnecting still showed zero
+PPP Active Connections, so the reported client session is not corroborated by
+RouterOS or authenticated canary telemetry.
+
+An earlier 2026-10-28 Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
+69.7 MiB app size, and 0.0 MiB data size. A signed-in dashboard check then
+showed a stale/reconnecting live stream and zero connected devices. Those
+historical point checks do not establish sustained resource impact. The
+30-minute acceptance window and production promotion remain unverified.
+
+## RouterOS candidate status — PR #862 and PR #875
 
 PR #862 is a published artifact with immutable digests recorded in
 [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -26,12 +36,12 @@ image digest prefix matching its published ARM64 digest and a `HEALTHY`
 container. The Stats view provided one CPU/memory/swap/app-size/data-size
 sample. The earlier draft's exact `/readyz` revision claim remains unverified;
 the old issue notes saying PR #862 had not been read back are superseded by
-this earlier observation. PR #873 is the latest published image and has not been
+this earlier observation. PR #875 is the latest published image and has not been
 staged on RouterOS. The latest confirmed candidate-image read-back is PR #862,
 limited to the image digest prefix and point-in-time container status/resource
 sample described above. The later stale-stream/no-session check shows that
 live telemetry acceptance remains incomplete; neither point check establishes
-acceptance of PR #873.
+acceptance of PR #875.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and

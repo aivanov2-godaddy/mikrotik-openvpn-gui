@@ -1082,6 +1082,38 @@ These changes have repository tests only. The live Redis ACL must grant the
 documented review key pattern and commands before deployment; deployed Redis
 and RouterOS behavior remain unverified.
 
+## Independent internal source review — 2026-10-29
+
+Two bounded read-only reviewers inspected authentication/session and telemetry
+authorization, plus RouterOS REST/Binary API, Redis/SQLite, logging, and runtime
+protection at repository commit
+`5b59f27afd615fe1e8364e91984ba0869449213a`. No critical or high source-level
+finding was confirmed in the inspected paths. This was an internal source review
+against selected controls, not an external assessment, penetration test, or
+complete requirement-by-requirement ASVS review. The reviewers inspected
+existing tests but did not execute them or inspect the deployed router/proxy.
+
+The review confirmed that V8.3.2 remains a product gap: the app's one-second
+live-role cache does not bound how quickly a RouterOS REST login observes a
+group-policy change. V7.4.2 disable-detection timing and V4.4.1 deployment TLS
+remain external or partial evidence. Redis configuration permits `redis://`
+for isolated private networks; the deployed transport mode and ACL were not
+verified. RouterOS passwords remain in process memory; application core dumps
+are disabled, but host dump-collector policy and deployed log retention remain
+unverified.
+
+One low-severity defense-in-depth gap remains: normal application
+configuration rejects non-HTTPS RouterOS REST URLs, but direct construction of
+`RouterOSClient` does not enforce HTTPS itself and its request path attaches
+Basic credentials. No non-test production call site bypassing the validated
+configuration was found in this review. Keep the URL validation in force and
+close this constructor-level gap before treating the REST client as safe for
+independent direct use. This does not establish a deployed cleartext exposure.
+
+The matrix remains scoped to selected ASVS 5.0.0 controls. No overall
+conformance claim follows from this review, and issue #200 remains open pending
+the live deployment and operational evidence listed above.
+
 ## Non-goals
 
 This document is a narrow evidence index for the session/live-stream area. It
