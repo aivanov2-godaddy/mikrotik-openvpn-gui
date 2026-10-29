@@ -34,6 +34,9 @@ or production promotion is claimed. RouterOS configuration was not changed.
 A follow-up WinBox read after the owner reported reconnecting still showed zero
 PPP Active Connections; the reported client session is not yet corroborated by
 RouterOS or authenticated canary telemetry.
+The WinBox System > Resources view showed a router-wide point sample of 6% CPU,
+646.7 MiB free memory of 1024 MiB, 760.5 MiB free disk of 1024 MiB, and 0.0%
+bad blocks. This is not dashboard-container attribution or a sustained soak.
 
 The preserved 2026-10-28 operator-transcribed updater manifests were rechecked
 offline on 2026-10-29. The project-updater subset lists three non-exact copies;

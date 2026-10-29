@@ -21,6 +21,10 @@ configuration was not changed.
 A follow-up WinBox read after the owner reported reconnecting still showed zero
 PPP Active Connections, so the reported client session is not corroborated by
 RouterOS or authenticated canary telemetry.
+WinBox System > Resources also showed a router-wide point sample: 6% CPU,
+646.7 MiB free memory of 1024 MiB, 760.5 MiB free disk of 1024 MiB, and 0.0%
+bad blocks. These figures do not attribute usage to the dashboard container or
+establish sustained impact.
 
 An earlier 2026-10-28 Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
 69.7 MiB app size, and 0.0 MiB data size. A signed-in dashboard check then
