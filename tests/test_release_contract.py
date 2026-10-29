@@ -444,15 +444,15 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "PR #879, commit `c0e9ac980da5694a2be9560dcbad0f9234cb9009`",
+            "PR #885, commit `f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb`",
             installation,
         )
         self.assertIn(
-            "sha256:3f92563ef0ae0c5d55a09fe81eaa950afe6a6d1d028fbebd5a4d36e229688832",
+            "sha256:0b3bebc396e1e2c20e61cbc0103a32d64a6bb9bf329284ea98a0c52687f2122e",
             installation,
         )
         self.assertIn(
-            "sha256:8e47c68dcdc1bfab6643a15e7e31139e8018960b8879539ec16a452f8e8764d1",
+            "sha256:9074e637e745d51c85f8e9c60a75b528cd206d3508627d9107c723699cf28a4b",
             installation,
         )
         self.assertIn("### Latest published authentication-denial classification — PR #849", security_assurance)
@@ -491,9 +491,12 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("Stats view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap", rendered)
-        self.assertIn("No RouterOS read-back confirms PR #879 staging or acceptance", rendered)
+        self.assertIn("No RouterOS read-back confirms PR #885 staging or acceptance", rendered)
         self.assertIn("digest prefix matching the PR #862 ARM64 digest", rendered)
-        self.assertIn("exact readiness revision and a sustained soak remain unverified", rendered)
+        self.assertIn(
+            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",
+            rendered,
+        )
         self.assertIn("Production remains on its prior image", rendered)
         self.assertIn("This later observation supersedes an earlier inventory that reported the canary stopped", rendered)
         self.assertIn("latest read-only WinBox observation", rendered)

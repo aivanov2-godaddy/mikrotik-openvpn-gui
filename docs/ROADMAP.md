@@ -111,13 +111,14 @@ before writing the audit event. PR #778 added redacted origin-rejection
 diagnostics and Engine.IO handshake SID binding. PR #791 and #797 improve the
 checked-in example RouterOS updater; neither installs nor executes it. PR #794
 added WebSocket Origin and admin-session revocation-reference hardening. PR
-#798 adds evidence-gated originless polling and browser coverage; PR #879 is
+#798 adds evidence-gated originless polling and browser coverage; PR #885 is
 the latest published image source. Its main CI, publisher, provenance, and SBOM checks passed; no RouterOS read-back confirms it is staged or accepted, and it does not satisfy the live acceptance gates. PR #830 improves offline updater comparison only. PR #851
 adds local read-only inventory tooling for #785, but no live inventory or
 RouterOS mutation has occurred.
 The latest confirmed candidate-bound RouterOS read-back is PR #862, limited to
 the WinBox digest-prefix match, `HEALTHY` status, and single resource sample
-described above. The exact readiness revision remains unverified.
+described above. A fresh Access-authenticated readiness read returned PR #862
+revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`, not PR #885.
 The 30-minute live-acceptance and rollback gates in #200 and #205 remain open.
 
 PR #866 merged on 2026-10-27 as `25e67872beeb328661a71e3d97d655b6fe44844b`.
