@@ -3227,7 +3227,7 @@ $('#admin-session-reauth-form')?.addEventListener('submit', async (event) => {
       ? 'Verifying your RouterOS sign-in before ending other dashboard sessions…'
       : 'Verifying your RouterOS sign-in before revoking the selected dashboard session…');
   try {
-    await resultOrError(await api(revokeAccount
+    const response = await resultOrError(await api(revokeAccount
       ? '/api/admin/sessions/revoke-account'
       : revokeOthers
         ? '/api/auth/sessions/revoke-others'
@@ -3237,13 +3237,18 @@ $('#admin-session-reauth-form')?.addEventListener('submit', async (event) => {
         ? { username: revokeAccount, password, confirmation }
         : revokeOthers ? { password, confirmation } : { password },
     }));
+    const result = await response.json();
     form.reset();
     delete form.dataset.sessionId;
     delete form.dataset.revokeOthers;
     delete form.dataset.revokeAccount;
     form.closest('dialog')?.close();
     toast(revokeAccount
-      ? 'All dashboard sessions for ' + revokeAccount + ' were signed out.'
+      ? result.outcome === 'pending'
+        ? result.audit_status === 'incomplete'
+          ? 'Sign-out is queued and dashboard access is blocked while cleanup retries; its audit update could not be saved.'
+          : 'Sign-out is queued. Dashboard access is blocked while cleanup retries.'
+        : 'All dashboard sessions for ' + revokeAccount + ' were signed out.'
       : revokeOthers ? 'Your other dashboard sessions were signed out.' : 'Administrator session revoked.');
     loadAdminSessions();
   } catch (error) {
