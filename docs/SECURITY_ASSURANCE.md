@@ -1115,6 +1115,35 @@ The matrix remains scoped to selected ASVS 5.0.0 controls. No overall
 conformance claim follows from this review, and issue #200 remains open pending
 the live deployment and operational evidence listed above.
 
+## Independent internal source review — 2026-10-30
+
+A read-only reviewer inspected the authentication, session, authorization, and
+live-telemetry paths at main commit
+`bd99012371b47611a7a9b89cccb5ef5df1948a8b`. The review confirmed the existing
+CSRF/origin and capability enforcement, authorized-session checks for live
+connections, telemetry event/field allowlists, and focused role/capability and
+session-bound delivery tests. No new exploitable source defect was confirmed
+within that scope. This was a narrow internal source review; tests were
+inspected but not executed, and this is not an external assessment,
+penetration test, complete ASVS review, or compliance attestation.
+
+The review re-confirmed two unresolved risks. First, V8.3.2 remains a gap:
+application role-cache intervals do not establish end-to-end RouterOS policy
+revocation timing. The official [RouterOS REST API manual](https://manual.mikrotik.com/docs/developer-guides/rest-api/)
+currently identifies itself as version 7.26 and describes the REST server
+retaining an API login for up to 10 minutes before group-policy changes take
+effect. That documentation does not establish behavior on a different
+deployed RouterOS version; disable, role reassignment, and group-policy timing
+must be measured on the candidate device. Second, the RouterOS password remains
+a Python string in process memory while authenticated operations require it.
+Clearing references and setting process core limits are mitigations, not secure
+erasure, and the named residual-risk decision remains unresolved as described
+below. Neither risk is closed by this source review.
+
+This review does not close issue #200. Candidate-bound deployment, proxy,
+resource, event-freshness, reconnect/recovery, Redis/SQLite, and rollback
+evidence remain outstanding.
+
 ## Non-goals
 
 This document is a narrow evidence index for the session/live-stream area. It
