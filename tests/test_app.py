@@ -3164,6 +3164,39 @@ class DashboardIntegrationTests(unittest.TestCase):
         status, _, payload = self.request("POST", "/login", body=body, headers=headers)
         self.assertEqual(status, 429, payload.decode())
 
+    def test_login_rejects_oversized_password_before_routeros_auth(self) -> None:
+        password = "p" * 257
+        body = urllib.parse.urlencode(
+            {"username": "admin", "password": password}
+        ).encode()
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": self.config.public_origin,
+        }
+
+        with (
+            mock.patch.object(
+                self.server.context.router, "verify_credentials"
+            ) as verify_credentials,
+            mock.patch.object(
+                self.server.context.router, "get_admin_role"
+            ) as get_admin_role,
+        ):
+            for attempt in range(6):
+                with self.subTest(attempt=attempt + 1):
+                    status, _, _ = self.request("POST", "/login", body=body, headers=headers)
+                    expected_status = (
+                        HTTPStatus.UNAUTHORIZED if attempt < 5 else HTTPStatus.TOO_MANY_REQUESTS
+                    )
+                    self.assertEqual(status, expected_status)
+
+        verify_credentials.assert_not_called()
+        get_admin_role.assert_not_called()
+        audit = self.server.context.store.recent_audit(20)
+        self.assertEqual(audit[0]["action"], "login.rate_limited")
+        self.assertIn("login.failure", [event["action"] for event in audit])
+        self.assertNotIn(password, json.dumps(audit))
+
     def test_routeros_unavailable_login_does_not_consume_bad_password_budget(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
         headers = {

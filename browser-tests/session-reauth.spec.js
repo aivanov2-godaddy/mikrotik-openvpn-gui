@@ -42,9 +42,31 @@ test('failed re-authentication clears password and preserves the live dashboard 
   await expectNoDocumentReload(page, originalDocument);
 });
 
-test('self-service sign-out preserves the current session and requires typed confirmation', async ({ page }) => {
+test('self-service sign-out requires typed confirmation and retains the current dashboard view', async ({ page }) => {
   await signIn(page);
   const originalDocument = await page.evaluate(() => window.__documentInstance);
+  const confirmationRequests = [];
+
+  // Backend revocation semantics are covered by tests/test_app.py. Keep this
+  // page-level interaction isolated: the browser suite shares one mock server,
+  // so revoking every other login here would invalidate sessions in parallel tests.
+  await page.route('**/api/auth/sessions/revoke-others', async (route) => {
+    const { confirmation } = route.request().postDataJSON();
+    confirmationRequests.push(confirmation);
+    if (confirmation !== 'SIGN OUT MY OTHER SESSIONS') {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Type SIGN OUT MY OTHER SESSIONS to confirm this action' }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, revoked_count: 1 }),
+    });
+  });
 
   await page.getByRole('button', { name: 'Sign out my other sessions' }).click();
   const dialog = page.locator('#admin-session-reauth-dialog');
@@ -70,6 +92,7 @@ test('self-service sign-out preserves the current session and requires typed con
   ));
   await dialog.getByRole('button', { name: 'Verify and sign out my other sessions' }).click();
   expect((await accepted).status()).toBe(200);
+  expect(confirmationRequests).toEqual(['wrong phrase', 'SIGN OUT MY OTHER SESSIONS']);
   await expect(dialog).toBeHidden();
   await expect(dialog.getByLabel('RouterOS password')).toHaveValue('');
   expect(await page.evaluate(async () => (

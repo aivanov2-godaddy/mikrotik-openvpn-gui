@@ -130,6 +130,7 @@ SESSION_TERMINATION_VERIFY_TIMEOUT_SECONDS = 5.0
 SESSION_TERMINATION_VERIFY_POLL_INTERVAL_SECONDS = 0.25
 LIVE_RESPONSE_WRITE_TIMEOUT_SECONDS = 10.0
 MAX_REQUEST_BODY_BYTES = 64 * 1024
+MAX_ROUTEROS_PASSWORD_LENGTH = 256
 STATUS_ROUTER_FIELDS = frozenset(
     {
         "cpu-load",
@@ -2890,7 +2891,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             data = self._read_json()
             password = data.get("password")
-            if not isinstance(password, str) or not password or len(password) > 256:
+            if (
+                not isinstance(password, str)
+                or not password
+                or len(password) > MAX_ROUTEROS_PASSWORD_LENGTH
+            ):
                 raise ValueError("Enter your RouterOS password to confirm this action")
         except (ValueError, TypeError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
@@ -2983,7 +2988,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 confirmation, "SIGN OUT MY OTHER SESSIONS"
             ):
                 raise ValueError("Type SIGN OUT MY OTHER SESSIONS to confirm this action")
-            if not isinstance(password, str) or not password or len(password) > 256:
+            if (
+                not isinstance(password, str)
+                or not password
+                or len(password) > MAX_ROUTEROS_PASSWORD_LENGTH
+            ):
                 raise ValueError("Enter your RouterOS password to confirm this action")
         except (ValueError, TypeError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
@@ -4138,8 +4147,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.server.context.sessions.account_revocation_generation(username)
             )
             password = form.get("password", "")
-            if not password:
-                raise ValueError("Password is required")
+            if (
+                not isinstance(password, str)
+                or not password
+                or len(password) > MAX_ROUTEROS_PASSWORD_LENGTH
+            ):
+                raise ValueError("Invalid RouterOS credentials")
             credentials = RouterOSCredentials(username, password)
             self.server.context.router.verify_credentials(credentials)
             role = self.server.context.router.get_admin_role(
@@ -4338,7 +4351,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             data = self._read_json()
             password = data.get("password")
-            if not isinstance(password, str) or not password or len(password) > 256:
+            if (
+                not isinstance(password, str)
+                or not password
+                or len(password) > MAX_ROUTEROS_PASSWORD_LENGTH
+            ):
                 raise ValueError("Enter your RouterOS password to re-authenticate")
         except (ValueError, TypeError) as error:
             self._json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
