@@ -337,7 +337,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #879", release_record)
+        self.assertIn("## Latest published mainline image — PR #885", release_record)
+        self.assertIn("## Previous published mainline image — PR #879", release_record)
         self.assertIn("## Previous published mainline image — PR #875", release_record)
         self.assertIn("## Previous published mainline image — PR #873", release_record)
         self.assertIn("## Previous published mainline image — PR #871", release_record)
@@ -356,6 +357,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #817", release_record)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
         self.assertIn("eb29581c8430ec862a8b47ee62268a74fec14518", rendered)
+        self.assertIn("f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb", rendered)
         self.assertIn("c0e9ac980da5694a2be9560dcbad0f9234cb9009", rendered)
         self.assertIn("bd27e608f074f357461e41fa906b87e84553a363", rendered)
         self.assertIn("e7163beebda530f16619094e9e498f3da873f980", rendered)
@@ -374,11 +376,22 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:e6288dcc70eed59d29bfb697ffd5809de604463d718689e0fa9ca9d5bc615d17", rendered)
         self.assertIn("sha256:d737a8ae1c727ee7e1fb0b1da0c5ccdbeb17f035e1a611bd3242e6ee46c1976f", rendered)
         self.assertIn("sha256:02e2ec88e9591d0d7686edfeb4c5c0afbf3f4e28807dcdb9521b2035bbb2c84d", rendered)
+        self.assertIn("sha256:0b3bebc396e1e2c20e61cbc0103a32d64a6bb9bf329284ea98a0c52687f2122e", rendered)
+        self.assertIn("sha256:9074e637e745d51c85f8e9c60a75b528cd206d3508627d9107c723699cf28a4b", rendered)
+        self.assertIn("sha256:aee2573edb8edcb1b8446b012aef408f4d2c1a3727b6dfc4c9dd66cc0fefe390", rendered)
         roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
-        self.assertIn("PR #879 is the latest published image; no RouterOS read-back confirms it is staged.", roadmap)
+        self.assertIn("PR #885", roadmap)
+        normalized_roadmap = " ".join(roadmap.split())
+        self.assertIn(
+            "No PR #885 staging, candidate-specific acceptance, or production promotion is claimed.",
+            normalized_roadmap,
+        )
         self.assertIn("latest confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
-        self.assertIn("The exact readiness revision remains unverified.", roadmap)
-        self.assertIn("sustained resource impact", roadmap)
+        self.assertIn(
+            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",
+            normalized_roadmap,
+        )
+        self.assertIn("sustained resource impact", normalized_roadmap)
         self.assertIn("Public records may include redacted candidate-bound point samples", roadmap)
         self.assertIn("c88bc730a8e75bcd89ab73dcf85d87df37db7884", rendered)
         self.assertIn("273e9ed1c3618e605c3af106a59b76dfb8686769", rendered)
@@ -431,15 +444,15 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "PR #879, commit `c0e9ac980da5694a2be9560dcbad0f9234cb9009`",
+            "PR #885, commit `f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb`",
             installation,
         )
         self.assertIn(
-            "sha256:3f92563ef0ae0c5d55a09fe81eaa950afe6a6d1d028fbebd5a4d36e229688832",
+            "sha256:0b3bebc396e1e2c20e61cbc0103a32d64a6bb9bf329284ea98a0c52687f2122e",
             installation,
         )
         self.assertIn(
-            "sha256:8e47c68dcdc1bfab6643a15e7e31139e8018960b8879539ec16a452f8e8764d1",
+            "sha256:9074e637e745d51c85f8e9c60a75b528cd206d3508627d9107c723699cf28a4b",
             installation,
         )
         self.assertIn("### Latest published authentication-denial classification — PR #849", security_assurance)
@@ -478,9 +491,12 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("Stats view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap", rendered)
-        self.assertIn("No RouterOS read-back confirms PR #879 staging or acceptance", rendered)
+        self.assertIn("No RouterOS read-back confirms PR #885 staging or acceptance", rendered)
         self.assertIn("digest prefix matching the PR #862 ARM64 digest", rendered)
-        self.assertIn("exact readiness revision and a sustained soak remain unverified", rendered)
+        self.assertIn(
+            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",
+            rendered,
+        )
         self.assertIn("Production remains on its prior image", rendered)
         self.assertIn("This later observation supersedes an earlier inventory that reported the canary stopped", rendered)
         self.assertIn("latest read-only WinBox observation", rendered)
