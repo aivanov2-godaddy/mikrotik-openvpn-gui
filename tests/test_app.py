@@ -3197,6 +3197,69 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertIn("login.failure", [event["action"] for event in audit])
         self.assertNotIn(password, json.dumps(audit))
 
+    def test_repeated_login_rate_limits_coalesce_audit_rows_without_peer_address(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "wrong-password"}).encode()
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": self.config.public_origin,
+        }
+        for _attempt in range(5):
+            status, _, _ = self.request("POST", "/login", body=body, headers=headers)
+            self.assertEqual(status, 401)
+        for _attempt in range(3):
+            status, _, _ = self.request("POST", "/login", body=body, headers=headers)
+            self.assertEqual(status, 429)
+
+        rate_limit_events = [
+            event for event in self.server.context.store.recent_audit(100)
+            if event["action"] == "login.rate_limited"
+        ]
+        self.assertEqual(len(rate_limit_events), 1)
+        details = json.loads(rate_limit_events[0]["details"])
+        self.assertEqual(details, {"suppressed_attempts": 0})
+        self.assertNotIn("127.0.0.1", json.dumps(rate_limit_events))
+
+    def test_rate_limited_login_audit_failure_is_retried_with_retained_count(self) -> None:
+        body = urllib.parse.urlencode({"username": "admin", "password": "wrong-password"}).encode()
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": self.config.public_origin,
+        }
+        for _attempt in range(5):
+            status, _, _ = self.request("POST", "/login", body=body, headers=headers)
+            self.assertEqual(status, 401)
+
+        with self.server.context.store._connection() as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_rate_limited_login_audit BEFORE INSERT ON audit
+                WHEN NEW.action = 'login.rate_limited'
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected audit failure');
+                END;
+                """
+            )
+
+        status, _, payload = self.request("POST", "/login", body=body, headers=headers)
+        self.assertEqual(status, HTTPStatus.SERVICE_UNAVAILABLE, payload.decode())
+        status, _, _ = self.request("POST", "/login", body=body, headers=headers)
+        self.assertEqual(status, 429)
+
+        with self.server.context.store._connection() as connection:
+            connection.execute("DROP TRIGGER fail_rate_limited_login_audit")
+        self.server.context.limiter._last_rate_limited_login_audit_at = time.monotonic() - 61
+
+        status, _, payload = self.request("POST", "/login", body=body, headers=headers)
+        self.assertEqual(status, 429, payload.decode())
+        rate_limit_events = [
+            event for event in self.server.context.store.recent_audit(100)
+            if event["action"] == "login.rate_limited"
+        ]
+        self.assertEqual(len(rate_limit_events), 1)
+        details = json.loads(rate_limit_events[0]["details"])
+        self.assertEqual(details, {"suppressed_attempts": 2})
+        self.assertNotIn("127.0.0.1", json.dumps(rate_limit_events))
+
     def test_routeros_unavailable_login_does_not_consume_bad_password_budget(self) -> None:
         body = urllib.parse.urlencode({"username": "admin", "password": "routerpass"}).encode()
         headers = {

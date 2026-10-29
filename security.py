@@ -1229,6 +1229,9 @@ class SessionStore:
 
 
 class LoginRateLimiter:
+    RATE_LIMITED_LOGIN_AUDIT_INTERVAL_SECONDS = 60.0
+    MAX_SUPPRESSED_LOGIN_AUDIT_COUNT = 1_000_000_000
+
     def __init__(
         self,
         limit: int = 5,
@@ -1236,14 +1239,84 @@ class LoginRateLimiter:
         *,
         max_tracked_identities: int = 4096,
         max_in_flight: int = 256,
+        rate_limited_login_audit_interval_seconds: float = RATE_LIMITED_LOGIN_AUDIT_INTERVAL_SECONDS,
     ) -> None:
         self.limit = limit
         self.window_seconds = window_seconds
         self.max_tracked_identities = max(1, int(max_tracked_identities))
         self.max_in_flight = max(1, int(max_in_flight))
+        self.rate_limited_login_audit_interval_seconds = max(
+            1.0, float(rate_limited_login_audit_interval_seconds)
+        )
         self._attempts: dict[str, list[float]] = {}
         self._reservations: dict[str, str] = {}
+        self._last_rate_limited_login_audit_at: float | None = None
+        self._suppressed_rate_limited_login_audits = 0
+        self._rate_limited_login_audit_in_flight = False
+        self._reserved_rate_limited_login_audit_count = 0
+        self._suppressed_during_rate_limited_login_audit = 0
         self._lock = threading.Lock()
+
+    def reserve_rate_limited_login_audit(self, now: float | None = None) -> int | None:
+        """Coalesce public login-limit audit writes to one per interval.
+
+        Return the number of suppressed attempts accumulated since the previous
+        audit when a caller may persist an aggregate event. The reservation must
+        be completed with :meth:`complete_rate_limited_login_audit` after the
+        persistence attempt. Return ``None`` for requests inside the current
+        interval or while a write is in flight. State is constant-sized and
+        shared across identities so a source-address spray cannot grow it.
+        """
+        current = time.monotonic() if now is None else float(now)
+        with self._lock:
+            previous = self._last_rate_limited_login_audit_at
+            if self._rate_limited_login_audit_in_flight:
+                self._suppressed_during_rate_limited_login_audit = min(
+                    self._suppressed_during_rate_limited_login_audit + 1,
+                    self.MAX_SUPPRESSED_LOGIN_AUDIT_COUNT,
+                )
+                return None
+            if (
+                previous is not None
+                and current - previous < self.rate_limited_login_audit_interval_seconds
+            ):
+                self._suppressed_rate_limited_login_audits = min(
+                    self._suppressed_rate_limited_login_audits + 1,
+                    self.MAX_SUPPRESSED_LOGIN_AUDIT_COUNT,
+                )
+                return None
+
+            suppressed = self._suppressed_rate_limited_login_audits
+            self._suppressed_rate_limited_login_audits = 0
+            self._last_rate_limited_login_audit_at = current
+            self._rate_limited_login_audit_in_flight = True
+            self._reserved_rate_limited_login_audit_count = suppressed
+            self._suppressed_during_rate_limited_login_audit = 0
+            return suppressed
+
+    def complete_rate_limited_login_audit(self, *, succeeded: bool) -> None:
+        """Commit or release a reserved aggregate audit write.
+
+        Keep its suppressed count pending until persistence succeeds. A failed
+        write itself is added to the next aggregate, and the reservation time
+        remains in place to bound retries to one per interval.
+        """
+        with self._lock:
+            if not self._rate_limited_login_audit_in_flight:
+                return
+
+            reserved_count = self._reserved_rate_limited_login_audit_count
+            suppressed_during_write = self._suppressed_during_rate_limited_login_audit
+            if succeeded:
+                self._suppressed_rate_limited_login_audits = suppressed_during_write
+            else:
+                self._suppressed_rate_limited_login_audits = min(
+                    reserved_count + suppressed_during_write + 1,
+                    self.MAX_SUPPRESSED_LOGIN_AUDIT_COUNT,
+                )
+            self._rate_limited_login_audit_in_flight = False
+            self._reserved_rate_limited_login_audit_count = 0
+            self._suppressed_during_rate_limited_login_audit = 0
 
     def reserve(self, identity: str, now: float | None = None) -> str | None:
         """Atomically reserve an authentication attempt, or return ``None`` if limited.
