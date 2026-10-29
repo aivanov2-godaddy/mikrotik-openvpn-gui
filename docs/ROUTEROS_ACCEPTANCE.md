@@ -18,7 +18,26 @@ is the latest published image. Its CI, CodeQL, image scans, runtime smoke tests,
 provenance and SPDX SBOM checks passed; the stable manifest was read back. See
 [`RELEASES.md`](RELEASES.md) for immutable tags and digests. No RouterOS read-back confirms PR #885 staging or acceptance.
 
-## Current read-only checkpoint — 2026-10-29
+## Current read-only checkpoint — 2026-10-30
+
+WinBox read-back showed the canary still configured for PR #862's published
+ARM64 image and reporting `HEALTHY`; production still showed the older immutable
+image associated with PR #788. Neither container was changed. RouterOS PPP
+Active Connections showed one active test tunnel at the time of the read, but
+the canary dashboard browser was at its sign-in page. The session could not be
+correlated with authenticated dashboard telemetry, so event delivery, latency,
+freshness, reconnect, and snapshot recovery remain unverified for the current
+candidate. This is not a soak or acceptance result.
+
+The read-only WinBox review also found five known updater-related script entries
+and three scheduler entries. The project updater scheduler was disabled with
+zero runs and an unresolved event binding. No updater or script was executed;
+no router account, policy, certificate, VPN profile, or container was changed.
+Keep the updater disabled until installed source and scheduler bindings are
+reconciled and reviewed staging and rollback steps are available. No PR #885
+staging or production promotion is claimed.
+
+## Historical checkpoint — 2026-10-29
 
 WinBox showed the canary container's configured digest prefix matching PR #862's
 published ARM64 digest, while production still displayed the immutable tag
@@ -65,8 +84,8 @@ the soak remain unverified.
 
 Candidate-specific session-event, traffic-freshness, latency, reconnect,
 snapshot-recovery, and authorization evidence remain unavailable for PR #885.
-The earlier observed VPN session was not correlated with an
-authenticated dashboard; the latest read-only check showed no active session.
+RouterOS later showed one active test tunnel, but it was not correlated with an
+authenticated dashboard; the canary browser remained at its sign-in page.
 A 30-minute candidate-bound soak, Redis failure/recovery checks,
 SQLite backup/restore rehearsal, counter-reset and event-integrity checks, and a
 candidate-specific rollback rehearsal remain outstanding. Production
