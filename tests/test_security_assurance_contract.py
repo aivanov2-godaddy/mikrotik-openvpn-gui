@@ -642,11 +642,11 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #879 (`c0e9ac980da5694a2be9560dcbad0f9234cb9009`) is the latest published image source",
+            "PR #885 (`f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb`) is the latest published image source",
             roadmap,
         )
         self.assertIn(
-            "PR #879 (`c0e9ac980da5694a2be9560dcbad0f9234cb9009`) is the latest published image source",
+            "## Latest published mainline image — PR #885",
             releases,
         )
         self.assertIn(
@@ -658,7 +658,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             releases,
         )
         self.assertIn(
-            "The exact readiness revision, sustained health/resource impact, live-event behavior, and acceptance window remain unverified.",
+            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)
