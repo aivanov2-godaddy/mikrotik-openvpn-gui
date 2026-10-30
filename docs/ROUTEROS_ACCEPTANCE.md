@@ -22,13 +22,15 @@ post-publication RouterOS read-back confirms PR #891 staging or acceptance.
 ## Current read-only checkpoint — 2026-10-30
 
 WinBox read-back showed the canary still configured for PR #862's published
-ARM64 image and reporting `HEALTHY`; production still showed the older immutable
-image associated with PR #788. Neither container was changed. RouterOS PPP
-Active Connections showed one active test tunnel at the time of the read, but
-the canary dashboard browser was at its sign-in page. The session could not be
-correlated with authenticated dashboard telemetry, so event delivery, latency,
-freshness, reconnect, and snapshot recovery remain unverified for the current
-candidate. This is not a soak or acceptance result.
+ARM64 immutable tag and matching digest
+`sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac`,
+with a healthy marker. Production still showed the older immutable image tag
+associated with PR #788. Neither container was changed. RouterOS PPP Active
+Connections showed one active test tunnel, but the canary dashboard sign-in
+request remained pending, so the session could not be correlated with
+authenticated dashboard telemetry. Event delivery, latency, freshness,
+reconnect, and snapshot recovery remain unverified for PR #891. This is not a
+soak or acceptance result.
 
 The read-only WinBox review also found five known updater-related script entries
 and three scheduler entries. The project updater scheduler was disabled with

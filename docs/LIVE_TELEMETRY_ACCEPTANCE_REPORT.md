@@ -28,6 +28,17 @@ WinBox System > Resources also showed a router-wide point sample: 6% CPU,
 bad blocks. These figures do not attribute usage to the dashboard container or
 establish sustained impact.
 
+## Current read-only RouterOS checkpoint — 2026-10-30
+
+A fresh WinBox listing showed canary still configured with PR #862's ARM64
+immutable tag and matching digest
+`sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac`,
+with a healthy marker. Production still showed the PR #788 ARM64 tag. PPP
+Active Connections showed one active test tunnel. The canary dashboard sign-in
+request remained pending, so no authenticated dashboard event or traffic
+sample was correlated with the router session. No PR #891 staging or live
+acceptance is established by these point observations.
+
 An earlier 2026-10-28 Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
 69.7 MiB app size, and 0.0 MiB data size. A signed-in dashboard check then
 showed a stale/reconnecting live stream and zero connected devices. Those

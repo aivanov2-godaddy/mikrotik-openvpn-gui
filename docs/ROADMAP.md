@@ -24,14 +24,14 @@ revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #891.
 On 2026-10-30,
 an unauthenticated `/readyz` request returned the Cloudflare Access sign-in
 page (HTTP 200), not readiness JSON; the canary dashboard also showed sign-in.
-Same-day read-only PPP Active Connections records conflict: one was empty and
-another recorded one test tunnel. Neither reading was correlated with
-authenticated dashboard telemetry, so the current session count, canary image
-revision, and live telemetry were not confirmed. Production's
-last recorded image remains PR #788; it was not re-read. No PR #891 staging,
-candidate-specific acceptance, or production promotion is claimed. Code Scanning
-returned zero open alerts on 2026-10-30; that does not replace the independent
-security review. PR #849 distinguishes RouterOS HTTP 401 credential rejection from
+Later that day, read-only WinBox showed the canary still using PR #862's ARM64
+immutable tag and matching digest, with a healthy marker; production still
+showed the PR #788 ARM64 tag. A subsequent PPP Active Connections view showed
+one active test tunnel, but the canary dashboard sign-in remained pending, so
+the session was not correlated with authenticated telemetry. These reads do
+not verify PR #891 staging or acceptance. No candidate-specific acceptance or
+production promotion is claimed. Code Scanning returned zero open alerts on
+2026-10-30; that does not replace the independent security review. PR #849 distinguishes RouterOS HTTP 401 credential rejection from
 HTTP 403 permission denial without counting permission or availability failures
 toward the bad-password lockout budget. PR #830 is documentation-only and adds
 an offline comparison risk flag; it changes no running application or RouterOS

@@ -385,9 +385,12 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("PR #889", roadmap)
         normalized_roadmap = " ".join(roadmap.split())
         self.assertIn(
-            "No PR #891 staging, candidate-specific acceptance, or production promotion is claimed.",
+            "These reads do not verify PR #891 staging or acceptance.",
             normalized_roadmap,
         )
+        self.assertIn("sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac", rendered)
+        self.assertIn("one active test tunnel", rendered)
+        self.assertIn("sign-in request remained pending", rendered)
         self.assertIn("latest historically confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
         self.assertIn(
             "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #891.",

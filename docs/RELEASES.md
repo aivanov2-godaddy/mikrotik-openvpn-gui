@@ -71,10 +71,12 @@ asset has SHA-256
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-58a680423a4d616eb926a47c486847c8a4c062fe-arm64` | `sha256:dc5afa62f0410459ac2d48a5c53b7532d2f0a2104d46a9392874e7373fd2d0eb` |
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-58a680423a4d616eb926a47c486847c8a4c062fe-amd64` | `sha256:0376f9bb3ede0b018150a34107b19b53115fb0fe3ed1d80a6f71f8891b26bd23` |
 
-Publication is not a numbered release or a RouterOS deployment. The last
-recorded canary read-back is PR #862 and the last recorded production image is
-PR #788; neither device was read back against PR #891 after publication. No
-PR #891 staging, candidate acceptance, or production promotion is claimed.
+Publication is not a numbered release or a RouterOS deployment. A read-only
+WinBox listing on 2026-10-30 confirmed the canary still used PR #862's ARM64
+immutable tag and digest `sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac`
+with a healthy marker; production still showed the PR #788 ARM64 tag. Neither
+device was read back against PR #891 after publication. No PR #891 staging,
+candidate acceptance, or production promotion is claimed.
 
 ## Previous published mainline image — PR #889 — 2026-10-30
 
