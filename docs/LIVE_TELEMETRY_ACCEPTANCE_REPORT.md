@@ -55,12 +55,12 @@ size sample. The fresh authenticated readiness result in the checkpoint above
 returned PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`,
 confirming that the canary was not running PR #885 at that observation. PR #891
 is now the latest published image; no post-publication RouterOS read-back
-confirms it is staged. The latest confirmed candidate-image read-back is PR #862;
-it predates PR #891
-publication and is limited to the image digest prefix and point-in-time
-container status/resource sample described above. The later stale-stream/no-
-session check shows that live telemetry acceptance remains incomplete; neither
-point check establishes acceptance of PR #891.
+confirms it is staged. A later read-only WinBox listing on 2026-10-30
+reconfirmed PR #862's exact ARM64 tag and digest with a healthy marker; the
+production row still showed the PR #788 ARM64 tag. RouterOS showed one active
+test tunnel, but the canary sign-in request remained pending, so that session
+was not correlated with authenticated dashboard telemetry. These point reads
+do not establish live acceptance or acceptance of PR #891.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and

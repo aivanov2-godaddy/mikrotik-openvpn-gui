@@ -92,7 +92,11 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "The latest confirmed candidate-image read-back is PR #862; it predates PR #891 publication",
+            "A later read-only WinBox listing on 2026-10-30 reconfirmed PR #862's exact ARM64 tag and digest with a healthy marker",
+            report,
+        )
+        self.assertIn(
+            "the production row still showed the PR #788 ARM64 tag. RouterOS showed one active test tunnel",
             report,
         )
         self.assertIn("digest prefix matching the published PR #862 ARM64 digest", report)

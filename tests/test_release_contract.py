@@ -388,6 +388,10 @@ class ReleaseContractTests(unittest.TestCase):
             "These reads do not verify PR #891 staging or acceptance.",
             normalized_roadmap,
         )
+        self.assertIn(
+            "No candidate-specific acceptance or production promotion is claimed.",
+            normalized_roadmap,
+        )
         self.assertIn("sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac", rendered)
         self.assertIn("one active test tunnel", rendered)
         self.assertIn("sign-in request remained pending", rendered)
