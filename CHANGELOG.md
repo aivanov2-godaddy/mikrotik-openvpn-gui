@@ -66,6 +66,9 @@ semantic-version style release tags.
 - Require an active dashboard session before Engine.IO creates an HTTP or
   WebSocket transport, using a fail-closed nonblocking check that does not
   extend the idle-session deadline.
+- Bound Socket.IO Engine.IO handshake and polling buffers, cap connection
+  admission, and retain SID quota through canceled, revoked, and in-flight
+  WebSocket teardown.
 
 ### Fixed
 

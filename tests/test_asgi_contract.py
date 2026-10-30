@@ -18,6 +18,33 @@ from security import SessionStore
 from telemetry_runtime import TelemetryRuntime
 
 
+async def _receive_policy_close(test_case, websocket, timeout: float = 3) -> None:
+    import websockets
+
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        try:
+            packet = await asyncio.wait_for(
+                websocket.recv(),
+                timeout=max(0.1, deadline - asyncio.get_running_loop().time()),
+            )
+        except websockets.exceptions.ConnectionClosed as error:
+            test_case.assertEqual(error.code, 1008)
+            return
+        if asyncio.get_running_loop().time() >= deadline:
+            test_case.fail("revoked or expired WebSocket transport stayed open")
+        if packet == "2":
+            await websocket.send("3")
+            continue
+        if str(packet).startswith("42/telemetry,"):
+            event_name, _payload = json.loads(str(packet)[len("42/telemetry,"):])
+            test_case.assertEqual(
+                event_name,
+                "telemetry.health",
+                f"only an already-queued health control frame may precede policy close: {packet!r}",
+            )
+
+
 class ASGIContractTests(unittest.TestCase):
     def test_socketio_requires_active_session_before_engineio_handshake(self) -> None:
         from asgi import SocketIOLiveSendASGI
@@ -862,10 +889,7 @@ class ASGIContractTests(unittest.TestCase):
                     # the open socket closes before another telemetry frame.
                     routeros_state["enabled"] = False
                     sessions._role_checked_monotonic[session.session_id] = 0
-                    disconnected = await receive_until(
-                        ws, lambda packet: packet.startswith("41/telemetry,"), timeout=3
-                    )
-                    self.assertTrue(disconnected.startswith("41/telemetry,"))
+                    await _receive_policy_close(self, ws)
                     self.assertIsNone(sessions.get(session.session_id, touch=False))
                     emitted_before_reconnect = native.metrics()["events_emitted_total"]
 
@@ -1049,8 +1073,7 @@ class ASGIContractTests(unittest.TestCase):
                             setattr, current, "capabilities", frozenset()
                         )
 
-                    disconnect_packet = await receive_until(ws, lambda packet: packet.startswith("41/telemetry,"), timeout=3)
-                    self.assertTrue(disconnect_packet.startswith("41/telemetry,"))
+                    await _receive_policy_close(self, ws)
                     self.assertEqual(gateway.closed, ["subscription-1"])
                     self.assertEqual(native.metrics()["active_connections"], 0)
 
@@ -4586,6 +4609,9 @@ class ASGIContractTests(unittest.TestCase):
                 engineio_requests += 1
                 await engineio_application(scope, receive, send)
 
+            # Keep the teardown API visible through this counting test wrapper,
+            # as production's admission gate wraps socketio.ASGIApp directly.
+            counted_engineio_app.engineio_server = engineio_application.engineio_server
             socketio_gate = SocketIOLiveSendASGI(counted_engineio_app, adapter)
             application = TrustedProxySchemeASGI(
                 socketio_gate,
@@ -4725,6 +4751,30 @@ class ASGIContractTests(unittest.TestCase):
                 self.assertEqual(status, 403)
                 self.assertEqual(response_body, b"")
                 self.assertEqual(engineio_requests, 3)
+
+                # A revoked polling SID is closed in the Engine.IO server
+                # before the admission binding is released; the request never
+                # reaches the Engine.IO ASGI app.
+                status, handshake = await asyncio.to_thread(
+                    request,
+                    "/socket.io/?EIO=4&transport=polling&t=revoked-poll",
+                    original.session_id,
+                    legitimate_origin_headers,
+                )
+                self.assertEqual(status, 200)
+                revoked_sid = json.loads(handshake[1:].decode("utf-8"))["sid"]
+                self.assertIn(revoked_sid, native.server.eio.sockets)
+                self.assertTrue(sessions.revoke(original.session_id))
+                status, close_packet = await asyncio.to_thread(
+                    request,
+                    f"/socket.io/?EIO=4&transport=polling&sid={revoked_sid}&t=revoked-close",
+                    original.session_id,
+                    legitimate_origin_headers,
+                )
+                self.assertEqual((status, close_packet), (200, b"1"))
+                self.assertNotIn(revoked_sid, native.server.eio.sockets)
+                self.assertNotIn(revoked_sid, socketio_gate._session_bindings)
+                self.assertEqual(engineio_requests, 5)
             finally:
                 server.should_exit = True
                 await asyncio.wait_for(server_task, timeout=5)
@@ -4735,6 +4785,7 @@ class ASGIContractTests(unittest.TestCase):
         if not all(importlib.util.find_spec(name) for name in ("socketio", "uvicorn", "websockets")):
             self.skipTest("native Socket.IO runtime dependencies are not installed")
 
+        import websockets
         from websockets.asyncio.client import connect as websocket_connect
         from websockets.exceptions import InvalidStatus
         import socketio
@@ -4852,12 +4903,34 @@ class ASGIContractTests(unittest.TestCase):
                 )
                 runtime.gateway.publish(blocked_events)
                 release_role_refresh.set()
-                disconnect_packet = ""
                 deadline = asyncio.get_running_loop().time() + 5
-                while "41/telemetry," not in disconnect_packet:
+                while True:
+                    try:
+                        packet = await asyncio.wait_for(
+                            websocket.recv(),
+                            timeout=max(
+                                0.1, deadline - asyncio.get_running_loop().time()
+                            ),
+                        )
+                    except websockets.exceptions.ConnectionClosed as error:
+                        self.assertEqual(error.code, 1008)
+                        break
                     if asyncio.get_running_loop().time() >= deadline:
-                        self.fail("Socket.IO namespace remained connected after role revocation")
-                    disconnect_packet = str(await asyncio.wait_for(websocket.recv(), timeout=5))
+                        self.fail("WebSocket transport remained open after role revocation")
+                    if packet == "2":
+                        await websocket.send("3")
+                        continue
+                    for frame in str(packet).split("\x1e"):
+                        if not frame.startswith("42/telemetry,"):
+                            continue
+                        event_name, _payload = json.loads(
+                            frame[len("42/telemetry,"):]
+                        )
+                        self.assertEqual(
+                            event_name,
+                            "telemetry.health",
+                            f"session data must stop before policy close: {frame!r}",
+                        )
                 self.assertIsNone(sessions.get(session.session_id, touch=False))
                 self.assertEqual(native.metrics()["active_connections"], 0)
                 await asyncio.sleep(0.1)
@@ -5145,6 +5218,2075 @@ class ASGIContractTests(unittest.TestCase):
         if revoker is not None:
             self.assertFalse(revoker.is_alive())
 
+    @staticmethod
+    def _engineio_admission_gate(sessions, inner, *, send_allowed=True):
+        from asgi import SocketIOLiveSendASGI
+
+        server = SimpleNamespace(
+            context=SimpleNamespace(public_origin="https://vpn.example.test"),
+            telemetry_runtime=SimpleNamespace(sessions=sessions),
+        )
+
+        async def send_authorized(_session_id, message, send):
+            if not send_allowed:
+                return False
+            await send(message)
+            return True
+
+        adapter = SimpleNamespace(
+            server=server,
+            _send_authorized_live_message=send_authorized,
+        )
+        return SocketIOLiveSendASGI(inner, adapter)
+
+    @staticmethod
+    def _engineio_admission_scope(
+        session_id: str,
+        *,
+        transport: str = "polling",
+        sid: str | None = None,
+        scope_type: str = "http",
+        method: str = "GET",
+    ) -> dict[str, object]:
+        query = f"EIO=4&transport={transport}"
+        if sid is not None:
+            query += f"&sid={sid}"
+        return {
+            "type": scope_type,
+            **({"method": method} if scope_type == "http" else {}),
+            "path": "/socket.io/",
+            "query_string": query.encode("ascii"),
+            "headers": [
+                (b"origin", b"https://vpn.example.test"),
+                (b"cookie", f"__Host-vpn_session={session_id}".encode("ascii")),
+            ],
+        }
+
+    @staticmethod
+    async def _call_engineio_admission(gate, scope, incoming=None):
+        messages: list[dict[str, object]] = []
+
+        async def receive():
+            if incoming is not None:
+                return incoming
+            if scope["type"] == "websocket":
+                return {"type": "websocket.connect"}
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            messages.append(message)
+
+        await gate(scope, receive, send)
+        return messages
+
+    def test_socketio_admission_quotas_reject_new_handshakes_but_allow_bound_sid_transports(self) -> None:
+        sessions = SessionStore()
+        first = sessions.create("first", "test-only-password", role="owner")
+        second = sessions.create("second", "test-only-password", role="owner")
+        third = sessions.create("third", "test-only-password", role="owner")
+        delegated: list[str] = []
+        allocated = 0
+
+        async def inner(scope, _receive, send):
+            nonlocal allocated
+            delegated.append(scope["type"])
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.accept"})
+                return
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            if b"&sid=" in scope["query_string"]:
+                await send({"type": "http.response.body", "body": b"6"})
+                return
+            allocated += 1
+            await send({"type": "http.response.body", "body": f'0{{"sid":"engine-{allocated}"}}'.encode("ascii")})
+
+        gate = self._engineio_admission_gate(sessions, inner)
+        with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 2), mock.patch(
+            "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+        ):
+            first_open = asyncio.run(
+                self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(first.session_id)
+                )
+            )
+            second_open = asyncio.run(
+                self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(second.session_id)
+                )
+            )
+            same_session_denied = asyncio.run(
+                self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(first.session_id)
+                )
+            )
+            global_http_denied = asyncio.run(
+                self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(third.session_id)
+                )
+            )
+            global_ws_denied = asyncio.run(
+                self._call_engineio_admission(
+                    gate,
+                    {
+                        **self._engineio_admission_scope(
+                            third.session_id,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                        "extensions": {"websocket.http.response": {}},
+                    },
+                )
+            )
+            established_poll = asyncio.run(
+                self._call_engineio_admission(
+                    gate,
+                    self._engineio_admission_scope(
+                        first.session_id, sid="engine-1"
+                    ),
+                )
+            )
+            established_upgrade = asyncio.run(
+                self._call_engineio_admission(
+                    gate,
+                    self._engineio_admission_scope(
+                        first.session_id,
+                        transport="websocket",
+                        sid="engine-1",
+                        scope_type="websocket",
+                    ),
+                )
+            )
+
+        self.assertIn(200, [m.get("status") for m in first_open if m["type"] == "http.response.start"])
+        self.assertIn(200, [m.get("status") for m in second_open if m["type"] == "http.response.start"])
+        for messages in (same_session_denied, global_http_denied):
+            response = next(m for m in messages if m["type"] == "http.response.start")
+            self.assertEqual(response["status"], 429)
+            self.assertIn((b"retry-after", b"1"), response["headers"])
+        websocket_rejection = next(
+            message
+            for message in global_ws_denied
+            if message["type"] == "websocket.http.response.start"
+        )
+        self.assertEqual(websocket_rejection["status"], 429)
+        self.assertIn((b"retry-after", b"1"), websocket_rejection["headers"])
+        self.assertEqual(delegated, ["http", "http", "http", "websocket"])
+        self.assertTrue(any(m["type"] == "http.response.body" for m in established_poll))
+        self.assertEqual(established_upgrade, [{"type": "websocket.accept"}])
+        self.assertEqual(set(gate._session_bindings), {"engine-1", "engine-2"})
+
+    def test_socketio_admission_reserves_capacity_atomically_during_concurrent_handshakes(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        handshake_started = asyncio.Event()
+        allow_handshake = asyncio.Event()
+
+        async def inner(_scope, receive, send):
+            handshake_started.set()
+            await allow_handshake.wait()
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b'0{"sid":"reserved-sid"}'})
+
+        gate = self._engineio_admission_gate(sessions, inner)
+
+        async def exercise():
+            first_messages: list[dict[str, object]] = []
+
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(message):
+                first_messages.append(message)
+
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ):
+                first = asyncio.create_task(
+                    gate(
+                        self._engineio_admission_scope(session.session_id),
+                        receive,
+                        send,
+                    )
+                )
+                await asyncio.wait_for(handshake_started.wait(), timeout=1)
+                self.assertEqual(len(gate._pending_engine_handshakes), 1)
+                denied = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+                self.assertEqual(
+                    next(m["status"] for m in denied if m["type"] == "http.response.start"),
+                    429,
+                )
+                allow_handshake.set()
+                await first
+                self.assertEqual(first_messages[-1]["body"], b'0{"sid":"reserved-sid"}')
+                self.assertEqual(len(gate._pending_engine_handshakes), 0)
+                self.assertIn("reserved-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_stalled_http_handshake_is_cancelled_and_retryable(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def stalled_handshake(_scope, _receive, _send):
+            started.set()
+            await _send({"type": "http.response.start", "status": 200, "headers": []})
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+
+        gate = self._engineio_admission_gate(sessions, stalled_handshake)
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_ENGINEIO_HANDSHAKE_TIMEOUT_SECONDS", 0.01):
+                messages = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            status = next(
+                message["status"]
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            self.assertEqual(status, 503)
+            self.assertIn(
+                (b"retry-after", b"1"),
+                next(
+                    message["headers"]
+                    for message in messages
+                    if message["type"] == "http.response.start"
+                ),
+            )
+            self.assertTrue(started.is_set())
+            self.assertTrue(cancelled.is_set())
+            self.assertFalse(gate._pending_engine_handshakes)
+
+        asyncio.run(exercise())
+
+    def test_socketio_completed_non_sid_handshake_flushes_buffered_error_response(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def stalled_handshake(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 400, "headers": []})
+            await send({"type": "http.response.body", "body": b"invalid handshake"})
+
+        gate = self._engineio_admission_gate(sessions, stalled_handshake)
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate, self._engineio_admission_scope(session.session_id)
+            )
+            self.assertEqual(
+                [message["type"] for message in messages],
+                ["http.response.start", "http.response.body"],
+            )
+            self.assertEqual(messages[0]["status"], 400)
+            self.assertEqual(messages[1]["body"], b"invalid handshake")
+            self.assertFalse(gate._pending_engine_handshakes)
+
+        asyncio.run(exercise())
+
+    def test_socketio_handshake_accumulates_open_packet_split_across_body_chunks(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def split_open_packet(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({
+                "type": "http.response.body",
+                "body": b'0{"sid":"split-',
+                "more_body": True,
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'sid"}\x1e44/telemetry,{"message":"forbidden"}',
+            })
+
+        gate = self._engineio_admission_gate(sessions, split_open_packet)
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate, self._engineio_admission_scope(session.session_id)
+            )
+            self.assertEqual(
+                messages[-1]["body"],
+                b'0{"sid":"split-sid"}\x1e44/telemetry,{"message":"forbidden"}',
+            )
+            self.assertIn("split-sid", gate._session_bindings)
+            self.assertEqual(gate._pending_handshake_buffer_bytes, 0)
+
+        asyncio.run(exercise())
+
+    def test_socketio_handshake_forwards_chunks_after_the_open_sid_is_bound(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def chunked_handshake(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({
+                "type": "http.response.body",
+                "body": b'0{"sid":"chunked-sid"}',
+                "more_body": True,
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'42/telemetry,["live",{}]',
+            })
+
+        gate = self._engineio_admission_gate(sessions, chunked_handshake)
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate, self._engineio_admission_scope(session.session_id)
+            )
+            bodies = [
+                message
+                for message in messages
+                if message["type"] == "http.response.body"
+            ]
+            self.assertEqual(
+                [message["body"] for message in bodies],
+                [b'0{"sid":"chunked-sid"}', b'42/telemetry,["live",{}]'],
+            )
+            self.assertTrue(bodies[0]["more_body"])
+            self.assertNotIn("more_body", bodies[1])
+            self.assertIn("chunked-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_handshake_buffer_flush_drops_data_after_authorization_denial(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        checks = 0
+
+        async def handshake_with_pre_sid_data(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({
+                "type": "http.response.body",
+                "body": b'42/telemetry,["private",{}]\x1e',
+                "more_body": True,
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'0{"sid":"auth-flush-sid"}\x1e44/telemetry,{"message":"forbidden"}',
+            })
+
+        gate = self._engineio_admission_gate(sessions, handshake_with_pre_sid_data)
+
+        async def allow_once_then_deny(_session_id, message, send):
+            nonlocal checks
+            checks += 1
+            if checks == 1:
+                await send(message)
+                return True
+            return False
+
+        gate.http_adapter._send_authorized_live_message = allow_once_then_deny
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate, self._engineio_admission_scope(session.session_id)
+            )
+            delivered = b"".join(
+                message.get("body", b"")
+                for message in messages
+                if message["type"] == "http.response.body"
+            )
+            self.assertNotIn(b"private", delivered)
+            self.assertIn(b'0{"sid":"auth-flush-sid"}', delivered)
+            self.assertIn(b"44/telemetry", delivered)
+            self.assertIn("auth-flush-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_handshake_buffer_limits_bound_local_and_process_bytes(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def oversized_handshake(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"x" * 9})
+
+        gate = self._engineio_admission_gate(sessions, oversized_handshake)
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_MAX_HANDSHAKE_BUFFER_BYTES", 8), mock.patch(
+                "asgi._SOCKETIO_MAX_PENDING_HANDSHAKE_BUFFER_BYTES", 8
+            ):
+                local_limit = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            self.assertEqual(
+                next(
+                    message["status"]
+                    for message in local_limit
+                    if message["type"] == "http.response.start"
+                ),
+                503,
+            )
+            self.assertEqual(gate._pending_handshake_buffer_bytes, 0)
+            self.assertFalse(gate._pending_engine_handshakes)
+
+            async def process_limit_app(_scope, _receive, send):
+                await send({"type": "http.response.start", "status": 200, "headers": []})
+                await send({"type": "http.response.body", "body": b"abcde"})
+
+            gate.app = process_limit_app
+            with mock.patch("asgi._SOCKETIO_MAX_HANDSHAKE_BUFFER_BYTES", 8), mock.patch(
+                "asgi._SOCKETIO_MAX_PENDING_HANDSHAKE_BUFFER_BYTES", 4
+            ):
+                process_limit = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            self.assertEqual(
+                next(
+                    message["status"]
+                    for message in process_limit
+                    if message["type"] == "http.response.start"
+                ),
+                503,
+            )
+            self.assertEqual(gate._pending_handshake_buffer_bytes, 0)
+            self.assertFalse(gate._pending_engine_handshakes)
+
+        asyncio.run(exercise())
+
+    def test_socketio_handshake_header_buffers_share_local_and_process_caps(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def oversized_header(_scope, _receive, send):
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"x", b"h" * 32)],
+            })
+
+        gate = self._engineio_admission_gate(sessions, oversized_header)
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_MAX_HANDSHAKE_BUFFER_BYTES", 80), mock.patch(
+                "asgi._SOCKETIO_MAX_PENDING_HANDSHAKE_BUFFER_BYTES", 1024
+            ):
+                local_limit = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            self.assertEqual(
+                next(
+                    message["status"]
+                    for message in local_limit
+                    if message["type"] == "http.response.start"
+                ),
+                503,
+            )
+            self.assertEqual(gate._pending_handshake_buffer_bytes, 0)
+            self.assertFalse(gate._pending_engine_handshakes)
+
+            async def process_limited_header(_scope, _receive, send):
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"x", b"h")],
+                })
+
+            gate.app = process_limited_header
+            with mock.patch("asgi._SOCKETIO_MAX_HANDSHAKE_BUFFER_BYTES", 1024), mock.patch(
+                "asgi._SOCKETIO_MAX_PENDING_HANDSHAKE_BUFFER_BYTES", 64
+            ):
+                process_limit = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            self.assertEqual(
+                next(
+                    message["status"]
+                    for message in process_limit
+                    if message["type"] == "http.response.start"
+                ),
+                503,
+            )
+            self.assertEqual(gate._pending_handshake_buffer_bytes, 0)
+            self.assertFalse(gate._pending_engine_handshakes)
+
+        asyncio.run(exercise())
+
+    def test_socketio_timeout_tears_down_sid_captured_before_open_response(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        allocated = asyncio.Event()
+        cancellation_seen = asyncio.Event()
+        allow_exit = asyncio.Event()
+        disconnected: list[str] = []
+
+        class FakeEngineIOServer:
+            def __init__(self):
+                self.sockets = {"internal-before-open": object()}
+                self.handlers = {"connect": self.on_connect}
+
+            async def on_connect(self, _sid, _environ):
+                return True
+
+            def on(self, event, handler):
+                self.handlers[event] = handler
+
+            async def disconnect(self, sid):
+                disconnected.append(sid)
+                self.sockets.pop(sid, None)
+
+        engineio = FakeEngineIOServer()
+
+        class FakeSocketIOServer:
+            eio = engineio
+
+        class CancellationResistantApp:
+            engineio_server = FakeSocketIOServer()
+
+            async def __call__(self, _scope, _receive, _send):
+                await engineio.handlers["connect"]("internal-before-open", {})
+                allocated.set()
+                try:
+                    await asyncio.Future()
+                except asyncio.CancelledError:
+                    cancellation_seen.set()
+                    await allow_exit.wait()
+
+        gate = self._engineio_admission_gate(sessions, CancellationResistantApp())
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_ENGINEIO_HANDSHAKE_TIMEOUT_SECONDS", 0.01), mock.patch(
+                "asgi._SOCKETIO_ENGINEIO_CANCEL_GRACE_SECONDS", 0.01
+            ):
+                messages = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            self.assertEqual(
+                next(
+                    message["status"]
+                    for message in messages
+                    if message["type"] == "http.response.start"
+                ),
+                503,
+            )
+            self.assertTrue(allocated.is_set())
+            self.assertTrue(cancellation_seen.is_set())
+            self.assertIn("internal-before-open", engineio.sockets)
+            self.assertEqual(len(gate._pending_engine_handshakes), 1)
+
+            allow_exit.set()
+            deadline = asyncio.get_running_loop().time() + 1
+            while gate._pending_engine_handshakes:
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("reserved Engine.IO SID was not torn down after timeout")
+                await asyncio.sleep(0)
+            self.assertNotIn("internal-before-open", engineio.sockets)
+            self.assertEqual(disconnected, ["internal-before-open"])
+            self.assertEqual(gate._pending_handshake_buffer_bytes, 0)
+
+        asyncio.run(exercise())
+
+    def test_socketio_handshake_timeout_does_not_wait_for_cancel_resistant_app(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        cancellation_seen = asyncio.Event()
+        release_app = asyncio.Event()
+
+        async def cancellation_resistant_app(_scope, _receive, send):
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                cancellation_seen.set()
+                await release_app.wait()
+                await send({"type": "http.response.start", "status": 200, "headers": []})
+                await send({"type": "http.response.body", "body": b'0{"sid":"late-sid"}'})
+
+        gate = self._engineio_admission_gate(sessions, cancellation_resistant_app)
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_ENGINEIO_HANDSHAKE_TIMEOUT_SECONDS", 0.01), mock.patch(
+                "asgi._SOCKETIO_ENGINEIO_CANCEL_GRACE_SECONDS", 0.01
+            ):
+                messages = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            status = next(
+                message["status"]
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            self.assertEqual(status, 503)
+            self.assertTrue(cancellation_seen.is_set())
+            self.assertEqual(len(gate._pending_engine_handshakes), 1)
+            self.assertNotIn("late-sid", gate._session_bindings)
+
+            release_app.set()
+            deadline = asyncio.get_running_loop().time() + 1
+            while gate._pending_engine_handshakes:
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("timed-out handshake reservation was not released after task exit")
+                await asyncio.sleep(0)
+            self.assertNotIn("late-sid", gate._session_bindings)
+            self.assertEqual(
+                [message["status"] for message in messages if message["type"] == "http.response.start"],
+                [503],
+            )
+
+        asyncio.run(exercise())
+
+    def test_socketio_stalled_accepted_websocket_handshake_closes_with_retry_code(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        cancelled = asyncio.Event()
+
+        async def stalled_handshake(_scope, _receive, send):
+            await send({"type": "websocket.accept"})
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+
+        gate = self._engineio_admission_gate(sessions, stalled_handshake)
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_ENGINEIO_HANDSHAKE_TIMEOUT_SECONDS", 0.01):
+                messages = await self._call_engineio_admission(
+                    gate,
+                    self._engineio_admission_scope(
+                        session.session_id,
+                        transport="websocket",
+                        scope_type="websocket",
+                    ),
+                )
+            self.assertIn({"type": "websocket.close", "code": 1013}, messages)
+            self.assertTrue(cancelled.is_set())
+            self.assertFalse(gate._pending_engine_handshakes)
+
+        asyncio.run(exercise())
+
+    def test_socketio_cancel_resistant_promoted_websocket_keeps_quota_until_exit(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        cancel_seen = asyncio.Event()
+        release_app = asyncio.Event()
+        disconnect_seen: list[str] = []
+
+        async def cancellation_resistant_websocket(_scope, _receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": '0{"sid":"quota-held-sid"}'})
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                cancel_seen.set()
+                await release_app.wait()
+
+        gate = self._engineio_admission_gate(sessions, cancellation_resistant_websocket)
+
+        async def disconnect_engineio_sid(sid):
+            disconnect_seen.append(sid)
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ), mock.patch("asgi._SOCKETIO_ENGINEIO_CANCEL_GRACE_SECONDS", 0.01), mock.patch(
+                "asgi._SOCKETIO_SESSION_BINDING_TTL_SECONDS", 1
+            ):
+                client = asyncio.create_task(
+                    self._call_engineio_admission(
+                        gate,
+                        self._engineio_admission_scope(
+                            session.session_id,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                    )
+                )
+                deadline = asyncio.get_running_loop().time() + 1
+                while "quota-held-sid" not in gate._session_bindings:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("WebSocket handshake SID was not promoted")
+                    await asyncio.sleep(0)
+                client.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await client
+                self.assertTrue(cancel_seen.is_set())
+                self.assertIn("quota-held-sid", gate._session_bindings)
+                self.assertIn("quota-held-sid", gate._active_websocket_sids)
+                gate._session_bindings["quota-held-sid"] = (
+                    session.session_id,
+                    time.monotonic() - 2,
+                )
+
+                blocked = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+                self.assertEqual(
+                    next(
+                        message["status"]
+                        for message in blocked
+                        if message["type"] == "http.response.start"
+                    ),
+                    429,
+                )
+
+                release_app.set()
+                deadline = asyncio.get_running_loop().time() + 1
+                while "quota-held-sid" in gate._session_bindings:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("SID quota was not released after Engine.IO teardown")
+                    await asyncio.sleep(0)
+                self.assertEqual(disconnect_seen, ["quota-held-sid"])
+
+        asyncio.run(exercise())
+
+    def test_socketio_outer_cancel_after_disconnect_keeps_quota_until_handler_exit(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        disconnect_seen = asyncio.Event()
+        cancel_seen = asyncio.Event()
+        release_handler = asyncio.Event()
+        handler_exited = asyncio.Event()
+        teardown_seen = asyncio.Event()
+
+        async def cancellation_resistant_handler(_scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": '0{"sid":"disconnect-cancel-sid"}'})
+            self.assertEqual((await receive())["type"], "websocket.disconnect")
+            disconnect_seen.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                cancel_seen.set()
+                await release_handler.wait()
+            finally:
+                handler_exited.set()
+
+        gate = self._engineio_admission_gate(sessions, cancellation_resistant_handler)
+
+        async def disconnect_engineio_sid(sid):
+            self.assertEqual(sid, "disconnect-cancel-sid")
+            teardown_seen.set()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ), mock.patch("asgi._SOCKETIO_ENGINEIO_CANCEL_GRACE_SECONDS", 0.01):
+                client = asyncio.create_task(
+                    self._call_engineio_admission(
+                        gate,
+                        self._engineio_admission_scope(
+                            session.session_id,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                        incoming={"type": "websocket.disconnect", "code": 1000},
+                    )
+                )
+                await asyncio.wait_for(disconnect_seen.wait(), timeout=1)
+                self.assertIn("disconnect-cancel-sid", gate._session_bindings)
+                self.assertIn(
+                    "disconnect-cancel-sid", gate._active_websocket_sids
+                )
+                client.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await client
+                await asyncio.wait_for(cancel_seen.wait(), timeout=1)
+                self.assertIn("disconnect-cancel-sid", gate._session_bindings)
+                self.assertIn(
+                    "disconnect-cancel-sid", gate._active_websocket_sids
+                )
+
+                release_handler.set()
+                await asyncio.wait_for(handler_exited.wait(), timeout=1)
+                await asyncio.wait_for(teardown_seen.wait(), timeout=1)
+                deadline = asyncio.get_running_loop().time() + 1
+                while "disconnect-cancel-sid" in gate._session_bindings:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("SID quota was not released after handler teardown")
+                    await asyncio.sleep(0)
+                self.assertNotIn(
+                    "disconnect-cancel-sid", gate._active_websocket_sids
+                )
+
+        asyncio.run(exercise())
+
+    def test_socketio_revocation_keeps_cancel_resistant_websocket_quota_until_exit(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        other_session = sessions.create("other", "test-only-password", role="owner")
+        handler_started = asyncio.Event()
+        revoked_disconnect_seen = asyncio.Event()
+        cancel_seen = asyncio.Event()
+        release_handler = asyncio.Event()
+        handler_exited = asyncio.Event()
+        teardown_seen = asyncio.Event()
+
+        async def cancellation_resistant_handler(_scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": '0{"sid":"revoked-live-sid"}'})
+            handler_started.set()
+            message = await receive()
+            self.assertEqual(message["type"], "websocket.disconnect")
+            revoked_disconnect_seen.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                cancel_seen.set()
+                await release_handler.wait()
+            finally:
+                handler_exited.set()
+
+        gate = self._engineio_admission_gate(sessions, cancellation_resistant_handler)
+
+        async def disconnect_engineio_sid(sid):
+            self.assertEqual(sid, "revoked-live-sid")
+            teardown_seen.set()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            incoming = asyncio.Queue()
+
+            async def receive():
+                return await incoming.get()
+
+            async def send(_message):
+                return None
+
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ), mock.patch("asgi._SOCKETIO_ENGINEIO_CANCEL_GRACE_SECONDS", 0.01):
+                client = asyncio.create_task(
+                    gate(
+                        self._engineio_admission_scope(
+                            session.session_id,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                        receive,
+                        send,
+                    )
+                )
+                await asyncio.wait_for(handler_started.wait(), timeout=1)
+                self.assertIn("revoked-live-sid", gate._session_bindings)
+                self.assertIn("revoked-live-sid", gate._active_websocket_sids)
+                self.assertTrue(sessions.revoke(session.session_id))
+                incoming.put_nowait({"type": "websocket.receive", "bytes": b"x"})
+                await asyncio.wait_for(revoked_disconnect_seen.wait(), timeout=1)
+                self.assertIn("revoked-live-sid", gate._session_bindings)
+                self.assertIn("revoked-live-sid", gate._active_websocket_sids)
+                self.assertIsNone(gate._reserve_engine_handshake(other_session.session_id))
+
+                client.cancel()
+                try:
+                    await asyncio.wait_for(client, timeout=1)
+                except asyncio.CancelledError:
+                    pass
+                except TimeoutError:
+                    frames = client.get_stack()
+                    detail = [(frame.f_code.co_name, frame.f_lineno) for frame in frames]
+                    self.fail(
+                        "outer ASGI request remained stuck after cancellation: "
+                        f"done={client.done()} cancelling={client.cancelling()} "
+                        f"await={client.get_coro().cr_await!r} stack={detail}"
+                    )
+                await asyncio.wait_for(cancel_seen.wait(), timeout=1)
+                self.assertIn("revoked-live-sid", gate._session_bindings)
+                self.assertIn("revoked-live-sid", gate._active_websocket_sids)
+
+                release_handler.set()
+                await asyncio.wait_for(handler_exited.wait(), timeout=1)
+                await asyncio.wait_for(teardown_seen.wait(), timeout=1)
+                deadline = asyncio.get_running_loop().time() + 1
+                while "revoked-live-sid" in gate._session_bindings:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("revoked SID quota was not released after teardown")
+                    await asyncio.sleep(0)
+                self.assertNotIn("revoked-live-sid", gate._active_websocket_sids)
+
+        asyncio.run(exercise())
+
+    def test_socketio_revocation_before_polling_sid_upgrade_accept_keeps_binding(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        upgrade_started = asyncio.Event()
+        allow_accept = asyncio.Event()
+        accept_returned = asyncio.Event()
+        disconnect_started = asyncio.Event()
+        allow_disconnect = asyncio.Event()
+        sid = "revoked-upgrade-sid"
+
+        async def upgrade_after_barrier(_scope, _receive, send):
+            upgrade_started.set()
+            await allow_accept.wait()
+            await send({"type": "websocket.accept"})
+            accept_returned.set()
+
+        gate = self._engineio_admission_gate(sessions, upgrade_after_barrier)
+        self.assertTrue(gate._bind_engine_sid(sid, session.session_id))
+
+        async def disconnect_engineio_sid(disconnected_sid):
+            self.assertEqual(disconnected_sid, sid)
+            disconnect_started.set()
+            await allow_disconnect.wait()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            sent: list[dict[str, object]] = []
+
+            async def receive():
+                return {"type": "websocket.connect"}
+
+            async def send(message):
+                sent.append(message)
+
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ):
+                client = asyncio.create_task(
+                    gate(
+                        self._engineio_admission_scope(
+                            session.session_id,
+                            sid=sid,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                        receive,
+                        send,
+                    )
+                )
+                await asyncio.wait_for(upgrade_started.wait(), timeout=1)
+                self.assertEqual(gate._pending_websocket_upgrades[sid], 1)
+                self.assertTrue(sessions.revoke(session.session_id))
+                allow_accept.set()
+                await asyncio.wait_for(accept_returned.wait(), timeout=1)
+                await asyncio.wait_for(disconnect_started.wait(), timeout=1)
+                self.assertTrue(any(
+                    message.get("type") == "websocket.close"
+                    and message.get("code") == 1008
+                    for message in sent
+                ))
+                self.assertIn(sid, gate._session_bindings)
+                self.assertIn(sid, gate._engineio_disconnect_tasks)
+
+                allow_disconnect.set()
+                await asyncio.wait_for(client, timeout=1)
+                deadline = asyncio.get_running_loop().time() + 1
+                while sid in gate._session_bindings:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("revoked polling SID was not released after Engine.IO teardown")
+                    await asyncio.sleep(0)
+
+        asyncio.run(exercise())
+
+    def test_socketio_revoked_upgrade_retains_quota_until_handler_exits(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        other_session = sessions.create("other", "test-only-password", role="owner")
+        accepted = asyncio.Event()
+        revoked = asyncio.Event()
+        allow_handler_exit = asyncio.Event()
+        disconnect_calls: list[str] = []
+        sid = "revoked-upgrade-quota-sid"
+
+        async def engineio_app(scope, receive, send):
+            if scope["type"] == "websocket":
+                self.assertEqual((await receive())["type"], "websocket.connect")
+                await send({"type": "websocket.accept"})
+                accepted.set()
+                message = await receive()
+                self.assertEqual(message["type"], "websocket.disconnect")
+                revoked.set()
+                await allow_handler_exit.wait()
+                return
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"1"})
+
+        gate = self._engineio_admission_gate(sessions, engineio_app)
+        self.assertTrue(gate._bind_engine_sid(sid, session.session_id))
+
+        async def disconnect_engineio_sid(disconnected_sid):
+            self.assertEqual(disconnected_sid, sid)
+            disconnect_calls.append(disconnected_sid)
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            incoming: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+            sent: list[dict[str, object]] = []
+            connect_sent = False
+
+            async def receive():
+                nonlocal connect_sent
+                if not connect_sent:
+                    connect_sent = True
+                    return {"type": "websocket.connect"}
+                return await incoming.get()
+
+            async def send(message):
+                sent.append(message)
+
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ):
+                upgrade = asyncio.create_task(
+                    gate(
+                        self._engineio_admission_scope(
+                            session.session_id,
+                            sid=sid,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                        receive,
+                        send,
+                    )
+                )
+                await asyncio.wait_for(accepted.wait(), timeout=1)
+                self.assertIn(sid, gate._active_websocket_sids)
+
+                self.assertTrue(sessions.revoke(session.session_id))
+                incoming.put_nowait({"type": "websocket.receive", "bytes": b"x"})
+                await asyncio.wait_for(revoked.wait(), timeout=1)
+                self.assertTrue(any(
+                    message.get("type") == "websocket.close"
+                    and message.get("code") == 1008
+                    for message in sent
+                ))
+
+                # Revocation starts Engine.IO teardown through an authenticated
+                # polling close. Teardown may finish before the upgrade handler
+                # exits; its binding and active guard must continue to count.
+                poll_messages = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id, sid=sid)
+                )
+                self.assertTrue(any(
+                    message.get("type") == "http.response.start"
+                    for message in poll_messages
+                ))
+                deadline = asyncio.get_running_loop().time() + 1
+                while sid not in gate._engineio_teardown_completed:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("successful Engine.IO teardown was not recorded")
+                    await asyncio.sleep(0)
+                self.assertIn(sid, gate._session_bindings)
+                self.assertIn(sid, gate._active_websocket_sids)
+                pending_upgrades = gate._pending_websocket_upgrades[sid]
+                self.assertFalse(gate._begin_websocket_sid_upgrade(sid, session.session_id))
+                self.assertEqual(gate._pending_websocket_upgrades[sid], pending_upgrades)
+                self.assertIsNone(gate._reserve_engine_handshake(other_session.session_id))
+                self.assertEqual(disconnect_calls, [sid])
+
+                allow_handler_exit.set()
+                await asyncio.wait_for(upgrade, timeout=1)
+                self.assertNotIn(sid, gate._session_bindings)
+                self.assertNotIn(sid, gate._active_websocket_sids)
+                self.assertNotIn(sid, gate._engineio_teardown_completed)
+                self.assertEqual(disconnect_calls, [sid])
+
+        asyncio.run(exercise())
+
+    def test_socketio_existing_sid_upgrade_cancellation_uses_bounded_teardown(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        other_session = sessions.create("other", "test-only-password", role="owner")
+        accepted = asyncio.Event()
+        cancel_seen = asyncio.Event()
+        release_handler = asyncio.Event()
+        handler_exited = asyncio.Event()
+        disconnect_started = asyncio.Event()
+        allow_disconnect = asyncio.Event()
+        upgrade_calls: list[str] = []
+        sid = "cancelled-existing-upgrade-sid"
+
+        async def cancellation_resistant_upgrade(_scope, _receive, send):
+            upgrade_calls.append(sid)
+            await send({"type": "websocket.accept"})
+            accepted.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                cancel_seen.set()
+                await release_handler.wait()
+            finally:
+                handler_exited.set()
+
+        gate = self._engineio_admission_gate(sessions, cancellation_resistant_upgrade)
+        self.assertTrue(gate._bind_engine_sid(sid, session.session_id))
+
+        async def disconnect_engineio_sid(disconnected_sid):
+            self.assertEqual(disconnected_sid, sid)
+            disconnect_started.set()
+            await allow_disconnect.wait()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            async def receive():
+                return {"type": "websocket.connect"}
+
+            async def send(_message):
+                return None
+
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ), mock.patch("asgi._SOCKETIO_ENGINEIO_CANCEL_GRACE_SECONDS", 0.01):
+                client = asyncio.create_task(
+                    gate(
+                        self._engineio_admission_scope(
+                            session.session_id,
+                            sid=sid,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                        receive,
+                        send,
+                    )
+                )
+                await asyncio.wait_for(accepted.wait(), timeout=1)
+                self.assertIn(sid, gate._active_websocket_sids)
+                client.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await asyncio.wait_for(client, timeout=1)
+                await asyncio.wait_for(cancel_seen.wait(), timeout=1)
+                self.assertIn(sid, gate._session_bindings)
+                self.assertIn(sid, gate._active_websocket_sids)
+                self.assertIsNone(gate._reserve_engine_handshake(other_session.session_id))
+
+                release_handler.set()
+                await asyncio.wait_for(handler_exited.wait(), timeout=1)
+                await asyncio.wait_for(disconnect_started.wait(), timeout=1)
+                self.assertIn(sid, gate._session_bindings)
+                self.assertIn(sid, gate._engineio_disconnect_tasks)
+
+                # The old transport is still tearing down. A reconnect using
+                # the same SID must be rejected until cleanup releases it.
+                retry_messages = await self._call_engineio_admission(
+                    gate,
+                    self._engineio_admission_scope(
+                        session.session_id,
+                        sid=sid,
+                        transport="websocket",
+                        scope_type="websocket",
+                    ),
+                )
+                self.assertIn(
+                    {"type": "websocket.close", "code": 1008}, retry_messages
+                )
+                self.assertEqual(upgrade_calls, [sid])
+                self.assertIn(sid, gate._session_bindings)
+
+                allow_disconnect.set()
+                deadline = asyncio.get_running_loop().time() + 1
+                while sid in gate._session_bindings:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("existing upgraded SID was not released after Engine.IO teardown")
+                    await asyncio.sleep(0)
+                self.assertNotIn(sid, gate._active_websocket_sids)
+
+        asyncio.run(exercise())
+
+    def test_socketio_websocket_disconnect_keeps_quota_until_handler_exit(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        disconnected = asyncio.Event()
+        release_handler = asyncio.Event()
+
+        async def linger_after_disconnect(_scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": '0{"sid":"disconnect-held-sid"}'})
+            self.assertEqual((await receive())["type"], "websocket.disconnect")
+            disconnected.set()
+            await release_handler.wait()
+
+        gate = self._engineio_admission_gate(sessions, linger_after_disconnect)
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ), mock.patch("asgi._SOCKETIO_SESSION_BINDING_TTL_SECONDS", 1):
+                client = asyncio.create_task(
+                    self._call_engineio_admission(
+                        gate,
+                        self._engineio_admission_scope(
+                            session.session_id,
+                            transport="websocket",
+                            scope_type="websocket",
+                        ),
+                        incoming={"type": "websocket.disconnect", "code": 1000},
+                    )
+                )
+                deadline = asyncio.get_running_loop().time() + 1
+                while "disconnect-held-sid" not in gate._session_bindings:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        self.fail("WebSocket handshake SID was not promoted")
+                    await asyncio.sleep(0)
+                await asyncio.wait_for(disconnected.wait(), timeout=1)
+                self.assertFalse(client.done())
+                self.assertIn("disconnect-held-sid", gate._active_websocket_sids)
+                gate._session_bindings["disconnect-held-sid"] = (
+                    session.session_id,
+                    time.monotonic() - 2,
+                )
+
+                blocked = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+                self.assertEqual(
+                    next(
+                        message["status"]
+                        for message in blocked
+                        if message["type"] == "http.response.start"
+                    ),
+                    429,
+                )
+
+                release_handler.set()
+                await asyncio.wait_for(client, timeout=1)
+                self.assertNotIn("disconnect-held-sid", gate._session_bindings)
+                self.assertNotIn("disconnect-held-sid", gate._active_websocket_sids)
+
+        asyncio.run(exercise())
+
+    def test_socketio_denied_existing_poll_strips_stale_entity_headers(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def poll_response(_scope, _receive, send):
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-length", b"48"),
+                    (b"content-encoding", b"gzip"),
+                    (b"content-md5", b"stale"),
+                    (b"cache-control", b"no-store"),
+                ],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'42/telemetry,["pri',
+                "more_body": True,
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'vate",{}]\x1e',
+            })
+
+        gate = self._engineio_admission_gate(sessions, poll_response)
+        self.assertTrue(gate._bind_engine_sid("poll-denied-sid", session.session_id))
+
+        async def deny(_session_id, _message, _send):
+            return False
+
+        gate.http_adapter._send_authorized_live_message = deny
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id, sid="poll-denied-sid"
+                ),
+            )
+            response = next(
+                message
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            header_names = {bytes(key).lower() for key, _value in response["headers"]}
+            self.assertNotIn(b"content-length", header_names)
+            self.assertNotIn(b"content-encoding", header_names)
+            self.assertNotIn(b"content-md5", header_names)
+            self.assertIn(b"cache-control", header_names)
+            self.assertEqual(messages[-1]["body"], b"")
+            self.assertEqual(gate._pending_handshake_buffer_bytes, 0)
+
+        asyncio.run(exercise())
+
+    def test_socketio_revoked_poll_disconnect_releases_sid_when_send_fails(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        other_session = sessions.create("other", "test-only-password", role="owner")
+
+        async def poll_response(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"1"})
+
+        gate = self._engineio_admission_gate(sessions, poll_response)
+        self.assertTrue(gate._bind_engine_sid("revoked-send-failed", session.session_id))
+        self.assertTrue(sessions.revoke(session.session_id))
+        disconnected: list[str] = []
+        disconnect_started = asyncio.Event()
+        allow_disconnect = asyncio.Event()
+
+        async def disconnect_engineio_sid(sid):
+            disconnected.append(sid)
+            disconnect_started.set()
+            await allow_disconnect.wait()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            sent: list[dict[str, object]] = []
+
+            async def fail_body_send(message):
+                if message["type"] == "http.response.body":
+                    raise OSError("client disconnected during revoked poll")
+                sent.append(message)
+
+            with self.assertRaisesRegex(OSError, "client disconnected"):
+                await gate(
+                    self._engineio_admission_scope(
+                        session.session_id, sid="revoked-send-failed"
+                    ),
+                    lambda: asyncio.sleep(
+                        0,
+                        result={
+                            "type": "http.request",
+                            "body": b"",
+                            "more_body": False,
+                        },
+                    ),
+                    fail_body_send,
+                )
+            await asyncio.wait_for(disconnect_started.wait(), timeout=1)
+            gate._session_bindings["revoked-send-failed"] = (
+                session.session_id,
+                time.monotonic() - 2,
+            )
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_SESSION_BINDING_TTL_SECONDS", 1
+            ):
+                blocked = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(other_session.session_id)
+                )
+            self.assertEqual(
+                next(
+                    message["status"]
+                    for message in blocked
+                    if message["type"] == "http.response.start"
+                ),
+                429,
+            )
+
+            allow_disconnect.set()
+            deadline = asyncio.get_running_loop().time() + 1
+            while "revoked-send-failed" in gate._session_bindings:
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("successful Engine.IO disconnect did not release the SID")
+                await asyncio.sleep(0)
+            self.assertEqual(disconnected, ["revoked-send-failed"])
+            self.assertTrue(sent)
+
+        asyncio.run(exercise())
+
+    def test_socketio_denied_polling_handshake_still_counts_its_engineio_sid(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def denied_open(scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b'0{"sid":"denied-sid"}\x1e44/telemetry,{"message":"forbidden"}',
+                }
+            )
+
+        gate = self._engineio_admission_gate(sessions, denied_open, send_allowed=False)
+
+        async def exercise():
+            with mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1
+            ):
+                denied = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+                self.assertEqual(denied[-1]["body"], b'0{"sid":"denied-sid"}\x1e44/telemetry,{"message":"forbidden"}')
+                self.assertEqual(gate._session_bindings["denied-sid"][0], session.session_id)
+                self.assertFalse(gate._pending_engine_handshakes)
+
+                capped = await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+                status = next(
+                    message["status"]
+                    for message in capped
+                    if message["type"] == "http.response.start"
+                )
+                self.assertEqual(status, 429)
+
+        asyncio.run(exercise())
+
+    def test_socketio_revoked_poll_returns_engineio_close_before_releasing_sid(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def inner(scope, _receive, send):
+            self.assertNotIn(
+                (b"accept-encoding", b"gzip"),
+                [(bytes(key).lower(), value) for key, value in scope["headers"]],
+            )
+            queued_payload = b'42/telemetry,["private",{}]\x1e1'
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", str(len(queued_payload)).encode("ascii"))],
+            })
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": queued_payload,
+                }
+            )
+
+        gate = self._engineio_admission_gate(sessions, inner)
+        self.assertTrue(gate._bind_engine_sid("revoked-sid", session.session_id))
+        previous_timestamp = gate._session_bindings["revoked-sid"][1]
+        self.assertTrue(sessions.revoke(session.session_id))
+        closed_engineio_sids: list[str] = []
+
+        async def disconnect_engineio_sid(sid: str) -> None:
+            closed_engineio_sids.append(sid)
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            scope = self._engineio_admission_scope(
+                session.session_id, sid="revoked-sid"
+            )
+            scope["headers"].append((b"accept-encoding", b"gzip"))
+            with mock.patch("asgi.time.monotonic", return_value=previous_timestamp + 1):
+                messages = await self._call_engineio_admission(
+                    gate,
+                    scope,
+                )
+            response = next(
+                message
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            self.assertEqual(response["status"], 200)
+            self.assertNotIn(
+                (b"content-length", str(len(b'42/telemetry,["private",{}]\x1e1')).encode("ascii")),
+                response["headers"],
+            )
+            self.assertEqual(messages[-1]["body"], b"1")
+            self.assertEqual(closed_engineio_sids, ["revoked-sid"])
+            self.assertNotIn("revoked-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_failed_handshake_send_disconnects_sid_before_releasing_binding(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        disconnected: list[str] = []
+
+        async def open_engineio_sid(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b'0{"sid":"send-failed-sid"}'})
+
+        gate = self._engineio_admission_gate(sessions, open_engineio_sid)
+
+        async def disconnect_engineio_sid(sid):
+            disconnected.append(sid)
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            async def fail_body_send(message):
+                if message["type"] == "http.response.body":
+                    raise OSError("client disconnected during handshake")
+
+            with self.assertRaisesRegex(OSError, "client disconnected"):
+                await gate(
+                    self._engineio_admission_scope(session.session_id),
+                    lambda: asyncio.sleep(0, result={
+                        "type": "http.request", "body": b"", "more_body": False
+                    }),
+                    fail_body_send,
+                )
+
+            deadline = asyncio.get_running_loop().time() + 1
+            while "send-failed-sid" in gate._session_bindings:
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("failed handshake SID binding was not released after teardown")
+                await asyncio.sleep(0)
+            self.assertEqual(disconnected, ["send-failed-sid"])
+
+        asyncio.run(exercise())
+
+    def test_socketio_failed_handshake_retains_sid_binding_when_teardown_fails(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def open_engineio_sid(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b'0{"sid":"retained-failed-sid"}'})
+
+        gate = self._engineio_admission_gate(sessions, open_engineio_sid)
+
+        disconnect_attempts: list[str] = []
+        disconnect_succeeded = asyncio.Event()
+
+        async def fail_first_disconnect(sid):
+            disconnect_attempts.append(sid)
+            if len(disconnect_attempts) == 1:
+                raise RuntimeError("transient Engine.IO teardown failure")
+            disconnect_succeeded.set()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=fail_first_disconnect)
+        )
+
+        async def exercise():
+            async def fail_body_send(message):
+                if message["type"] == "http.response.body":
+                    raise OSError("client disconnected during handshake")
+
+            with self.assertRaisesRegex(OSError, "client disconnected"):
+                await gate(
+                    self._engineio_admission_scope(session.session_id),
+                    lambda: asyncio.sleep(0, result={
+                        "type": "http.request", "body": b"", "more_body": False
+                    }),
+                    fail_body_send,
+                )
+            await asyncio.wait_for(disconnect_succeeded.wait(), timeout=1)
+            deadline = asyncio.get_running_loop().time() + 1
+            while "retained-failed-sid" in gate._session_bindings:
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("failed teardown retry did not release its retained SID")
+                await asyncio.sleep(0)
+            self.assertEqual(disconnect_attempts, ["retained-failed-sid"] * 2)
+            self.assertNotIn("retained-failed-sid", gate._engineio_disconnect_tasks)
+
+    def test_socketio_cancelled_teardown_does_not_restart_during_shutdown(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        disconnect_started = asyncio.Event()
+
+        async def pending_disconnect(_sid):
+            disconnect_started.set()
+            await asyncio.Future()
+
+        async def inner(_scope, _receive, _send):
+            return None
+
+        gate = self._engineio_admission_gate(sessions, inner)
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=pending_disconnect)
+        )
+
+        async def exercise():
+            reservation = gate._reserve_engine_handshake(session.session_id)
+            self.assertIsNotNone(reservation)
+            task = gate._start_engineio_sid_disconnect("shutdown-sid")
+            self.assertIsNotNone(task)
+            gate._release_engine_sid_after_disconnect(
+                "shutdown-sid", session.session_id, task, reservation
+            )
+            await asyncio.wait_for(disconnect_started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            await asyncio.sleep(0)
+            self.assertNotIn("shutdown-sid", gate._engineio_disconnect_tasks)
+            self.assertEqual(len(gate._pending_engine_handshakes), 1)
+
+        asyncio.run(exercise())
+
+    def test_socketio_abnormal_websocket_upgrade_exit_clears_active_guard(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def fail_after_accept(_scope, _receive, send):
+            await send({"type": "websocket.accept"})
+            raise RuntimeError("simulated abnormal upgrade exit")
+
+        gate = self._engineio_admission_gate(sessions, fail_after_accept)
+        self.assertTrue(gate._bind_engine_sid("abnormal-upgrade-sid", session.session_id))
+
+        async def exercise():
+            with self.assertRaisesRegex(RuntimeError, "abnormal upgrade"):
+                await self._call_engineio_admission(
+                    gate,
+                    self._engineio_admission_scope(
+                        session.session_id,
+                        sid="abnormal-upgrade-sid",
+                        transport="websocket",
+                        scope_type="websocket",
+                    ),
+                )
+            self.assertNotIn("abnormal-upgrade-sid", gate._active_websocket_sids)
+            gate._session_bindings["abnormal-upgrade-sid"] = (
+                session.session_id,
+                time.monotonic() - 2,
+            )
+            with mock.patch("asgi._SOCKETIO_SESSION_BINDING_TTL_SECONDS", 1):
+                gate._prune_session_bindings(time.monotonic())
+            self.assertNotIn("abnormal-upgrade-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_rejected_duplicate_upgrade_cannot_clear_live_websocket_guard(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def duplicate_upgrade(_scope, _receive, send):
+            await send({"type": "websocket.accept"})
+
+        gate = self._engineio_admission_gate(sessions, duplicate_upgrade)
+        self.assertTrue(gate._bind_engine_sid("live-websocket-sid", session.session_id))
+        self.assertTrue(gate._mark_websocket_sid_active("live-websocket-sid", True))
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id,
+                    sid="live-websocket-sid",
+                    transport="websocket",
+                    scope_type="websocket",
+                ),
+            )
+            self.assertFalse(any(m["type"] == "websocket.accept" for m in messages))
+            self.assertTrue(
+                any(
+                    m.get("type") == "websocket.close" and m.get("code") == 1008
+                    for m in messages
+                )
+            )
+            self.assertIn("live-websocket-sid", gate._active_websocket_sids)
+            gate._session_bindings["live-websocket-sid"] = (
+                session.session_id,
+                time.monotonic() - 2,
+            )
+            with mock.patch("asgi._SOCKETIO_SESSION_BINDING_TTL_SECONDS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1
+            ), mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1):
+                reservation = gate._reserve_engine_handshake(session.session_id)
+            self.assertIsNone(reservation)
+            self.assertIn("live-websocket-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_denied_handshake_strips_entity_headers_when_body_is_filtered(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        original_payload = (
+            b'0{"sid":"filtered-handshake-sid"}'
+            b'\x1e42/telemetry,["traffic",{"bytes":123}]'
+        )
+
+        async def denied_open(_scope, _receive, send):
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-length", str(len(original_payload)).encode()),
+                    (b"content-encoding", b"gzip"),
+                    (b"content-md5", b"stale"),
+                    (b"cache-control", b"no-store"),
+                ],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": original_payload,
+            })
+
+        gate = self._engineio_admission_gate(sessions, denied_open, send_allowed=False)
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate, self._engineio_admission_scope(session.session_id)
+            )
+            response_start = next(
+                message for message in messages
+                if message["type"] == "http.response.start"
+            )
+            headers = dict(response_start["headers"])
+            self.assertNotIn(b"content-length", headers)
+            self.assertNotIn(b"content-encoding", headers)
+            self.assertNotIn(b"content-md5", headers)
+            self.assertEqual(headers[b"cache-control"], b"no-store")
+            response_body = next(
+                message for message in messages
+                if message["type"] == "http.response.body"
+            )
+            self.assertEqual(
+                response_body["body"], b'0{"sid":"filtered-handshake-sid"}'
+            )
+
+        asyncio.run(exercise())
+
+        asyncio.run(exercise())
+
+    def test_socketio_revoked_poll_keeps_sid_counted_if_engineio_teardown_is_unavailable(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def inner(_scope, _receive, _send):
+            self.fail("revoked transport must not reach Engine.IO")
+
+        gate = self._engineio_admission_gate(sessions, inner)
+        self.assertTrue(gate._bind_engine_sid("retained-sid", session.session_id))
+        self.assertTrue(sessions.revoke(session.session_id))
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id, sid="retained-sid"
+                ),
+            )
+            response = next(
+                message
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            self.assertEqual(response["status"], 403)
+            self.assertIn("retained-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_foreign_session_cannot_close_another_sessions_polling_sid(self) -> None:
+        sessions = SessionStore()
+        owner = sessions.create("owner", "test-only-password", role="owner")
+        foreign = sessions.create("foreign", "test-only-password", role="owner")
+
+        async def inner(_scope, _receive, _send):
+            self.fail("foreign session must not reach Engine.IO with another session's SID")
+
+        gate = self._engineio_admission_gate(sessions, inner)
+        self.assertTrue(gate._bind_engine_sid("owned-sid", owner.session_id))
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(foreign.session_id, sid="owned-sid"),
+            )
+            status = next(
+                message["status"]
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            self.assertEqual(status, 403)
+            self.assertIn("owned-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_namespace_disconnect_keeps_polling_sid_counted_until_engineio_close(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def disconnect_response(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"41/telemetry,"})
+
+        gate = self._engineio_admission_gate(sessions, disconnect_response)
+        self.assertTrue(gate._bind_engine_sid("polling-sid", session.session_id))
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id, sid="polling-sid"
+                ),
+            )
+            self.assertEqual(messages[-1]["body"], b"41/telemetry,")
+            self.assertIn("polling-sid", gate._session_bindings)
+
+            async def transport_open(_scope, _receive, send):
+                await send({"type": "http.response.start", "status": 200, "headers": []})
+                await send({"type": "http.response.body", "body": b"6"})
+
+            gate.app = transport_open
+            still_counted = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id, sid="polling-sid"
+                ),
+            )
+            self.assertEqual(
+                next(message["status"] for message in still_counted if message["type"] == "http.response.start"),
+                200,
+            )
+            self.assertIn("polling-sid", gate._session_bindings)
+
+            async def engineio_close(_scope, _receive, send):
+                await send({"type": "http.response.start", "status": 200, "headers": []})
+                await send({"type": "http.response.body", "body": b"1"})
+
+            gate.app = engineio_close
+            closed = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id, sid="polling-sid"
+                ),
+            )
+            self.assertEqual(closed[-1]["body"], b"1")
+            self.assertNotIn("polling-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_admission_engineio_close_releases_promoted_websocket_sid(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def opened_then_closed(_scope, _receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": '0{"sid":"direct-ws-sid"}'})
+            self.assertIn("direct-ws-sid", gate._session_bindings)
+            await send({"type": "websocket.send", "text": "1"})
+
+        gate = self._engineio_admission_gate(sessions, opened_then_closed)
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id,
+                    transport="websocket",
+                    scope_type="websocket",
+                ),
+            )
+            self.assertIn("websocket.accept", [message["type"] for message in messages])
+            self.assertNotIn("direct-ws-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
+
+    def test_socketio_direct_websocket_disconnect_releases_its_promoted_sid(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def open_until_disconnect(_scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": '0{"sid":"direct-disconnect-sid"}'})
+            self.assertIn("direct-disconnect-sid", gate._session_bindings)
+            self.assertEqual((await receive())["type"], "websocket.disconnect")
+
+        gate = self._engineio_admission_gate(sessions, open_until_disconnect)
+
+        async def exercise():
+            await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id,
+                    transport="websocket",
+                    scope_type="websocket",
+                ),
+                incoming={"type": "websocket.disconnect", "code": 1000},
+            )
+            self.assertNotIn("direct-disconnect-sid", gate._session_bindings)
+            self.assertFalse(gate._pending_engine_handshakes)
+
+        asyncio.run(exercise())
+
+    def test_socketio_upgrade_disconnect_keeps_original_polling_sid_bound(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def wait_for_disconnect(_scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await receive()
+
+        gate = self._engineio_admission_gate(sessions, wait_for_disconnect)
+        self.assertTrue(gate._bind_engine_sid("polling-owned-sid", session.session_id))
+
+        async def exercise():
+            await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id,
+                    transport="websocket",
+                    sid="polling-owned-sid",
+                    scope_type="websocket",
+                ),
+                incoming={"type": "websocket.disconnect", "code": 1000},
+            )
+            self.assertTrue(
+                gate._session_matches_engine_sid("polling-owned-sid", session.session_id)
+            )
+
+        asyncio.run(exercise())
+
+    def test_socketio_admission_revoked_websocket_releases_sid_on_control_traffic(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        disconnect_seen = asyncio.Event()
+
+        async def inner(_scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": '0{"sid":"live-sid"}'})
+            self.assertIn("live-sid", gate._session_bindings)
+            self.assertTrue(sessions.revoke(session.session_id))
+            disconnected = await receive()
+            self.assertEqual(disconnected["type"], "websocket.disconnect")
+
+        gate = self._engineio_admission_gate(sessions, inner)
+
+        async def disconnect_engineio_sid(sid):
+            self.assertEqual(sid, "live-sid")
+            disconnect_seen.set()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            messages = await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id,
+                    transport="websocket",
+                    scope_type="websocket",
+                ),
+                incoming={"type": "websocket.receive", "text": "2"},
+            )
+            await asyncio.wait_for(disconnect_seen.wait(), timeout=1)
+            deadline = asyncio.get_running_loop().time() + 1
+            while "live-sid" in gate._session_bindings:
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("revoked SID was not released after Engine.IO teardown")
+                await asyncio.sleep(0)
+            self.assertIn(
+                {"type": "websocket.close", "code": 1008}, messages
+            )
+
+        asyncio.run(exercise())
+
+    def test_socketio_admission_releases_reservations_on_exception_cancellation_and_preopen_disconnect(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def failing_after_open(_scope, _receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b'0{"sid":"failed-sid"}'})
+            raise RuntimeError("simulated Engine.IO failure")
+
+        gate = self._engineio_admission_gate(sessions, failing_after_open)
+        disconnect_called = asyncio.Event()
+
+        async def disconnect_engineio_sid(sid):
+            self.assertEqual(sid, "failed-sid")
+            disconnect_called.set()
+
+        gate.app.engineio_server = SimpleNamespace(
+            eio=SimpleNamespace(disconnect=disconnect_engineio_sid)
+        )
+
+        async def exercise():
+            with self.assertRaisesRegex(RuntimeError, "simulated Engine.IO failure"):
+                await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            self.assertEqual(len(gate._pending_engine_handshakes), 0)
+            await asyncio.wait_for(disconnect_called.wait(), timeout=1)
+            deadline = asyncio.get_running_loop().time() + 1
+            while "failed-sid" in gate._session_bindings:
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("failed Engine.IO handshake SID was not released after teardown")
+                await asyncio.sleep(0)
+            self.assertNotIn("failed-sid", gate._session_bindings)
+
+            started = asyncio.Event()
+
+            async def blocked_inner(_scope, _receive, _send):
+                started.set()
+                await asyncio.Future()
+
+            blocked_gate = self._engineio_admission_gate(sessions, blocked_inner)
+            task = asyncio.create_task(
+                self._call_engineio_admission(
+                    blocked_gate, self._engineio_admission_scope(session.session_id)
+                )
+            )
+            await asyncio.wait_for(started.wait(), timeout=1)
+            self.assertEqual(len(blocked_gate._pending_engine_handshakes), 1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(len(blocked_gate._pending_engine_handshakes), 0)
+
+            async def wait_for_disconnect(_scope, receive, _send):
+                await receive()
+
+            disconnect_gate = self._engineio_admission_gate(sessions, wait_for_disconnect)
+            await self._call_engineio_admission(
+                disconnect_gate,
+                self._engineio_admission_scope(
+                    session.session_id, transport="websocket", scope_type="websocket"
+                ),
+                incoming={"type": "websocket.disconnect", "code": 1000},
+            )
+            self.assertEqual(len(disconnect_gate._pending_engine_handshakes), 0)
+
+        asyncio.run(exercise())
+
+    def test_socketio_admission_releases_engineio_close_and_expires_idle_bindings(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+
+        async def close_inner(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            if b"&sid=" in scope["query_string"]:
+                await receive()
+                await send({"type": "http.response.body", "body": b"ok"})
+            else:
+                await send({"type": "http.response.body", "body": b'0{"sid":"replacement-sid"}'})
+
+        gate = self._engineio_admission_gate(sessions, close_inner)
+        self.assertTrue(gate._bind_engine_sid("closing-sid", session.session_id))
+
+        async def exercise():
+            await self._call_engineio_admission(
+                gate,
+                self._engineio_admission_scope(
+                    session.session_id, sid="closing-sid", method="POST"
+                ),
+                incoming={"type": "http.request", "body": b"1", "more_body": False},
+            )
+            self.assertNotIn("closing-sid", gate._session_bindings)
+
+            self.assertTrue(gate._bind_engine_sid("idle-sid", session.session_id))
+            gate._session_bindings["idle-sid"] = (
+                session.session_id,
+                time.monotonic() - 2,
+            )
+            with mock.patch("asgi._SOCKETIO_SESSION_BINDING_TTL_SECONDS", 1), mock.patch(
+                "asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS", 1
+            ), mock.patch("asgi._SOCKETIO_MAX_ENGINEIO_CONNECTIONS_PER_SESSION", 1):
+                await self._call_engineio_admission(
+                    gate, self._engineio_admission_scope(session.session_id)
+                )
+            self.assertNotIn("idle-sid", gate._session_bindings)
+            self.assertIn("replacement-sid", gate._session_bindings)
+
+        asyncio.run(exercise())
 
 if __name__ == "__main__":
     unittest.main()
