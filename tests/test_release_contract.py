@@ -337,7 +337,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #885", release_record)
+        self.assertIn("## Latest published mainline image — PR #889", release_record)
+        self.assertIn("## Previous published mainline image — PR #885", release_record)
         self.assertIn("## Previous published mainline image — PR #879", release_record)
         self.assertIn("## Previous published mainline image — PR #875", release_record)
         self.assertIn("## Previous published mainline image — PR #873", release_record)
@@ -380,15 +381,15 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:9074e637e745d51c85f8e9c60a75b528cd206d3508627d9107c723699cf28a4b", rendered)
         self.assertIn("sha256:aee2573edb8edcb1b8446b012aef408f4d2c1a3727b6dfc4c9dd66cc0fefe390", rendered)
         roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
-        self.assertIn("PR #885", roadmap)
+        self.assertIn("PR #889", roadmap)
         normalized_roadmap = " ".join(roadmap.split())
         self.assertIn(
-            "No PR #885 staging, candidate-specific acceptance, or production promotion is claimed.",
+            "No PR #889 staging, candidate-specific acceptance, or production promotion is claimed.",
             normalized_roadmap,
         )
-        self.assertIn("latest confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
+        self.assertIn("latest historically confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
         self.assertIn(
-            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",
+            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #889.",
             normalized_roadmap,
         )
         self.assertIn("sustained resource impact", normalized_roadmap)

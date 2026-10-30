@@ -642,11 +642,11 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #885 (`f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb`) is the latest published image source",
+            "PR #889 (`61dae736ea8247dd77eb0a61cf2ca3007aced542`) is the latest published image source",
             roadmap,
         )
         self.assertIn(
-            "## Latest published mainline image — PR #885",
+            "## Latest published mainline image — PR #889",
             releases,
         )
         self.assertIn(
@@ -658,12 +658,12 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             releases,
         )
         self.assertIn(
-            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",
+            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #889.",
             releases,
         )
         self.assertNotIn("latest merged mainline source", roadmap)
         self.assertNotIn("latest merged mainline source", releases)
-        self.assertIn("The latest confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
+        self.assertIn("The latest historically confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
         self.assertIn("The two bounded source reviews described above", self.document)
