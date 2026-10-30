@@ -626,7 +626,21 @@ class SocketIOLiveSendASGI:
             )
         except (UnicodeError, ValueError):
             return False, None, False
+        # Engine.IO consumes the first value and defaults a missing transport
+        # to polling. Reject ambiguous protocol keys on every request and
+        # implicit transports on new handshakes before dispatch, so Engine.IO
+        # cannot allocate an unreserved SID.
+        if any(len(parameters.get(name, [])) > 1 for name in ("EIO", "transport")):
+            return False, None, False
+        protocol_versions = parameters.get("EIO", [])
+        transports = parameters.get("transport", [])
         values = parameters.get("sid", [])
+        if (
+            not values
+            and protocol_versions == ["4"]
+            and transports not in (["polling"], ["websocket"])
+        ):
+            return False, None, False
         if not values:
             return False, None, True
         if len(values) != 1 or not values[0] or len(values[0]) > 256:

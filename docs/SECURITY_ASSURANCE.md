@@ -1144,6 +1144,27 @@ This review does not close issue #200. Candidate-bound deployment, proxy,
 resource, event-freshness, reconnect/recovery, Redis/SQLite, and rollback
 evidence remain outstanding.
 
+## Engine.IO admission follow-up — 2026-10-30
+
+A second read-only review of the current PR #889 source found that duplicate
+`EIO` or `transport` query parameters could be interpreted differently by the
+ASGI quota wrapper and the inspected `python-engineio` 4.14.0 implementation.
+Engine.IO consumes the first value and defaults a missing transport to
+polling, while the wrapper previously required an explicit single-value match
+before reserving handshake capacity. A request could therefore reach Engine.IO
+without a reservation. This was a confirmed source-level admission-control
+defect, not a deployed acceptance result.
+
+The follow-up fix rejects duplicate protocol parameters on all requests and a
+missing or blank transport on new Engine.IO v4 handshakes before calling
+Engine.IO. Existing bound SID requests retain Engine.IO's default-polling
+compatibility. A regression test covers malformed handshakes, existing SID
+compatibility, and a subsequent valid handshake. The focused ASGI suite passes
+(118 tests),
+as do the release/security document contract suites (62 tests). The fix is in
+review and is not yet merged, published, or deployed. Issue #200 remains open;
+the scoped review is not a complete ASVS assessment or compliance attestation.
+
 ## Non-goals
 
 This document is a narrow evidence index for the session/live-stream area. It
