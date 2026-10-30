@@ -88,15 +88,19 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "PR #889 (`61dae736ea8247dd77eb0a61cf2ca3007aced542`) is the latest published image source",
+            "PR #891 (`58a680423a4d616eb926a47c486847c8a4c062fe`) is the latest published image source",
             report,
         )
         self.assertIn(
-            "The latest confirmed candidate-image read-back is PR #862; it predates PR #889 publication",
+            "A later read-only WinBox listing on 2026-10-30 reconfirmed PR #862's exact ARM64 tag and digest with a healthy marker",
+            report,
+        )
+        self.assertIn(
+            "the production row still showed the PR #788 ARM64 tag. RouterOS showed one active test tunnel",
             report,
         )
         self.assertIn("digest prefix matching the published PR #862 ARM64 digest", report)
-        self.assertIn("No RouterOS read-back confirms PR #889 staging or acceptance", report)
+        self.assertIn("No post-publication RouterOS read-back confirms PR #891 staging or acceptance", report)
         self.assertIn(
             "returned PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`, confirming that the canary was not running PR #885",
             report,

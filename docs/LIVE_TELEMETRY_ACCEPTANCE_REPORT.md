@@ -1,10 +1,11 @@
 # Live telemetry acceptance status
 
-Status: **PR #889 (`61dae736ea8247dd77eb0a61cf2ca3007aced542`) is the latest
+Status: **PR #891 (`58a680423a4d616eb926a47c486847c8a4c062fe`) is the latest
 published image source, with immutable ARM64 and AMD64 images. Main CI,
 CodeQL, image scans, runtime smoke tests, provenance and SPDX SBOM checks
 passed; the stable manifest was read back. Exact tags and digests are in
-[`RELEASES.md`](RELEASES.md). No RouterOS read-back confirms PR #889 staging or acceptance.**
+[`RELEASES.md`](RELEASES.md). No post-publication RouterOS read-back confirms
+PR #891 staging or acceptance.**
 
 ## Historical read-only RouterOS checkpoint — 2026-10-29
 
@@ -27,13 +28,24 @@ WinBox System > Resources also showed a router-wide point sample: 6% CPU,
 bad blocks. These figures do not attribute usage to the dashboard container or
 establish sustained impact.
 
+## Current read-only RouterOS checkpoint — 2026-10-30
+
+A fresh WinBox listing showed canary still configured with PR #862's ARM64
+immutable tag and matching digest
+`sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac`,
+with a healthy marker. Production still showed the PR #788 ARM64 tag. PPP
+Active Connections showed one active test tunnel. The canary dashboard sign-in
+request remained pending, so no authenticated dashboard event or traffic
+sample was correlated with the router session. No PR #891 staging or live
+acceptance is established by these point observations.
+
 An earlier 2026-10-28 Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
 69.7 MiB app size, and 0.0 MiB data size. A signed-in dashboard check then
 showed a stale/reconnecting live stream and zero connected devices. Those
 historical point checks do not establish sustained resource impact. The
 30-minute acceptance window and production promotion remain unverified.
 
-## RouterOS candidate status — PR #862 and PR #889
+## RouterOS candidate status — PR #862 and PR #891
 
 PR #862 is a published artifact with immutable digests recorded in
 [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -41,13 +53,14 @@ image digest prefix matching the published PR #862 ARM64 digest and a
 `HEALTHY` container. The Stats view provided one CPU/memory/swap/app-size/data-
 size sample. The fresh authenticated readiness result in the checkpoint above
 returned PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`,
-confirming that the canary was not running PR #885 at that observation. PR #889
-is now the latest published image; no RouterOS read-back confirms it is staged.
-The latest confirmed candidate-image read-back is PR #862; it predates PR #889
-publication and is limited to the image digest prefix and point-in-time
-container status/resource sample described above. The later stale-stream/no-
-session check shows that live telemetry acceptance remains incomplete; neither
-point check establishes acceptance of PR #889.
+confirming that the canary was not running PR #885 at that observation. PR #891
+is now the latest published image; no post-publication RouterOS read-back
+confirms it is staged. A later read-only WinBox listing on 2026-10-30
+reconfirmed PR #862's exact ARM64 tag and digest with a healthy marker; the
+production row still showed the PR #788 ARM64 tag. RouterOS showed one active
+test tunnel, but the canary sign-in request remained pending, so that session
+was not correlated with authenticated dashboard telemetry. These point reads
+do not establish live acceptance or acceptance of PR #891.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and
