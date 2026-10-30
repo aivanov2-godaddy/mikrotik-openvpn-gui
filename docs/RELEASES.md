@@ -72,9 +72,11 @@ historically authenticated canary readiness read recorded here reported
 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #889.
 On 2026-10-30 an
 unauthenticated `/readyz` request returned the Cloudflare Access sign-in page
-(HTTP 200), not readiness JSON; the canary browser tab also showed sign-in and
-the current read-only PPP Active Connections view was empty. The canary image
-revision was therefore not verified for this publication. Production's last
+(HTTP 200), not readiness JSON; the canary browser tab also showed sign-in.
+Same-day read-only PPP Active Connections records conflict: one was empty and
+another recorded one test tunnel. Neither was correlated with authenticated
+dashboard telemetry, so the current session count and canary image revision
+were not verified for this publication. Production's last
 recorded image remains PR #788 and was not re-read. Neither device has a
 read-back confirming PR #889 staging or acceptance.
 

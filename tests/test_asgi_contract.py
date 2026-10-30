@@ -5375,6 +5375,74 @@ class ASGIContractTests(unittest.TestCase):
         self.assertEqual(established_upgrade, [{"type": "websocket.accept"}])
         self.assertEqual(set(gate._session_bindings), {"engine-1", "engine-2"})
 
+    def test_socketio_admission_rejects_ambiguous_protocol_queries_before_allocation(self) -> None:
+        sessions = SessionStore()
+        session = sessions.create("operator", "test-only-password", role="owner")
+        delegated: list[str] = []
+        allocated = 0
+
+        async def inner(scope, _receive, send):
+            nonlocal allocated
+            delegated.append(scope["type"])
+            if b"&sid=" in scope["query_string"]:
+                await send({"type": "http.response.start", "status": 200, "headers": []})
+                await send({"type": "http.response.body", "body": b"6"})
+                return
+            allocated += 1
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": f'0{{"sid":"engine-{allocated}"}}'.encode("ascii")})
+
+        gate = self._engineio_admission_gate(sessions, inner)
+        malformed_queries = (
+            b"EIO=4",
+            b"EIO=4&transport=",
+            b"EIO=4&EIO=3&transport=polling",
+            b"EIO=4&transport=polling&transport=invalid",
+        )
+        for query in malformed_queries:
+            malformed = self._engineio_admission_scope(session.session_id)
+            malformed["query_string"] = query
+            messages = asyncio.run(self._call_engineio_admission(gate, malformed))
+            response = next(
+                message
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            self.assertEqual(response["status"], 403)
+            self.assertEqual(delegated, [])
+            self.assertEqual(allocated, 0)
+
+        valid = asyncio.run(
+            self._call_engineio_admission(
+                gate, self._engineio_admission_scope(session.session_id)
+            )
+        )
+        response = next(
+            message for message in valid if message["type"] == "http.response.start"
+        )
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(delegated, ["http"])
+        self.assertEqual(allocated, 1)
+        self.assertEqual(set(gate._session_bindings), {"engine-1"})
+
+        for query in (
+            b"EIO=4&sid=engine-1",
+            b"EIO=4&transport=&sid=engine-1",
+        ):
+            existing = self._engineio_admission_scope(
+                session.session_id, sid="engine-1"
+            )
+            existing["query_string"] = query
+            messages = asyncio.run(self._call_engineio_admission(gate, existing))
+            response = next(
+                message
+                for message in messages
+                if message["type"] == "http.response.start"
+            )
+            self.assertEqual(response["status"], 200)
+        self.assertEqual(delegated, ["http", "http", "http"])
+        self.assertEqual(allocated, 1)
+
     def test_socketio_admission_reserves_capacity_atomically_during_concurrent_handshakes(self) -> None:
         sessions = SessionStore()
         session = sessions.create("operator", "test-only-password", role="owner")

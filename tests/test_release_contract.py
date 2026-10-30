@@ -492,7 +492,7 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("Stats view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap", rendered)
-        self.assertIn("No RouterOS read-back confirms PR #885 staging or acceptance", rendered)
+        self.assertIn("No RouterOS read-back confirms PR #889 staging or acceptance", rendered)
         self.assertIn("digest prefix matching the PR #862 ARM64 digest", rendered)
         self.assertIn(
             "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",
