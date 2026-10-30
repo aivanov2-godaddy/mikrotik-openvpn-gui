@@ -1,10 +1,11 @@
 # Live telemetry acceptance status
 
-Status: **PR #889 (`61dae736ea8247dd77eb0a61cf2ca3007aced542`) is the latest
+Status: **PR #891 (`58a680423a4d616eb926a47c486847c8a4c062fe`) is the latest
 published image source, with immutable ARM64 and AMD64 images. Main CI,
 CodeQL, image scans, runtime smoke tests, provenance and SPDX SBOM checks
 passed; the stable manifest was read back. Exact tags and digests are in
-[`RELEASES.md`](RELEASES.md). No RouterOS read-back confirms PR #889 staging or acceptance.**
+[`RELEASES.md`](RELEASES.md). No post-publication RouterOS read-back confirms
+PR #891 staging or acceptance.**
 
 ## Historical read-only RouterOS checkpoint — 2026-10-29
 
@@ -33,7 +34,7 @@ showed a stale/reconnecting live stream and zero connected devices. Those
 historical point checks do not establish sustained resource impact. The
 30-minute acceptance window and production promotion remain unverified.
 
-## RouterOS candidate status — PR #862 and PR #889
+## RouterOS candidate status — PR #862 and PR #891
 
 PR #862 is a published artifact with immutable digests recorded in
 [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -41,13 +42,14 @@ image digest prefix matching the published PR #862 ARM64 digest and a
 `HEALTHY` container. The Stats view provided one CPU/memory/swap/app-size/data-
 size sample. The fresh authenticated readiness result in the checkpoint above
 returned PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`,
-confirming that the canary was not running PR #885 at that observation. PR #889
-is now the latest published image; no RouterOS read-back confirms it is staged.
-The latest confirmed candidate-image read-back is PR #862; it predates PR #889
+confirming that the canary was not running PR #885 at that observation. PR #891
+is now the latest published image; no post-publication RouterOS read-back
+confirms it is staged. The latest confirmed candidate-image read-back is PR #862;
+it predates PR #891
 publication and is limited to the image digest prefix and point-in-time
 container status/resource sample described above. The later stale-stream/no-
 session check shows that live telemetry acceptance remains incomplete; neither
-point check establishes acceptance of PR #889.
+point check establishes acceptance of PR #891.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and
