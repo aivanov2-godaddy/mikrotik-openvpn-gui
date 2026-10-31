@@ -337,7 +337,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #889", release_record)
+        self.assertIn("## Latest published mainline image — PR #891", release_record)
+        self.assertIn("## Previous published mainline image — PR #889", release_record)
         self.assertIn("## Previous published mainline image — PR #885", release_record)
         self.assertIn("## Previous published mainline image — PR #879", release_record)
         self.assertIn("## Previous published mainline image — PR #875", release_record)
@@ -384,12 +385,19 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("PR #889", roadmap)
         normalized_roadmap = " ".join(roadmap.split())
         self.assertIn(
-            "No PR #889 staging, candidate-specific acceptance, or production promotion is claimed.",
+            "These reads do not verify PR #891 staging or acceptance.",
             normalized_roadmap,
         )
+        self.assertIn(
+            "No candidate-specific acceptance or production promotion is claimed.",
+            normalized_roadmap,
+        )
+        self.assertIn("sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac", rendered)
+        self.assertIn("one active test tunnel", rendered)
+        self.assertIn("sign-in request remained pending", rendered)
         self.assertIn("latest historically confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
         self.assertIn(
-            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #889.",
+            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #891.",
             normalized_roadmap,
         )
         self.assertIn("sustained resource impact", normalized_roadmap)
@@ -492,7 +500,10 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("Stats view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap", rendered)
-        self.assertIn("No RouterOS read-back confirms PR #889 staging or acceptance", rendered)
+        self.assertIn("Neither device has a read-back confirming PR #889 staging or acceptance", rendered)
+        self.assertIn("sha256:dc5afa62f0410459ac2d48a5c53b7532d2f0a2104d46a9392874e7373fd2d0eb", rendered)
+        self.assertIn("sha256:0376f9bb3ede0b018150a34107b19b53115fb0fe3ed1d80a6f71f8891b26bd23", rendered)
+        self.assertIn("sha256:b84c99e539924bc08188a29b5e628a7c7ef5d62c53266596c5d09e6fc6cb2b77", rendered)
         self.assertIn("digest prefix matching the PR #862 ARM64 digest", rendered)
         self.assertIn(
             "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #885.",

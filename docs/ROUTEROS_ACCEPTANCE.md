@@ -13,29 +13,31 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #889 (`61dae736ea8247dd77eb0a61cf2ca3007aced542`)
-is the latest published image. Its CI, CodeQL, image scans, runtime smoke tests,
-provenance and SPDX SBOM checks passed; the stable manifest was read back. See
-[`RELEASES.md`](RELEASES.md) for immutable tags and digests. No RouterOS read-back
-confirms PR #889 staging or acceptance.
+prove RouterOS compatibility. PR #891 (`58a680423a4d616eb926a47c486847c8a4c062fe`)
+is the latest published image. Its post-merge CI, CodeQL, scans, runtime smoke
+tests, provenance and SPDX SBOM checks passed; the stable manifest was read
+back. See [`RELEASES.md`](RELEASES.md) for immutable tags and digests. No
+post-publication RouterOS read-back confirms PR #891 staging or acceptance.
 
 ## Current read-only checkpoint — 2026-10-30
 
 WinBox read-back showed the canary still configured for PR #862's published
-ARM64 image and reporting `HEALTHY`; production still showed the older immutable
-image associated with PR #788. Neither container was changed. RouterOS PPP
-Active Connections showed one active test tunnel at the time of the read, but
-the canary dashboard browser was at its sign-in page. The session could not be
-correlated with authenticated dashboard telemetry, so event delivery, latency,
-freshness, reconnect, and snapshot recovery remain unverified for the current
-candidate. This is not a soak or acceptance result.
+ARM64 immutable tag and matching digest
+`sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac`,
+with a healthy marker. Production still showed the older immutable image tag
+associated with PR #788. Neither container was changed. RouterOS PPP Active
+Connections showed one active test tunnel, but the canary dashboard sign-in
+request remained pending, so the session could not be correlated with
+authenticated dashboard telemetry. Event delivery, latency, freshness,
+reconnect, and snapshot recovery remain unverified for PR #891. This is not a
+soak or acceptance result.
 
 The read-only WinBox review also found five known updater-related script entries
 and three scheduler entries. The project updater scheduler was disabled with
 zero runs and an unresolved event binding. No updater or script was executed;
 no router account, policy, certificate, VPN profile, or container was changed.
 Keep the updater disabled until installed source and scheduler bindings are
-reconciled and reviewed staging and rollback steps are available. No PR #889
+reconciled and reviewed staging and rollback steps are available. No PR #891
 staging or production promotion is claimed.
 
 ## Historical checkpoint — 2026-10-29
@@ -70,7 +72,7 @@ a safety approval. The original invalid-request cause was not recovered from
 the retained audit bundle and remains unknown. No script or scheduler was run
 or changed; keep the project updater disabled.
 
-## Candidate status — PR #862 and PR #889 — partial read-back
+## Candidate status — PR #862 and PR #891 — partial read-back
 
 PR #862 was published and has immutable architecture tags and digests recorded
 in [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -79,12 +81,12 @@ image digest prefix matching its published ARM64 digest and container status
 and #200 comments that said it had not been read back. A fresh authenticated
 readiness response returned PR #862 revision
 `445c1d5ca0f28174629be8e8cd94f04de132f0fc`, confirming the canary was not
-running PR #885 at that historical observation. PR #889 is now the latest
-published image; no RouterOS read-back confirms it is staged. Sustained
+running PR #885 at that historical observation. PR #891 is now the latest
+published image; no post-publication RouterOS read-back confirms it is staged. Sustained
 health/resource impact and the soak remain unverified.
 
 Candidate-specific session-event, traffic-freshness, latency, reconnect,
-snapshot-recovery, and authorization evidence remain unavailable for PR #889.
+snapshot-recovery, and authorization evidence remain unavailable for PR #891.
 RouterOS later showed one active test tunnel, but it was not correlated with an
 authenticated dashboard; the canary browser remained at its sign-in page.
 A 30-minute candidate-bound soak, Redis failure/recovery checks,

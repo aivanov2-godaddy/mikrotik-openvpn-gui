@@ -1144,9 +1144,9 @@ This review does not close issue #200. Candidate-bound deployment, proxy,
 resource, event-freshness, reconnect/recovery, Redis/SQLite, and rollback
 evidence remain outstanding.
 
-## Engine.IO admission follow-up — 2026-10-30
+## Engine.IO admission follow-up — PR #891 — 2026-10-30
 
-A second read-only review of the current PR #889 source found that duplicate
+A second read-only review of the PR #889 source found that duplicate
 `EIO` or `transport` query parameters could be interpreted differently by the
 ASGI quota wrapper and the inspected `python-engineio` 4.14.0 implementation.
 Engine.IO consumes the first value and defaults a missing transport to
@@ -1155,15 +1155,18 @@ before reserving handshake capacity. A request could therefore reach Engine.IO
 without a reservation. This was a confirmed source-level admission-control
 defect, not a deployed acceptance result.
 
-The follow-up fix rejects duplicate protocol parameters on all requests and a
-missing or blank transport on new Engine.IO v4 handshakes before calling
-Engine.IO. Existing bound SID requests retain Engine.IO's default-polling
-compatibility. A regression test covers malformed handshakes, existing SID
-compatibility, and a subsequent valid handshake. The focused ASGI suite passes
-(118 tests),
-as do the release/security document contract suites (62 tests). The fix is in
-review and is not yet merged, published, or deployed. Issue #200 remains open;
-the scoped review is not a complete ASVS assessment or compliance attestation.
+PR #891 (`58a680423a4d616eb926a47c486847c8a4c062fe`) rejects duplicate
+protocol parameters on all requests and a missing or blank transport on new
+Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
+retain Engine.IO's default-polling compatibility. Regression coverage includes
+malformed handshakes, existing SID compatibility, and a subsequent valid
+handshake. Post-merge CI, CodeQL, and ARM64/AMD64 image publication passed;
+the publisher verified image provenance and SPDX SBOM attestations against
+the exact digests and passed both runtime smoke tests. This is source/build
+evidence, not a RouterOS deployment result. No post-publication device
+read-back or candidate-bound live acceptance is recorded. Issue #200 remains
+open; this scoped review is not a complete ASVS assessment or compliance
+attestation.
 
 ## Non-goals
 
