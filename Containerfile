@@ -2,7 +2,7 @@ ARG VERSION=1.11.0
 ARG REVISION=unknown
 ARG SOURCE_URL=""
 
-FROM docker.io/library/python:3.15-alpine@sha256:d44b1254cb92329418d164b22b20d86bbd3869d48e80e09e476531a409a728bb AS routeros-rootfs
+FROM docker.io/library/python:3.15-alpine@sha256:20a82dbc2783112ddb91d1534603f802d222a3e63e593cd002eb2ac534e70211 AS routeros-rootfs
 
 ARG VERSION
 ARG REVISION
