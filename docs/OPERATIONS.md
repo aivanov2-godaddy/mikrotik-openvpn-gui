@@ -69,9 +69,11 @@ source addresses, free-form details, credentials, and live VPN telemetry stay
 out of remote payloads; the full audit record remains in the protected local
 SQLite store. This intentionally narrows the previously described outbound
 payload; consumers must not depend on the omitted identity/detail fields.
-Delivery is at-least-once and bounded by `REDIS_STREAM_MAXLEN`; consumers must
-deduplicate by `event_id`. Keep Redis on a private network, enable
-authentication, and persist its data directory. Use `rediss://` when Redis
+Publisher retries are at-least-once up to Redis accepting `XADD`; retained
+stream history is bounded by `REDIS_STREAM_MAXLEN`, an entry-count limit rather
+than a time-based retention guarantee. Consumers must deduplicate by
+`event_id`. Keep Redis on a private network, enable authentication, and persist
+its data directory. Use `rediss://` when Redis
 traffic crosses a network boundary that is not already protected by an
 isolated trusted transport. For `rediss://`, the dashboard requires certificate
 and hostname verification. Select the Redis database in the URL path (such as
@@ -110,10 +112,19 @@ database path or its records. Alert on sustained WAL growth or low free space
 before backup and writes are affected.
 CI also exercises Redis restart recovery, loss of stream state while the
 outbox row is pending, multi-batch backlog drain, and the ambiguous case where
-a stream append succeeds but its SQLite acknowledgement is lost. The integration job
-uses an isolated disposable Redis container; it never connects to a project or
-production Redis instance. Treat stream delivery as at-least-once, not exactly
-once, and use `event_id` for consumer-side deduplication. A Redis-local effect
+a stream append succeeds but its SQLite acknowledgement is lost. Once SQLite
+records an event as delivered after Redis accepts `XADD`, later Redis data loss
+or `MAXLEN` trimming does not make the outbox publish it again; the regression
+`tests/test_redis_integration.py::RedisOutboxRecoveryTests.test_acknowledged_event_is_not_reconstructed_after_redis_data_loss`
+documents that boundary. An entry evicted before a consumer reads it is
+unrecoverable under the current contract. The integration job uses an isolated
+disposable Redis container; it never connects to a project or production Redis
+instance. There is no Redis stream consumer in this repository, so consumer
+receipt and lag are external integration evidence. Configure persistence and
+enough entry capacity for the maximum expected consumer interruption; reconcile
+consumer state if an unread entry is missing, and do not blindly replay events
+that may already have caused effects. Use `event_id` for consumer-side
+deduplication. A Redis-local effect
 can atomically record the dedupe key and apply the effect in one transaction or
 Lua script; for effects in another database/service, commit the idempotency key
 with that system's effect (or use its native idempotency support). The

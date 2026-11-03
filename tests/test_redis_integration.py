@@ -308,6 +308,21 @@ class RedisOutboxRecoveryTests(unittest.TestCase):
         self.assertEqual(self.store.pending_integration_events(now=int(time.time()) + 3600), [])
         self.assertEqual(self.store.integration_outbox_metrics()["pending"], 0)
 
+    def test_acknowledged_event_is_not_reconstructed_after_stream_trim(self) -> None:
+        record = self._enqueue_event()
+        event_id = str(record["event_id"])
+
+        self.publisher.publish(record["payload"])
+        self.store.mark_integration_delivered(event_id)
+        self.assertEqual(self.client.xlen("vpn-dashboard.test.events"), 1)
+
+        # Model MAXLEN eviction before the external consumer reads the event.
+        self.client.xtrim("vpn-dashboard.test.events", maxlen=0, approximate=False)
+
+        self.assertEqual(self.client.xrange("vpn-dashboard.test.events"), [])
+        self.assertEqual(self.store.pending_integration_events(now=int(time.time()) + 3600), [])
+        self.assertEqual(self.store.integration_outbox_metrics()["pending"], 0)
+
     def test_worker_restart_after_xadd_retries_durable_event_with_same_id(self) -> None:
         record = self._enqueue_event()
         event_id = str(record["event_id"])

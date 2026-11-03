@@ -25,12 +25,54 @@ on restart, so monotonic deadlines are not persisted across boots.
 These values are a usability/security compromise, not a claim that a session
 cookie remains safe on an unlocked or compromised device. Operators should
 sign out on shared devices; the application also supports server-side session
-revocation. Cloudflare Access is an additional edge control, but its lifetime
-and termination behavior have not been included in this rationale because the
-deployed policy has not been independently verified. The limits should be
-reassessed if the app becomes multi-instance, adds non-RouterOS operator
-accounts, or if measured operator workflows show that the current window is
-inadequate.
+revocation. The limits should be reassessed if the app becomes multi-instance,
+adds non-RouterOS operator accounts, or if measured operator workflows show
+that the current window is inadequate.
+
+## Cloudflare Access and dashboard session coordination
+
+Cloudflare Access and the dashboard create separate sessions. Access is the
+edge gate for reaching the origin; the dashboard session is a RouterOS-backed
+`__Host-vpn_session` cookie that the application validates independently.
+Neither layer copies its timeout into the other, and the application does not
+receive an Access session-lifecycle event.
+
+- Access has a global identity-provider session and a separate token for each
+  protected application. When an application token expires, Access rechecks the
+  identity against policy and can issue a replacement without an IdP prompt if
+  the global session remains valid and policy still allows access. If the
+  global session has also expired, Access prompts for IdP authentication.
+  Therefore, an application-token timeout alone does not guarantee a visible
+  sign-in prompt or invalidate the dashboard cookie. Access authentication
+  itself does not create, revoke, extend, or refresh the dashboard session. The
+  application accepts its cookie only while its own idle/absolute deadlines
+  and current RouterOS role checks pass.
+- Revoking existing Access application tokens terminates current edge access;
+  if policy and identity still allow the user, Access can issue a new token on a
+  later request. End-user Access logout clears the Access cookie across
+  applications; Cloudflare documents that previously issued tokens may take
+  20–30 seconds to stop being accepted. The deployed policy and revocation
+  settings determine the actual edge behavior.
+- Dashboard logout, application-session expiry, server-side revocation, or an
+  application restart invalidates the dashboard session under the application
+  rules, even while Access remains authenticated. Dashboard logout does not
+  terminate the separate Access session.
+- Ending both sessions requires ending/revoking the dashboard session and
+  separately terminating the Access session using the configured edge or
+  identity-provider controls. Because the dashboard does not bind its session
+  to an Access identity, an operator who changes Access identity or policy must
+  terminate the existing dashboard session and perform a fresh RouterOS login.
+- The deployment must keep every dashboard, API, SSE, and Socket.IO route behind
+  the Access gate. Edge enforcement is required even for routes that do not
+  need an application cookie.
+
+The configured global, application, policy, and MFA session durations,
+logout/termination behavior, identity change behavior, and enforcement across
+all routes remain deployment evidence items. They have not been independently
+verified on the deployed Access application. The coordination rules above are
+the expected operating contract, not proof of the current edge configuration.
+See [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
+for the documented token lifetimes, revocation, and logout behavior.
 
 NIST SP 800-63B Section 5.2 describes overall and inactivity timeouts, requires a
 session to end when either timeout expires, and says timeout choices depend on
