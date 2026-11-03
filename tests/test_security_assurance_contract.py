@@ -236,7 +236,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
     def test_scope_and_non_certification_boundary_are_explicit(self) -> None:
         for control in (
             "V3.3.1–V3.3.5 (Cookie Setup)",
-            "V3.5.1 (Browser\nOrigin Separation)",
+            "V3.5.1 and\nV3.5.3 (Browser Origin Separation)",
             "ASVS 5.0.0 V7 (Session Management)",
             "V8 (Authorization)",
             "V4.4 (WebSocket)",
@@ -407,6 +407,34 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertEqual(cloudflare_session_row[1], "EXTERNAL")
         self.assertIn("Cloudflare Access", cloudflare_session_row[2])
         self.assertIn("has not been verified", cloudflare_session_row[2])
+        self.assertIn("SESSION_LIFETIME_RATIONALE.md", cloudflare_session_row[2])
+
+    def test_federated_access_and_dashboard_session_contract_is_documented(self) -> None:
+        session_lifetime = SESSION_LIFETIME_DOCUMENT.read_text(encoding="utf-8")
+        normalized = " ".join(session_lifetime.split())
+        for boundary in (
+            "Cloudflare Access and the dashboard create separate sessions",
+            "Access authentication itself does not create, revoke, extend, or refresh the dashboard session",
+            "application token expires, Access rechecks the identity against policy",
+            "an application-token timeout alone does not guarantee a visible sign-in prompt",
+            "Dashboard logout does not terminate the separate Access session",
+            "Ending both sessions requires ending/revoking the dashboard session and separately terminating the Access session",
+            "an operator who changes Access identity or policy must terminate the existing dashboard session and perform a fresh RouterOS login",
+            "They have not been independently verified on the deployed Access application",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, normalized)
+
+    def test_v3_5_3_safe_method_evidence_is_explicit(self) -> None:
+        row = next(
+            row for row in _assurance_matrix(self.document) if row[0] == "V3.5.3"
+        )
+        self.assertEqual(row[1], "PARTIAL")
+        self.assertIn("GET`, `HEAD`, and `OPTIONS`", row[2])
+        self.assertIn("test_api_dispatch_has_exhaustive_role_capability_inventory", row[2])
+        self.assertIn("GET /share/{token}` renders a no-store confirmation page", row[2])
+        self.assertIn("same-origin `POST`", row[2])
+        self.assertIn("test_qr_profile_share_is_a_bounded_zip_download", row[2])
 
     def test_route_document_explicitly_covers_logout_authorization(self) -> None:
         route_document = ROUTE_AUTHORIZATION_DOCUMENT.read_text(encoding="utf-8")
@@ -466,7 +494,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             )
             for pattern in api_patterns:
                 dispatch_examples[method].update(_representative_dispatch_paths(pattern))
-            if method == "GET":
+            if method in {"GET", "POST"}:
                 share_patterns = re.findall(
                     r're\.fullmatch\(r"(/share/[^\"]+)"\s*,\s*path\)', source
                 )
@@ -642,11 +670,11 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #891 (`58a680423a4d616eb926a47c486847c8a4c062fe`) is the latest published image source",
+            "PR #893 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) is the latest published image source",
             roadmap,
         )
         self.assertIn(
-            "## Latest published mainline image — PR #891",
+            "## Latest published mainline image — PR #893",
             releases,
         )
         self.assertIn(

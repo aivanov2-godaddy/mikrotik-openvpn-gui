@@ -1,11 +1,11 @@
 # Live telemetry acceptance status
 
-Status: **PR #891 (`58a680423a4d616eb926a47c486847c8a4c062fe`) is the latest
+Status: **PR #893 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) is the latest
 published image source, with immutable ARM64 and AMD64 images. Main CI,
 CodeQL, image scans, runtime smoke tests, provenance and SPDX SBOM checks
 passed; the stable manifest was read back. Exact tags and digests are in
 [`RELEASES.md`](RELEASES.md). No post-publication RouterOS read-back confirms
-PR #891 staging or acceptance.**
+PR #893 staging or acceptance.**
 
 ## Historical read-only RouterOS checkpoint — 2026-10-29
 
@@ -36,7 +36,7 @@ immutable tag and matching digest
 with a healthy marker. Production still showed the PR #788 ARM64 tag. PPP
 Active Connections showed one active test tunnel. The canary dashboard sign-in
 request remained pending, so no authenticated dashboard event or traffic
-sample was correlated with the router session. No PR #891 staging or live
+sample was correlated with the router session. No PR #893 staging or live
 acceptance is established by these point observations.
 
 An earlier 2026-10-28 Stats view showed 0.7% CPU, 38.8 MiB memory, 0 B swap,
@@ -45,7 +45,7 @@ showed a stale/reconnecting live stream and zero connected devices. Those
 historical point checks do not establish sustained resource impact. The
 30-minute acceptance window and production promotion remain unverified.
 
-## RouterOS candidate status — PR #862 and PR #891
+## RouterOS candidate status — PR #862 and PR #893
 
 PR #862 is a published artifact with immutable digests recorded in
 [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -53,14 +53,14 @@ image digest prefix matching the published PR #862 ARM64 digest and a
 `HEALTHY` container. The Stats view provided one CPU/memory/swap/app-size/data-
 size sample. The fresh authenticated readiness result in the checkpoint above
 returned PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`,
-confirming that the canary was not running PR #885 at that observation. PR #891
+confirming that the canary was not running PR #885 at that observation. PR #893
 is now the latest published image; no post-publication RouterOS read-back
 confirms it is staged. A later read-only WinBox listing on 2026-10-30
 reconfirmed PR #862's exact ARM64 tag and digest with a healthy marker; the
 production row still showed the PR #788 ARM64 tag. RouterOS showed one active
 test tunnel, but the canary sign-in request remained pending, so that session
 was not correlated with authenticated dashboard telemetry. These point reads
-do not establish live acceptance or acceptance of PR #891.
+do not establish live acceptance or acceptance of PR #893.
 
 The following candidate-bound gates remain open: a 30-minute resource and
 freshness soak; connect/disconnect event latency; API interruption and
@@ -187,7 +187,7 @@ and full live acceptance remain incomplete.
 | Reconnect and snapshot recovery | RouterOS API interruption recovers automatically; a full snapshot follows reconnect. | Not measured for #776 |
 | Event and counter integrity | Counter resets do not create incorrect rates; detect missing, duplicated, or out-of-order events. | Not measured for #776 |
 | Binary API and REST parity | Compare equivalent read-only snapshots and document any expected differences. | Not measured for #776 |
-| Redis/outbox | Exercise unavailable/restarting Redis, retries, duplicate delivery, queue drain, and recovery. | Repository tests exist; candidate-specific live evidence not collected |
+| Redis/outbox | Exercise unavailable/restarting Redis, retries, duplicate delivery, backlog drain, and recovery. Verify persistence and `REDIS_STREAM_MAXLEN` capacity cover the maximum expected consumer lag, and test an acknowledged entry trimmed before consumption. | Repository tests cover outage/restart, retry, duplicates, backlog drain, and the explicit no-replay behavior after an acknowledged entry is lost or trimmed (`tests/test_redis_integration.py::RedisOutboxRecoveryTests.test_acknowledged_event_is_not_reconstructed_after_redis_data_loss`; `tests/test_redis_integration.py::RedisOutboxRecoveryTests.test_acknowledged_event_is_not_reconstructed_after_stream_trim`). Candidate-specific Redis persistence/retention and consumer-lag evidence were not collected. The application publishes minimized audit/outbox events; it has no Redis stream consumer, so downstream receipt remains external evidence. |
 | Resource impact | Record bounded CPU, memory, storage, and container-health observations over the soak. | Not measured for #776 |
 | Persistence and rollback | Rehearse SQLite restore and rollback in isolated canary; preserve production state. | Not verified for #776 |
 | Security and privacy | Unauthenticated clients receive no telemetry; logout revokes the session; logs and reports contain no secrets or unnecessary private data. | Canary sign-out was rejected by the origin check and did not revoke the session; request header shape not captured; deployed investigation remains open |

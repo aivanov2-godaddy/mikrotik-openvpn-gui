@@ -203,6 +203,8 @@ class ProfileShareStoreTests(unittest.TestCase):
 
         self.assertEqual(ttl, 600)
         with mock.patch("app.time.time", return_value=1_599):
+            self.assertTrue(shares.is_available(token))
+        with mock.patch("app.time.time", return_value=1_599):
             available = shares.take(token)
         self.assertIsNotNone(available)
         self.assertEqual(available.payload, b"synthetic-profile")
@@ -4290,6 +4292,41 @@ class DashboardIntegrationTests(unittest.TestCase):
                     table[0]: connection.execute(f'SELECT * FROM "{table[0]}" ORDER BY rowid').fetchall()
                     for table in tables
                 }
+
+        # ASVS V3.5.3: safe methods must never execute a state-changing API
+        # dispatch. Some paths intentionally overlap read and write methods
+        # (for example POST /api/users and GET /api/users), so assert effects
+        # rather than requiring every probe to return 404 or 405.
+        self.mock.state.admin_group = "owner"
+        self.cookie = ""
+        self.csrf = ""
+        self.login()
+        safe_method_headers = {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": self.csrf,
+            "Origin": self.config.public_origin,
+            "Cookie": self.cookie,
+        }
+        safe_method_paths = {
+            path for method, _, path, _, _ in route_cases if method != "GET"
+        }
+        safe_method_paths.update({"/login", "/logout"})
+        before_safe_method_mutations = list(self.mock.state.mutation_requests)
+        before_safe_method_state = non_audit_state()
+        for safe_method in ("GET", "HEAD", "OPTIONS"):
+            for path in sorted(safe_method_paths):
+                with self.subTest(method=safe_method, path=path, boundary="no state change"):
+                    self.request(safe_method, path, headers=safe_method_headers)
+                    self.assertEqual(
+                        self.mock.state.mutation_requests,
+                        before_safe_method_mutations,
+                        f"{safe_method} {path} must not mutate RouterOS",
+                    )
+            self.assertEqual(
+                non_audit_state(),
+                before_safe_method_state,
+                f"{safe_method} probes must not change persistent application state",
+            )
 
         before_mutations = list(self.mock.state.mutation_requests)
         denied_count = 0
@@ -8453,8 +8490,28 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.mock.state.certificates), certificate_count)
         share_path = urllib.parse.urlsplit(response["download_url"]).path
 
+        status, headers, landing_page = self.request("GET", share_path)
+        self.assertEqual(status, 200)
+        self.assertTrue(headers["content-type"].startswith("text/html"))
+        self.assertEqual(headers["referrer-policy"], "no-referrer")
+        self.assertIn(b'<form method="post">', landing_page)
+        self.assertNotIn(b"user-one-QR-phone.ovpn", landing_page)
+        for safe_method in ("HEAD", "OPTIONS"):
+            with self.subTest(safe_method=safe_method):
+                status, _, _ = self.request(safe_method, share_path)
+                self.assertEqual(status, 501)
+
+        status, _, _ = self.request(
+            "POST", share_path,
+            headers={"Origin": "https://attacker.example"},
+        )
+        self.assertEqual(status, 403)
+
         for _ in range(3):
-            status, headers, archive_payload = self.request("GET", share_path)
+            status, headers, archive_payload = self.request(
+                "POST", share_path,
+                headers={"Origin": self.config.public_origin},
+            )
             self.assertEqual(status, 200)
             self.assertEqual(headers["content-type"], "application/zip")
             self.assertIn('filename="user-one-QR-phone.zip"', headers["content-disposition"])
@@ -8463,7 +8520,10 @@ class DashboardIntegrationTests(unittest.TestCase):
                 profile = archive.read(archive.namelist()[0])
             self.assertIn(b"redirect-gateway def1", profile)
             self.assertNotIn(b"qr-passphrase", profile)
-        status, _, _ = self.request("GET", share_path)
+        status, _, _ = self.request(
+            "POST", share_path,
+            headers={"Origin": self.config.public_origin},
+        )
         self.assertEqual(status, 410)
 
     def test_profile_migration_issues_replacement_without_retiring_legacy_profile(self) -> None:

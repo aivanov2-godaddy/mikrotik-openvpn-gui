@@ -1684,7 +1684,7 @@ function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertif
   $('[data-profile-user]', form).textContent = userName;
   $('[data-profile-title]', form).textContent = delivery === 'qr' ? 'Issue profile by QR' : 'Issue new profile';
   $('[data-profile-description]', form).textContent = delivery === 'qr'
-    ? 'Create a new device certificate and one-time protected link. This cannot re-download an earlier profile.'
+    ? 'Create a new device certificate and short-lived protected download link. This cannot re-download an earlier profile.'
     : 'Create a new device certificate and protected ZIP. This cannot re-download an earlier profile.';
   $('[data-profile-submit]', form).textContent = 'Review profile request';
   $('[data-profile-submit]', form).disabled = true;
@@ -1711,7 +1711,7 @@ function showQrDialog(payload, username = 'this user') {
   image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(payload.qr_svg || '')}`;
   image.alt = `OpenVPN profile download QR code for ${username}`;
   $('[data-qr-url]', dialog).value = payload.download_url || '';
-  $('[data-qr-description]', dialog).textContent = `Scan this code with the phone camera to download the ${username} OpenVPN profile.`;
+  $('[data-qr-description]', dialog).textContent = `Scan this code to open the private download page, then tap Download profile for ${username}.`;
   dialog.showModal();
 }
 

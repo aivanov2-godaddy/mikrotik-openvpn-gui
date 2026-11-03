@@ -35,6 +35,10 @@ REQUIRED_TESTS = {
     ),
     "duplicate_delivery_idempotency": ("test_duplicate_stream_delivery_has_one_idempotent_consumer_effect",),
     "pending_outbox_recovery": ("test_pending_outbox_recovers_when_redis_loses_unacknowledged_stream_data",),
+    "acknowledged_entry_loss": (
+        "test_acknowledged_event_is_not_reconstructed_after_redis_data_loss",
+        "test_acknowledged_event_is_not_reconstructed_after_stream_trim",
+    ),
 }
 REQUIRED_TEST_NAMES = frozenset(name for names in REQUIRED_TESTS.values() for name in names)
 CI_PROVENANCE_FIELDS = frozenset({

@@ -776,6 +776,12 @@ class ProfileShareStore:
                 self._items.pop(token, None)
             return SharedProfile(item.payload, item.filename, item.expires_at, item.downloads)
 
+    def is_available(self, token: str) -> bool:
+        """Check a share without consuming a download or changing store state."""
+        with self._lock:
+            item = self._items.get(token)
+            return item is not None and item.expires_at > time.time()
+
     def _purge(self, now: float) -> None:
         for token, item in list(self._items.items()):
             if item.expires_at <= now:
@@ -1818,7 +1824,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         share_match = re.fullmatch(r"/share/([A-Za-z0-9_-]{32,64})", path)
         if share_match:
-            self._shared_profile(share_match.group(1))
+            self._profile_share_landing(share_match.group(1))
             return
         if path.startswith("/static/"):
             self._serve_static(path)
@@ -2386,6 +2392,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             extra={"Content-Disposition": f'attachment; filename="{shared.filename}"'},
         )
 
+    def _profile_share_landing(self, token: str) -> None:
+        if not self.server.profile_shares.is_available(token):
+            self._bytes(
+                b"This profile link is expired or has already been used.",
+                status=HTTPStatus.GONE,
+                content_type="text/plain; charset=utf-8",
+            )
+            return
+        self._html(
+            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<title>Download OpenVPN profile</title><main><h1>OpenVPN profile</h1>"
+            "<p>This private download link expires after 10 minutes and allows up to three downloads.</p>"
+            "<form method=\"post\"><button type=\"submit\">Download profile</button></form></main></html>",
+            extra={"Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
     def _dashboard(self) -> None:
         session = self._require_session()
         if not session:
@@ -2521,6 +2544,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         if path == "/socket.io/":
             self._socketio_post()
+            return
+        share_match = re.fullmatch(r"/share/([A-Za-z0-9_-]{32,64})", path)
+        if share_match:
+            if not self._login_origin_allowed():
+                self._bytes(
+                    b"Profile download request origin could not be verified.",
+                    status=HTTPStatus.FORBIDDEN,
+                    content_type="text/plain; charset=utf-8",
+                )
+                return
+            self._shared_profile(share_match.group(1))
             return
         if path == "/login":
             if not self._login_origin_allowed():
