@@ -33,13 +33,14 @@ An authenticated foreground Connections page showed a live Socket.IO transport
 with the disposable session active. The session was terminated through the
 dashboard's review flow for this acceptance check. Without a page reload, the
 active-device count changed to zero, the history row changed to Ended, and the
-page showed a fresh SSE fallback. This confirms one qualitative disconnect
-delivery and fallback observation; no synchronized event-latency measurement
-against the 1,000 ms target was recorded. The test session is currently
-disconnected; reconnect and full-snapshot recovery have not yet been verified.
-The background browser tab had paused its stream by design; the foreground test
-tab reopened a fresh live transport. A 30-minute freshness/resource window has
-not been completed.
+page showed a fresh SSE fallback. The disposable client later reconnected
+automatically and appeared as active on the same page with a fresh SSE update,
+also without a reload. This confirms qualitative disconnect delivery, client
+reconnect, snapshot repopulation, and one fallback observation; no synchronized
+event-latency measurement against the 1,000 ms target was recorded. The test
+does not simulate a RouterOS API interruption. The background browser tab had
+paused its stream by design; the foreground test tab reopened a fresh live
+transport. A 30-minute freshness/resource window has not been completed.
 
 **Acceptance status: pending.** Still required for this candidate: connect and
 reconnect latency, traffic-sample age, RouterOS API interruption and snapshot

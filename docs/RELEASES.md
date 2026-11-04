@@ -81,11 +81,11 @@ The immutable ARM64 reference was configured on the isolated canary, and the
 RouterOS readiness response returned revision
 `84a3148de713abe49be0c7be8f21caa652b68dd9`; the bounded readiness probe and
 container health both reported healthy. An authenticated foreground dashboard
-received the disposable session's disconnect without a page reload and
-continued on the SSE fallback. This is a qualitative live-delivery check, not
-a measured latency, reconnect, or 30-minute acceptance result. Production was
-not changed. No numbered release was created; v2.7.0 remains the latest formal
-release.
+received the disposable session's disconnect and later automatic reconnect
+without a page reload, including a fresh SSE fallback and snapshot. This is
+qualitative live-delivery evidence, not a measured latency, RouterOS API
+recovery, or 30-minute acceptance result. Production was not changed. No
+numbered release was created; v2.7.0 remains the latest formal release.
 
 ## Previous published mainline image — PR #893 — 2026-11-03
 

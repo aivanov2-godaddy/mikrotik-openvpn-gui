@@ -4,10 +4,11 @@ Status: **PR #894 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest
 published image source, with immutable ARM64 and AMD64 images. Main CI, CodeQL,
 image scans, runtime smoke tests, provenance and SPDX SBOM checks passed; the
 stable manifest was read back. The exact ARM64 candidate is staged and
-readiness-verified on canary. One qualitative disconnect/fallback check passed
-without a page reload, but latency was not measured against the one-second
-target. Reconnect, sustained freshness, recovery, privacy, and rollback gates
-remain pending. Production was not changed.**
+readiness-verified on canary. Qualitative disconnect and automatic client
+reconnect were observed without a page reload, including SSE fallback. Latency
+was not measured against the one-second target; RouterOS API recovery, sustained
+freshness, privacy, and rollback gates remain pending. Production was not
+changed.**
 
 ## Current canary checkpoint — 2026-11-04
 
@@ -20,13 +21,15 @@ authenticated readiness response returned revision
 In the authenticated foreground Connections page, the disposable test session
 was visible on Socket.IO. After termination through the review flow, the page
 showed zero active devices and the ended history row without a reload; the live
-indicator showed a fresh SSE fallback. This confirms qualitative disconnect
-delivery and one fallback path. It does not establish the required 1,000 ms
-latency because no synchronized event timestamp was captured. The test session
-is disconnected, so reconnect and full-snapshot recovery remain pending. The
-stale indicator observed earlier belonged to a background tab; the app pauses
-its live transport while hidden and reopened a fresh stream when a foreground
-tab was used.
+indicator showed a fresh SSE fallback. The disposable client later reconnected
+automatically and appeared as active on the same page with a fresh SSE update,
+also without a reload. This confirms qualitative disconnect delivery, client
+reconnect, snapshot repopulation, and one fallback path. It does not establish
+the required 1,000 ms latency because no synchronized event timestamps were
+captured, and it does not simulate a RouterOS API interruption. The stale
+indicator observed earlier belonged to a background tab; the app pauses its
+live transport while hidden and reopened a fresh stream when a foreground tab
+was used.
 
 No measured 30-minute resource/freshness window has been completed. Pending
 candidate-bound checks include reconnect after RouterOS API interruption,

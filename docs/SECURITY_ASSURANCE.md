@@ -1166,10 +1166,11 @@ malformed handshakes, existing SID compatibility, and a subsequent valid
 handshake. The latest published candidate is PR #894
 (`84a3148de713abe49be0c7be8f21caa652b68dd9`); CI, CodeQL, image scans, runtime
 smoke tests, provenance, and SPDX SBOM verification passed. Its exact ARM64
-image is staged and readiness-verified on canary. A qualitative authenticated
-disconnect/fallback observation is recorded in the
-[live acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md), but no measured
-latency, reconnect, or sustained acceptance is claimed. Issue #200 remains
+image is staged and readiness-verified on canary. Qualitative authenticated
+disconnect, automatic client reconnect, and fallback observations are recorded
+in the [live acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md), but no
+measured latency, RouterOS API recovery, or sustained acceptance is claimed.
+Issue #200 remains
 open for the remaining deployed checks and an independent scoped review. This
 document is not a complete ASVS assessment or compliance attestation.
 

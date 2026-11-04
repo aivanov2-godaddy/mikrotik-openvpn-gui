@@ -96,7 +96,11 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "no synchronized event timestamp was captured",
+            "no synchronized event timestamps were captured",
+            report,
+        )
+        self.assertIn(
+            "The disposable client later reconnected automatically",
             report,
         )
         self.assertIn(
