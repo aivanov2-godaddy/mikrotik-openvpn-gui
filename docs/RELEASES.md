@@ -22,8 +22,12 @@ The latest formal versioned release remains **v2.7.0**. The next planned
 version, v2.8.0, has not been tagged or published. PR #894
 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest published image
 source; it makes profile-share reads side-effect free. It does not change the
-formal version. The exact ARM64 candidate is staged and readiness-verified on
-canary; full acceptance and production promotion remain pending. PR #893
+formal version. The exact ARM64 candidate initially passed readiness and
+revision read-back on canary. A later same-day health check found the canary
+unhealthy and bounded in-container `/healthz` and `/readyz` requests timed out.
+After an authorized canary-only restart, RouterOS's healthy marker returned;
+post-restart revision read-back and sustained recovery are not verified. Full
+acceptance and production promotion remain pending. PR #893
 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) updated the Python 3.15 Alpine
 base-image digest. PR #891
 (`58a680423a4d616eb926a47c486847c8a4c062fe`) rejects ambiguous Engine.IO
@@ -78,13 +82,17 @@ exact digests, and read back the stable manifest. The downloaded
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-84a3148de713abe49be0c7be8f21caa652b68dd9-amd64` | `sha256:876abb845191359ce7a45b7f996e620d9a123efb6afb221f62fb0f19fc447709` |
 
 The immutable ARM64 reference was configured on the isolated canary, and the
-RouterOS readiness response returned revision
+initial RouterOS readiness response returned revision
 `84a3148de713abe49be0c7be8f21caa652b68dd9`; the bounded readiness probe and
 container health both reported healthy. An authenticated foreground dashboard
 received the disposable session's disconnect and later automatic reconnect
 without a page reload, including a fresh SSE fallback and snapshot. This is
 qualitative live-delivery evidence, not a measured latency, RouterOS API
-recovery, or 30-minute acceptance result. Production was not changed. No
+recovery, or 30-minute acceptance result. A later same-day in-container probe
+found `/healthz` and `/readyz` timing out and RouterOS marked the canary
+unhealthy. After an authorized canary-only restart, the healthy marker
+returned; no authenticated post-restart revision read-back or sustained
+recovery window was captured. Production was not changed. No
 numbered release was created; v2.7.0 remains the latest formal release.
 
 ## Previous published mainline image — PR #893 — 2026-11-03

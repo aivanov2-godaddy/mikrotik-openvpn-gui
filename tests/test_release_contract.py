@@ -353,7 +353,7 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #893", release_record)
+        self.assertIn("## Latest published mainline image — PR #894", release_record)
         self.assertIn("## Previous published mainline image — PR #891", release_record)
         self.assertIn("## Previous published mainline image — PR #889", release_record)
         self.assertIn("## Previous published mainline image — PR #885", release_record)
@@ -402,22 +402,23 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("PR #889", roadmap)
         normalized_roadmap = " ".join(roadmap.split())
         self.assertIn(
-            "These reads do not verify PR #893 staging or acceptance.",
+            "The current #894 canary read-back and its limits are recorded in the current snapshot above",
             normalized_roadmap,
         )
         self.assertIn(
-            "No candidate-specific acceptance or production promotion is claimed.",
+            "Candidate-specific acceptance remains open: the measured 30-minute freshness",
             normalized_roadmap,
         )
+        self.assertIn("post-restart revision read-back and sustained health remain unverified", normalized_roadmap)
         self.assertIn("sha256:7c47d4a3ec3de83b2218cd3ce417017c92befeb45e967c355e9da9beb3a5b6ac", rendered)
         self.assertIn("sha256:ff75ac4878b03a329dad93247151469095ef786aea1349cca629c2a9245801d8", rendered)
         self.assertIn("sha256:24ed53e62ab73b475b0d1ab291b008c1892bd92ddfed962b2d3ae1ffa4f75238", rendered)
         self.assertIn("sha256:b555ad7f9cda65f86c3ee2694ee192e076582af12f297303952c01a97ae17459", rendered)
         self.assertIn("one active test tunnel", rendered)
         self.assertIn("sign-in request remained pending", rendered)
-        self.assertIn("latest historically confirmed candidate-bound RouterOS read-back is PR #862", roadmap)
+        self.assertIn("The 2026-10-30 read-back below is historical: it covered PR #862 only", roadmap)
         self.assertIn(
-            "revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #893.",
+            "returned revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. It predates the PR #894 canary checkpoint",
             normalized_roadmap,
         )
         self.assertIn("sustained resource impact", normalized_roadmap)
@@ -473,15 +474,15 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "PR #885, commit `f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb`",
+            "PR #894, commit `84a3148de713abe49be0c7be8f21caa652b68dd9`",
             installation,
         )
         self.assertIn(
-            "sha256:0b3bebc396e1e2c20e61cbc0103a32d64a6bb9bf329284ea98a0c52687f2122e",
+            "sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581",
             installation,
         )
         self.assertIn(
-            "sha256:9074e637e745d51c85f8e9c60a75b528cd206d3508627d9107c723699cf28a4b",
+            "sha256:876abb845191359ce7a45b7f996e620d9a123efb6afb221f62fb0f19fc447709",
             installation,
         )
         self.assertIn("### Latest published authentication-denial classification — PR #849", security_assurance)

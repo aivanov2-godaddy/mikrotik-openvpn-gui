@@ -92,9 +92,12 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "The exact ARM64 candidate is staged and readiness-verified on canary",
+            "The exact ARM64 candidate initially passed canary readiness and revision read-back",
             report,
         )
+        self.assertIn("bounded in-container requests to `/healthz` and `/readyz` timed out", report)
+        self.assertIn("authorized restart of canary only restored RouterOS's healthy", report)
+        self.assertIn("post-restart authenticated revision read-back and sustained health are not verified", report)
         self.assertIn(
             "no synchronized event timestamps were captured",
             report,

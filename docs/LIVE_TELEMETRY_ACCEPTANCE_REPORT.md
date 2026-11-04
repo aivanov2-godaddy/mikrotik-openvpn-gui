@@ -3,20 +3,31 @@
 Status: **PR #894 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest
 published image source, with immutable ARM64 and AMD64 images. Main CI, CodeQL,
 image scans, runtime smoke tests, provenance and SPDX SBOM checks passed; the
-stable manifest was read back. The exact ARM64 candidate is staged and
-readiness-verified on canary. Qualitative disconnect and automatic client
-reconnect were observed without a page reload, including SSE fallback. Latency
-was not measured against the one-second target; RouterOS API recovery, sustained
-freshness, privacy, and rollback gates remain pending. Production was not
-changed.**
+stable manifest was read back. The exact ARM64 candidate initially passed
+canary readiness and revision read-back. A later same-day probe found the
+canary unhealthy and bounded in-container requests to `/healthz` and `/readyz`
+timed out. An authorized restart of canary only restored RouterOS's healthy
+marker; post-restart authenticated revision read-back and sustained health are
+not verified. Qualitative disconnect and automatic client reconnect were
+observed without a page reload, including SSE fallback. Latency was not measured
+against the one-second target; RouterOS API recovery, sustained freshness,
+privacy, and rollback gates remain pending. Production was not changed.**
 
 ## Current canary checkpoint — 2026-11-04
 
-The canary was configured with the immutable PR #894 ARM64 reference
+At the initial 2026-11-04 read-back, the canary was configured with the
+immutable PR #894 ARM64 reference
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-84a3148de713abe49be0c7be8f21caa652b68dd9-arm64@sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`.
 RouterOS reported healthy, the bounded readiness probe succeeded, and the
 authenticated readiness response returned revision
 `84a3148de713abe49be0c7be8f21caa652b68dd9`.
+
+A later same-day check found the canary unhealthy. Bounded in-container HTTP
+requests to both `/healthz` and `/readyz` timed out; these probes did not
+establish a root cause. After an authorized restart of canary only, RouterOS
+reported a healthy marker again. No authenticated readiness response was
+captured after that restart, so the running revision and sustained recovery
+remain unverified. Production was not changed.
 
 In the authenticated foreground Connections page, the disposable test session
 was visible on Socket.IO. After termination through the review flow, the page

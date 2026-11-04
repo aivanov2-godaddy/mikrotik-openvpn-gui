@@ -17,8 +17,12 @@ prove RouterOS compatibility. PR #894
 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest published image.
 Its post-merge CI, CodeQL, scans, runtime smoke tests, provenance, and SPDX SBOM
 checks passed; the stable manifest was read back. See [`RELEASES.md`](RELEASES.md)
-for immutable tags and digests. The exact ARM64 candidate is now staged and
-readiness-verified on canary; the full acceptance gates below remain incomplete.
+for immutable tags and digests. The exact ARM64 candidate initially passed
+canary readiness and revision read-back. A later same-day check found the
+canary unhealthy; bounded in-container `/healthz` and `/readyz` requests timed
+out. An authorized canary-only restart restored RouterOS's healthy marker, but
+post-restart revision read-back and sustained health are not verified. The full
+acceptance gates below remain incomplete.
 
 ## Current canary checkpoint — 2026-11-04
 
@@ -41,6 +45,13 @@ event-latency measurement against the 1,000 ms target was recorded. The test
 does not simulate a RouterOS API interruption. The background browser tab had
 paused its stream by design; the foreground test tab reopened a fresh live
 transport. A 30-minute freshness/resource window has not been completed.
+
+A later same-day in-container probe found both `/healthz` and `/readyz` requests
+timing out and RouterOS marked the canary unhealthy. The cause was not
+established. After an authorized restart of canary only, RouterOS again showed
+the healthy marker. The authenticated readiness revision was not read back
+after restart, and no sustained recovery window was measured. Production was
+not changed.
 
 **Acceptance status: pending.** Still required for this candidate: connect and
 reconnect latency, traffic-sample age, RouterOS API interruption and snapshot
