@@ -753,10 +753,38 @@ class ProfileShareStore:
     max_failed_attempts = 5
     lockout_seconds = 60
     access_code_digits = 12
+    purge_interval_seconds = 30.0
 
-    def __init__(self) -> None:
+    def __init__(self, *, purge_interval_seconds: float | None = None) -> None:
         self._items: dict[str, SharedProfile] = {}
         self._lock = threading.Lock()
+        self._purge_interval_seconds = (
+            self.purge_interval_seconds
+            if purge_interval_seconds is None
+            else purge_interval_seconds
+        )
+        if self._purge_interval_seconds <= 0:
+            raise ValueError("Profile share purge interval must be positive")
+        self._purge_stop = threading.Event()
+        self._purge_thread = threading.Thread(
+            target=self._purge_expired_loop,
+            name="vpn-dashboard-profile-share-purge",
+            daemon=True,
+        )
+        self._purge_thread.start()
+
+    def close(self) -> None:
+        """Stop expiry cleanup and discard in-memory profile material."""
+        self._purge_stop.set()
+        if self._purge_thread is not threading.current_thread():
+            self._purge_thread.join(timeout=2)
+        with self._lock:
+            self._items.clear()
+
+    def _purge_expired_loop(self) -> None:
+        while not self._purge_stop.wait(self._purge_interval_seconds):
+            with self._lock:
+                self._purge(time.time())
 
     def put(self, payload: bytes, filename: str) -> tuple[str, str, int]:
         now = time.time()
@@ -780,11 +808,6 @@ class ProfileShareStore:
             item = self._items.get(share_id)
             if item is None:
                 return None
-            if item.locked_until > now:
-                return None
-            if item.locked_until:
-                item.failed_attempts = 0
-                item.locked_until = 0
             valid_input = re.fullmatch(
                 r"(?:[0-9]{12}|[0-9]{4}-[0-9]{4}-[0-9]{4})",
                 access_code,
@@ -801,11 +824,18 @@ class ProfileShareStore:
                 candidate_digest,
             )
             if not valid_code:
+                if item.locked_until > now:
+                    return None
+                if item.locked_until:
+                    item.failed_attempts = 0
+                    item.locked_until = 0
                 item.failed_attempts += 1
                 if item.failed_attempts >= self.max_failed_attempts:
                     item.failed_attempts = 0
                     item.locked_until = min(now + self.lockout_seconds, item.expires_at)
                 return None
+            item.failed_attempts = 0
+            item.locked_until = 0
             item.downloads += 1
             if item.downloads >= self.max_downloads:
                 self._items.pop(share_id, None)
@@ -820,10 +850,12 @@ class ProfileShareStore:
             )
 
     def is_available(self, share_id: str) -> bool:
-        """Check a share without consuming a download or changing store state."""
+        """Check a share without consuming a download, purging expired entries."""
         with self._lock:
+            now = time.time()
+            self._purge(now)
             item = self._items.get(share_id)
-            return item is not None and item.expires_at > time.time()
+            return item is not None and item.expires_at > now
 
     def is_locked(self, share_id: str) -> bool:
         with self._lock:
@@ -1069,6 +1101,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         super().shutdown()
         self._telemetry_thread.join(timeout=2)
         self.telemetry_runtime.stop()
+        self.profile_shares.close()
         if self.context.integration_dispatcher is not None:
             self.context.integration_dispatcher.stop()
 
@@ -1077,6 +1110,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         self._telemetry_stop.set()
         self._telemetry_thread.join(timeout=2)
         self.telemetry_runtime.stop()
+        self.profile_shares.close()
         if self.context.integration_dispatcher is not None:
             self.context.integration_dispatcher.stop()
         self.server_close()

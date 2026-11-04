@@ -88,13 +88,14 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "PR #894 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest published image source",
+            "PR #896 (`19edcd5f5a0f3db5f67f8f226d3588955cd8335e`) is the latest published image source",
             report,
         )
         self.assertIn(
             "The exact ARM64 candidate initially passed canary readiness and revision read-back",
             report,
         )
+        self.assertIn("PR #896 has not been staged on RouterOS", report)
         self.assertIn("bounded in-container requests to `/healthz` and `/readyz` timed out", report)
         self.assertIn("authorized restart of canary only restored RouterOS's healthy", report)
         self.assertIn("post-restart authenticated revision read-back and sustained health are not verified", report)

@@ -198,6 +198,7 @@ class CertificateExpiryParsingTests(unittest.TestCase):
 class ProfileShareStoreTests(unittest.TestCase):
     def test_profile_download_link_expires_at_its_advertised_deadline(self) -> None:
         shares = ProfileShareStore()
+        self.addCleanup(shares.close)
         with mock.patch("app.time.time", return_value=1_000):
             share_id, access_code, ttl = shares.put(b"synthetic-profile", "user-device.zip")
 
@@ -219,6 +220,7 @@ class ProfileShareStoreTests(unittest.TestCase):
 
     def test_profile_share_cools_down_after_five_failed_access_codes(self) -> None:
         shares = ProfileShareStore()
+        self.addCleanup(shares.close)
         with mock.patch("app.time.time", return_value=1_000):
             share_id, access_code, _ = shares.put(b"synthetic-profile", "user-device.zip")
         incorrect_code = "000000000000" if access_code != "000000000000" else "111111111111"
@@ -231,10 +233,43 @@ class ProfileShareStoreTests(unittest.TestCase):
         with mock.patch("app.time.time", return_value=1_059):
             self.assertTrue(shares.is_available(share_id))
             self.assertTrue(shares.is_locked(share_id))
-            self.assertIsNone(shares.take(share_id, access_code))
+            self.assertIsNone(shares.take(share_id, incorrect_code))
         with mock.patch("app.time.time", return_value=1_061):
             self.assertFalse(shares.is_locked(share_id))
             self.assertIsNotNone(shares.take(share_id, access_code))
+
+    def test_valid_profile_share_code_remains_usable_during_failed_attempt_cooldown(self) -> None:
+        shares = ProfileShareStore()
+        self.addCleanup(shares.close)
+        with mock.patch("app.time.time", return_value=1_000):
+            share_id, access_code, _ = shares.put(b"synthetic-profile", "user-device.zip")
+        incorrect_code = "000000000000" if access_code != "000000000000" else "111111111111"
+
+        for _ in range(shares.max_failed_attempts):
+            with mock.patch("app.time.time", return_value=1_001):
+                self.assertIsNone(shares.take(share_id, incorrect_code))
+
+        with mock.patch("app.time.time", return_value=1_002):
+            self.assertTrue(shares.is_locked(share_id))
+            shared = shares.take(share_id, access_code)
+            self.assertIsNotNone(shared)
+            self.assertEqual(shared.payload, b"synthetic-profile")
+            self.assertFalse(shares.is_locked(share_id))
+
+    def test_expired_profile_share_is_purged_without_later_share_requests(self) -> None:
+        shares = ProfileShareStore(purge_interval_seconds=0.01)
+        shares.ttl_seconds = 0.05
+        self.addCleanup(shares.close)
+        share_id, _, _ = shares.put(b"synthetic-profile", "user-device.zip")
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            with shares._lock:
+                if share_id not in shares._items:
+                    break
+            time.sleep(0.01)
+        with shares._lock:
+            self.assertNotIn(share_id, shares._items)
 
 
 class OperationsTimelineTests(unittest.TestCase):

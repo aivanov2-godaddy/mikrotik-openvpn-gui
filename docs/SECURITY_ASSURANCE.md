@@ -1163,10 +1163,12 @@ protocol parameters on all requests and a missing or blank transport on new
 Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
 retain Engine.IO's default-polling compatibility. Regression coverage includes
 malformed handshakes, existing SID compatibility, and a subsequent valid
-handshake. The latest published candidate is PR #894
-(`84a3148de713abe49be0c7be8f21caa652b68dd9`); CI, CodeQL, image scans, runtime
-smoke tests, provenance, and SPDX SBOM verification passed. Its exact ARM64
-image initially passed readiness and revision read-back on canary. A later
+handshake. The latest published image is PR #896
+(`19edcd5f5a0f3db5f67f8f226d3588955cd8335e`); CI, CodeQL, image scans, runtime
+smoke tests, provenance, and SPDX SBOM verification passed. PR #896 has not
+been staged on RouterOS. The latest documented canary read-back remains the
+PR #894 ARM64 image, which initially passed readiness and revision read-back.
+A later
 same-day health check found the canary unhealthy and bounded in-container
 `/healthz` and `/readyz` requests timed out. An authorized canary-only restart
 restored RouterOS's healthy marker, but post-restart revision read-back and
@@ -1203,6 +1205,40 @@ or log retention were not verified. The Socket.IO implementation is polling.
 The ASVS matrix's RouterOS role-revocation timing gap (V8.3.2) and external
 deployment controls remain open for device-bound evidence.
 
+### Follow-up internal source review — 2026-11-04
+
+Three additional read-only reviewers inspected the merged PR #896 source at
+`0080d616500576a57d90e4160891ea95e71760a`. This review did not access devices,
+secrets, environment files, or deployment state, and it is not an external
+assessment or certification.
+
+Two confirmed low-severity findings affected profile sharing. First, five
+invalid passcodes applied a 60-second lock to the entire share, allowing a
+person who knows the link to temporarily block its intended recipient
+(potential ASVS 5.0.0 V2.4.1 anti-automation/availability concern). Second,
+expired profile ZIP bytes remained referenced until another share operation
+called the opportunistic purge (a retention gap against V14.2.2 and V14.2.7;
+the expired URL itself did not serve the file). This follow-up changes the
+cooldown to reject further invalid codes while still accepting the correct
+code, and adds periodic expiration cleanup plus request-time cleanup and
+shutdown discard of in-store references. Python object release does not prove
+physical memory zeroization.
+
+A reviewer also confirmed that an already-open stream may use a RouterOS role
+cached for up to the configured one-second application refresh interval.
+Treating that interval as a V8.3.2 violation is an inference from a strict
+reading of immediate revocation; actual RouterOS group-change and deployed
+revocation timing have not been measured. The existing matrix keeps V8.3.2 as
+a gap pending disposable-router evidence and the owner's residual-risk
+decision. No code change here claims immediate RouterOS revocation.
+
+Conditional, unverified observations included the in-memory unsalted SHA-256
+passcode digest if process memory were separately exposed, unauthenticated
+`/readyz` version metadata depending on external reachability, and deployment
+TLS/Redis/backup/dump controls. The review found no endpoint exposing the
+digest and did not establish those deployment conditions, so these are not
+reported as confirmed vulnerabilities.
+
 ### Profile-share URL finding — repository remediation
 
 The current candidate replaces the URL bearer credential with a random opaque
@@ -1210,16 +1246,21 @@ share identifier and a separate 12-digit passcode. The identifier alone does
 not authorize a download. The passcode is returned only in the authenticated
 profile-creation response, displayed separately from the QR/link, submitted in
 the form body, and stored as a digest in the bounded in-memory share record.
-Five incorrect passcodes trigger a 60-second cooldown; the existing ten-minute
+Five incorrect passcodes trigger a 60-second cooldown for further invalid
+attempts; a correct passcode remains usable during that cooldown. A periodic
+cleanup removes expired shares within the configured 30-second sweep interval,
+and each store operation also purges expired entries. Server shutdown clears
+the store's references to in-memory profile material. The existing ten-minute
 lifetime and three-download maximum remain. The UI instructs operators to send
 the passcode through a separate channel, clears it when the dialog closes or
 the share expires, and never includes it in the QR code or URL. Copying the
 passcode writes it to the OS clipboard; clipboard-history retention is outside
 application control and is disclosed in the UI.
 
-Focused repository tests cover passcode hashing, expiry and failed-attempt
-limits, same-origin download behavior, exclusion from the URL/QR, and the UI
-contract: `tests/test_app.py::ProfileShareStoreTests`,
+Focused repository tests cover passcode hashing, expiry, failed-attempt limits,
+correct-code use during cooldown, background cleanup without later requests,
+same-origin download behavior, exclusion from the URL/QR, and the UI contract:
+`tests/test_app.py::ProfileShareStoreTests`,
 `tests/test_app.py::DashboardIntegrationTests.test_qr_profile_share_is_a_bounded_zip_download`,
 and `tests/test_frontend_contract.py::FrontendLiveUpdateContractTests.test_profile_share_code_is_separate_from_the_link_and_cleared_from_the_dialog`.
 These changes are not evidence of deployment or external proxy-log behavior.
