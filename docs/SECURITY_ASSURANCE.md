@@ -1163,9 +1163,9 @@ protocol parameters on all requests and a missing or blank transport on new
 Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
 retain Engine.IO's default-polling compatibility. Regression coverage includes
 malformed handshakes, existing SID compatibility, and a subsequent valid
-handshake. The latest published image is PR #896
-(`19edcd5f5a0f3db5f67f8f226d3588955cd8335e`); CI, CodeQL, image scans, runtime
-smoke tests, provenance, and SPDX SBOM verification passed. PR #896 has not
+handshake. The latest published image is PR #897
+(`3d2471813c04c759ad6990726a31200b08d11b8c`); CI, CodeQL, image scans, runtime
+smoke tests, provenance, and SPDX SBOM verification passed. PR #897 has not
 been staged on RouterOS. The latest documented canary read-back remains the
 PR #894 ARM64 image, which initially passed readiness and revision read-back.
 A later

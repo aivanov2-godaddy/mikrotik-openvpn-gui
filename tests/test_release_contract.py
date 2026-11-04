@@ -353,7 +353,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #896", release_record)
+        self.assertIn("## Latest published mainline image — PR #897", release_record)
+        self.assertIn("## Previous published mainline image — PR #896", release_record)
         self.assertIn("## Previous published mainline image — PR #894", release_record)
         self.assertIn("## Previous published mainline image — PR #891", release_record)
         self.assertIn("## Previous published mainline image — PR #889", release_record)
@@ -375,9 +376,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #829", release_record)
         self.assertIn("## Previous published mainline image — PR #824", release_record)
         self.assertIn("## Previous published mainline image — PR #817", release_record)
-        self.assertIn("sha256:f5046fe05e6a9f5e95510568df2431cc8cea00d1e3436b0080dd7b7ce023b3d4", release_record)
-        self.assertIn("sha256:012e61e5eca70fcabec08d0afef976a355402e567b89ecb563d2fa2a79c78dc4", release_record)
-        self.assertIn("PR #896 has not been staged on RouterOS", release_record)
+        self.assertIn("sha256:4ddc87d662c3c48cf0632adecd379c4df9c35514939831b45b1bb093a188b4e4", release_record)
+        self.assertIn("sha256:1d6b77de4ed594b8eb8cabe8853f40d755807a36634aa5fb01611f29c364eb75", release_record)
+        self.assertIn("sha256:1b922a6f860118414e48a70c709252f7fd09ccf1d503c9250e6b387c254be564", release_record)
+        self.assertIn("PR #897 has not been staged on RouterOS", release_record)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
         self.assertIn("eb29581c8430ec862a8b47ee62268a74fec14518", rendered)
         self.assertIn("f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb", rendered)
@@ -478,17 +480,19 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "PR #894, commit `84a3148de713abe49be0c7be8f21caa652b68dd9`",
+            "Latest published image: PR #897; not staged on RouterOS.",
             installation,
         )
         self.assertIn(
-            "sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581",
+            "Latest documented canary read-back is PR #894",
             installation,
         )
         self.assertIn(
-            "sha256:876abb845191359ce7a45b7f996e620d9a123efb6afb221f62fb0f19fc447709",
+            "PR #897, commit `3d2471813c04c759ad6990726a31200b08d11b8c`",
             installation,
         )
+        self.assertIn("sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581", release_record)
+        self.assertIn("sha256:876abb845191359ce7a45b7f996e620d9a123efb6afb221f62fb0f19fc447709", release_record)
         self.assertIn("### Latest published authentication-denial classification — PR #849", security_assurance)
         self.assertIn("### Previous published source-level session/audit safeguard — PR #846", security_assurance)
         self.assertIn("### Previous published source-level log safeguard — PR #824", security_assurance)
