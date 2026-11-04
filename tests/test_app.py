@@ -195,6 +195,26 @@ class CertificateExpiryParsingTests(unittest.TestCase):
         self.assertIsNone(_certificate_remaining_seconds("2h3d"))
 
 
+class _ObservedLock:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.acquire_attempted = threading.Event()
+
+    def acquire(self) -> None:
+        self.acquire_attempted.set()
+        self.lock.acquire()
+
+    def release(self) -> None:
+        self.lock.release()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        self.release()
+
+
 class ProfileShareStoreTests(unittest.TestCase):
     def test_profile_download_link_expires_at_its_advertised_deadline(self) -> None:
         shares = ProfileShareStore()
@@ -217,6 +237,104 @@ class ProfileShareStoreTests(unittest.TestCase):
 
         with mock.patch("app.time.time", return_value=1_600):
             self.assertIsNone(shares.take(share_id, access_code))
+
+    def test_profile_share_expiry_is_checked_after_lock_contention(self) -> None:
+        shares = ProfileShareStore()
+        self.addCleanup(shares.close)
+        with mock.patch("app.time.time", return_value=1_000):
+            share_id, access_code, _ = shares.put(b"synthetic-profile", "user-device.zip")
+
+        observed_lock = _ObservedLock()
+        observed_lock.acquire()
+        observed_lock.acquire_attempted.clear()
+        shares._lock = observed_lock
+        clock = {"now": 1_599}
+        results: list[Any] = []
+
+        def take_share() -> None:
+            with mock.patch("app.time.time", side_effect=lambda: clock["now"]):
+                results.append(shares.take(share_id, access_code))
+
+        worker = threading.Thread(target=take_share)
+        worker.start()
+        try:
+            self.assertTrue(observed_lock.acquire_attempted.wait(1))
+            clock["now"] = 1_600
+        finally:
+            observed_lock.release()
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(results, [None])
+        self.assertNotIn(share_id, shares._items)
+
+    def test_profile_share_ttl_starts_after_lock_contention(self) -> None:
+        shares = ProfileShareStore()
+        self.addCleanup(shares.close)
+        observed_lock = _ObservedLock()
+        observed_lock.acquire()
+        observed_lock.acquire_attempted.clear()
+        shares._lock = observed_lock
+        clock = {"now": 1_000}
+        results: list[Any] = []
+
+        def create_share() -> None:
+            with mock.patch("app.time.time", side_effect=lambda: clock["now"]):
+                results.append(shares.put(b"synthetic-profile", "user-device.zip"))
+
+        worker = threading.Thread(target=create_share)
+        worker.start()
+        try:
+            self.assertTrue(observed_lock.acquire_attempted.wait(1))
+            clock["now"] = 2_000
+        finally:
+            observed_lock.release()
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(results), 1)
+        share_id, _, ttl = results[0]
+        self.assertEqual(ttl, 600)
+        with mock.patch("app.time.time", return_value=2_599):
+            self.assertTrue(shares.is_available(share_id))
+        with mock.patch("app.time.time", return_value=2_600):
+            self.assertFalse(shares.is_available(share_id))
+
+    def test_closed_profile_share_store_rejects_new_material(self) -> None:
+        shares = ProfileShareStore()
+        self.addCleanup(shares.close)
+        write_started = threading.Event()
+        allow_write_to_continue = threading.Event()
+        write_errors: list[Exception] = []
+
+        def pause_before_store_lock(_length: int) -> str:
+            write_started.set()
+            if not allow_write_to_continue.wait(1):
+                raise TimeoutError("test writer was not released")
+            return "unused-share-id"
+
+        def create_share() -> None:
+            try:
+                shares.put(b"synthetic-profile", "user-device.zip")
+            except Exception as error:  # noqa: BLE001 - capture the expected shutdown rejection
+                write_errors.append(error)
+
+        with mock.patch("app.secrets.token_urlsafe", side_effect=pause_before_store_lock):
+            worker = threading.Thread(target=create_share)
+            worker.start()
+            try:
+                self.assertTrue(write_started.wait(1))
+                shares.close()
+            finally:
+                allow_write_to_continue.set()
+            worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(write_errors), 1)
+        self.assertRegex(str(write_errors[0]), "closed")
+        shares.close()
+
+        self.assertEqual(shares._items, {})
 
     def test_profile_share_cools_down_after_five_failed_access_codes(self) -> None:
         shares = ProfileShareStore()

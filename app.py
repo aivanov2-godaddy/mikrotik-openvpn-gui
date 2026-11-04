@@ -745,6 +745,10 @@ class SharedProfile:
     locked_until: float = 0
 
 
+class ProfileShareStoreClosedError(RuntimeError):
+    """Raised when a profile share is created after shutdown has begun."""
+
+
 class ProfileShareStore:
     """Bounded profile shares authorized by a separate short-lived access code."""
 
@@ -758,6 +762,7 @@ class ProfileShareStore:
     def __init__(self, *, purge_interval_seconds: float | None = None) -> None:
         self._items: dict[str, SharedProfile] = {}
         self._lock = threading.Lock()
+        self._closed = False
         self._purge_interval_seconds = (
             self.purge_interval_seconds
             if purge_interval_seconds is None
@@ -774,12 +779,13 @@ class ProfileShareStore:
         self._purge_thread.start()
 
     def close(self) -> None:
-        """Stop expiry cleanup and discard in-memory profile material."""
+        """Reject new shares, stop expiry cleanup, and discard retained profiles."""
+        with self._lock:
+            self._closed = True
+            self._items.clear()
         self._purge_stop.set()
         if self._purge_thread is not threading.current_thread():
             self._purge_thread.join(timeout=2)
-        with self._lock:
-            self._items.clear()
 
     def _purge_expired_loop(self) -> None:
         while not self._purge_stop.wait(self._purge_interval_seconds):
@@ -787,11 +793,13 @@ class ProfileShareStore:
                 self._purge(time.time())
 
     def put(self, payload: bytes, filename: str) -> tuple[str, str, int]:
-        now = time.time()
         share_id = secrets.token_urlsafe(24)
         access_code = f"{secrets.randbelow(10**self.access_code_digits):0{self.access_code_digits}d}"
         access_code_digest = hashlib.sha256(access_code.encode("ascii")).digest()
         with self._lock:
+            if self._closed:
+                raise ProfileShareStoreClosedError("Profile share store is closed")
+            now = time.time()
             self._purge(now)
             self._items[share_id] = SharedProfile(
                 payload=payload,
@@ -802,8 +810,8 @@ class ProfileShareStore:
         return share_id, access_code, self.ttl_seconds
 
     def take(self, share_id: str, access_code: str) -> SharedProfile | None:
-        now = time.time()
         with self._lock:
+            now = time.time()
             self._purge(now)
             item = self._items.get(share_id)
             if item is None:
@@ -850,7 +858,7 @@ class ProfileShareStore:
             )
 
     def is_available(self, share_id: str) -> bool:
-        """Check a share without consuming a download, purging expired entries."""
+        """Check without consuming a download; expired entries are purged."""
         with self._lock:
             now = time.time()
             self._purge(now)
@@ -4946,7 +4954,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _profile_share_response(self, profile: ProvisionedProfile, filename: str) -> None:
         payload, archive_name = self._profile_archive(profile, filename)
-        share_id, access_code, ttl = self.server.profile_shares.put(payload, archive_name)
+        try:
+            share_id, access_code, ttl = self.server.profile_shares.put(payload, archive_name)
+        except ProfileShareStoreClosedError:
+            self._json(
+                {"error": "Profile sharing is unavailable while the dashboard is shutting down."},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
         share_url = f"{self.server.context.public_origin.rstrip('/')}/share/{share_id}"
         self._json(
             {

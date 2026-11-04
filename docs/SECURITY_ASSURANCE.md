@@ -1257,13 +1257,25 @@ the share expires, and never includes it in the QR code or URL. Copying the
 passcode writes it to the OS clipboard; clipboard-history retention is outside
 application control and is disclosed in the UI.
 
+A concurrency follow-up closes two lifecycle races in the in-memory store:
+creation and download expiry checks read the clock only after acquiring the
+store lock, so waiting on that lock cannot extend an expired share or consume
+part of a new share's lifetime. Shutdown marks the store closed and clears its
+entries under the same lock used by writers; a late profile-share write is
+rejected and the request receives `503 Service Unavailable`. This prevents a
+late handler from leaving a retrievable archive in a store after shutdown.
+Clearing Python references is not physical memory zeroization.
+
 Focused repository tests cover passcode hashing, expiry, failed-attempt limits,
 correct-code use during cooldown, background cleanup without later requests,
-same-origin download behavior, exclusion from the URL/QR, and the UI contract:
+expiry and creation-time behavior under lock contention, rejection of a writer
+that resumes after store shutdown, same-origin download behavior, exclusion
+from the URL/QR, and the UI contract:
 `tests/test_app.py::ProfileShareStoreTests`,
 `tests/test_app.py::DashboardIntegrationTests.test_qr_profile_share_is_a_bounded_zip_download`,
 and `tests/test_frontend_contract.py::FrontendLiveUpdateContractTests.test_profile_share_code_is_separate_from_the_link_and_cleared_from_the_dialog`.
-These changes are not evidence of deployment or external proxy-log behavior.
+These source and test changes are repository-only; they are not evidence of
+deployment or external proxy-log behavior.
 Issue #200 remains open for candidate-bound live acceptance, review of deployed
 boundaries, and the owner residual-risk decision.
 
