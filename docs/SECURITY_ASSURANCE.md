@@ -1163,13 +1163,20 @@ protocol parameters on all requests and a missing or blank transport on new
 Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
 retain Engine.IO's default-polling compatibility. Regression coverage includes
 malformed handshakes, existing SID compatibility, and a subsequent valid
-handshake. Post-merge CI, CodeQL, and ARM64/AMD64 image publication passed;
-the publisher verified image provenance and SPDX SBOM attestations against
-the exact digests and passed both runtime smoke tests. This is source/build
-evidence, not a RouterOS deployment result. No post-publication device
-read-back or candidate-bound live acceptance is recorded. Issue #200 remains
-open; this scoped review is not a complete ASVS assessment or compliance
-attestation.
+handshake. The latest published candidate is PR #894
+(`84a3148de713abe49be0c7be8f21caa652b68dd9`); CI, CodeQL, image scans, runtime
+smoke tests, provenance, and SPDX SBOM verification passed. Its exact ARM64
+image initially passed readiness and revision read-back on canary. A later
+same-day health check found the canary unhealthy and bounded in-container
+`/healthz` and `/readyz` requests timed out. An authorized canary-only restart
+restored RouterOS's healthy marker, but post-restart revision read-back and
+sustained health are not verified. Qualitative authenticated disconnect,
+automatic client reconnect, and fallback observations are recorded in the
+[live acceptance report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md), but no measured
+latency, RouterOS API recovery, or sustained acceptance is claimed.
+Issue #200 remains
+open for the remaining deployed checks and an independent scoped review. This
+document is not a complete ASVS assessment or compliance attestation.
 
 ## Non-goals
 

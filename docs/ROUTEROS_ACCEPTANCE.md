@@ -13,13 +13,56 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #893 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`)
-is the latest published image. Its post-merge CI, CodeQL, scans, runtime smoke
-tests, provenance and SPDX SBOM checks passed; the stable manifest was read
-back. See [`RELEASES.md`](RELEASES.md) for immutable tags and digests. No
-post-publication RouterOS read-back confirms PR #893 staging or acceptance.
+prove RouterOS compatibility. PR #894
+(`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest published image.
+Its post-merge CI, CodeQL, scans, runtime smoke tests, provenance, and SPDX SBOM
+checks passed; the stable manifest was read back. See [`RELEASES.md`](RELEASES.md)
+for immutable tags and digests. The exact ARM64 candidate initially passed
+canary readiness and revision read-back. A later same-day check found the
+canary unhealthy; bounded in-container `/healthz` and `/readyz` requests timed
+out. An authorized canary-only restart restored RouterOS's healthy marker, but
+post-restart revision read-back and sustained health are not verified. The full
+acceptance gates below remain incomplete.
 
-## Current read-only checkpoint — 2026-10-30
+## Current canary checkpoint — 2026-11-04
+
+The isolated canary was configured with the immutable PR #894 ARM64 reference
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-84a3148de713abe49be0c7be8f21caa652b68dd9-arm64@sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`.
+RouterOS read-back showed that reference, the container health marker was
+healthy, and the bounded readiness probe succeeded. An authenticated readiness
+response returned revision `84a3148de713abe49be0c7be8f21caa652b68dd9`.
+Production was not changed.
+
+An authenticated foreground Connections page showed a live Socket.IO transport
+with the disposable session active. The session was terminated through the
+dashboard's review flow for this acceptance check. Without a page reload, the
+active-device count changed to zero, the history row changed to Ended, and the
+page showed a fresh SSE fallback. The disposable client later reconnected
+automatically and appeared as active on the same page with a fresh SSE update,
+also without a reload. This confirms qualitative disconnect delivery, client
+reconnect, snapshot repopulation, and one fallback observation; no synchronized
+event-latency measurement against the 1,000 ms target was recorded. The test
+does not simulate a RouterOS API interruption. The background browser tab had
+paused its stream by design; the foreground test tab reopened a fresh live
+transport. A 30-minute freshness/resource window has not been completed.
+
+A later same-day in-container probe found both `/healthz` and `/readyz` requests
+timing out and RouterOS marked the canary unhealthy. The cause was not
+established. After an authorized restart of canary only, RouterOS again showed
+the healthy marker. The authenticated readiness revision was not read back
+after restart, and no sustained recovery window was measured. Production was
+not changed.
+
+**Acceptance status: pending.** Still required for this candidate: connect and
+reconnect latency, traffic-sample age, RouterOS API interruption and snapshot
+recovery, counter-reset and event ordering/loss/duplication checks, Binary
+API/REST parity, Redis outage/restart/recovery, SQLite restore and interrupted
+write checks, unauthorized-session and payload/log privacy checks, sustained
+resource measurements, and a canary rollback rehearsal. Keep production
+promotion gated until these results pass. Do not run the unreconciled installed
+RouterOS updater; issue #785 tracks its source and scheduler-binding review.
+
+## Historical checkpoint — 2026-10-30
 
 WinBox read-back showed the canary still configured for PR #862's published
 ARM64 immutable tag and matching digest
@@ -72,7 +115,7 @@ a safety approval. The original invalid-request cause was not recovered from
 the retained audit bundle and remains unknown. No script or scheduler was run
 or changed; keep the project updater disabled.
 
-## Candidate status — PR #862 and PR #893 — partial read-back
+## Historical candidate status — PR #862 and PR #893 — 2026-10-30
 
 PR #862 was published and has immutable architecture tags and digests recorded
 in [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -81,14 +124,15 @@ image digest prefix matching its published ARM64 digest and container status
 and #200 comments that said it had not been read back. A fresh authenticated
 readiness response returned PR #862 revision
 `445c1d5ca0f28174629be8e8cd94f04de132f0fc`, confirming the canary was not
-running PR #885 at that historical observation. PR #893 is now the latest
-published image; no post-publication RouterOS read-back confirms it is staged. Sustained
-health/resource impact and the soak remain unverified.
+running PR #885 at that historical observation. At that time PR #893 was the
+latest published image and no post-publication RouterOS read-back was available.
+Sustained health/resource impact and the soak remained unverified then.
 
 Candidate-specific session-event, traffic-freshness, latency, reconnect,
-snapshot-recovery, and authorization evidence remain unavailable for PR #893.
-RouterOS later showed one active test tunnel, but it was not correlated with an
-authenticated dashboard; the canary browser remained at its sign-in page.
+snapshot-recovery, and authorization evidence were unavailable for PR #893 at
+that checkpoint. RouterOS later showed one active test tunnel, but it was not
+correlated with an authenticated dashboard; the canary browser remained at its
+sign-in page.
 A 30-minute candidate-bound soak, Redis failure/recovery checks,
 SQLite backup/restore rehearsal, counter-reset and event-integrity checks, and a
 candidate-specific rollback rehearsal remain outstanding. Production

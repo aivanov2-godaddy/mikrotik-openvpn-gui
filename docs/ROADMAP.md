@@ -11,31 +11,54 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-Formal release **v2.7.0** remains the latest numbered release. PR #893
-(`c35ca40baf0132b38d60585b0252ab0ef35223b4`) is the latest published image
-source; it advances the Python 3.15 Alpine base-image digest. Post-merge CI,
-CodeQL, and publication passed. The publisher built, scanned, and smoke-tested
-both architecture images, verified provenance and SPDX SBOM attestations, and
-read back the stable manifest. Immutable tags, digests, and manifest checksum
-are recorded in [RELEASES.md](RELEASES.md). No new numbered release is claimed.
+Formal release **v2.7.0** remains the latest numbered release. PR #894
+(`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest published image
+source. Post-merge CI, CodeQL, image scans, runtime smoke tests, provenance,
+and SPDX SBOM checks passed; the stable manifest was read back. Immutable tags,
+digests, and the manifest checksum are recorded in [RELEASES.md](RELEASES.md).
+No new numbered release is claimed.
 
-A prior Cloudflare Access-authenticated canary readiness read returned
-revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc` (PR #862), not PR #893.
-On 2026-10-30,
-an unauthenticated `/readyz` request returned the Cloudflare Access sign-in
-page (HTTP 200), not readiness JSON; the canary dashboard also showed sign-in.
-Later that day, read-only WinBox showed the canary still using PR #862's ARM64
-immutable tag and matching digest, with a healthy marker; production still
-showed the PR #788 ARM64 tag. A subsequent PPP Active Connections view showed
-one active test tunnel, but the canary dashboard sign-in remained pending, so
-the session was not correlated with authenticated telemetry. These reads do
-not verify PR #893 staging or acceptance. No candidate-specific acceptance or
-production promotion is claimed. Code Scanning returned zero open alerts on
-2026-10-30; that does not replace the independent security review. PR #849 distinguishes RouterOS HTTP 401 credential rejection from
-HTTP 403 permission denial without counting permission or availability failures
-toward the bad-password lockout budget. PR #830 is documentation-only and adds
-an offline comparison risk flag; it changes no running application or RouterOS
-state.
+On 2026-11-04, RouterOS was read back with the exact immutable PR #894 ARM64
+candidate configured. Initial authenticated readiness returned revision
+`84a3148de713abe49be0c7be8f21caa652b68dd9`, and the bounded readiness probe
+and container health were healthy. A later same-day probe found the canary
+unhealthy and bounded in-container `/healthz` and `/readyz` requests timed out.
+The cause was not established. After an authorized restart of canary only,
+RouterOS's healthy marker returned; post-restart revision read-back and
+sustained health remain unverified. Production was not changed. An authenticated
+foreground Connections page showed a live Socket.IO stream; after the
+disposable test session was terminated, the page showed zero connected devices
+and an ended history row without a reload, with a fresh SSE fallback. The client
+later reconnected automatically and appeared on the same page with a fresh SSE
+snapshot, also without a reload. This is qualitative disconnect/reconnect
+evidence only; event and reconnect latency were not measured against the
+one-second target, and a RouterOS API interruption was not simulated. The test
+client reconnected at that observation. Background tabs intentionally pause the live
+transport and reconnect when foregrounded; the stale indicator seen in a
+background tab was followed by a fresh foreground stream.
+
+Candidate-specific acceptance remains open: the measured 30-minute freshness
+and resource window; connect/reconnect latency; RouterOS API interruption and
+snapshot recovery; counter reset and event ordering/loss/duplication; Binary
+API/REST parity; Redis outage and recovery; SQLite restore and interrupted-write
+checks; authorization/privacy checks; and canary rollback rehearsal. Issue
+#785 also remains open because the installed updater and scheduler bindings are
+not reconciled; the updater remains disabled and was not run. Production
+promotion and the next numbered release stay gated on those reviews and the
+candidate-bound acceptance report.
+
+### Historical deployment checkpoints
+
+Earlier checks for PR #862 and prior candidates are historical and do not
+describe the current canary image. The 2026-10-30 checkpoint is retained below
+for its audit trail.
+
+Code Scanning returned zero open alerts on 2026-10-30; that does not replace
+the independent security review. PR #849 distinguishes RouterOS HTTP 401
+credential rejection from HTTP 403 permission denial without counting
+permission or availability failures toward the bad-password lockout budget.
+PR #830 is documentation-only and adds an offline comparison risk flag; it
+changes no running application or RouterOS state.
 
 Earlier authenticated dashboard and Connections observations used the prior
 PR #806 image. They showed the live indicator and a disconnect reflected
@@ -108,8 +131,8 @@ pass.
 | Complete | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201), [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202), [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | RouterOS least-privilege diagnostics, mutation safety, SBOM/provenance and compatibility policy |
 | Closed in GitHub — implementation; device/certificate acceptance remains | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. PR #702 adds a collapsed, read-only CRL configuration observation to Device Profiles without restoring the removed overview alert. PR #705 hardens cleanup of temporary RouterOS profile-export artifacts. PR #707 gates retirement on testing the replacement identity; PR #718 adds fail-closed checkpoint-failure coverage; PR #722 rejects stale, malformed, missing-expiry, and wrong-CA CRL snapshots. PR #730 requires both the stored RouterOS certificate ID and normalized fingerprint to match for a read-only inventory match. PR #737 adds a candidate-bound, operator-attested certificate-lifecycle evidence gate; its merge does not itself prove a successful live lifecycle test. The GitHub issue is closed, but candidate/device-backed CRL freshness, staged renewal and retirement, fresh-connect rejection, active-session behavior, read-back, and canary rollback evidence remain release gates tracked by #205. Profile recovery issues a new identity rather than re-downloading a retained private key. |
 | Complete — acceptance tooling; live gates remain | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Closed by PR #709. The bounded read-only collector and SQLite restore verifier are implemented. Candidate-matched live soak, deployment, and rollback evidence remain release gates tracked by #205 (device/certificate acceptance) and #200 (security assurance); closing this implementation issue does not claim device acceptance. |
-| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #893 is the latest published image (see RELEASES.md); no post-publication RouterOS read-back confirms it staged. The last known canary readiness reported PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. Same-day read-only PPP Active Connections records conflict (one empty, another one test tunnel); the canary dashboard showed sign-in during the unauthenticated check. No authenticated telemetry correlation or acceptance is claimed. Production's last recorded image is PR #788; no promotion is claimed. Still required: independent scoped ASVS assessment; reviewed staging and rollback under #785; authenticated live-session latency (≤1 s), traffic freshness (≤2 s), reconnect/snapshot and authorization checks, 30-minute soak, event/counter integrity and Binary API/REST parity; deployed Redis/SQLite recovery; RouterOS permission and credential-exposure review; and owner risk decision. |
-| Open — updater reconciliation / safe staging | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | PR #893 is the latest published image but no post-publication RouterOS read-back confirms it staged. The last known canary readiness reported PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. Read-only inventory comments on 2026-10-30 report that fingerprints for five known updater-related scripts and the saved updater file matched none of three reviewed repository examples; raw source and fingerprints were not posted. A separate WinBox view showed five script rows and three scheduler rows: two enabled entries invoke a script named `autoupdate` (relationship unverified), while the disabled project-updater entry uses `/system/script/run *8` with zero runs and an unresolved internal-ID target. These observations do not prove exhaustive source or binding reconciliation. No updater ran, no RouterOS state or account changed, and the original invalid-request cause remains unrecovered. Keep the updater disabled and production unchanged until exhaustive read-only reconciliation and a reviewed canary-only staging and rollback procedure are complete. |
+| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #894 is the latest published image (see RELEASES.md). The exact ARM64 candidate initially passed authenticated readiness on canary, followed by a later unhealthy observation and timed-out in-container `/healthz` and `/readyz` probes. An authorized canary-only restart restored RouterOS's healthy marker, but post-restart revision read-back and sustained recovery are unverified. The qualitative authenticated disconnect and automatic client reconnect without reload, including SSE fallback and snapshot repopulation, remain observations only. No synchronized latency result against ≤1 s was recorded, and a RouterOS API interruption was not simulated. Production was not changed. Still required: independent scoped ASVS assessment; authenticated connect/reconnect latency (≤1 s), traffic freshness (≤2 s), API interruption/snapshot recovery and authorization checks; measured 30-minute soak; event/counter integrity and Binary API/REST parity; deployed Redis/SQLite recovery; RouterOS permission and credential-exposure review; canary rollback; and owner risk decision. |
+| Open — updater reconciliation / safe staging | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | The exact immutable PR #894 ARM64 candidate was staged manually on canary without running the installed updater; initial authenticated readiness returned the exact revision. A later canary health check failed; after an authorized restart, RouterOS's healthy marker returned, but post-restart revision read-back is pending. The installed updater copies and scheduler bindings remain unreconciled, and the original invalid-request cause is unrecoverable from the retained buffer. No updater ran, no RouterOS account or policy changed, and production was not changed. Keep the updater disabled until a complete read-only inventory and reviewed staging/rollback procedure resolve the discrepancies. |
 | Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Close only after remaining device/certificate acceptance (tracked here despite #194's GitHub closure), #200 security review, and candidate-specific live acceptance gates pass; include the #199 collector/restore evidence in the candidate report. |
 
 PR #776 added a regression-tested logout ordering fix: revoke the session
@@ -121,22 +144,21 @@ PR #798 adds evidence-gated originless polling and browser coverage. PR #889
 merged Engine.IO quota-retention hardening, and PR #891 rejects ambiguous
 handshake query parameters and prevents new polling handshakes from bypassing
 the quota reservation. PR #891's post-merge CI, CodeQL, and image publication
-passed. PR #893 has since been published with passing CI, CodeQL, image
-publication, and attestations; immutable tags and digests for both are in
-RELEASES.md. No RouterOS read-back confirms PR #893 staging or acceptance, and
-publication does not satisfy the live acceptance gates. PR #830
+passed. PR #893 was published with passing CI, CodeQL, image publication, and
+attestations; PR #894 now supersedes it. Immutable tags and digests are in
+RELEASES.md. The current #894 canary read-back and its limits are recorded in
+the current snapshot above; publication does not satisfy the live acceptance
+gates. PR #830
 improves offline updater comparison only. PR #851 adds local read-only
 inventory tooling for #785. The 2026-10-30 WinBox view did not establish the
 `*8` internal-ID target or prove inventory exhaustiveness. A separate
 read-only source-fingerprint follow-up is recorded on #785; it found no match
 to the three reviewed examples but does not resolve completeness or scheduler
 binding. No RouterOS mutation occurred.
-The latest historically confirmed candidate-bound RouterOS read-back is PR #862,
-limited to the WinBox digest-prefix match, `HEALTHY` status, and one
-resource sample
-described above. A fresh Access-authenticated readiness read returned PR #862
-revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`, not PR #893.
-The 30-minute live-acceptance and rollback gates in #200 and #205 remain open.
+The 2026-10-30 read-back below is historical: it covered PR #862 only and
+returned revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. It predates the
+PR #894 canary checkpoint recorded at the top of this roadmap. The 30-minute
+live-acceptance and rollback gates in #200 and #205 remain open.
 
 PR #866 merged on 2026-10-27 as `25e67872beeb328661a71e3d97d655b6fe44844b`.
 It serializes reviewed VPN-user mutations across dashboard instances,
