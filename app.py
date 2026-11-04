@@ -738,54 +738,102 @@ class AppContext:
 class SharedProfile:
     payload: bytes
     filename: str
+    access_code_digest: bytes
     expires_at: float
     downloads: int = 0
+    failed_attempts: int = 0
+    locked_until: float = 0
 
 
 class ProfileShareStore:
-    """Bounded, in-memory profile shares used by QR/download hand-off links."""
+    """Bounded profile shares authorized by a separate short-lived access code."""
 
     ttl_seconds = 600
     max_downloads = 3
+    max_failed_attempts = 5
+    lockout_seconds = 60
+    access_code_digits = 12
 
     def __init__(self) -> None:
         self._items: dict[str, SharedProfile] = {}
         self._lock = threading.Lock()
 
-    def put(self, payload: bytes, filename: str) -> tuple[str, int]:
+    def put(self, payload: bytes, filename: str) -> tuple[str, str, int]:
         now = time.time()
-        token = secrets.token_urlsafe(32)
+        share_id = secrets.token_urlsafe(24)
+        access_code = f"{secrets.randbelow(10**self.access_code_digits):0{self.access_code_digits}d}"
+        access_code_digest = hashlib.sha256(access_code.encode("ascii")).digest()
         with self._lock:
             self._purge(now)
-            self._items[token] = SharedProfile(
+            self._items[share_id] = SharedProfile(
                 payload=payload,
                 filename=filename,
+                access_code_digest=access_code_digest,
                 expires_at=now + self.ttl_seconds,
             )
-        return token, self.ttl_seconds
+        return share_id, access_code, self.ttl_seconds
 
-    def take(self, token: str) -> SharedProfile | None:
+    def take(self, share_id: str, access_code: str) -> SharedProfile | None:
         now = time.time()
         with self._lock:
             self._purge(now)
-            item = self._items.get(token)
+            item = self._items.get(share_id)
             if item is None:
+                return None
+            if item.locked_until > now:
+                return None
+            if item.locked_until:
+                item.failed_attempts = 0
+                item.locked_until = 0
+            valid_input = re.fullmatch(
+                r"(?:[0-9]{12}|[0-9]{4}-[0-9]{4}-[0-9]{4})",
+                access_code,
+            ) is not None
+            normalized_code = access_code.replace("-", "") if valid_input else ""
+            valid_format = re.fullmatch(r"[0-9]{12}", normalized_code) is not None
+            candidate_digest = (
+                hashlib.sha256(normalized_code.encode("ascii")).digest()
+                if valid_format
+                else b""
+            )
+            valid_code = valid_format and secrets.compare_digest(
+                item.access_code_digest,
+                candidate_digest,
+            )
+            if not valid_code:
+                item.failed_attempts += 1
+                if item.failed_attempts >= self.max_failed_attempts:
+                    item.failed_attempts = 0
+                    item.locked_until = min(now + self.lockout_seconds, item.expires_at)
                 return None
             item.downloads += 1
             if item.downloads >= self.max_downloads:
-                self._items.pop(token, None)
-            return SharedProfile(item.payload, item.filename, item.expires_at, item.downloads)
+                self._items.pop(share_id, None)
+            return SharedProfile(
+                item.payload,
+                item.filename,
+                item.access_code_digest,
+                item.expires_at,
+                item.downloads,
+                item.failed_attempts,
+                item.locked_until,
+            )
 
-    def is_available(self, token: str) -> bool:
+    def is_available(self, share_id: str) -> bool:
         """Check a share without consuming a download or changing store state."""
         with self._lock:
-            item = self._items.get(token)
+            item = self._items.get(share_id)
             return item is not None and item.expires_at > time.time()
 
+    def is_locked(self, share_id: str) -> bool:
+        with self._lock:
+            item = self._items.get(share_id)
+            return item is not None and item.locked_until > time.time()
+
     def _purge(self, now: float) -> None:
-        for token, item in list(self._items.items()):
+        for share_id, item in list(self._items.items()):
             if item.expires_at <= now:
-                self._items.pop(token, None)
+                self._items.pop(share_id, None)
 
 
 @dataclass(slots=True)
@@ -2377,14 +2425,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
             extra={"Cache-Control": "public, max-age=3600"},
         )
 
-    def _shared_profile(self, token: str) -> None:
-        shared = self.server.profile_shares.take(token)
-        if shared is None:
+    def _shared_profile(self, share_id: str) -> None:
+        try:
+            access_code = self._read_form().get("access_code", "")
+        except ValueError:
             self._bytes(
-                b"This profile link is expired or has already been used.",
-                status=HTTPStatus.GONE,
+                b"Invalid profile passcode request.",
+                status=HTTPStatus.BAD_REQUEST,
                 content_type="text/plain; charset=utf-8",
             )
+            return
+        shared = self.server.profile_shares.take(share_id, access_code)
+        if shared is None:
+            if self.server.profile_shares.is_available(share_id):
+                self._profile_share_landing(
+                    share_id,
+                    code_error=True,
+                    locked=self.server.profile_shares.is_locked(share_id),
+                )
+            else:
+                self._bytes(
+                    b"This profile link is expired or has already been used.",
+                    status=HTTPStatus.GONE,
+                    content_type="text/plain; charset=utf-8",
+                )
             return
         self._bytes(
             shared.payload,
@@ -2392,8 +2456,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             extra={"Content-Disposition": f'attachment; filename="{shared.filename}"'},
         )
 
-    def _profile_share_landing(self, token: str) -> None:
-        if not self.server.profile_shares.is_available(token):
+    def _profile_share_landing(
+        self,
+        share_id: str,
+        *,
+        code_error: bool = False,
+        locked: bool = False,
+    ) -> None:
+        if not self.server.profile_shares.is_available(share_id):
             self._bytes(
                 b"This profile link is expired or has already been used.",
                 status=HTTPStatus.GONE,
@@ -2404,8 +2474,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<title>Download OpenVPN profile</title><main><h1>OpenVPN profile</h1>"
-            "<p>This private download link expires after 10 minutes and allows up to three downloads.</p>"
-            "<form method=\"post\"><button type=\"submit\">Download profile</button></form></main></html>",
+            "<p>Enter the 12-digit passcode sent separately from this link. This link expires after 10 minutes and allows up to three downloads. Five incorrect passcodes trigger a one-minute cooldown.</p>"
+            + (
+                (
+                    "<p role=\"alert\">Too many incorrect passcodes. Try again in one minute, if the link is still valid.</p>"
+                    if locked
+                    else "<p role=\"alert\">That passcode could not be verified. Check it and try again.</p>"
+                )
+                if code_error
+                else ""
+            )
+            + "<form method=\"post\" autocomplete=\"off\"><label for=\"access-code\">Passcode</label>"
+            "<input id=\"access-code\" name=\"access_code\" type=\"password\" required inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"14\" pattern=\"(?:[0-9]{12}|[0-9]{4}-[0-9]{4}-[0-9]{4})\">"
+            "<button type=\"submit\">Download profile</button></form></main></html>",
             extra={"Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow"},
         )
 
@@ -4831,11 +4912,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _profile_share_response(self, profile: ProvisionedProfile, filename: str) -> None:
         payload, archive_name = self._profile_archive(profile, filename)
-        token, ttl = self.server.profile_shares.put(payload, archive_name)
-        share_url = f"{self.server.context.public_origin.rstrip('/')}/share/{token}"
+        share_id, access_code, ttl = self.server.profile_shares.put(payload, archive_name)
+        share_url = f"{self.server.context.public_origin.rstrip('/')}/share/{share_id}"
         self._json(
             {
                 "download_url": share_url,
+                "access_code": f"{access_code[:4]}-{access_code[4:8]}-{access_code[8:]}",
                 "filename": archive_name,
                 "expires_in": ttl,
                 "qr_svg": qr_svg(share_url),

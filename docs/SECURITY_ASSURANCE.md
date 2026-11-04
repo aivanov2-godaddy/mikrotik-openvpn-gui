@@ -1178,6 +1178,54 @@ Issue #200 remains
 open for the remaining deployed checks and an independent scoped review. This
 document is not a complete ASVS assessment or compliance attestation.
 
+## Independent internal source review — 2026-11-04
+
+Two separate read-only reviewers inspected the PR #894 source at commit
+`84a3148de713abe49be0c7be8f21caa652b68dd9`. The bounded scope covered
+RouterOS-backed authentication and role checks, sessions and CSRF, API-token
+limits, Socket.IO/SSE authorization, response headers, and the profile-share
+flow. Source and tests were inspected; the reviewers did not run tests or
+inspect deployed proxy/browser logs. This is an internal source review, not an
+external assessment, penetration test, or complete ASVS review.
+
+The review confirmed the session-bound live-telemetry checks, fail-closed role
+revalidation, restricted API-token scope, same-origin profile-download gate,
+no-store landing page, and bounded profile-share lifetime/download count. It
+also identified that the profile-download bearer credential was embedded in
+the URL. This was a conditional disclosure risk against
+[ASVS 5.0.0 V14.2.1](https://github.com/OWASP/ASVS/blob/v5.0.0_release/5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.xml): a person who obtained the URL could retrieve the profile while the share remained valid. No evidence of an actual URL leak was available in this source-only review.
+
+The review also recorded residual source/deployment boundaries: there is no
+application-level MFA; login throttling and sessions are process-local;
+RouterOS passwords remain in process memory; owner capability is a wildcard;
+and deployment TLS, proxy configuration, Cloudflare Access/MFA, and host dump
+or log retention were not verified. The Socket.IO implementation is polling.
+The ASVS matrix's RouterOS role-revocation timing gap (V8.3.2) and external
+deployment controls remain open for device-bound evidence.
+
+### Profile-share URL finding — repository remediation
+
+The current candidate replaces the URL bearer credential with a random opaque
+share identifier and a separate 12-digit passcode. The identifier alone does
+not authorize a download. The passcode is returned only in the authenticated
+profile-creation response, displayed separately from the QR/link, submitted in
+the form body, and stored as a digest in the bounded in-memory share record.
+Five incorrect passcodes trigger a 60-second cooldown; the existing ten-minute
+lifetime and three-download maximum remain. The UI instructs operators to send
+the passcode through a separate channel, clears it when the dialog closes or
+the share expires, and never includes it in the QR code or URL. Copying the
+passcode writes it to the OS clipboard; clipboard-history retention is outside
+application control and is disclosed in the UI.
+
+Focused repository tests cover passcode hashing, expiry and failed-attempt
+limits, same-origin download behavior, exclusion from the URL/QR, and the UI
+contract: `tests/test_app.py::ProfileShareStoreTests`,
+`tests/test_app.py::DashboardIntegrationTests.test_qr_profile_share_is_a_bounded_zip_download`,
+and `tests/test_frontend_contract.py::FrontendLiveUpdateContractTests.test_profile_share_code_is_separate_from_the_link_and_cleared_from_the_dialog`.
+These changes are not evidence of deployment or external proxy-log behavior.
+Issue #200 remains open for candidate-bound live acceptance, review of deployed
+boundaries, and the owner residual-risk decision.
+
 ## Non-goals
 
 This document is a narrow evidence index for the session/live-stream area. It

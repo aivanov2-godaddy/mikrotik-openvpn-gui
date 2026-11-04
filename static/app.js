@@ -1705,13 +1705,19 @@ function prepareProfileDialog({ userId, userName, delivery = 'zip', legacyCertif
   openDialog('profile-dialog');
 }
 
+let qrAccessCodeTimer = 0;
+
 function showQrDialog(payload, username = 'this user') {
   const dialog = getDialog('qr-dialog');
   const image = $('[data-qr-image]', dialog);
+  const accessCode = $('[data-qr-access-code]', dialog);
   image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(payload.qr_svg || '')}`;
   image.alt = `OpenVPN profile download QR code for ${username}`;
   $('[data-qr-url]', dialog).value = payload.download_url || '';
-  $('[data-qr-description]', dialog).textContent = `Scan this code to open the private download page, then tap Download profile for ${username}.`;
+  accessCode.value = payload.access_code || '';
+  $('[data-qr-description]', dialog).textContent = `Scan this code to open the private download page for ${username}, then enter the passcode shared separately.`;
+  window.clearTimeout(qrAccessCodeTimer);
+  qrAccessCodeTimer = window.setTimeout(() => { accessCode.value = ''; }, Math.max(0, Number(payload.expires_in || 600) * 1000));
   dialog.showModal();
 }
 
@@ -1733,6 +1739,13 @@ $$('dialog').forEach((modal) => {
   modal.addEventListener('click', (event) => {
     if (event.target === modal) modal.close();
   });
+  if (modal.id === 'qr-dialog') {
+    modal.addEventListener('close', () => {
+      window.clearTimeout(qrAccessCodeTimer);
+      const accessCode = $('[data-qr-access-code]', modal);
+      if (accessCode) accessCode.value = '';
+    });
+  }
   if (modal.id === 'terminate-dialog') {
     modal.addEventListener('close', () => { terminationAttempt = null; });
   }
@@ -2186,6 +2199,18 @@ document.addEventListener('click', async (event) => {
       toast('Download link copied.');
     } catch (_) {
       toast('The browser could not copy the download link.', 'error');
+    }
+  } else if (button.matches('[data-copy-share-code]')) {
+    const accessCode = $('[data-qr-access-code]')?.value || '';
+    if (!accessCode) {
+      toast('This passcode has expired. Create a new profile link.', 'error');
+      return;
+    }
+    try {
+      await copyText(accessCode);
+      toast('Passcode copied. Send it separately; clipboard history may retain it.');
+    } catch (_) {
+      toast('The browser could not copy the passcode.', 'error');
     }
   } else if (button.matches('[data-copy-vpn-endpoint]')) {
     try {

@@ -199,18 +199,42 @@ class ProfileShareStoreTests(unittest.TestCase):
     def test_profile_download_link_expires_at_its_advertised_deadline(self) -> None:
         shares = ProfileShareStore()
         with mock.patch("app.time.time", return_value=1_000):
-            token, ttl = shares.put(b"synthetic-profile", "user-device.zip")
+            share_id, access_code, ttl = shares.put(b"synthetic-profile", "user-device.zip")
 
         self.assertEqual(ttl, 600)
+        self.assertRegex(access_code, r"^[0-9]{12}$")
         with mock.patch("app.time.time", return_value=1_599):
-            self.assertTrue(shares.is_available(token))
+            self.assertTrue(shares.is_available(share_id))
         with mock.patch("app.time.time", return_value=1_599):
-            available = shares.take(token)
+            available = shares.take(share_id, access_code)
         self.assertIsNotNone(available)
         self.assertEqual(available.payload, b"synthetic-profile")
+        self.assertEqual(
+            shares._items[share_id].access_code_digest,
+            hashlib.sha256(access_code.encode("ascii")).digest(),
+        )
 
         with mock.patch("app.time.time", return_value=1_600):
-            self.assertIsNone(shares.take(token))
+            self.assertIsNone(shares.take(share_id, access_code))
+
+    def test_profile_share_cools_down_after_five_failed_access_codes(self) -> None:
+        shares = ProfileShareStore()
+        with mock.patch("app.time.time", return_value=1_000):
+            share_id, access_code, _ = shares.put(b"synthetic-profile", "user-device.zip")
+        incorrect_code = "000000000000" if access_code != "000000000000" else "111111111111"
+
+        for attempt in range(shares.max_failed_attempts):
+            with self.subTest(attempt=attempt + 1):
+                with mock.patch("app.time.time", return_value=1_001):
+                    self.assertIsNone(shares.take(share_id, incorrect_code))
+
+        with mock.patch("app.time.time", return_value=1_059):
+            self.assertTrue(shares.is_available(share_id))
+            self.assertTrue(shares.is_locked(share_id))
+            self.assertIsNone(shares.take(share_id, access_code))
+        with mock.patch("app.time.time", return_value=1_061):
+            self.assertFalse(shares.is_locked(share_id))
+            self.assertIsNotNone(shares.take(share_id, access_code))
 
 
 class OperationsTimelineTests(unittest.TestCase):
@@ -8474,6 +8498,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
         response = json.loads(payload)
         self.assertTrue(response["download_url"].startswith("https://dashboard.example.test/share/"))
+        access_code = response["access_code"]
+        self.assertRegex(access_code, r"^[0-9]{4}-[0-9]{4}-[0-9]{4}$")
+        self.assertNotIn(access_code, response["download_url"])
+        self.assertNotIn(access_code, response["qr_svg"])
         self.assertIn("<svg", response["qr_svg"])
         mutation_count = len(self.mock.state.mutation_requests)
         certificate_count = len(self.mock.state.certificates)
@@ -8494,7 +8522,9 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(headers["content-type"].startswith("text/html"))
         self.assertEqual(headers["referrer-policy"], "no-referrer")
-        self.assertIn(b'<form method="post">', landing_page)
+        self.assertIn(b'<form method="post" autocomplete="off">', landing_page)
+        self.assertIn(b'name="access_code"', landing_page)
+        self.assertIn(b"sent separately", landing_page)
         self.assertNotIn(b"user-one-QR-phone.ovpn", landing_page)
         for safe_method in ("HEAD", "OPTIONS"):
             with self.subTest(safe_method=safe_method):
@@ -8507,10 +8537,28 @@ class DashboardIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 403)
 
+        incorrect_code = "0000-0000-0000" if access_code != "0000-0000-0000" else "1111-1111-1111"
+        status, _, invalid_page = self.request(
+            "POST",
+            share_path,
+            body=urllib.parse.urlencode({"access_code": incorrect_code}).encode(),
+            headers={
+                "Origin": self.config.public_origin,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(b"could not be verified", invalid_page)
+
         for _ in range(3):
             status, headers, archive_payload = self.request(
-                "POST", share_path,
-                headers={"Origin": self.config.public_origin},
+                "POST",
+                share_path,
+                body=urllib.parse.urlencode({"access_code": access_code}).encode(),
+                headers={
+                    "Origin": self.config.public_origin,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
             )
             self.assertEqual(status, 200)
             self.assertEqual(headers["content-type"], "application/zip")
@@ -8521,8 +8569,13 @@ class DashboardIntegrationTests(unittest.TestCase):
             self.assertIn(b"redirect-gateway def1", profile)
             self.assertNotIn(b"qr-passphrase", profile)
         status, _, _ = self.request(
-            "POST", share_path,
-            headers={"Origin": self.config.public_origin},
+            "POST",
+            share_path,
+            body=urllib.parse.urlencode({"access_code": access_code}).encode(),
+            headers={
+                "Origin": self.config.public_origin,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
         )
         self.assertEqual(status, 410)
 

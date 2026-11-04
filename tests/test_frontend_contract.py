@@ -75,6 +75,18 @@ class FrontendLiveUpdateContractTests(unittest.TestCase):
         self.assertIn("document.addEventListener('click', (event) => {", source)
         self.assertIn("data-graph-view", source)
 
+    def test_profile_share_code_is_separate_from_the_link_and_cleared_from_the_dialog(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        template = (ROOT / "templates.py").read_text(encoding="utf-8")
+        self.assertIn("payload.access_code", source)
+        self.assertIn("[data-qr-access-code]", source)
+        self.assertIn("Send it separately; clipboard history may retain it.", source)
+        self.assertIn("accessCode.value = '';", source)
+        self.assertIn("data-copy-share-code", source)
+        self.assertIn("data-qr-access-code", template)
+        self.assertIn("The QR contains only the link.", template)
+        self.assertIn("Share it separately", template)
+
     def test_history_filters_are_local_and_count_visible_rows(self) -> None:
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("function applyHistoryFilters()", source)
