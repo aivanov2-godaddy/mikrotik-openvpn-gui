@@ -670,11 +670,11 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #894 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest published image source",
+            "PR #896 (`19edcd5f5a0f3db5f67f8f226d3588955cd8335e`) is the latest published image source",
             roadmap,
         )
         self.assertIn(
-            "## Latest published mainline image — PR #894",
+            "## Latest published mainline image — PR #896",
             releases,
         )
         self.assertIn(

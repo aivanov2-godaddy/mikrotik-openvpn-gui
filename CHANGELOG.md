@@ -72,6 +72,8 @@ semantic-version style release tags.
 
 ### Fixed
 
+- Keep a valid profile-share passcode usable during the invalid-attempt
+  cooldown, and periodically discard expired profile-share records from memory.
 - Preserve SQLite outbox insertion order for events with the same creation
   timestamp, including when pending events are drained in bounded batches.
 - Preserve nested RouterOS interface counters and measured rates when
