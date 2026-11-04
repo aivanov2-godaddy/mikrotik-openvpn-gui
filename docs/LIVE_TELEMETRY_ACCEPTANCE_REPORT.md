@@ -1,11 +1,40 @@
 # Live telemetry acceptance status
 
-Status: **PR #893 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) is the latest
-published image source, with immutable ARM64 and AMD64 images. Main CI,
-CodeQL, image scans, runtime smoke tests, provenance and SPDX SBOM checks
-passed; the stable manifest was read back. Exact tags and digests are in
-[`RELEASES.md`](RELEASES.md). No post-publication RouterOS read-back confirms
-PR #893 staging or acceptance.**
+Status: **PR #894 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest
+published image source, with immutable ARM64 and AMD64 images. Main CI, CodeQL,
+image scans, runtime smoke tests, provenance and SPDX SBOM checks passed; the
+stable manifest was read back. The exact ARM64 candidate is staged and
+readiness-verified on canary. One qualitative disconnect/fallback check passed
+without a page reload, but latency was not measured against the one-second
+target. Reconnect, sustained freshness, recovery, privacy, and rollback gates
+remain pending. Production was not changed.**
+
+## Current canary checkpoint — 2026-11-04
+
+The canary was configured with the immutable PR #894 ARM64 reference
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-84a3148de713abe49be0c7be8f21caa652b68dd9-arm64@sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`.
+RouterOS reported healthy, the bounded readiness probe succeeded, and the
+authenticated readiness response returned revision
+`84a3148de713abe49be0c7be8f21caa652b68dd9`.
+
+In the authenticated foreground Connections page, the disposable test session
+was visible on Socket.IO. After termination through the review flow, the page
+showed zero active devices and the ended history row without a reload; the live
+indicator showed a fresh SSE fallback. This confirms qualitative disconnect
+delivery and one fallback path. It does not establish the required 1,000 ms
+latency because no synchronized event timestamp was captured. The test session
+is disconnected, so reconnect and full-snapshot recovery remain pending. The
+stale indicator observed earlier belonged to a background tab; the app pauses
+its live transport while hidden and reopened a fresh stream when a foreground
+tab was used.
+
+No measured 30-minute resource/freshness window has been completed. Pending
+candidate-bound checks include reconnect after RouterOS API interruption,
+snapshot recovery, traffic age, counter reset and event-integrity behavior,
+Binary API/REST parity, Redis and SQLite failure recovery, authorization and
+privacy review, and canary rollback. The installed RouterOS updater remains
+disabled and unreconciled under issue #785; it was not run. Production remains
+unchanged.
 
 ## Historical read-only RouterOS checkpoint — 2026-10-29
 
@@ -28,7 +57,7 @@ WinBox System > Resources also showed a router-wide point sample: 6% CPU,
 bad blocks. These figures do not attribute usage to the dashboard container or
 establish sustained impact.
 
-## Current read-only RouterOS checkpoint — 2026-10-30
+## Historical read-only RouterOS checkpoint — 2026-10-30
 
 A fresh WinBox listing showed canary still configured with PR #862's ARM64
 immutable tag and matching digest
@@ -45,7 +74,7 @@ showed a stale/reconnecting live stream and zero connected devices. Those
 historical point checks do not establish sustained resource impact. The
 30-minute acceptance window and production promotion remain unverified.
 
-## RouterOS candidate status — PR #862 and PR #893
+## Historical RouterOS candidate status — PR #862 and PR #893 — 2026-10-30
 
 PR #862 is a published artifact with immutable digests recorded in
 [`RELEASES.md`](RELEASES.md). An earlier WinBox readback showed a configured
@@ -53,9 +82,9 @@ image digest prefix matching the published PR #862 ARM64 digest and a
 `HEALTHY` container. The Stats view provided one CPU/memory/swap/app-size/data-
 size sample. The fresh authenticated readiness result in the checkpoint above
 returned PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`,
-confirming that the canary was not running PR #885 at that observation. PR #893
-is now the latest published image; no post-publication RouterOS read-back
-confirms it is staged. A later read-only WinBox listing on 2026-10-30
+confirming that the canary was not running PR #885 at that observation. At that
+time, PR #893 was the latest published image and no post-publication RouterOS
+read-back was available. A later read-only WinBox listing on 2026-10-30
 reconfirmed PR #862's exact ARM64 tag and digest with a healthy marker; the
 production row still showed the PR #788 ARM64 tag. RouterOS showed one active
 test tunnel, but the canary sign-in request remained pending, so that session

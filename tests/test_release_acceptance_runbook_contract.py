@@ -88,7 +88,15 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "PR #893 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) is the latest published image source",
+            "PR #894 (`84a3148de713abe49be0c7be8f21caa652b68dd9`) is the latest published image source",
+            report,
+        )
+        self.assertIn(
+            "The exact ARM64 candidate is staged and readiness-verified on canary",
+            report,
+        )
+        self.assertIn(
+            "no synchronized event timestamp was captured",
             report,
         )
         self.assertIn(
@@ -100,7 +108,10 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn("digest prefix matching the published PR #862 ARM64 digest", report)
-        self.assertIn("No post-publication RouterOS read-back confirms PR #893 staging or acceptance", report)
+        self.assertIn(
+            "At that time, PR #893 was the latest published image and no post-publication RouterOS read-back was available",
+            report,
+        )
         self.assertIn(
             "returned PR #862 revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`, confirming that the canary was not running PR #885",
             report,
