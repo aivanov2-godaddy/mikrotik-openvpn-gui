@@ -718,7 +718,8 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.csrf = ""
 
     def tearDown(self) -> None:
-        self.server.shutdown()
+        if self.thread.is_alive():
+            self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
         self.mock.__exit__(None, None, None)
@@ -8630,6 +8631,91 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 409)
         audit = json.dumps(self.server.context.store.recent_audit(20))
         self.assertNotIn("secret-preview-value", audit)
+
+    def test_profile_share_in_flight_during_shutdown_returns_service_unavailable(self) -> None:
+        self.login()
+        users = {
+            item["name"]: item
+            for item in self.server.context.router.list_ovpn_users(
+                RouterOSCredentials("admin", "routerpass")
+            )
+        }
+        user_id = users["user-one"]["id"]
+        path = f"/api/users/{urllib.parse.quote(user_id, safe='*')}/profiles"
+        preview = self.preview_profile(user_id, "Shutdown test", delivery="qr")
+        request_body = {
+            "device_name": "Shutdown test",
+            "reason": preview["reason"],
+            "key_passphrase": "qr-passphrase",
+            "delivery": "qr",
+            "review_token": preview["review_token"],
+        }
+
+        share_inserted = threading.Event()
+        allow_put_to_return = threading.Event()
+        runtime_stop_started = threading.Event()
+        allow_runtime_stop_to_continue = threading.Event()
+        request_results: list[tuple[int, dict[str, str], bytes]] = []
+        request_errors: list[Exception] = []
+
+        original_put = self.server.profile_shares.put
+
+        def pause_after_insert(payload: bytes, filename: str) -> tuple[str, str, int]:
+            result = original_put(payload, filename)
+            share_inserted.set()
+            if not allow_put_to_return.wait(2):
+                raise TimeoutError("test share insertion was not released")
+            return result
+
+        original_runtime_stop = self.server.telemetry_runtime.stop
+
+        def pause_runtime_stop() -> None:
+            runtime_stop_started.set()
+            if not allow_runtime_stop_to_continue.wait(2):
+                raise TimeoutError("test runtime stop was not released")
+            original_runtime_stop()
+
+        def request_profile_share() -> None:
+            try:
+                request_results.append(self.json_request("POST", path, request_body))
+            except Exception as error:  # noqa: BLE001 - surface worker errors in the test thread
+                request_errors.append(error)
+
+        shutdown_thread = threading.Thread(target=self.server.shutdown, daemon=True)
+        request_thread = threading.Thread(target=request_profile_share, daemon=True)
+        with (
+            mock.patch.object(self.server.profile_shares, "put", side_effect=pause_after_insert),
+            mock.patch.object(
+                self.server.telemetry_runtime,
+                "stop",
+                side_effect=pause_runtime_stop,
+            ),
+        ):
+            request_thread.start()
+            try:
+                self.assertTrue(share_inserted.wait(1), "profile request did not create its share")
+                shutdown_thread.start()
+                self.assertTrue(
+                    runtime_stop_started.wait(2),
+                    "shutdown did not reach telemetry cleanup",
+                )
+                allow_put_to_return.set()
+                request_thread.join(2)
+                self.assertFalse(request_thread.is_alive(), "profile request did not finish")
+                self.assertEqual(request_errors, [])
+                self.assertEqual(len(request_results), 1)
+                self.assertEqual(request_results[0][0], HTTPStatus.SERVICE_UNAVAILABLE)
+                self.assertIn(b"shutting down", request_results[0][2])
+                self.assertEqual(self.server.profile_shares._items, {})
+            finally:
+                allow_put_to_return.set()
+                allow_runtime_stop_to_continue.set()
+                request_thread.join(2)
+                if shutdown_thread.ident is not None:
+                    shutdown_thread.join(2)
+
+        self.assertFalse(request_thread.is_alive())
+        self.assertFalse(shutdown_thread.is_alive())
 
     def test_qr_profile_share_is_a_bounded_zip_download(self) -> None:
         self.login()

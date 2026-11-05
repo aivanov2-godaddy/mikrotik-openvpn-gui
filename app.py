@@ -865,6 +865,17 @@ class ProfileShareStore:
             item = self._items.get(share_id)
             return item is not None and item.expires_at > now
 
+    def publish_if_open(self, share_id: str, publish: Callable[[], None]) -> bool:
+        """Serialize a successful link response with expiry and shutdown."""
+        with self._lock:
+            now = time.time()
+            self._purge(now)
+            if self._closed or share_id not in self._items:
+                return False
+            # Serialize the response write with close so it cannot advertise a link that was just cleared.
+            publish()
+            return True
+
     def is_locked(self, share_id: str) -> bool:
         with self._lock:
             item = self._items.get(share_id)
@@ -1105,20 +1116,20 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
         self._telemetry_thread.start()
 
     def shutdown(self) -> None:
+        self.profile_shares.close()
         self._telemetry_stop.set()
         super().shutdown()
         self._telemetry_thread.join(timeout=2)
         self.telemetry_runtime.stop()
-        self.profile_shares.close()
         if self.context.integration_dispatcher is not None:
             self.context.integration_dispatcher.stop()
 
     def close(self) -> None:
         """Stop runtime workers when the server is owned by another host."""
+        self.profile_shares.close()
         self._telemetry_stop.set()
         self._telemetry_thread.join(timeout=2)
         self.telemetry_runtime.stop()
-        self.profile_shares.close()
         if self.context.integration_dispatcher is not None:
             self.context.integration_dispatcher.stop()
         self.server_close()
@@ -4963,15 +4974,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
         share_url = f"{self.server.context.public_origin.rstrip('/')}/share/{share_id}"
-        self._json(
-            {
-                "download_url": share_url,
-                "access_code": f"{access_code[:4]}-{access_code[4:8]}-{access_code[8:]}",
-                "filename": archive_name,
-                "expires_in": ttl,
-                "qr_svg": qr_svg(share_url),
-            }
-        )
+        response = {
+            "download_url": share_url,
+            "access_code": f"{access_code[:4]}-{access_code[4:8]}-{access_code[8:]}",
+            "filename": archive_name,
+            "expires_in": ttl,
+            "qr_svg": qr_svg(share_url),
+        }
+        if not self.server.profile_shares.publish_if_open(
+            share_id,
+            lambda: self._json(response),
+        ):
+            self._json(
+                {"error": "Profile sharing is unavailable while the dashboard is shutting down."},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
 
     def _deliver_profile(self, profile: ProvisionedProfile, filename: str, delivery: str) -> None:
         if delivery == "qr":
