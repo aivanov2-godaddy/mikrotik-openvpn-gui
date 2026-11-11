@@ -325,6 +325,71 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         self.assertIn(b"/interface/print", fake.sent)
         self.assertNotIn(b"/interface/add", fake.sent)
 
+    def test_user_role_prints_require_exact_name_filters_and_narrow_fields(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.sent = b""
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def recv(self, _size: int) -> bytes:
+                return encode_sentence(["!done", ".tag=1"])
+
+            def close(self) -> None:
+                return None
+
+        for path, proplist in (
+            ("/user/print", ".proplist=name,group,disabled"),
+            ("/user/group/print", ".proplist=name,policy"),
+        ):
+            with self.subTest(path=path):
+                connection = RouterOSBinaryConnection("router.example")
+                fake = FakeSocket()
+                connection._socket = fake  # noqa: SLF001 - inspect exact read-only query words
+                connection.execute(
+                    path,
+                    query=(proplist, "?name=operator-test"),
+                )
+                words = decode_words(fake.sent)
+                self.assertEqual(
+                    words,
+                    [path.encode(), proplist.encode(), b"?name=operator-test", b".tag=1"],
+                )
+
+    def test_user_role_prints_reject_broad_or_unreviewed_queries(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.sent = b""
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def recv(self, _size: int) -> bytes:
+                return encode_sentence(["!done", ".tag=1"])
+
+            def close(self) -> None:
+                return None
+
+        invalid_queries = (
+            ("/user/print", ()),
+            ("/user/group/print", ()),
+            ("/user/print", (".proplist=name,group,disabled",)),
+            ("/user/print", (".proplist=name,group,disabled", "?group=read")),
+            ("/user/print", (".proplist=name,group,disabled", "?name=")),
+            ("/user/print", (".proplist=name,group,disabled", "?name=" + "x" * 256)),
+            ("/user/print", (".proplist=name,password", "?name=operator-test")),
+            ("/system/script/print", (".proplist=name", "?name=anything")),
+        )
+        for path, query in invalid_queries:
+            with self.subTest(path=path, query=query):
+                connection = RouterOSBinaryConnection("router.example")
+                fake = FakeSocket()
+                connection._socket = fake  # noqa: SLF001 - verify rejected queries are not sent
+                with self.assertRaisesRegex(ValueError, "path-specific allowlist"):
+                    connection.execute(path, query=query)
+                self.assertEqual(fake.sent, b"")
+
     def test_execute_rejects_commands_outside_the_read_only_allowlist(self) -> None:
         class FakeSocket:
             def __init__(self) -> None:

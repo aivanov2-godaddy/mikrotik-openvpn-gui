@@ -75,6 +75,21 @@ read-only roles; an HTTP POST alone does not make a route a RouterOS mutation.
 | `GET /share/{share_id}` | Opaque share identifier; it is not sufficient to authorize a download | Renders a no-store passcode form only; it does not return the profile or consume a download. The page has no external resources. The 12-digit passcode is not in the URL or QR code. |
 | `POST /share/{share_id}` | A valid 12-digit passcode in the form body plus one same-origin `Origin`, or one same-origin `Referer` when Origin is absent or opaque (`null`) | Downloads the profile ZIP and consumes one of at most three downloads. The share expires after 10 minutes; five incorrect passcodes trigger a 60-second cooldown. The passcode is returned only once through the authenticated profile-creation response, is kept hashed in the in-memory share store, and must be sent separately from the link. Access logs omit request paths, passcodes, and peer addresses. |
 
+## RouterOS role verification
+
+The fresh role check uses RouterOS API-SSL Binary API to read the authenticated
+account's enabled state/group and that group's policies. That read path requires
+the RouterOS `api` and `read` policies. Normal dashboard sign-in also performs
+RouterOS REST credential verification, so a dashboard account additionally
+needs `rest-api`. The API requests narrow `.proplist` fields and exact-name
+filters, then the application projects replies to the fields used for role
+evaluation. RouterOS may include additional reply properties despite
+`.proplist`; the request list is not a guarantee about the wire response (see
+the [RouterOS API](https://manual.mikrotik.com/docs/developer-guides/api/)
+and [REST API](https://manual.mikrotik.com/docs/developer-guides/rest-api/)
+manuals). Real-router permission compatibility and role-change timing remain
+acceptance checks, not conclusions from the mock tests.
+
 Treat profile-share passcodes as secrets despite their short lifetime. Send a
 passcode through a separate channel from its QR/link, and do not paste either
 into support logs or issue reports. Copying the passcode writes it to the OS
@@ -256,8 +271,8 @@ disables the account, and verifies both connection forms fail closed in
 Already-open streams use a separate one-second application role-cache
 interval; this is a freshness threshold, not a one-second polling timer. The
 SSE handler checks on its two-second loop, so an expired cache is refreshed on
-the next loop plus RouterOS REST response time. Socket.IO checks on its
-connect/poll/pump/send paths. A process-wide runtime semaphore caps live
+the next loop plus fresh RouterOS API-SSL TLS/login/read time. Socket.IO checks
+on its connect/poll/pump/send paths. A process-wide runtime semaphore caps live
 RouterOS role refreshes across SSE, threaded polling, and ASGI at four
 concurrent checks; stale authorization fails closed when capacity is
 saturated. ASGI also keeps its own bounded worker-thread gate, and a cancelled

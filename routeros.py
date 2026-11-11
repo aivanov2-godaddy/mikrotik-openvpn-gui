@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from config import ConfigurationError, OpenVPNTopology
@@ -26,6 +26,10 @@ MAX_ROUTEROS_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_CONCURRENT_ROUTEROS_REST_REQUESTS = 2
 _ROUTEROS_REST_REQUEST_SLOTS = threading.BoundedSemaphore(
     MAX_CONCURRENT_ROUTEROS_REST_REQUESTS
+)
+MAX_CONCURRENT_ROUTEROS_ROLE_REFRESHES = 4
+_ROUTEROS_ROLE_REFRESH_SLOTS = threading.BoundedSemaphore(
+    MAX_CONCURRENT_ROUTEROS_ROLE_REFRESHES
 )
 
 
@@ -79,6 +83,13 @@ def _records(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, dict):
         return [value]
     raise RouterOSError("RouterOS returned an unexpected JSON shape", failure_kind="invalid_response")
+
+
+def _project_routeros_fields(
+    attributes: Mapping[str, str], fields: tuple[str, ...]
+) -> dict[str, str]:
+    """Keep only the explicitly approved properties from a RouterOS reply."""
+    return {field: attributes[field] for field in fields if field in attributes}
 
 
 def _yes(value: Any) -> bool:
@@ -191,10 +202,13 @@ class RouterOSClient:
         timeout: float = 15,
         insecure_tls: bool = False,
         topology: OpenVPNTopology | None = None,
+        api_ssl_port: int = 8729,
         allow_insecure_loopback_for_tests: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.ca_file = ca_file
+        self.api_ssl_port = api_ssl_port
         self.topology = topology or OpenVPNTopology()
         self.ovpn_profile = self.topology.ppp_profile
         self.ovpn_server = self.topology.server_name
@@ -227,6 +241,7 @@ class RouterOSClient:
             raise ConfigurationError(
                 "RouterOS REST requires an HTTPS URL with a hostname"
             )
+        self.host = hostname
         self._opener = urllib.request.build_opener(
             _NoRedirectHandler(),
             urllib.request.HTTPSHandler(context=self.ssl_context),
@@ -455,6 +470,158 @@ class RouterOSClient:
         )
         role, required = requirement
         return role if required <= policies else "read_only"
+
+    def get_admin_role_fresh(
+        self,
+        credentials: RouterOSCredentials,
+        *,
+        raise_on_error: bool = False,
+    ) -> str | None:
+        """Resolve the role through a new TLS Binary API login.
+
+        RouterOS REST may reuse an internal API login for up to ten minutes,
+        including across HTTP connections. A new Binary API TLS connection
+        authenticates separately, so live session checks can observe current
+        RouterOS user/group state without relying on that REST cache. Only the
+        authenticated account and its exact group are queried.
+        """
+        if not _ROUTEROS_ROLE_REFRESH_SLOTS.acquire(timeout=self.timeout):
+            error = RouterOSError(
+                "RouterOS role-check capacity is temporarily exhausted",
+                failure_kind="capacity_limited",
+            )
+            if raise_on_error:
+                raise error
+            return None
+
+        connection = None
+        try:
+            from routeros_binary import RouterOSBinaryConnection
+
+            connection = RouterOSBinaryConnection(
+                self.host,
+                port=self.api_ssl_port,
+                ca_file=self.ca_file,
+                timeout=self.timeout,
+            )
+            connection.connect(credentials.username, credentials.password)
+            user_replies = connection.execute(
+                "/user/print",
+                query=(
+                    ".proplist=name,group,disabled",
+                    f"?name={credentials.username}",
+                ),
+            )
+            user_record = next(
+                (
+                    _project_routeros_fields(
+                        reply.attributes, ("name", "group", "disabled")
+                    )
+                    for reply in user_replies
+                    if reply.kind == "re"
+                    and not reply.dead
+                    and reply.attributes.get("name") == credentials.username
+                ),
+                None,
+            )
+            del user_replies
+            if user_record is None:
+                return None
+            disabled = str(user_record.get("disabled", "")).strip().casefold()
+            if disabled not in {"no", "false"}:
+                return None
+            raw_group = user_record.get("group")
+            if not isinstance(raw_group, str) or not raw_group.strip():
+                return None
+            group_name = raw_group.strip()
+            group_replies = connection.execute(
+                "/user/group/print",
+                query=(
+                    ".proplist=name,policy",
+                    f"?name={group_name}",
+                ),
+            )
+            group_record = next(
+                (
+                    _project_routeros_fields(reply.attributes, ("name", "policy"))
+                    for reply in group_replies
+                    if reply.kind == "re"
+                    and not reply.dead
+                    and str(reply.attributes.get("name", "")).casefold()
+                    == group_name.casefold()
+                ),
+                None,
+            )
+            del group_replies
+            if group_record is None:
+                return None
+            policies = self._effective_routeros_policies(group_record.get("policy"))
+            if "read" not in policies:
+                return None
+
+            group = group_name.casefold()
+            role_requirements = {
+                "audit": ("auditor", {"read"}),
+                "auditor": ("auditor", {"read"}),
+                "security": (
+                    "security_operator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "security-operator": (
+                    "security_operator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "security_operator": (
+                    "security_operator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "write": (
+                    "administrator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "operator": (
+                    "administrator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "policy": (
+                    "administrator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "administrator": (
+                    "administrator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "admin": (
+                    "administrator",
+                    {"read", "write", "api", "rest-api"},
+                ),
+                "full": (
+                    "owner",
+                    {"read", "write", "policy", "api", "rest-api"},
+                ),
+                "owner": (
+                    "owner",
+                    {"read", "write", "policy", "api", "rest-api"},
+                ),
+            }
+            requirement = role_requirements.get(group)
+            if group in {"read", "readonly", "read-only"}:
+                return "read_only"
+            if requirement is None:
+                return "read_only"
+            role, required = requirement
+            return role if required <= policies else "read_only"
+        except (RouterOSError, OSError, ValueError):
+            if raise_on_error:
+                raise RouterOSError(
+                    "RouterOS account role could not be verified",
+                    failure_kind="role_lookup",
+                ) from None
+            return None
+        finally:
+            if connection is not None:
+                connection.close()
+            _ROUTEROS_ROLE_REFRESH_SLOTS.release()
 
     @staticmethod
     def _effective_routeros_policies(value: Any) -> set[str]:

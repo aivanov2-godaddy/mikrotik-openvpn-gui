@@ -45,6 +45,9 @@ def main() -> None:
             limiter=LoginRateLimiter(),
             config=config,
         )
+        # Keep the hosted browser harness on its REST-only mock while the
+        # focused client unit tests exercise the production Binary API path.
+        context.router.get_admin_role_fresh = context.router.get_admin_role
         # Synthetic, redacted-only history for the rendered correlation-link
         # regression. The fixture never leaves the local mock server.
         context.store.set_audit_hook(lambda _event: None)

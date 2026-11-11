@@ -730,6 +730,13 @@ class DashboardIntegrationTests(unittest.TestCase):
             release_version="1.2.3",
             release_revision="0123456789abcdef",
         )
+        # The integration suite's RouterOS REST fixture does not expose a TLS
+        # Binary API listener. Focused client tests cover the production fresh
+        # API resolver; these tests keep their existing mock role semantics.
+        def mock_fresh_role(credentials: RouterOSCredentials, **kwargs: Any) -> str | None:
+            return context.router.get_admin_role(credentials, **kwargs)
+
+        context.router.get_admin_role_fresh = mock_fresh_role
         self.server = DashboardServer(("127.0.0.1", 0), context)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

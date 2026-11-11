@@ -342,10 +342,18 @@ class RouterOSBinaryConnection:
         {
             "/system/script/print": frozenset({".id", "name", "source"}),
             "/system/scheduler/print": frozenset({"name", "on-event", "disabled"}),
+            "/user/print": frozenset({"name", "group", "disabled"}),
+            "/user/group/print": frozenset({"name", "policy"}),
             "/interface/print": frozenset(
                 {".id", "name", "rx-byte", "tx-byte", "rx-packet", "tx-packet"}
             ),
             "/ppp/active/print": _ACTIVE_SESSION_FIELDS,
+        }
+    )
+    READ_ONLY_PRINT_QUERY_FILTERS = MappingProxyType(
+        {
+            "/user/print": frozenset({"name"}),
+            "/user/group/print": frozenset({"name"}),
         }
     )
     READ_ONLY_LISTEN_QUERY_FIELDS = MappingProxyType({"/ppp/active": _ACTIVE_SESSION_FIELDS})
@@ -353,8 +361,12 @@ class RouterOSBinaryConnection:
     READ_ONLY_LISTEN_PATHS = frozenset(READ_ONLY_LISTEN_QUERY_FIELDS)
 
     @staticmethod
-    def _validated_query(query: Iterable[str], allowed_fields: frozenset[str]) -> tuple[str, ...]:
-        """Accept at most one path-approved, narrowly scoped proplist word."""
+    def _validated_query(
+        query: Iterable[str],
+        allowed_fields: frozenset[str],
+        allowed_filters: frozenset[str] = frozenset(),
+    ) -> tuple[str, ...]:
+        """Accept one path-approved proplist and an optional exact name filter."""
 
         if isinstance(query, (str, bytes, bytearray)):
             raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
@@ -365,7 +377,10 @@ class RouterOSBinaryConnection:
         sentinel = object()
         word = next(iterator, sentinel)
         if word is sentinel:
+            if allowed_filters:
+                raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
             return ()
+        filter_word = next(iterator, sentinel) if allowed_filters else sentinel
         if next(iterator, sentinel) is not sentinel:
             raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
         if not isinstance(word, str) or len(word) > MAX_QUERY_WORD_BYTES:
@@ -383,7 +398,30 @@ class RouterOSBinaryConnection:
             or len(fields) != len(set(fields))
         ):
             raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
-        return (word,)
+        if filter_word is sentinel:
+            if allowed_filters:
+                raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+            return (word,)
+        if (
+            not isinstance(filter_word, str)
+            or len(filter_word) > MAX_QUERY_WORD_BYTES
+            or not filter_word.startswith("?")
+            or "=" not in filter_word
+        ):
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+        filter_name, filter_value = filter_word[1:].split("=", 1)
+        try:
+            filter_value_length = len(filter_value.encode("utf-8"))
+        except UnicodeEncodeError as error:
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist") from error
+        if (
+            filter_name not in allowed_filters
+            or not filter_value
+            or filter_value_length > 255
+            or not filter_value.isprintable()
+        ):
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
+        return (word, filter_word)
 
     def __init__(
         self,
@@ -579,7 +617,11 @@ class RouterOSBinaryConnection:
             raise ValueError("RouterOS API paths must start with '/'")
         if path not in self.READ_ONLY_PRINT_PATHS:
             raise ValueError("RouterOS Binary API path is not in the read-only allowlist")
-        approved_query = self._validated_query(query, self.READ_ONLY_PRINT_QUERY_FIELDS[path])
+        approved_query = self._validated_query(
+            query,
+            self.READ_ONLY_PRINT_QUERY_FIELDS[path],
+            self.READ_ONLY_PRINT_QUERY_FILTERS.get(path, frozenset()),
+        )
         return self._request([path, *approved_query])
 
     def listen(self, path: str, *, query: Iterable[str] = ()) -> Iterator[RouterOSReply]:

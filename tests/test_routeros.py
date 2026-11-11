@@ -18,8 +18,10 @@ from routeros import (
     RouterOSClient,
     RouterOSCredentials,
     RouterOSError,
+    _project_routeros_fields,
     harden_profile,
 )
+from routeros_binary import RouterOSReply
 from tests.mock_routeros import MockRouterOS
 
 
@@ -43,6 +45,164 @@ def _mock_routeros_client(base_url: str, **kwargs: Any) -> RouterOSClient:
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_routeros_reply_projection_drops_unrequested_properties(self) -> None:
+        attributes = {
+            "name": "operator-test",
+            "group": "admin",
+            "disabled": "no",
+            "password": "unrequested-sentinel",
+        }
+
+        self.assertEqual(
+            _project_routeros_fields(attributes, ("name", "group", "disabled")),
+            {"name": "operator-test", "group": "admin", "disabled": "no"},
+        )
+
+    def test_fresh_admin_role_uses_narrow_tls_api_queries_and_closes_connection(self) -> None:
+        credentials = RouterOSCredentials("operator-test", "routerpass")
+        calls: list[tuple[str, tuple[str, ...]]] = []
+        connection_instances: list[Any] = []
+
+        class FakeConnection:
+            def __init__(self, host: str, **kwargs: Any) -> None:
+                self.host = host
+                self.kwargs = kwargs
+                self.closed = False
+                connection_instances.append(self)
+
+            def connect(self, username: str, password: str) -> None:
+                self.username = username
+                self.password = password
+
+            def execute(self, path: str, *, query: tuple[str, ...]) -> list[RouterOSReply]:
+                calls.append((path, query))
+                if path == "/user/print":
+                    return [RouterOSReply("re", {"name": "operator-test", "group": "admin", "disabled": "no"})]
+                return [RouterOSReply("re", {"name": "admin", "policy": "local,read,write,api,rest-api,!telnet"})]
+
+            def close(self) -> None:
+                self.closed = True
+
+        with patch("routeros.ssl.create_default_context") as create_context:
+            client = RouterOSClient(
+                "https://router.example.test/rest",
+                ca_file="C:/private/router-ca.crt",
+                api_ssl_port=9729,
+            )
+        create_context.assert_called_once_with(cafile="C:/private/router-ca.crt")
+        with patch("routeros_binary.RouterOSBinaryConnection", FakeConnection):
+            self.assertEqual(client.get_admin_role_fresh(credentials), "administrator")
+            self.assertEqual(client.get_admin_role_fresh(credentials), "administrator")
+
+        self.assertEqual(len(connection_instances), 2)
+        for connection in connection_instances:
+            self.assertEqual(connection.host, "router.example.test")
+            self.assertEqual(connection.kwargs, {"port": 9729, "ca_file": "C:/private/router-ca.crt", "timeout": 15})
+            self.assertEqual(connection.username, credentials.username)
+            self.assertEqual(connection.password, credentials.password)
+            self.assertTrue(connection.closed)
+        self.assertEqual(
+            calls,
+            [
+                ("/user/print", (".proplist=name,group,disabled", "?name=operator-test")),
+                ("/user/group/print", (".proplist=name,policy", "?name=admin")),
+            ] * 2,
+        )
+
+    def test_fresh_admin_role_observes_policy_changes_on_next_connection(self) -> None:
+        credentials = RouterOSCredentials("owner-test", "routerpass")
+        policy = ["read,write,policy,api,rest-api"]
+
+        class FakeConnection:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                return None
+
+            def connect(self, *_args: Any) -> None:
+                return None
+
+            def execute(self, path: str, *, query: tuple[str, ...]) -> list[RouterOSReply]:
+                if path == "/user/print":
+                    return [RouterOSReply("re", {"name": "owner-test", "group": "owner", "disabled": "no"})]
+                return [RouterOSReply("re", {"name": "owner", "policy": policy[0]})]
+
+            def close(self) -> None:
+                return None
+
+        client = RouterOSClient("https://router.example.test/rest")
+        with patch("routeros_binary.RouterOSBinaryConnection", FakeConnection):
+            self.assertEqual(client.get_admin_role_fresh(credentials), "owner")
+            policy[0] = "read"
+            self.assertEqual(client.get_admin_role_fresh(credentials), "read_only")
+
+    def test_fresh_admin_role_fails_closed_and_redacts_binary_api_errors(self) -> None:
+        credentials = RouterOSCredentials("owner-test", "routerpass")
+
+        class FailedConnection:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                self.closed = False
+
+            def connect(self, *_args: Any) -> None:
+                raise RouterOSError("sensitive transport details")
+
+            def close(self) -> None:
+                self.closed = True
+
+        instances: list[FailedConnection] = []
+
+        class TrackingFailedConnection(FailedConnection):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                instances.append(self)
+
+        client = RouterOSClient("https://router.example.test/rest")
+        with patch("routeros_binary.RouterOSBinaryConnection", TrackingFailedConnection):
+            self.assertIsNone(client.get_admin_role_fresh(credentials))
+            with self.assertRaisesRegex(RouterOSError, "could not be verified") as raised:
+                client.get_admin_role_fresh(credentials, raise_on_error=True)
+        self.assertNotIn("sensitive transport details", str(raised.exception))
+        self.assertTrue(all(connection.closed for connection in instances))
+
+    def test_fresh_admin_role_fails_closed_for_missing_disabled_or_unreadable_user(self) -> None:
+        credentials = RouterOSCredentials("operator-test", "routerpass")
+        user_records = [
+            None,
+            {"name": "operator-test", "group": "admin", "disabled": "yes"},
+            {"name": "operator-test", "group": "admin", "disabled": "no"},
+        ]
+        policies = ["read", "read", "write,api,rest-api"]
+
+        class FakeConnection:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                return None
+
+            def connect(self, *_args: Any) -> None:
+                return None
+
+            def execute(self, path: str, *, query: tuple[str, ...]) -> list[RouterOSReply]:
+                if path == "/user/print":
+                    return [] if user_records[0] is None else [RouterOSReply("re", user_records[0])]
+                return [RouterOSReply("re", {"name": "admin", "policy": policies[0]})]
+
+            def close(self) -> None:
+                return None
+
+        client = RouterOSClient("https://router.example.test/rest")
+        with patch("routeros_binary.RouterOSBinaryConnection", FakeConnection):
+            for index in range(3):
+                with self.subTest(index=index):
+                    self.assertIsNone(client.get_admin_role_fresh(credentials))
+                    user_records.append(user_records.pop(0))
+                    policies.append(policies.pop(0))
+
+    def test_fresh_admin_role_fails_closed_when_refresh_capacity_is_full(self) -> None:
+        client = RouterOSClient("https://router.example.test/rest", timeout=0.01)
+        credentials = RouterOSCredentials("operator-test", "routerpass")
+        with patch("routeros._ROUTEROS_ROLE_REFRESH_SLOTS", threading.BoundedSemaphore(0)):
+            self.assertIsNone(client.get_admin_role_fresh(credentials))
+            with self.assertRaisesRegex(RouterOSError, "capacity is temporarily exhausted") as raised:
+                client.get_admin_role_fresh(credentials, raise_on_error=True)
+        self.assertEqual(raised.exception.failure_kind, "capacity_limited")
+
     def test_rest_client_rejects_non_loopback_cleartext_urls(self) -> None:
         for url in (
             "http://router.example.test/rest",

@@ -259,6 +259,31 @@ live telemetry revocation are included in the latest published candidate.
 PR #737 adds a candidate-bound acceptance evidence gate. These merges and their
 publication do not prove the pending device-backed live acceptance criteria.
 
+## Issue #200 — fresh RouterOS role checks
+
+The current source candidate replaces REST-backed role reads at login,
+reauthentication, and live-session revalidation with a fresh, verified TLS
+Binary API connection. The connection authenticates the same RouterOS account,
+then reads only that account's enabled state/group and that group's policy
+using exact-name filters and path-specific read-only allowlists. The client
+requests only the account's enabled state/group and the group's policy, then
+projects the response to those approved properties before role evaluation.
+RouterOS may return additional properties despite `.proplist`; this does not
+claim the wire response contains only the requested properties. The fresh
+Binary API role check requires `api` and `read` permissions, API-SSL reachability,
+and a trusted API-SSL certificate. Normal dashboard sign-in also verifies
+credentials through RouterOS REST, so the account additionally needs the
+`rest-api` permission. A process-wide semaphore limits concurrent checks to
+four. The connection is closed after the lookup.
+
+This is a source mitigation candidate. It does not establish how a deployed
+RouterOS version applies account disablement, group reassignment, or policy
+changes to new Binary API logins, nor does it establish acceptable TLS/login
+churn under concurrent streams. Keep V8.3.2 and issue #200 open until a
+disposable RouterOS test measures those transitions, live-stream revocation,
+and API-SSL service behavior. No RouterOS account or configuration change is
+part of this source work.
+
 ## Acceptance principles
 
 - RouterOS remains the source of truth; live dashboard updates must not require
