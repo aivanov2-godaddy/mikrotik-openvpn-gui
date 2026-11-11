@@ -2535,7 +2535,10 @@ class ASGIContractTests(unittest.TestCase):
             async def send_packet(engine_sid: str, packet: object) -> None:
                 packets.append((engine_sid, packet))
 
-            server.manager.connect = manager_connect
+            if hasattr(server.manager, "pre_connect"):
+                server.manager.pre_connect = manager_connect
+            else:
+                server.manager.connect = manager_connect
             server.manager.disconnect = manager_disconnect
             server._send_packet = send_packet
             await server._handle_connect("engine-1", native.namespace, None)
