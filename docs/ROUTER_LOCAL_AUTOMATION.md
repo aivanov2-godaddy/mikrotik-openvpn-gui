@@ -418,9 +418,14 @@ Perform this once during a maintenance window:
    existing VPN access, profile/QR download, and data persistence.
 5. Install and test the router-local controller in dry-run mode. Its first
    observed candidate must be the canary image already tested.
-6. Promote production by changing only its image. Preserve the existing
-   production root directory, `/data` mount, `/config` mount, environment list,
-   VETH, proxy, firewall, OpenVPN configuration, certificates, and users.
+6. Do not promote production by changing its image directly. First collect and
+   evaluate a fresh `canary-prepromotion` acceptance report; require
+   `promotion_eligible: true`, then run
+   `scripts/promote_routeros_release.py` with that exact report. The controller
+   rechecks the live canary and production identities and readiness before it
+   changes production. Preserve the existing production root directory,
+   `/data` mount, `/config` mount, environment list, VETH, proxy, firewall,
+   OpenVPN configuration, certificates, and users.
 7. Observe production and one scheduled no-op/upgrade cycle. Confirm the local
    journal has a last-known-good public SHA and that rollback works on canary.
 8. Only after the observation period, disable the former private deployment

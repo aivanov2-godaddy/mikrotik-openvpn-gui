@@ -3,6 +3,7 @@ import unittest
 from routeros_binary import (
     MAX_REPLY_FIELD_NAME_BYTES,
     MAX_REPLY_FIELD_VALUE_BYTES,
+    MAX_REPLY_SOURCE_VALUE_BYTES,
     RouterOSBinaryConnection,
     RouterOSBinaryError,
     RouterOSReply,
@@ -29,6 +30,9 @@ class RouterOSBinaryInputBoundsTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RouterOSBinaryError, "field value"):
             parse_reply([b"!re", b"=name=" + b"x" * (MAX_REPLY_FIELD_VALUE_BYTES + 1)])
+
+        with self.assertRaisesRegex(RouterOSBinaryError, "field value"):
+            parse_reply([b"!re", b"=source=" + b"x" * (MAX_REPLY_SOURCE_VALUE_BYTES + 1)])
 
     def test_decode_words_rejects_a_word_over_the_global_limit(self) -> None:
         from routeros_binary import MAX_WORD_SIZE
@@ -109,6 +113,66 @@ class RouterOSBinaryInputBoundsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "path-specific allowlist"):
             connection.execute("/interface/print", query=unbounded_query())
         self.assertEqual(fake.sent, b"")
+
+    def test_execute_accepts_bounded_read_only_updater_inventory_paths(self) -> None:
+        class FakeSocket:
+            def __init__(self, response: bytes) -> None:
+                self.sent = b""
+                self.response = response
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def recv(self, size: int) -> bytes:
+                chunk, self.response = self.response[:size], self.response[size:]
+                return chunk
+
+            def close(self) -> None:
+                return None
+
+        large_source = b"s" * 35_588
+        cases = (
+            (
+                "/system/script/print",
+                ".proplist=.id,name,source",
+                [b"!re", b".tag=1", b"=.id=*1", b"=name=updater", b"=source=" + large_source],
+                "source",
+                large_source.decode(),
+            ),
+            (
+                "/system/scheduler/print",
+                ".proplist=name,on-event,disabled",
+                [b"!re", b".tag=1", b"=name=updater", b"=on-event=updater-script", b"=disabled=no"],
+                "on-event",
+                "updater-script",
+            ),
+        )
+
+        for path, proplist, row_words, field, expected in cases:
+            with self.subTest(path=path):
+                response = encode_sentence(row_words) + encode_sentence([b"!done", b".tag=1"])
+                fake = FakeSocket(response)
+                connection = RouterOSBinaryConnection("router.example")
+                connection._socket = fake  # noqa: SLF001 - exercise the real bounded response parser
+
+                replies = connection.execute(path, query=(proplist,))
+
+                self.assertEqual(replies[0].attributes[field], expected)
+                sent_words = decode_words(fake.sent)
+                self.assertEqual(sent_words[:2], [path.encode(), proplist.encode()])
+
+    def test_updater_inventory_paths_reject_unreviewed_fields(self) -> None:
+        connection = RouterOSBinaryConnection("router.example")
+        with self.assertRaisesRegex(ValueError, "path-specific allowlist"):
+            connection.execute(
+                "/system/script/print",
+                query=(".proplist=.id,name,password",),
+            )
+        with self.assertRaisesRegex(ValueError, "path-specific allowlist"):
+            connection.execute(
+                "/system/scheduler/print",
+                query=(".proplist=name,on-event,owner",),
+            )
 
     def test_listen_applies_the_same_path_specific_query_allowlist(self) -> None:
         class FakeSocket:
