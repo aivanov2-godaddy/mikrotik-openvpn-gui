@@ -344,6 +344,12 @@ class RouterOSBinaryConnection:
             "/system/scheduler/print": frozenset({"name", "on-event", "disabled"}),
             "/user/print": frozenset({"name", "group", "disabled"}),
             "/user/group/print": frozenset({"name", "policy"}),
+            "/system/resource/print": frozenset(
+                {"cpu-load", "total-memory", "free-memory", "total-hdd-space", "free-hdd-space", "uptime", "version"}
+            ),
+            "/container/print": frozenset(
+                {"name", "status", "running", "stopped", "starting", "stopping", "healthy", "remote-image"}
+            ),
             "/interface/print": frozenset(
                 {".id", "name", "rx-byte", "tx-byte", "rx-packet", "tx-packet"}
             ),
@@ -358,6 +364,7 @@ class RouterOSBinaryConnection:
     )
     READ_ONLY_LISTEN_QUERY_FIELDS = MappingProxyType({"/ppp/active": _ACTIVE_SESSION_FIELDS})
     READ_ONLY_PRINT_PATHS = frozenset(READ_ONLY_PRINT_QUERY_FIELDS)
+    READ_ONLY_PRINT_REQUIRED_PROPLIST_PATHS = frozenset({"/system/resource/print", "/container/print"})
     READ_ONLY_LISTEN_PATHS = frozenset(READ_ONLY_LISTEN_QUERY_FIELDS)
 
     @staticmethod
@@ -609,8 +616,9 @@ class RouterOSBinaryConnection:
     def execute(self, path: str, *, query: Iterable[str] = ()) -> list[RouterOSReply]:
         """Execute one read-only ``print`` command and return its replies.
 
-        Only explicitly reviewed telemetry and updater-inventory paths are
-        allowed. Callers should use a narrow ``.proplist`` query for each path.
+        Only explicitly reviewed telemetry, acceptance, and updater-inventory
+        paths are allowed. Callers should use a narrow ``.proplist`` query for
+        each path; acceptance paths require one.
         """
 
         if not path.startswith("/"):
@@ -622,6 +630,8 @@ class RouterOSBinaryConnection:
             self.READ_ONLY_PRINT_QUERY_FIELDS[path],
             self.READ_ONLY_PRINT_QUERY_FILTERS.get(path, frozenset()),
         )
+        if path in self.READ_ONLY_PRINT_REQUIRED_PROPLIST_PATHS and not approved_query:
+            raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
         return self._request([path, *approved_query])
 
     def listen(self, path: str, *, query: Iterable[str] = ()) -> Iterator[RouterOSReply]:
