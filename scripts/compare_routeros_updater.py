@@ -128,6 +128,25 @@ def _windows_drive_type(anchor: str) -> int:
         return 0
 
 
+def _canonical_windows_path(path: Path) -> Path:
+    """Expand 8.3 aliases so Windows handle paths compare consistently."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_long_path = kernel32.GetLongPathNameW
+    get_long_path.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+    get_long_path.restype = wintypes.DWORD
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = get_long_path(str(path), buffer, len(buffer))
+    if not length or length >= len(buffer):
+        raise OSError(ctypes.get_last_error(), "requested file location unavailable")
+    value = buffer.value
+    if value.startswith("\\\\?\\"):
+        value = value[4:]
+    return Path(value)
+
+
 def _has_reparse_point(path: Path) -> bool:
     """Reject Windows links/mount points before descending through them."""
     absolute = path.absolute()
@@ -216,11 +235,13 @@ def _read_windows_file(path: Path, limit: int, expected_root: Path | None) -> tu
         final_path = Path(final_text)
         if _windows_drive_type(final_path.anchor) not in {2, 3, 5, 6}:
             raise ValueError("remote or unknown volume rejected")
-        if final_path != expected_path:
+        canonical_expected_path = _canonical_windows_path(expected_path)
+        if final_path != canonical_expected_path:
             raise ValueError("opened file differs from requested path")
         if expected_root is not None:
+            canonical_root = _canonical_windows_path(expected_root.absolute())
             try:
-                final_path.relative_to(expected_root)
+                final_path.relative_to(canonical_root)
             except ValueError as error:
                 raise ValueError("file escaped inventory directory") from error
 
@@ -421,6 +442,8 @@ def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> di
     inventory_path = inventory_path.absolute()
     if not _is_local_filesystem(inventory_path):
         raise ValueError("inventory is not on a local filesystem")
+    if sys.platform == "win32":
+        inventory_path = _canonical_windows_path(inventory_path)
     inventory_root = inventory_path.parent
     binding_counts = {
         script["id"]: {"total": 0, "enabled": 0, "disabled": 0}

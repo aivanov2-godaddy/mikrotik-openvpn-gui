@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -214,6 +215,31 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         self.assertEqual(copies[1]["scheduler_binding_count"], 1)
         self.assertFalse(copies[2]["exact_match"])
         self.assertEqual(copies[2]["scheduler_binding_count"], 0)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows path canonicalization")
+    def test_windows_inventory_accepts_short_path_alias_and_returns_handle_path(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        get_long_path = ctypes.WinDLL("kernel32", use_last_error=True).GetLongPathNameW
+        get_long_path.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+        get_long_path.restype = wintypes.DWORD
+        with TemporaryDirectory() as directory:
+            requested_path = Path(directory) / "copy.rsc"
+            requested_path.write_bytes(b"safe\n")
+            long_buffer = ctypes.create_unicode_buffer(32768)
+            length = get_long_path(str(requested_path.absolute()), long_buffer, len(long_buffer))
+            self.assertGreater(length, 0, "Windows should resolve the existing test path")
+            canonical_path = Path(long_buffer.value)
+            if canonical_path == requested_path.absolute():
+                self.skipTest("the test filesystem does not expose an 8.3 path alias")
+
+            content, resolved_path = compare_routeros_updater._read_local_file(
+                requested_path, 1024, requested_path.parent
+            )
+
+        self.assertEqual(content, b"safe\n")
+        self.assertEqual(resolved_path, canonical_path)
 
     def test_inventory_v2_classifies_all_listed_scheduler_entries_without_event_text(self) -> None:
         reference = b":local updater \"reviewed\"\n"
