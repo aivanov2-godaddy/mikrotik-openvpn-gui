@@ -354,7 +354,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #901", release_record)
+        self.assertIn("## Latest published mainline image — PR #907", release_record)
+        self.assertIn("## Previous published mainline image — PR #901", release_record)
         self.assertIn("## Previous published mainline image — PR #897", release_record)
         self.assertIn("## Previous published mainline image — PR #896", release_record)
         self.assertIn("## Previous published mainline image — PR #894", release_record)
@@ -381,7 +382,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:fc7af0eb880bddca771bb7e73647c14f050bd674b4c0b450592ffedb2658ca4a", release_record)
         self.assertIn("sha256:ac36036b13842a7bb2ac5611705403e1165c84ac2a07115af8a192f9ccf7ba6f", release_record)
         self.assertIn("sha256:55aae2f27b0469b807c27064a339a04bbb7c938c1198f51e033440aa9f2f67f4", release_record)
-        self.assertIn("PR #901 has not been staged on RouterOS", release_record)
+        self.assertIn(
+            "PR #907 has not been staged on RouterOS",
+            " ".join(release_record.split()),
+        )
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
         self.assertIn("eb29581c8430ec862a8b47ee62268a74fec14518", rendered)
         self.assertIn("f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb", rendered)
@@ -494,7 +498,7 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Latest published image: PR #901; not staged on RouterOS.",
+            "Latest published image: PR #907; not staged on RouterOS.",
             installation,
         )
         self.assertIn(
@@ -502,7 +506,7 @@ class ReleaseContractTests(unittest.TestCase):
             installation,
         )
         self.assertIn(
-            "PR #901, commit `0fe43250131e3a5e598bd736278531bc4d71417f`",
+            "PR #907, commit `a03767c3e06791d591b2460bbd9a54209c8692c4`",
             installation,
         )
         self.assertIn("sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581", release_record)
@@ -1003,7 +1007,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_roadmap_tracks_connections_selection_issue_separately(self) -> None:
         roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
         self.assertIn("[#190](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/190)", roadmap)
-        self.assertIn("Implementation in PR #907", roadmap)
+        self.assertIn("PR #907 merged on 2026-11-11. Managers can select active connections", roadmap)
         self.assertIn("PR #906 merged as b0dfe22", roadmap)
         self.assertIn("neither provides device-side inventory", roadmap)
         self.assertIn("each queued disconnect reuses the live single-session impact review", roadmap)
