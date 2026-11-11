@@ -4,8 +4,10 @@ This repository publishes validated container images and a generic, public
 release manifest. It never receives a router address, RouterOS credential,
 production environment, or self-hosted management runner. The optional
 automatic path is a static scheduler script that runs **on the router** and
-uses only an approved immutable image. A pull request or fork has no direct
-network path to an operator's router.
+stages only an approved immutable image on the isolated canary. It does not
+promote production; a separate local controller requires fresh passing
+acceptance evidence and exact live-image matches before promotion. A pull
+request or fork has no direct network path to an operator's router.
 
 Use the documented local procedure below after you have completed the
 [first-time installation](INSTALLATION.md). Test on a canary router or an
@@ -95,8 +97,10 @@ documented migration plan. See [ROLLBACK.md](ROLLBACK.md) for the full checklist
 For a production estate, create a second container with its own VETH address,
 external storage path, and test-only dashboard origin. Point it at a copy of
 the production configuration only after redacting credentials. Run the target
-image there, validate RouterOS REST TLS and a disposable VPN account, then stop
-the canary before promoting the same digest-pinned image to production.
+image there and validate RouterOS REST TLS and a disposable VPN account. Use
+the separate evidence-gated promotion procedure in
+[ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md) before any production
+change.
 
 The offline `deploy_routeros_canary.py` helper writes a reviewable RouterOS
 configuration plan only to the required `--output` file; stdout contains only a
@@ -120,14 +124,16 @@ internet. Put the dashboard behind an HTTPS reverse proxy as described in
 
 ## Router-local automatic path
 
-Use the router-local controller only after its canary and rollback behavior has
-been tested. It may poll a public release manifest, but it must promote only a
-complete, architecture-qualified `sha-<40-character-commit>-<architecture>`
-image reference pinned with `@sha256:<64-hex-digest>` from this package. It
-must never follow `edge`, `latest`, a branch, an unsigned command, or an
-arbitrary registry URL. The existing canary must first be normalized to its
-verified digest-pinned reference; the updater fails closed without changing a
-container when its rollback baseline is tag-only.
+Use the RouterOS scheduler only to stage a canary candidate after its canary
+and rollback behavior has been tested. It may poll a public release manifest,
+but it must not change production. After fresh acceptance evidence is complete,
+the separate local promotion controller may promote only a complete,
+architecture-qualified `sha-<40-character-commit>-<architecture>` image
+reference pinned with `@sha256:<64-hex-digest>` from this package. It must
+never follow `edge`, `latest`, a branch, an unsigned command, or an arbitrary
+registry URL. The existing canary must first be normalized to its verified
+digest-pinned reference; the updater fails closed without changing a container
+when its rollback baseline is tag-only.
 
 The controller preserves the production container's root directory, mounts,
 environment list, VETH, RouterOS configuration, and `/data` SQLite database.

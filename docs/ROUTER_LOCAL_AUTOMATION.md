@@ -269,11 +269,14 @@ successful collection is not proof that the account saw every device record,
 that every indirect invocation was understood, that a script is safe, or that
 the updater was executed. Do not run the unknown updater to learn its behavior.
 
-This is collection tooling only. No current RouterOS inventory has been
-collected or verified by this repository change. Issue #785 remains open until
-the private report is matched to a trusted RouterOS read-only view, every
-opaque scheduler path is reviewed, discrepancies are explained, and any
-candidate staging uses the separate reviewed procedure below.
+This is collection tooling only. The checked-in collector has not yet been run
+against the router. A separate partial operator-reported read-only inspection
+is summarized in the Current project snapshot in `docs/ROADMAP.md`; it is not
+collector output and does not establish a complete inventory. Issue #785
+remains open until the private report is matched to a trusted RouterOS
+read-only view, every opaque scheduler path is reviewed, discrepancies are
+explained, and any candidate staging uses the separate reviewed procedure
+below.
 
 ### Comparing multiple installed copies and scheduler bindings
 

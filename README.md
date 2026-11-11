@@ -78,22 +78,29 @@ screens. They contain no production accounts, addresses, or credentials.
 ## Deployment architecture
 
 The project separates public software delivery from private VPN operation. The
-router scheduler is the deployment controller: it selects an immutable image,
-validates it in canary, and promotes it to production only after the checks
-pass. RouterOS remains the system of record for configuration, identities,
-certificates, sessions, and audit data.
+RouterOS scheduler stages an immutable image on the isolated canary and checks
+its readiness; it does not promote production. A separate local promotion
+controller re-evaluates a fresh passing acceptance report and verifies the
+live canary and production images before allowing a production update. RouterOS
+remains the system of record for configuration, identities, certificates,
+sessions, and audit data.
 
 ```mermaid
 flowchart TB
     Repo[Public GitHub repo] --> Image[Public GHCR image\nimmutable SHA tag]
     Image --> Scheduler[RouterOS scheduler\non your router]
     Scheduler --> Canary[Canary validation]
-    Canary -->|healthy| Production[Production update]
+    Canary -->|candidate evidence| Gate[Local evidence-gated promotion controller]
+    Gate -->|fresh report and exact image match| Production[Production update]
 ```
 
 ![Simple deployment architecture](docs/screenshots/deployment-architecture.svg)
 
-The scheduler operates against the router-local persistent mounts, so private
+This diagram describes the supported model, not a claim about the current
+router installation. Its installed updater and scheduler bindings remain under
+reconciliation in [issue #785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785).
+
+The supported scheduler operates against router-local persistent mounts, so private
 configuration, VPN data, certificates, and audit history never enter GitHub or
 the public image.
 

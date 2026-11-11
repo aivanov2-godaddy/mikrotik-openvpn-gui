@@ -1,11 +1,12 @@
 # Live telemetry acceptance status
 
-Status: **PR #901 (`0fe43250131e3a5e598bd736278531bc4d71417f`) is the latest
-published image source, with immutable ARM64 and AMD64 images. Main CI, CodeQL,
-image scans, runtime smoke tests, provenance and SPDX SBOM checks passed; both
-architecture attestations and the stable manifest were independently verified.
-See [RELEASES.md](RELEASES.md) for exact image digests and manifest checksum.
-PR #901 has not been staged on RouterOS. The latest documented canary read-back
+Status: **PR #907 (`a03767c3e06791d591b2460bbd9a54209c8692c4`) is the latest
+published image source, with immutable ARM64 and AMD64 images. Main CI and
+container publication passed; both images were scanned, smoke-tested, and
+verified by the publisher for provenance and SPDX SBOM attestations. The stable
+manifest was published and read back. See [RELEASES.md](RELEASES.md) for exact
+image digests and manifest checksum. PR #907 has not been staged on RouterOS.
+The latest documented canary read-back
 remains PR #894. The exact ARM64 candidate initially passed canary readiness and
 revision read-back. A later same-day probe found the
 canary unhealthy and bounded in-container requests to `/healthz` and `/readyz`
