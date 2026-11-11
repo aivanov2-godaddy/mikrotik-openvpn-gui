@@ -312,6 +312,17 @@ SQLite backups must be consistent:
 4. Start or leave the container running and verify `/readyz` immediately.
 5. Test restoration periodically into an isolated canary, never over production.
 
+The store uses WAL mode with `synchronous=NORMAL`. SQLite documents that WAL
+mode remains consistent with this setting and is durable across application
+process crashes, but a committed transaction may roll back after an operating
+system crash or power loss. `synchronous=FULL` adds a WAL sync after each
+transaction commit to improve power-loss durability, with additional write
+latency. Do not treat the current setting as power-loss durable. If that
+durability is required for a deployment, benchmark `FULL` on the target
+RouterOS storage and test recovery before changing the setting; record the
+measured impact and the owner's decision. See the official
+[SQLite synchronous pragma documentation](https://www.sqlite.org/pragma.html#pragma_synchronous).
+
 The helper uses SQLite's online Backup API and is safe while the writer is
 running. Do not copy only `dashboard.sqlite` with a file-copy command while WAL
 is active; the sidecar state must be captured consistently by SQLite.

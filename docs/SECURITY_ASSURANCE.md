@@ -1163,9 +1163,9 @@ protocol parameters on all requests and a missing or blank transport on new
 Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
 retain Engine.IO's default-polling compatibility. Regression coverage includes
 malformed handshakes, existing SID compatibility, and a subsequent valid
-handshake. The latest published image is PR #897
-(`3d2471813c04c759ad6990726a31200b08d11b8c`); CI, CodeQL, image scans, runtime
-smoke tests, provenance, and SPDX SBOM verification passed. PR #897 has not
+handshake. The latest published image is PR #901
+(`0fe43250131e3a5e598bd736278531bc4d71417f`); CI, CodeQL, image scans, runtime
+smoke tests, provenance, and SPDX SBOM verification passed. PR #901 has not
 been staged on RouterOS. The latest documented canary read-back remains the
 PR #894 ARM64 image, which initially passed readiness and revision read-back.
 A later
@@ -1266,6 +1266,17 @@ rejected and the request receives `503 Service Unavailable`. This prevents a
 late handler from leaving a retrievable archive in a store after shutdown.
 Clearing Python references is not physical memory zeroization.
 
+These concurrency protections were merged in PR #899 (merge commit
+`ba67dc86755153357f49eaf93014e3fe45b1279f`). The focused regression tests are
+`tests/test_app.py::ProfileShareStoreTests.test_profile_share_expiry_is_checked_after_lock_contention`,
+`tests/test_app.py::ProfileShareStoreTests.test_profile_share_ttl_starts_after_lock_contention`,
+and
+`tests/test_app.py::DashboardIntegrationTests.test_profile_share_in_flight_during_shutdown_returns_service_unavailable`.
+`tests/test_app.py::ProfileShareStoreTests.test_closed_profile_share_store_rejects_new_material`
+also verifies that a late writer cannot retain new material after closure.
+This is repository implementation and test evidence only; it does not establish
+deployment or physical memory zeroization.
+
 Focused repository tests cover passcode hashing, expiry, failed-attempt limits,
 correct-code use during cooldown, background cleanup without later requests,
 expiry and creation-time behavior under lock contention, rejection of a writer
@@ -1278,6 +1289,26 @@ These source and test changes are repository-only; they are not evidence of
 deployment or external proxy-log behavior.
 Issue #200 remains open for candidate-bound live acceptance, review of deployed
 boundaries, and the owner residual-risk decision.
+
+## Supplemental internal source review — 2026-11-11
+
+Two separate read-only reviews examined the merged source at
+`0fe43250131e3a5e598bd3d2f57945597c9add8c`, covering authentication, CSRF,
+route capabilities, live telemetry authorization/projection, Redis delivery,
+and update safety. They found no confirmed authorization bypass or sensitive
+telemetry exposure in the reviewed paths. This is an internal source review,
+not an external ASVS assessment, penetration test, or deployment check; the
+reviewers did not operate RouterOS or run the test suite.
+
+The reviews reconfirmed the existing V8.3.2 revocation gap: app-side role
+refresh intervals do not establish how quickly RouterOS applies a group-policy
+change. They also documented two persistence boundaries in
+[OPERATIONS.md](OPERATIONS.md): SQLite WAL with `synchronous=NORMAL` can lose a
+recent committed transaction after a host crash or power loss, and Redis data
+can be lost after SQLite has acknowledged a successful stream append. These
+are explicit operational/recovery limits, not newly confirmed ASVS violations.
+Candidate-bound device checks and the independent external review remain open
+under #200.
 
 ## Non-goals
 
