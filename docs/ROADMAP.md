@@ -68,18 +68,21 @@ visibility. An earlier, separately supplied WinBox inspection recorded the
 inventory identity in a `read,api` group with write, policy, sensitive, and
 interactive-service privileges denied, and a source-address restriction on
 that user. A later screenshot showed existing terminal scrollback whose group
-output included additional privileges beyond read-only collection. Because the
-GUI denied terminal interaction, no fresh RouterOS read-back was possible;
-current role and source restrictions therefore remain unverified, and
-least-privilege is not validated. Exact identity and address details remain
-private. The private report and source fingerprints remain operator-controlled;
-no raw source, scheduler event text, or credentials were written. The internal-ID
-candidate and all installed sources still require private review. Keep the
-dedicated updater disabled; the separate generic path's source and relationship
-also remain unverified. No RouterOS script, scheduler, account, configuration,
-container, or VPN policy changed during the collector run. Production promotion
-and the next numbered release stay gated on source/binding review and
-candidate-bound acceptance.
+output included additional privileges beyond read-only collection. A subsequent
+read-only WinBox read-back on 2026-11-11 verified that the existing inventory
+group's exact enabled policies are `read,api,rest-api`, with one existing group
+member. The earlier 13:02 UTC inventory report predates this policy change and
+is not a post-change collection. This verifies group policy and membership only;
+it does not verify the member's source-address restriction or exhaustive device
+visibility. No account was created and no password was changed. Exact identity
+and address details remain private. The private report and source fingerprints
+remain operator-controlled; no raw source, scheduler event text, or credentials
+were written. The internal-ID candidate and all installed sources still require
+private review. Keep the dedicated updater disabled; the separate generic
+path's source and relationship also remain unverified. No RouterOS script,
+scheduler, configuration, container, or VPN policy changed during the
+collector run. Production promotion and the next numbered release stay gated
+on source/binding review and candidate-bound acceptance.
 
 ### Historical deployment checkpoints
 
