@@ -19,15 +19,18 @@ RouterOS configuration, raw time-series telemetry, and session-level details
 remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #909
-(`344cd03a41d18eb3b98076d5dbed8be60ef60a02`) is the latest published
-mainline image source; publication does not change the formal version. PR #909
-has not been staged on RouterOS. The exact PR #894 ARM64 candidate initially passed readiness and
-revision read-back on canary. A later same-day health check found the canary
-unhealthy and bounded in-container `/healthz` and `/readyz` requests timed out.
-After an authorized canary-only restart, RouterOS's healthy marker returned;
-post-restart revision read-back and sustained recovery are not verified. Full
-acceptance and production promotion remain pending. PR #893
+version, v2.8.0, has not been tagged or published. PR #915
+(`5db3a0d4a220348c2f49934db4a3263776390c6c`) is the latest published
+mainline image source; publication does not change the formal version. PR #915
+has not been staged on RouterOS. The exact PR #894 ARM64 candidate initially
+passed readiness and revision read-back on canary. A later same-day health
+check found the canary unhealthy and bounded in-container `/healthz` and
+`/readyz` requests timed out. After an authorized canary-only restart,
+RouterOS's healthy marker returned; post-restart revision read-back and
+sustained recovery are not verified. A newer read-only WinBox observation on
+2026-11-11 found the current canary health marker unhealthy; its running image
+was not matched to a publisher digest. Full acceptance and production
+promotion remain pending. PR #893
 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) updated the Python 3.15 Alpine
 base-image digest. PR #891
 (`58a680423a4d616eb926a47c486847c8a4c062fe`) rejects ambiguous Engine.IO
@@ -61,7 +64,33 @@ manifest. The manifest asset SHA-256 is
 Code scanning returned zero open alerts on 2026-10-30. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #909 — 2026-11-11
+## Latest published mainline image — PR #915 — 2026-11-11
+
+PR [#915](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/915)
+merged as `5db3a0d4a220348c2f49934db4a3263776390c6c`. Post-merge main CI run
+[#43102229933](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43102229933),
+push/CodeQL workflow
+[#43102229923](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43102229923),
+and container publisher run
+[#43102229931](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43102229931)
+passed. The publisher built and scanned ARM64 and AMD64 images, generated and
+verified provenance and SPDX SBOM attestations for each exact image digest,
+passed published-runtime smoke tests, and read back the stable manifest. The
+downloaded `routeros-release.json` asset SHA-256 is
+`sha256:cf6fdcd90162a337257dc582ddc1fb68fd4bd6ac8e7a0354e04ec2a53afead05`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5db3a0d4a220348c2f49934db4a3263776390c6c-arm64` | `sha256:8b5fed8dda70ea1db628c4d261873458086ff4b8a381c33b2f9ebaf16abda407` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5db3a0d4a220348c2f49934db4a3263776390c6c-amd64` | `sha256:5805292d6f2f72a5c91ad2128c2b6e902bca4ccd033931875e3f4199e9961a76` |
+
+Publication is not a numbered release or RouterOS deployment. This image has
+not been staged on RouterOS. A newer read-only WinBox observation found the
+current canary health marker unhealthy and did not verify its running digest.
+Issue #785 inventory reconciliation and issue #200 candidate-bound acceptance
+remain open; production promotion remains gated.
+
+## Previous published mainline image — PR #909 — 2026-11-11
 
 PR [#909](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/909)
 merged as `344cd03a41d18eb3b98076d5dbed8be60ef60a02`. Post-merge CI run
