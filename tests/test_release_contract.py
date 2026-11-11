@@ -1000,6 +1000,16 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("mikrotik-openvpn-gui-public", rendered)
         self.assertIn("mikrotik-openvpn-gui", rendered)
 
+    def test_roadmap_tracks_connections_selection_issue_separately(self) -> None:
+        roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+        self.assertIn("[#190](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/190)", roadmap)
+        self.assertIn("Implementation in PR #907", roadmap)
+        self.assertIn("PR #906 merged as b0dfe22", roadmap)
+        self.assertIn("neither provides device-side inventory", roadmap)
+        self.assertIn("each queued disconnect reuses the live single-session impact review", roadmap)
+        self.assertNotIn("decide whether Connections bulk selection is useful", roadmap)
+        closed_row = next(line for line in roadmap.splitlines() if "[#188]" in line and "## Issue status" not in line)
+        self.assertNotIn("[#190]", closed_row)
     def test_updater_comparator_docs_distinguish_binding_and_scheduler_resolution(self) -> None:
         documentation = (
             ROOT / "docs/ROUTER_LOCAL_AUTOMATION.md"

@@ -325,6 +325,7 @@ def _relative_time(timestamp: Any, now: int | None = None) -> str:
 
 def _session_card(session: dict[str, Any], *, can_terminate: bool = True) -> str:
     session_id = html.escape(str(session.get("id", "")), quote=True)
+    session_user = html.escape(str(session.get("name", "Unknown user")) or "Unknown user", quote=True)
     source = html.escape(str(session.get("source_address", "—")) or "—")
     address = html.escape(str(session.get("vpn_address", "—")) or "—")
     uptime = html.escape(str(session.get("uptime", "—")) or "—")
@@ -339,9 +340,15 @@ def _session_card(session: dict[str, Any], *, can_terminate: bool = True) -> str
         if can_terminate
         else '<span class="read-only-note session-read-only">Session control restricted</span>'
     )
+    select_session = (
+        f'<label class="session-select-control"><input type="checkbox" data-session-select value="{session_id}" aria-label="Select active connection for {session_user}"><span class="sr-only">Select active connection</span></label>'
+        if can_terminate and session_id
+        else ""
+    )
     return f"""
     <article class="session-card" data-session-id="{session_id}" data-session-user="{html.escape(str(session.get('name', '')), quote=True)}" data-rx="{rx_bytes}" data-tx="{tx_bytes}" data-rx-packets="{rx_packets}" data-tx-packets="{tx_packets}">
       <div class="session-main">
+        {select_session}
         <div class="live-orb" aria-hidden="true">{_icon('session')}</div>
         <div><strong>{username}</strong><small class="session-state" data-session-state>Connected securely · {encoding}</small></div>
       </div>
@@ -563,6 +570,27 @@ def dashboard_page(
     if not live_session_markup:
         live_session_markup = f"""
         <div class="empty session-empty"><span>{_icon('session')}</span><strong>No devices connected</strong><p>Connections will appear here automatically. Nothing needs to be refreshed manually.</p></div>"""
+
+    session_bulk_controls = """
+        <section class="session-bulk-panel" data-session-bulk-controls aria-label="Bulk connection actions">
+          <div class="session-bulk-toolbar">
+            <label class="session-select-all"><input type="checkbox" data-session-select-all disabled><span>Select all active connections</span></label>
+            <span class="muted-label" data-session-selection-count role="status" aria-live="polite">0 selected</span>
+            <button type="button" class="quiet" data-session-selection-clear disabled>Clear selection</button>
+            <button type="button" class="quiet" data-session-review-selected disabled>Review selected disconnects</button>
+          </div>
+          <p class="session-bulk-status" data-session-bulk-status role="status" aria-live="polite">Each selected connection is reviewed and confirmed separately.</p>
+          <section class="session-bulk-review" data-session-bulk-review hidden tabindex="-1" aria-label="Sequential connection review">
+            <h2>Review selected disconnects one at a time</h2>
+            <p>Every connection is rechecked in RouterOS and uses its own reason, typed confirmation, and one-use review. Nothing is disconnected as a batch.</p>
+            <ol data-session-bulk-review-list></ol>
+            <p data-session-bulk-progress role="status" aria-live="polite"></p>
+            <div class="session-bulk-review-actions">
+              <button type="button" class="quiet" data-session-review-next disabled>Review next session</button>
+              <button type="button" class="quiet" data-session-review-cancel>Cancel remaining reviews</button>
+            </div>
+          </section>
+        </section>""" if can_manage_sessions else ""
 
     now = int(time.time())
     connection_rows: list[str] = []
@@ -1188,7 +1216,8 @@ def dashboard_page(
       <section class="app-view" id="live-sessions" data-view="live-sessions" hidden>
         <header class="view-heading"><div><p class="eyebrow">LIVE</p><h1>Connected Devices</h1><p>See who is online. Traffic graphs update automatically every five seconds.</p></div><div class="heading-actions"><span class="live-refresh" data-live-indicator><i></i><span data-live-label>Live · updated now</span><small data-live-age></small></span><a class="quiet" href="/api/usage.csv">{_icon('download')}<span>Monthly usage</span></a><a class="quiet" href="/api/connections.csv">{_icon('download')}<span>Export history</span></a></div></header>
         <section class="connection-summary"><span class="connection-summary-icon">{_icon('session')}</span><div><strong><span data-session-total>{len(sessions)}</span> connected device{'s' if len(sessions) != 1 else ''}</strong><small>Disconnecting asks for confirmation. A user can reconnect while their account remains enabled.</small></div></section>
-        <section class="standalone-session-list" data-active-session-list>{live_session_markup}</section>
+        {session_bulk_controls}
+        <section class="standalone-session-list" data-active-session-list data-can-manage-sessions="{'true' if can_manage_sessions else 'false'}" aria-label="Active VPN connections" tabindex="-1">{live_session_markup}</section>
         <section class="panel table-panel history-panel" data-connection-history data-open-count="{sum(1 for item in connections if not item.get('disconnected_at'))}"><div class="panel-heading"><div>{_icon('log')}<span><strong>Connection history</strong><small>Active and recently ended tunnels · up to 50 shown</small></span></div><div class="heading-actions"><label class="page-search compact-search">{_icon('search')}<input type="search" data-connection-search placeholder="Find a connection" aria-label="Find a connection"></label><label class="compact-filter"><span class="sr-only">Connection status</span><select data-connection-status-filter aria-label="Connection status"><option value="all">All statuses</option><option value="active">Active</option><option value="ended">Ended</option></select></label></div></div><div class="responsive-table" tabindex="0" aria-label="Scrollable connection history"><table class="history-table connection-history-table"><thead><tr><th>User</th><th>Connected / ended</th><th>Duration</th><th>Source / VPN address</th><th>Traffic / encryption</th><th>Status</th></tr></thead><tbody>{connection_markup}</tbody></table></div></section>
       </section>
 

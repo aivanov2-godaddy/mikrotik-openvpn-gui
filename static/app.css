@@ -464,6 +464,26 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .connection-summary small, .history-notice small { color: #91a79b; font-size: 12px; }
 .standalone-session-list { margin-top: 8px; border: 1px solid var(--line); background: #19242c; }
 .standalone-session-list .session-card { padding: 10px; }
+.session-bulk-panel { margin-top: 8px; padding: 0; border: 1px solid var(--line); background: var(--panel); }
+.session-bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
+.session-select-all { display: inline-flex; min-height: 32px; align-items: center; gap: 8px; color: var(--text-bright); font-size: 11px; font-weight: 600; cursor: pointer; }
+.session-select-all input, .session-select-control input { width: 17px; height: 17px; flex: 0 0 17px; margin: 0; accent-color: var(--blue); cursor: pointer; }
+.session-select-all input:focus-visible, .session-select-control input:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.session-select-all input:disabled, .session-select-control input:disabled { cursor: not-allowed; opacity: .55; }
+.session-select-control { display: inline-flex; min-width: 22px; min-height: 32px; flex: 0 0 22px; align-items: center; justify-content: center; cursor: pointer; }
+.session-bulk-toolbar > button { min-height: 32px; }
+.session-bulk-status { margin: 0; padding: 0 10px 8px; color: var(--muted); font-size: 10px; }
+.session-bulk-review { display: grid; gap: 7px; margin: 0 10px 10px; padding: 10px; border: 1px solid var(--line); background: var(--panel); }
+.session-bulk-review[hidden] { display: none !important; }
+.session-bulk-review:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.session-bulk-review h2 { margin: 0; color: var(--text-bright); font-size: 13px; }
+.session-bulk-review > p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.session-bulk-review ol { display: grid; gap: 2px; max-height: 190px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.session-review-item { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 6px 8px; background: var(--panel-2); font-size: 10px; }
+.session-review-item strong { color: var(--text-bright); }
+.session-review-item span { color: var(--muted); }
+.session-bulk-review-actions { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.session-bulk-review-actions button { min-height: 34px; }
 .session-card { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(420px, 2fr) auto; align-items: center; gap: 13px; padding: 7px 10px 7px 47px; border-top: 1px solid #26333b; }
 .session-card:first-child { border-top: 0; }
 .session-card.session-stale .session-state { color: var(--amber); }
@@ -729,6 +749,12 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .session-graphs { grid-column: 1 / -1; }
 }
 
+@media (max-width: 900px) {
+  .app-view[data-view="live-sessions"] .view-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .app-view[data-view="live-sessions"] .heading-actions { width: 100%; flex-wrap: wrap; justify-content: space-between; }
+  .app-view[data-view="live-sessions"] .session-graphs { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 760px) {
   html { overflow-x: clip; }
   body { overflow: auto; }
@@ -760,6 +786,10 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .session-facts { grid-column: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .session-graphs { grid-template-columns: 1fr; }
   .terminate-button { justify-self: end; }
+  .session-bulk-toolbar { align-items: stretch; }
+  .session-select-all { flex: 1 1 100%; }
+  .session-bulk-toolbar > button, .session-bulk-review-actions button { flex: 1 1 150px; }
+  .session-review-item { align-items: flex-start; flex-direction: column; }
   .offline-state { padding-left: 10px; }
   .view-heading { min-height: 58px; align-items: flex-start; flex-direction: column; gap: 9px; }
   .heading-actions { width: 100%; flex-wrap: wrap; justify-content: space-between; }
