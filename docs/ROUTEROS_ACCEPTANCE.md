@@ -27,6 +27,26 @@ out. An authorized canary-only restart restored RouterOS's healthy marker, but
 post-restart revision read-back and sustained health are not verified. The full
 acceptance gates below remain incomplete.
 
+## Separate updater inventory evidence — 2026-11-11
+
+The checked-in TLS-verifying, read-only RouterOS Binary API collector completed
+and wrote a private report classified `inventory_collected_review_required`.
+It received five script records and three scheduler records: two direct
+bindings and one internal script-ID candidate. No opaque or ambiguous target
+was reported in returned data. No installed source exactly matched a reviewed
+repository template, and all five source assessments flag missing canary
+rollback/restore verification. The returned-print-response completeness flag
+does not establish caller authorization or exhaustive RouterOS visibility.
+Raw source and source fingerprints remain in the operator-controlled private
+report. The candidate binding and installed sources require private review.
+
+This inventory is not a canary read-back or acceptance result. It does not
+identify an image digest, embedded revision, readiness, running health,
+production-unchanged state, or rollback. No RouterOS script, scheduler,
+configuration, container, account, or VPN policy changed during collection.
+Keep the dedicated updater disabled and follow the separate reviewed
+canary-only staging/rollback procedure only after source and binding review.
+
 ## Current canary checkpoint — 2026-11-04
 
 The isolated canary was configured with the immutable PR #894 ARM64 reference

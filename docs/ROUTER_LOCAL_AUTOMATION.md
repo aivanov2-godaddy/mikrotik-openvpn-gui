@@ -269,14 +269,21 @@ successful collection is not proof that the account saw every device record,
 that every indirect invocation was understood, that a script is safe, or that
 the updater was executed. Do not run the unknown updater to learn its behavior.
 
-This is collection tooling only. The checked-in collector has not yet been run
-against the router. A separate partial operator-reported read-only inspection
-is summarized in the Current project snapshot in `docs/ROADMAP.md`; it is not
-collector output and does not establish a complete inventory. Issue #785
-remains open until the private report is matched to a trusted RouterOS
-read-only view, every opaque scheduler path is reviewed, discrepancies are
-explained, and any candidate staging uses the separate reviewed procedure
-below.
+This is collection tooling only. On 2026-11-11, the checked-in collector
+completed a TLS-verified, read-only inventory and wrote a report classified
+`inventory_collected_review_required`: five scripts, three schedulers, two
+direct bindings, and one internal script-ID candidate. No opaque or ambiguous
+target was reported in the returned data, but no installed source exactly
+matched a reviewed repository template; all five assessments flag missing
+canary rollback/restore verification. The report's complete-print-response
+flag does not establish caller authorization or exhaustive RouterOS visibility.
+Its fingerprints stay in the operator-controlled private report. The candidate
+binding and each source remain subject to private review; do not run the
+unknown updater to learn its behavior. Issue #785 remains open until source and
+binding discrepancies are resolved, every returned target is understood, and
+any candidate staging uses the separate reviewed canary-only procedure below.
+The collection did not change RouterOS scripts, schedulers, configuration,
+containers, accounts, or VPN policy.
 
 ### Comparing multiple installed copies and scheduler bindings
 
