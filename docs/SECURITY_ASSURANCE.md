@@ -1163,13 +1163,15 @@ protocol parameters on all requests and a missing or blank transport on new
 Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
 retain Engine.IO's default-polling compatibility. Regression coverage includes
 malformed handshakes, existing SID compatibility, and a subsequent valid
-handshake. The latest published image is PR #909
-(`344cd03a41d18eb3b98076d5dbed8be60ef60a02`); post-merge CI, CodeQL, image
+handshake. The latest published image is PR #915
+(`5db3a0d4a220348c2f49934db4a3263776390c6c`); post-merge CI, CodeQL, image
 scans, runtime smoke tests, provenance, and SPDX SBOM verification passed for
 both architecture images. The stable manifest was published and read back; its
-checksum and image digests are recorded in [RELEASES.md](RELEASES.md). PR #909
-has not been staged on RouterOS. The latest documented canary read-back remains the
+checksum and image digests are recorded in [RELEASES.md](RELEASES.md). PR #915
+has not been staged on RouterOS. The latest documented canary revision read-back remains the
 PR #894 ARM64 image, which initially passed readiness and revision read-back.
+A newer read-only WinBox observation found the current canary health marker
+unhealthy and did not verify its running digest.
 A later
 same-day health check found the canary unhealthy and bounded in-container
 `/healthz` and `/readyz` requests timed out. An authorized canary-only restart
