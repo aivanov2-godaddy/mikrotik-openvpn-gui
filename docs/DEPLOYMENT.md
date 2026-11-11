@@ -58,10 +58,11 @@ directory as part of a routine application update.
 Advanced operators can use the strict local client:
 
 ```powershell
+$env:ROUTEROS_REST_URL = 'https://router.example.com/rest'
+$env:ROUTEROS_DEPLOY_USERNAME = 'deployer'
+$env:ROUTEROS_REST_CA_PEM = Get-Content -Raw '.\routeros-ca.crt'
+# Set ROUTEROS_DEPLOY_PASSWORD from a local secret manager before continuing.
 python scripts/deploy_routeros_release.py `
-  --rest-url https://router.example.com/rest `
-  --ca-file .\routeros-ca.crt `
-  --username deployer `
   --container-name vpn-dashboard `
   --image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64@sha256:<64-hex-digest>
 ```
@@ -70,7 +71,9 @@ The client requires TLS certificate validation and a project-owned, architecture
 specific digest-pinned reference. Before any mutation, it verifies or resolves
 the currently installed image to an exact rollback digest and rejects a supplied
 rollback digest that differs. Supply credentials through your normal local
-secret-management method, not on a command line saved to history. Review
+secret-management method, not on a command line saved to history. The CA
+environment variable contains PEM certificate text, not a file path. Clear
+the deployment environment variables after use. Review
 `python scripts/deploy_routeros_release.py --help` before using it. It only
 updates the named container and restores the exact previous image if its start
 gate fails.
