@@ -390,6 +390,49 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
                     connection.execute(path, query=query)
                 self.assertEqual(fake.sent, b"")
 
+    def test_acceptance_prints_allow_narrow_fields_and_reject_broad_queries(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.sent = b""
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def recv(self, _size: int) -> bytes:
+                return encode_sentence(["!done", ".tag=1"])
+
+            def close(self) -> None:
+                return None
+
+        allowed = (
+            ("/system/resource/print", ".proplist=version,cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime"),
+            ("/container/print", ".proplist=name,status,remote-image"),
+            ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,remote-image"),
+        )
+        for path, proplist in allowed:
+            with self.subTest(path=path, proplist=proplist):
+                connection = RouterOSBinaryConnection("router.example")
+                fake = FakeSocket()
+                connection._socket = fake  # noqa: SLF001 - inspect the exact read-only command words
+                connection.execute(path, query=(proplist,))
+                self.assertEqual(decode_words(fake.sent), [path.encode(), proplist.encode(), b".tag=1"])
+
+        rejected = (
+            ("/system/resource/print", ()),
+            ("/container/print", ()),
+            ("/container/print", (".proplist=name,envlist",)),
+            ("/container/print", (".proplist=name,remote-image", "?name=canary")),
+            ("/system/resource/print", (".proplist=version,password",)),
+        )
+        for path, query in rejected:
+            with self.subTest(path=path, query=query):
+                connection = RouterOSBinaryConnection("router.example")
+                fake = FakeSocket()
+                connection._socket = fake  # noqa: SLF001 - rejected requests must send no bytes
+                with self.assertRaisesRegex(ValueError, "path-specific allowlist"):
+                    connection.execute(path, query=query)
+                self.assertEqual(fake.sent, b"")
+
     def test_execute_rejects_commands_outside_the_read_only_allowlist(self) -> None:
         class FakeSocket:
             def __init__(self) -> None:
