@@ -19,9 +19,11 @@ Its post-merge CI and container publication passed; both architecture images
 were scanned and smoke-tested, and the publisher verified provenance and SPDX
 SBOM attestations. The stable manifest was published and read back. See
 [`RELEASES.md`](RELEASES.md) for immutable tags and digests. PR #915 has not
-been staged on RouterOS. The latest documented canary revision
-read-back remains PR #894; a newer read-only WinBox observation found the
-current canary health marker unhealthy and did not verify its running digest.
+been staged on RouterOS. The latest authenticated canary revision
+read-back remains PR #894. A fresh read-only Binary API snapshot at 22:56 UTC
+on 2026-11-11 found its exact published ARM64 digest still configured, but the
+canary lifecycle state was unhealthy. Production was running with a tag-only
+image reference. Neither running digest was verified.
 That exact ARM64 candidate initially passed
 canary readiness and revision read-back. A later same-day check found the
 canary unhealthy; bounded in-container `/healthz` and `/readyz` requests timed
@@ -43,9 +45,10 @@ WinBox inspection recorded the inventory identity in a `read,api` group with
 write, policy, sensitive, and interactive-service privileges denied, and a
 source-address restriction on that user. A later screenshot showed existing
 terminal scrollback whose group output included additional privileges beyond
-read-only collection. Because the GUI denied terminal interaction, no fresh
-RouterOS read-back was possible; current role and source restrictions therefore
-remain unverified and the existing role is not validated least-privilege. Exact
+read-only collection. At that earlier inspection, the GUI denied terminal
+interaction, so no fresh role read-back was possible. The later policy and API
+results below supersede that uncertainty about the group policy; the member's
+source-address restriction remains unverified. Exact
 identity and address details, raw source, and source fingerprints remain in
 the operator-controlled private record. The candidate binding and installed
 sources require private review.
@@ -76,10 +79,17 @@ candidate-bound acceptance remain open.
 A bounded local exact-hash check performed before PR #916 merged compared the
 five private source fingerprints with 58 `.rsc` or updater-named blobs
 reachable from fetched Git refs at base `5f8f4aa`; it found no exact matches.
-This rules out only an exact copy among those repository blobs. The inventory
-contains fingerprints and redacted markers, not raw script source, so it does
-not support a code-level review of the installed scripts or the unresolved
-scheduler internal-ID candidate. No private hash, filename, source text,
+This rules out only an exact copy among those repository blobs. The redacted
+inventory alone contains fingerprints and markers, not raw source. A separate
+private read-only export at 22:45 UTC matched all five source hashes and three
+scheduler classifications to the fresh report. The disabled scheduler's simple
+script-run event targeted the fourth source's exact internal ID, which remains
+a candidate binding. None of the five installed sources exactly matches the
+reviewed template, and the offline comparator flags its canary restore
+verifier/call site missing in each. The candidate source contains container
+stop/set/update/start commands and production references; this bounded static
+scan does not establish its full execution behavior or safe rollback. No
+private hash, filename, source text,
 scheduler event, or router identifier was added to this document. The updater
 remains disabled pending private source review and binding verification.
 
