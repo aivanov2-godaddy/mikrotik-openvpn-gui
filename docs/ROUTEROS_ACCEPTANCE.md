@@ -63,6 +63,16 @@ scheduler bindings still require private reconciliation. Keep the updater
 disabled. This policy read-back is not candidate staging or deployment
 acceptance.
 
+At 22:36:36 UTC on 2026-11-11, the TLS-verified Binary API collector completed
+a new read-only report under this policy. It returned five scripts and three
+schedulers: two direct bindings, one unresolved internal script-ID candidate,
+zero opaque targets, and zero exact matches to the reviewed repository
+template. The new report is still classified
+`inventory_collected_review_required` and contains no raw script source or
+scheduler event text. Completed print replies do not establish exhaustive
+RouterOS visibility. The private source/binding review, canary rollback, and
+candidate-bound acceptance remain open.
+
 A bounded local exact-hash check performed before PR #916 merged compared the
 five private source fingerprints with 58 `.rsc` or updater-named blobs
 reachable from fetched Git refs at base `5f8f4aa`; it found no exact matches.
