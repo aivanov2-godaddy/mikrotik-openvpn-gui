@@ -4767,7 +4767,7 @@ class ASGIContractTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 revoked_sid = json.loads(handshake[1:].decode("utf-8"))["sid"]
                 self.assertIn(revoked_sid, native.server.eio.sockets)
-                self.assertTrue(sessions.revoke(original.session_id))
+                self.assertTrue(await sessions.revoke_async(original.session_id))
                 status, close_packet = await asyncio.to_thread(
                     request,
                     f"/socket.io/?EIO=4&transport=polling&sid={revoked_sid}&t=revoked-close",
