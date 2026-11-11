@@ -6,8 +6,9 @@ import hashlib
 import io
 import json
 import os
+import sys
 from contextlib import redirect_stdout
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -214,6 +215,82 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         self.assertEqual(copies[1]["scheduler_binding_count"], 1)
         self.assertFalse(copies[2]["exact_match"])
         self.assertEqual(copies[2]["scheduler_binding_count"], 0)
+
+    def test_windows_path_containment_does_not_case_fold_directory_names(self) -> None:
+        root_parts = PureWindowsPath(r"C:\inventory\RouterOS").parts
+        inside_parts = PureWindowsPath(r"c:\inventory\RouterOS\copy.rsc").parts
+        case_variant_parts = PureWindowsPath(r"C:\inventory\routeros\copy.rsc").parts
+
+        self.assertTrue(compare_routeros_updater._windows_path_parts_match(inside_parts[:3], root_parts))
+        self.assertFalse(
+            compare_routeros_updater._windows_path_parts_match(case_variant_parts[:3], root_parts)
+        )
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows path canonicalization")
+    def test_windows_inventory_accepts_short_path_alias_and_returns_handle_path(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        get_long_path = ctypes.WinDLL("kernel32", use_last_error=True).GetLongPathNameW
+        get_long_path.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+        get_long_path.restype = wintypes.DWORD
+        with TemporaryDirectory() as directory:
+            requested_path = Path(directory) / "copy.rsc"
+            requested_path.write_bytes(b"safe\n")
+            long_buffer = ctypes.create_unicode_buffer(32768)
+            length = get_long_path(str(requested_path.absolute()), long_buffer, len(long_buffer))
+            self.assertGreater(length, 0, "Windows should resolve the existing test path")
+            canonical_path = Path(long_buffer.value)
+            if canonical_path == requested_path.absolute():
+                self.skipTest("the test filesystem does not expose an 8.3 path alias")
+
+            content, resolved_path = compare_routeros_updater._read_local_file(
+                requested_path, 1024, requested_path.parent
+            )
+
+        self.assertEqual(content, b"safe\n")
+        self.assertEqual(resolved_path, canonical_path)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows path canonicalization")
+    def test_windows_inventory_cli_accepts_short_manifest_alias(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        with TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "inventory.json"
+            (Path(directory) / "copy.rsc").write_bytes(compare_routeros_updater.TEMPLATE_PATH.read_bytes())
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "scripts": [{"id": "copy-a", "path": "copy.rsc"}],
+                        "schedulers": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            get_short_path = ctypes.WinDLL("kernel32", use_last_error=True).GetShortPathNameW
+            get_short_path.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+            get_short_path.restype = wintypes.DWORD
+            short_buffer = ctypes.create_unicode_buffer(32768)
+            short_length = get_short_path(
+                str(manifest_path.absolute()), short_buffer, len(short_buffer)
+            )
+            self.assertGreater(short_length, 0, "Windows should resolve the existing manifest path")
+            short_manifest_path = Path(short_buffer.value)
+            if short_manifest_path == manifest_path.absolute():
+                self.skipTest("the test filesystem does not expose an 8.3 path alias")
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exit_code = compare_routeros_updater.main(
+                    ["--inventory", str(short_manifest_path)]
+                )
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0, stdout.getvalue())
+        self.assertTrue(report["scripts"][0]["exact_match"])
+        self.assertEqual(stderr.getvalue(), "")
 
     def test_inventory_v2_classifies_all_listed_scheduler_entries_without_event_text(self) -> None:
         reference = b":local updater \"reviewed\"\n"
