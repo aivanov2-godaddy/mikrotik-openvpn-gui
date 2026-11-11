@@ -205,7 +205,7 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             self.assertIn("one existing group member", document)
             self.assertIn("predates this policy change", document)
             self.assertIn("No account was created and no password was changed", document)
-        self.assertIn("all installed sources still require private review", roadmap)
+        self.assertIn("complete private source/relationship review", roadmap)
         self.assertIn(
             "scheduler bindings still require private reconciliation", acceptance
         )

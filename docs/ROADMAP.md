@@ -19,8 +19,11 @@ and publisher verification of provenance and SPDX SBOM attestations. The
 `routeros-stable` manifest was published and read back. Immutable tags,
 architecture digests, and manifest checksum are recorded in
 [RELEASES.md](RELEASES.md). PR #915 has not been staged on RouterOS. A newer
-read-only WinBox observation found the current canary health marker unhealthy;
-its running image was not matched to a publisher digest. The latest documented
+read-only WinBox observation found the current canary health marker unhealthy.
+A fresh TLS-verified Binary API container readback at 22:56 UTC on 2026-11-11
+found the canary still configured for PR #894's exact published ARM64 digest,
+with lifecycle state unhealthy. Production was running with a tag-only image
+reference. Neither running digest was verified. The latest authenticated
 canary revision read-back remains PR #894; post-restart revision, sustained
 health, and acceptance remain unverified. No new numbered release or
 production deployment is claimed.
@@ -80,9 +83,16 @@ reviewed repository template. Completed print replies do not prove exhaustive
 RouterOS visibility or the member's source-address restriction. Both reports
 remain operator-controlled and redact raw source, scheduler event text,
 credentials, and device identity. No account was created and no password was
-changed. The internal-ID candidate and all installed sources still require
-private review. Keep the dedicated updater disabled; the separate generic
-path's source and relationship also remain unverified. No RouterOS script,
+changed. At 22:45 UTC, a separate private read-only export matched every
+installed source hash and scheduler classification to the fresh report. The
+disabled scheduler's simple event text targets the fourth source's internal
+ID, still a candidate rather than verified runtime binding. None of the five
+sources matches the reviewed template, and the static comparator flags the
+reviewed canary restore verifier/call site absent in each. The candidate
+source contains container mutation commands and production references; this
+bounded scan does not establish safe execution or rollback. Keep the dedicated
+updater disabled; complete private source/relationship review and the separate
+reviewed canary-only staging/rollback path. No RouterOS script,
 scheduler, configuration, container, or VPN policy changed during collection.
 Production promotion and the next numbered release stay gated on source/binding
 review and candidate-bound acceptance.
