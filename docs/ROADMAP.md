@@ -261,11 +261,15 @@ reauthentication, and live-session revalidation with a fresh, verified TLS
 Binary API connection. The connection authenticates the same RouterOS account,
 then reads only that account's enabled state/group and that group's policy
 using exact-name filters and path-specific read-only allowlists. The client
-fails closed on missing or unreadable records, verification errors, and
-capacity saturation; it therefore requires a reachable API-SSL service, a
-trusted API-SSL certificate, and credentials permitted to use the API and read
-the account/group records. A process-wide semaphore limits concurrent checks
-to four. The connection is closed after the lookup.
+requests only the account's enabled state/group and the group's policy, then
+projects the response to those approved properties before role evaluation.
+RouterOS may return additional properties despite `.proplist`; this does not
+claim the wire response contains only the requested properties. The fresh
+Binary API role check requires `api` and `read` permissions, API-SSL reachability,
+and a trusted API-SSL certificate. Normal dashboard sign-in also verifies
+credentials through RouterOS REST, so the account additionally needs the
+`rest-api` permission. A process-wide semaphore limits concurrent checks to
+four. The connection is closed after the lookup.
 
 This is a source mitigation candidate. It does not establish how a deployed
 RouterOS version applies account disablement, group reassignment, or policy

@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from certificate_lifecycle import remaining_seconds as _certificate_remaining_seconds
 from config import ConfigurationError, OpenVPNTopology
@@ -83,6 +83,13 @@ def _records(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, dict):
         return [value]
     raise RouterOSError("RouterOS returned an unexpected JSON shape", failure_kind="invalid_response")
+
+
+def _project_routeros_fields(
+    attributes: Mapping[str, str], fields: tuple[str, ...]
+) -> dict[str, str]:
+    """Keep only the explicitly approved properties from a RouterOS reply."""
+    return {field: attributes[field] for field in fields if field in attributes}
 
 
 def _yes(value: Any) -> bool:
@@ -507,7 +514,9 @@ class RouterOSClient:
             )
             user_record = next(
                 (
-                    reply.attributes
+                    _project_routeros_fields(
+                        reply.attributes, ("name", "group", "disabled")
+                    )
                     for reply in user_replies
                     if reply.kind == "re"
                     and not reply.dead
@@ -515,6 +524,7 @@ class RouterOSClient:
                 ),
                 None,
             )
+            del user_replies
             if user_record is None:
                 return None
             disabled = str(user_record.get("disabled", "")).strip().casefold()
@@ -533,7 +543,7 @@ class RouterOSClient:
             )
             group_record = next(
                 (
-                    reply.attributes
+                    _project_routeros_fields(reply.attributes, ("name", "policy"))
                     for reply in group_replies
                     if reply.kind == "re"
                     and not reply.dead
@@ -542,6 +552,7 @@ class RouterOSClient:
                 ),
                 None,
             )
+            del group_replies
             if group_record is None:
                 return None
             policies = self._effective_routeros_policies(group_record.get("policy"))

@@ -372,6 +372,8 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
                 return None
 
         invalid_queries = (
+            ("/user/print", ()),
+            ("/user/group/print", ()),
             ("/user/print", (".proplist=name,group,disabled",)),
             ("/user/print", (".proplist=name,group,disabled", "?group=read")),
             ("/user/print", (".proplist=name,group,disabled", "?name=")),

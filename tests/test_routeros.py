@@ -18,6 +18,7 @@ from routeros import (
     RouterOSClient,
     RouterOSCredentials,
     RouterOSError,
+    _project_routeros_fields,
     harden_profile,
 )
 from routeros_binary import RouterOSReply
@@ -44,6 +45,19 @@ def _mock_routeros_client(base_url: str, **kwargs: Any) -> RouterOSClient:
 
 
 class RouterOSClientTests(unittest.TestCase):
+    def test_routeros_reply_projection_drops_unrequested_properties(self) -> None:
+        attributes = {
+            "name": "operator-test",
+            "group": "admin",
+            "disabled": "no",
+            "password": "unrequested-sentinel",
+        }
+
+        self.assertEqual(
+            _project_routeros_fields(attributes, ("name", "group", "disabled")),
+            {"name": "operator-test", "group": "admin", "disabled": "no"},
+        )
+
     def test_fresh_admin_role_uses_narrow_tls_api_queries_and_closes_connection(self) -> None:
         credentials = RouterOSCredentials("operator-test", "routerpass")
         calls: list[tuple[str, tuple[str, ...]]] = []

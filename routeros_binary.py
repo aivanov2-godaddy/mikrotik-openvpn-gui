@@ -377,6 +377,8 @@ class RouterOSBinaryConnection:
         sentinel = object()
         word = next(iterator, sentinel)
         if word is sentinel:
+            if allowed_filters:
+                raise ValueError("RouterOS Binary API query is not in the path-specific allowlist")
             return ()
         filter_word = next(iterator, sentinel) if allowed_filters else sentinel
         if next(iterator, sentinel) is not sentinel:
