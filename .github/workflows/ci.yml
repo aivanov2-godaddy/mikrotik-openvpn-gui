@@ -106,7 +106,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check --requirement requirements-redis.txt
       - name: Verify Redis service readiness
         run: |
-          redis-cli -h 127.0.0.1 ping | grep -qx PONG
+          python -c "import redis; assert redis.Redis(host='127.0.0.1', port=6379, socket_connect_timeout=5, socket_timeout=5).ping() is True"
       - name: Verify live Redis review coordination
         env:
           REDIS_TEST_URL: redis://127.0.0.1:6379/0
