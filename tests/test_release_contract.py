@@ -345,6 +345,7 @@ class ReleaseContractTests(unittest.TestCase):
             ROOT / "docs/INSTALLATION.md",
             ROOT / "docs/SECURITY_ASSURANCE.md",
             ROOT / "docs/ROUTEROS_ACCEPTANCE.md",
+            ROOT / "docs/OPERATIONS.md",
         )
         rendered = " ".join(
             "\n".join(document.read_text(encoding="utf-8") for document in documents).split()
@@ -353,7 +354,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #897", release_record)
+        self.assertIn("## Latest published mainline image — PR #901", release_record)
+        self.assertIn("## Previous published mainline image — PR #897", release_record)
         self.assertIn("## Previous published mainline image — PR #896", release_record)
         self.assertIn("## Previous published mainline image — PR #894", release_record)
         self.assertIn("## Previous published mainline image — PR #891", release_record)
@@ -376,10 +378,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #829", release_record)
         self.assertIn("## Previous published mainline image — PR #824", release_record)
         self.assertIn("## Previous published mainline image — PR #817", release_record)
-        self.assertIn("sha256:4ddc87d662c3c48cf0632adecd379c4df9c35514939831b45b1bb093a188b4e4", release_record)
-        self.assertIn("sha256:1d6b77de4ed594b8eb8cabe8853f40d755807a36634aa5fb01611f29c364eb75", release_record)
-        self.assertIn("sha256:1b922a6f860118414e48a70c709252f7fd09ccf1d503c9250e6b387c254be564", release_record)
-        self.assertIn("PR #897 has not been staged on RouterOS", release_record)
+        self.assertIn("sha256:fc7af0eb880bddca771bb7e73647c14f050bd674b4c0b450592ffedb2658ca4a", release_record)
+        self.assertIn("sha256:ac36036b13842a7bb2ac5611705403e1165c84ac2a07115af8a192f9ccf7ba6f", release_record)
+        self.assertIn("sha256:55aae2f27b0469b807c27064a339a04bbb7c938c1198f51e033440aa9f2f67f4", release_record)
+        self.assertIn("PR #901 has not been staged on RouterOS", release_record)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
         self.assertIn("eb29581c8430ec862a8b47ee62268a74fec14518", rendered)
         self.assertIn("f31bf9e0f6bac65dc6dea7fc00af99743c3e61fb", rendered)
@@ -480,7 +482,7 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Latest published image: PR #897; not staged on RouterOS.",
+            "Latest published image: PR #901; not staged on RouterOS.",
             installation,
         )
         self.assertIn(
@@ -488,7 +490,7 @@ class ReleaseContractTests(unittest.TestCase):
             installation,
         )
         self.assertIn(
-            "PR #897, commit `3d2471813c04c759ad6990726a31200b08d11b8c`",
+            "PR #901, commit `0fe43250131e3a5e598bd736278531bc4d71417f`",
             installation,
         )
         self.assertIn("sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581", release_record)
@@ -497,6 +499,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("### Previous published source-level session/audit safeguard — PR #846", security_assurance)
         self.assertIn("### Previous published source-level log safeguard — PR #824", security_assurance)
         self.assertIn("### Previous published mainline security changes — PR #817", security_assurance)
+        self.assertIn("The store uses WAL mode with `synchronous=NORMAL`", rendered)
+        self.assertIn("a committed transaction may roll back after an operating system crash or power loss", rendered)
+        self.assertIn("`synchronous=FULL` adds a WAL sync after each", rendered)
         self.assertIn("40ae1d86bbc8037172e38f1b018e71576925f201", rendered)
         self.assertIn(
             "sha256:cd96ffd32fb223abe7776c4ac2a6701cbea0c36fa5699619ead5915549cd0b3c",

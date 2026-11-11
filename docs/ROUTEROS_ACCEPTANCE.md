@@ -13,12 +13,12 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #897
-(`3d2471813c04c759ad6990726a31200b08d11b8c`) is the latest published image.
+prove RouterOS compatibility. PR #901
+(`0fe43250131e3a5e598bd736278531bc4d71417f`) is the latest published image.
 Its post-merge CI, CodeQL, scans, runtime smoke tests, provenance, and SPDX SBOM
 checks passed; both architecture attestations and the stable manifest were
 independently verified. See [`RELEASES.md`](RELEASES.md) for immutable tags and
-digests. PR #897 has not been staged on RouterOS. The latest documented canary
+digests. PR #901 has not been staged on RouterOS. The latest documented canary
 read-back remains PR #894; that exact ARM64 candidate initially passed
 canary readiness and revision read-back. A later same-day check found the
 canary unhealthy; bounded in-container `/healthz` and `/readyz` requests timed

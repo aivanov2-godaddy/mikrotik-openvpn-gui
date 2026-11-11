@@ -670,11 +670,11 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #897 (`3d2471813c04c759ad6990726a31200b08d11b8c`) is the latest published image source",
+            "PR #901 (`0fe43250131e3a5e598bd736278531bc4d71417f`) is the latest published image source",
             roadmap,
         )
         self.assertIn(
-            "## Latest published mainline image — PR #897",
+            "## Latest published mainline image — PR #901",
             releases,
         )
         self.assertIn(
@@ -695,9 +695,32 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
         self.assertIn("PR #798 adds evidence-gated originless polling", roadmap)
         self.assertIn("PR #794 added WebSocket Origin and admin-session revocation-reference hardening.", roadmap)
         self.assertIn("The two bounded source reviews described above", self.document)
+        self.assertIn("These concurrency protections were merged in PR #899", self.document)
+        self.assertIn("ba67dc86755153357f49eaf93014e3fe45b1279f", self.document)
+        self.assertIn(
+            "tests/test_app.py::ProfileShareStoreTests.test_profile_share_expiry_is_checked_after_lock_contention",
+            self.document,
+        )
+        self.assertIn(
+            "tests/test_app.py::ProfileShareStoreTests.test_profile_share_ttl_starts_after_lock_contention",
+            self.document,
+        )
+        self.assertIn(
+            "tests/test_app.py::DashboardIntegrationTests.test_profile_share_in_flight_during_shutdown_returns_service_unavailable",
+            self.document,
+        )
+        self.assertIn(
+            "tests/test_app.py::ProfileShareStoreTests.test_closed_profile_share_store_rejects_new_material",
+            self.document,
+        )
+        self.assertIn("does not establish", self.document)
+        self.assertIn("deployment or physical memory zeroization", self.document)
         self.assertIn("examined PR #791's commit, not the changed source in PR #793.", assurance)
         self.assertIn("publication is not an independent security review", assurance)
         self.assertIn("Latest published authentication-denial classification — PR #849", assurance)
+        self.assertIn("## Supplemental internal source review — 2026-11-11", assurance)
+        self.assertIn("not an external ASVS assessment, penetration test, or deployment check", assurance)
+        self.assertIn("Candidate-bound device checks and the independent external review remain open", assurance)
         self.assertIn("Previous published source-level session/audit safeguard — PR #846", assurance)
         self.assertIn("Previous published source-level log safeguard — PR #824", assurance)
         self.assertIn("Previous published mainline security changes — PR #817", assurance)
