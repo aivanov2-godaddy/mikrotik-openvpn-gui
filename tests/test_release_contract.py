@@ -1000,6 +1000,23 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("mikrotik-openvpn-gui-public", rendered)
         self.assertIn("mikrotik-openvpn-gui", rendered)
 
+    def test_updater_comparator_docs_distinguish_binding_and_scheduler_resolution(self) -> None:
+        documentation = (
+            ROOT / "docs/ROUTER_LOCAL_AUTOMATION.md"
+        ).read_text(encoding="utf-8")
+        documentation = " ".join(documentation.split())
+        self.assertIn("`script_binding_references_resolved`", documentation)
+        self.assertIn("`manifest_scheduler_targets_resolved`", documentation)
+        self.assertIn(
+            "`listed_bindings_resolved` remains `false` for schema version 2",
+            documentation,
+        )
+        self.assertIn(
+            "schema version 1, which cannot classify all scheduler entries",
+            documentation,
+        )
+        self.assertIn('`inventory_exhaustiveness: "not_verified"`', documentation)
+
     def test_preview_assets_do_not_contain_instance_identities(self) -> None:
         assets = (
             ROOT / "docs/screenshots/dashboard-navigation.svg",
