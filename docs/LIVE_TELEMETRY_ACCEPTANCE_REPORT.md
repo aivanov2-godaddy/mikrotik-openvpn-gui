@@ -227,9 +227,10 @@ a gate checklist, not a report of private measurements.
 ## Candidate acceptance gates
 
 The following table is the historical acceptance record for candidate PR #776;
-it is not the current canary image state. PR #806 is staged on the canary with
-healthy revision read-back recorded above, but its 30-minute soak, rollback,
-and full live acceptance remain incomplete.
+it does not describe the current canary. At the time that record was updated,
+PR #806 was the staged canary with a healthy revision read-back. That checkpoint
+was later superseded by the PR #894 checkpoint at the top of this report. The
+PR #806 30-minute soak, rollback, and full live acceptance remained incomplete.
 
 | Gate | Required result | Public status |
 | --- | --- | --- |

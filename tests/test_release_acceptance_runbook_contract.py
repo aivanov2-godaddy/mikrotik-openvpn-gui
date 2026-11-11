@@ -135,6 +135,62 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
         self.assertNotIn("PR #862 has not been read back on RouterOS", report)
         self.assertNotIn("PR #791 has been published but not staged", report)
 
+    def test_pr806_canary_references_are_explicitly_historical(self) -> None:
+        roadmap = " ".join(
+            (ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8").split()
+        )
+        self.assertIn(
+            "Historical note: PR #806 was the latest digest-bound canary read-back at that time",
+            roadmap,
+        )
+        self.assertIn("The latest documented canary checkpoint is PR #894", roadmap)
+        self.assertNotIn(
+            "The last digest-bound canary read-back is PR #806", roadmap
+        )
+
+        report = " ".join(
+            (ROOT / "docs" / "LIVE_TELEMETRY_ACCEPTANCE_REPORT.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        self.assertIn(
+            "At the time that record was updated, PR #806 was the staged canary",
+            report,
+        )
+        self.assertIn(
+            "That checkpoint was later superseded by the PR #894 checkpoint at the top of this report",
+            report,
+        )
+        self.assertNotIn(
+            "PR #806 is staged on the canary with healthy revision read-back recorded above",
+            report,
+        )
+
+        releases = " ".join(
+            (ROOT / "docs" / "RELEASES.md").read_text(encoding="utf-8").split()
+        )
+        for stale_claim in (
+            "Current PR #806",
+            "current PR #806 state",
+            "the current PR #806",
+        ):
+            self.assertNotIn(stale_claim, releases)
+        self.assertIn(
+            "That checkpoint was later superseded by the PR #894 checkpoint at the top of this file",
+            releases,
+        )
+
+        routeros = " ".join(
+            (ROOT / "docs" / "ROUTEROS_ACCEPTANCE.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        self.assertIn(
+            "PR #806 was the last candidate-bound read-back when this section was written",
+            routeros,
+        )
+        self.assertIn("superseded by PR #894 above", routeros)
+
 
 if __name__ == "__main__":
     unittest.main()

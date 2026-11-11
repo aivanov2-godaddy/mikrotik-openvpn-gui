@@ -196,11 +196,13 @@ Canary acceptance must separately measure a user-group reassignment and, in a
 disposable test setup, a group-policy edit without changing the production
 administrator's group or policy.
 
-The last digest-bound canary read-back is PR #806; a later WinBox view showed
-the canary healthy with the PR #806 embedded revision but did not confirm the
-configured tag or digest. Only point samples are available, and neither the
-30-minute soak nor a rollback rehearsal has passed for this candidate. No live
-telemetry/security acceptance is claimed. No production promotion is recorded. See the
+Historical note: PR #806 was the latest digest-bound canary read-back at that
+time. A later WinBox view confirmed its embedded revision and healthy marker,
+but did not confirm the configured tag or digest. The latest documented canary
+checkpoint is PR #894, described in the project snapshot above; its post-restart
+revision and sustained health remain unverified. Neither record establishes a
+passed 30-minute soak or rollback rehearsal. No live telemetry/security
+acceptance or production promotion is claimed. See the
 [candidate report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md).
 
 PR #730's identity guard, PR #740's session-polling hardening, PR #741's
