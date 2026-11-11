@@ -118,10 +118,13 @@ example. PR #851 adds a TLS-verified, print-only local inventory collector for
 RouterOS scripts and scheduler bindings; it reports redacted fingerprints and
 aggregate findings. The collector has not yet been run against the router, so
 it does not establish the installed-source inventory or resolve the mismatch.
-The installed updater still differs from reviewed source and was not run. PR
-#806 was manually staged on canary and its exact embedded revision and healthy
-readiness were read back. No #806 rollback rehearsal or 30-minute soak has
-passed. The original updater error source remains unknown; authenticated live
+The installed updater still differs from reviewed source and was not run.
+Historical record: PR #806 was manually staged on canary and its exact embedded
+revision and healthy readiness were read back at that time. That record does
+not describe the current canary; see the Current project snapshot above for the
+later PR #894 read-back and restart, after which revision and sustained health
+remain unverified. No PR #806 rollback rehearsal or 30-minute soak is recorded.
+The original updater error source remains unknown; authenticated live
 acceptance remains open.
 
 The next formal release remains gated on candidate-specific canary acceptance

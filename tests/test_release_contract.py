@@ -414,6 +414,18 @@ class ReleaseContractTests(unittest.TestCase):
             normalized_roadmap,
         )
         self.assertIn(
+            "Historical record: PR #806 was manually staged on canary",
+            normalized_roadmap,
+        )
+        self.assertIn(
+            "That record does not describe the current canary",
+            normalized_roadmap,
+        )
+        self.assertNotIn(
+            "The installed updater still differs from reviewed source and was not run. PR #806 was manually staged",
+            normalized_roadmap,
+        )
+        self.assertIn(
             "Candidate-specific acceptance remains open: the measured 30-minute freshness",
             normalized_roadmap,
         )
@@ -530,7 +542,7 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "No #806 rollback rehearsal or 30-minute soak has passed",
+            "No PR #806 rollback rehearsal or 30-minute soak is recorded",
             rendered,
         )
         self.assertIn("Stats view showed 0.7% CPU, 60.9 MiB memory, and 0 B swap", rendered)
