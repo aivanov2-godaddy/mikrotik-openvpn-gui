@@ -432,6 +432,8 @@ document.addEventListener('click', (event) => {
 });
 
 function buildSessionCard(session) {
+  const list = $('[data-active-session-list]');
+  const canManageSessions = list?.dataset.canManageSessions === 'true';
   const card = node('article', 'session-card');
   card.dataset.sessionId = session.id;
   card.dataset.sessionUser = session.name || '';
@@ -448,10 +450,17 @@ function buildSessionCard(session) {
   const copy = node('div');
   const sessionState = node('small', 'session-state', `Connected securely · ${card.dataset.sessionEncoding}`);
   sessionState.dataset.sessionState = '';
-  copy.append(
-    node('strong', '', session.name || 'Unknown user'),
-    sessionState,
-  );
+  copy.append(node('strong', '', session.name || 'Unknown user'), sessionState);
+  if (canManageSessions && String(session.id || '')) {
+    const selectLabel = node('label', 'session-select-control');
+    const select = node('input');
+    select.type = 'checkbox';
+    select.dataset.sessionSelect = '';
+    select.value = String(session.id);
+    select.setAttribute('aria-label', `Select active connection for ${session.name || 'Unknown user'}`);
+    selectLabel.append(select, node('span', 'sr-only', 'Select active connection'));
+    main.append(selectLabel);
+  }
   main.append(orb, copy);
 
   const facts = node('dl', 'session-facts');
@@ -470,11 +479,15 @@ function buildSessionCard(session) {
   traffic.append(trafficValue);
   facts.append(traffic);
 
-  const terminate = node('button', 'terminate-button');
-  terminate.type = 'button';
-  terminate.dataset.terminate = '';
-  terminate.dataset.sessionId = session.id;
-  terminate.append(svgIcon('remove'), node('span', '', 'Terminate'));
+  const terminate = canManageSessions
+    ? node('button', 'terminate-button')
+    : node('span', 'read-only-note session-read-only', 'Session control restricted');
+  if (canManageSessions) {
+    terminate.type = 'button';
+    terminate.dataset.terminate = '';
+    terminate.dataset.sessionId = session.id;
+    terminate.append(svgIcon('remove'), node('span', '', 'Terminate'));
+  }
   card.append(main, facts, terminate, buildTrafficGraphs());
   return card;
 }
@@ -488,6 +501,184 @@ function buildOfflineState() {
   copy.append(node('strong', '', 'No devices connected'), node('small', '', 'Connections will appear here automatically.'));
   state.append(icon, copy);
   return state;
+}
+
+const selectedSessionIds = new Set();
+let sessionReviewQueue = null;
+
+function setSessionBulkStatus(message) {
+  const status = $('[data-session-bulk-status]');
+  if (status) status.textContent = message;
+}
+
+function activeSessionCards() {
+  return $$('.session-card', $('[data-active-session-list]') || undefined);
+}
+
+function sessionReviewPendingIds(queue = sessionReviewQueue) {
+  if (!queue) return [];
+  return queue.ids.filter((id) => !queue.completed.has(id) && !queue.skipped.has(id));
+}
+
+function renderSessionBulkReview() {
+  const panel = $('[data-session-bulk-review]');
+  if (!panel) return;
+  if (!sessionReviewQueue) {
+    panel.hidden = true;
+    $('[data-session-bulk-review-list]', panel)?.replaceChildren();
+    return;
+  }
+
+  const queue = sessionReviewQueue;
+  const list = $('[data-session-bulk-review-list]', panel);
+  const pending = sessionReviewPendingIds(queue);
+  const cards = activeSessionCards();
+  list?.replaceChildren(...queue.ids.map((id) => {
+    const card = cards.find((item) => item.dataset.sessionId === id);
+    const item = node('li', 'session-review-item');
+    const name = card?.dataset.sessionUser || 'VPN device';
+    const state = queue.completed.has(id)
+      ? 'Disconnected after individual review'
+      : queue.skipped.has(id)
+        ? 'No longer active · skipped'
+        : queue.currentId === id
+          ? 'Review open'
+          : 'Awaiting individual review';
+    item.append(node('strong', '', name), node('span', '', state));
+    return item;
+  }));
+
+  const progress = $('[data-session-bulk-progress]', panel);
+  const reviewed = queue.completed.size;
+  const skipped = queue.skipped.size;
+  if (progress) {
+    progress.textContent = pending.length
+      ? `${reviewed} of ${queue.ids.length} individually disconnected · ${skipped} ended before review · ${pending.length} awaiting a separate review.`
+      : `Review queue complete · ${reviewed} individually disconnected · ${skipped} ended before review. No batch disconnect was sent.`;
+  }
+  const next = $('[data-session-review-next]', panel);
+  const nextId = pending[0];
+  const nextCard = nextId && cards.find((item) => item.dataset.sessionId === nextId);
+  const nextTerminate = nextCard && $('[data-terminate]', nextCard);
+  if (next) next.disabled = Boolean(queue.currentId) || !nextId || !nextCard
+    || nextCard.classList.contains('session-stale') || nextTerminate?.disabled === true;
+  panel.hidden = false;
+}
+
+function updateSessionSelectionControls() {
+  const list = $('[data-active-session-list]');
+  const controls = $('[data-session-bulk-controls]');
+  if (!list || !controls) return;
+  const cards = activeSessionCards();
+  const selectable = [];
+  cards.forEach((card) => {
+    const input = $('[data-session-select]', card);
+    if (!input) return;
+    input.checked = selectedSessionIds.has(card.dataset.sessionId);
+    input.disabled = card.classList.contains('session-stale');
+    if (!input.disabled) selectable.push(input);
+  });
+
+  const selectedCards = cards.filter((card) => selectedSessionIds.has(card.dataset.sessionId));
+  const staleSelection = selectedCards.some((card) => card.classList.contains('session-stale'));
+  const count = $('[data-session-selection-count]', controls);
+  const clear = $('[data-session-selection-clear]', controls);
+  const review = $('[data-session-review-selected]', controls);
+  const selectAll = $('[data-session-select-all]', controls);
+  if (count) count.textContent = `${selectedSessionIds.size} selected`;
+  if (clear) clear.disabled = selectedSessionIds.size === 0;
+  if (review) review.disabled = selectedSessionIds.size === 0
+    || selectedCards.length !== selectedSessionIds.size || staleSelection || Boolean(sessionReviewQueue);
+  if (selectAll) {
+    const selectedSelectable = selectable.filter((input) => selectedSessionIds.has(input.value)).length;
+    selectAll.disabled = selectable.length === 0;
+    selectAll.checked = selectable.length > 0 && selectedSelectable === selectable.length;
+    selectAll.indeterminate = selectedSelectable > 0 && selectedSelectable < selectable.length;
+  }
+}
+
+function reconcileSessionSelection(activeIds) {
+  const removed = [...selectedSessionIds].filter((id) => !activeIds.has(id));
+  if (!removed.length) return;
+  removed.forEach((id) => {
+    selectedSessionIds.delete(id);
+    if (sessionReviewQueue?.ids.includes(id) && !sessionReviewQueue.completed.has(id)) {
+      sessionReviewQueue.skipped.add(id);
+      if (sessionReviewQueue.currentId === id) sessionReviewQueue.currentId = null;
+    }
+  });
+  const noun = removed.length === 1 ? 'connection ended' : 'connections ended';
+  setSessionBulkStatus(`${removed.length} selected ${noun} and ${removed.length === 1 ? 'was' : 'were'} removed. Any pending review was skipped; remaining connections still require individual review.`);
+}
+
+function cancelSessionBulkReview(message = '') {
+  if (!sessionReviewQueue) return;
+  sessionReviewQueue = null;
+  renderSessionBulkReview();
+  updateSessionSelectionControls();
+  if (message) setSessionBulkStatus(message);
+}
+
+function beginSessionBulkReview() {
+  const cards = activeSessionCards();
+  const selected = cards.filter((card) => selectedSessionIds.has(card.dataset.sessionId));
+  if (!selected.length || selected.length !== selectedSessionIds.size) {
+    setSessionBulkStatus('The live session list changed. Select the active connections again before reviewing.');
+    return;
+  }
+  if (selected.some((card) => card.classList.contains('session-stale') || $('[data-session-select]', card)?.disabled)) {
+    setSessionBulkStatus('Live connection data is delayed. Wait for a fresh RouterOS update before reviewing disconnects.');
+    return;
+  }
+  sessionReviewQueue = {
+    ids: selected.map((card) => card.dataset.sessionId),
+    completed: new Set(),
+    skipped: new Set(),
+    currentId: null,
+  };
+  setSessionBulkStatus('Review queue ready. Nothing has changed; each connection needs its own impact review and confirmation.');
+  renderSessionBulkReview();
+  updateSessionSelectionControls();
+  $('[data-session-bulk-review]')?.focus();
+}
+
+function reviewNextSession() {
+  const queue = sessionReviewQueue;
+  if (!queue || queue.currentId) return;
+  const id = sessionReviewPendingIds(queue)[0];
+  if (!id) {
+    renderSessionBulkReview();
+    return;
+  }
+  const card = activeSessionCards().find((item) => item.dataset.sessionId === id);
+  const terminate = card && $('[data-terminate]', card);
+  if (!card || !terminate) {
+    queue.skipped.add(id);
+    selectedSessionIds.delete(id);
+    setSessionBulkStatus('A selected connection is no longer available for review. It was skipped; verify the live list before continuing.');
+    renderSessionBulkReview();
+    updateSessionSelectionControls();
+    return;
+  }
+  if (card.classList.contains('session-stale') || terminate.disabled) {
+    setSessionBulkStatus('Live connection data is delayed. Wait for a fresh RouterOS update before reviewing disconnects.');
+    return;
+  }
+  queue.currentId = id;
+  setSessionBulkStatus(`Reviewing ${card.dataset.sessionUser || 'VPN device'} with the existing single-session safeguards. No other connection will be changed.`);
+  renderSessionBulkReview();
+  updateSessionSelectionControls();
+  terminate.click();
+}
+
+function completeQueuedSessionReview(sessionId) {
+  if (!sessionReviewQueue || sessionReviewQueue.currentId !== sessionId) return;
+  sessionReviewQueue.completed.add(sessionId);
+  sessionReviewQueue.currentId = null;
+  selectedSessionIds.delete(sessionId);
+  setSessionBulkStatus('This connection was disconnected after its individual review. Choose Review next session to continue, or cancel the remaining queue.');
+  renderSessionBulkReview();
+  updateSessionSelectionControls();
 }
 
 function updateSessionCard(card, session, timestamp) {
@@ -535,15 +726,48 @@ function updateSessionCard(card, session, timestamp) {
 function syncActiveSessions(sessions, timestamp) {
   const list = $('[data-active-session-list]');
   if (!list) return;
-  const existingIds = $$('.session-card', list).map((item) => item.dataset.sessionId).sort();
-  const incomingIds = sessions.map((item) => item.id).sort();
+  const activeIds = new Set(sessions.map((item) => String(item.id || '')).filter(Boolean));
+  reconcileSessionSelection(activeIds);
+  const previousCards = activeSessionCards();
+  const focusedElement = document.activeElement;
+  const focusedCard = focusedElement?.closest('.session-card');
+  const focusedSessionId = focusedCard?.dataset.sessionId || '';
+  const focusedSessionIndex = focusedCard ? previousCards.indexOf(focusedCard) : -1;
+  const focusKind = focusedElement?.matches('[data-session-select]')
+    ? 'select'
+    : focusedElement?.matches('[data-terminate]')
+      ? 'terminate'
+      : focusedElement?.matches('button[data-graph-view]')
+        ? 'graph-view'
+        : '';
+  const focusedGraphView = focusKind === 'graph-view' ? focusedElement.dataset.graphView : '';
+  const existingIds = previousCards.map((item) => item.dataset.sessionId).sort();
+  const incomingIds = [...activeIds].sort();
   if (existingIds.join('|') !== incomingIds.join('|')) {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
     list.replaceChildren(...(sessions.length ? sessions.map(buildSessionCard) : [buildOfflineState()]));
+    window.scrollTo(scrollX, scrollY);
+    if (focusKind) {
+      const cards = activeSessionCards();
+      const sameSession = cards.find((item) => item.dataset.sessionId === focusedSessionId);
+      const fallbackCard = cards[Math.min(Math.max(focusedSessionIndex, 0), cards.length - 1)];
+      const targetCard = sameSession || fallbackCard;
+      const focusTarget = !targetCard ? null : focusKind === 'select'
+        ? $('[data-session-select]', targetCard)
+        : focusKind === 'terminate'
+          ? $('[data-terminate]', targetCard)
+          : $$('button[data-graph-view]', targetCard)
+            .find((button) => button.dataset.graphView === focusedGraphView);
+      (focusTarget || list).focus({ preventScroll: true });
+    }
   }
   sessions.forEach((session) => {
     const card = $$('.session-card', list).find((item) => item.dataset.sessionId === session.id);
     if (card) updateSessionCard(card, session, timestamp);
   });
+  updateSessionSelectionControls();
+  renderSessionBulkReview();
 }
 
 function preserveIncompleteSessionCounters(sessions) {
@@ -612,7 +836,11 @@ function setActiveSessionsStale(stale) {
         ? 'Waiting for a fresh RouterOS session update before allowing termination.'
         : '';
     }
+    const selection = $('[data-session-select]', card);
+    if (selection) selection.disabled = stale;
   });
+  updateSessionSelectionControls();
+  renderSessionBulkReview();
 }
 
 function formatDuration(seconds) {
@@ -1747,7 +1975,16 @@ $$('dialog').forEach((modal) => {
     });
   }
   if (modal.id === 'terminate-dialog') {
-    modal.addEventListener('close', () => { terminationAttempt = null; });
+    modal.addEventListener('close', () => {
+      const queuedSessionId = sessionReviewQueue?.currentId;
+      terminationAttempt = null;
+      if (!queuedSessionId || !sessionReviewQueue) return;
+      const card = activeSessionCards().find((item) => item.dataset.sessionId === queuedSessionId);
+      sessionReviewQueue.currentId = null;
+      setSessionBulkStatus(`Review closed without disconnecting ${card?.dataset.sessionUser || 'the selected connection'}. It remains selected and requires a fresh individual review to continue.`);
+      renderSessionBulkReview();
+      updateSessionSelectionControls();
+    });
   }
 });
 
@@ -2065,6 +2302,43 @@ if (bulkRoot) {
   });
 }
 
+const sessionBulkControls = $('[data-session-bulk-controls]');
+if (sessionBulkControls) {
+  updateSessionSelectionControls();
+  document.addEventListener('change', (event) => {
+    const input = event.target.closest('[data-session-select]');
+    if (!input) return;
+    if (sessionReviewQueue) {
+      cancelSessionBulkReview('Selection changed. The remaining review queue was canceled; no queued disconnect was applied.');
+    }
+    if (input.checked) selectedSessionIds.add(input.value);
+    else selectedSessionIds.delete(input.value);
+    updateSessionSelectionControls();
+    setSessionBulkStatus(`${selectedSessionIds.size} active connection${selectedSessionIds.size === 1 ? '' : 's'} selected. Each needs its own review and confirmation.`);
+  });
+  $('[data-session-select-all]', sessionBulkControls)?.addEventListener('change', (event) => {
+    if (sessionReviewQueue) {
+      cancelSessionBulkReview('Selection changed. The remaining review queue was canceled; no queued disconnect was applied.');
+    }
+    const inputs = $$('[data-session-select]').filter((input) => !input.disabled);
+    if (event.currentTarget.checked) inputs.forEach((input) => selectedSessionIds.add(input.value));
+    else inputs.forEach((input) => selectedSessionIds.delete(input.value));
+    updateSessionSelectionControls();
+    setSessionBulkStatus(`${selectedSessionIds.size} active connection${selectedSessionIds.size === 1 ? '' : 's'} selected. Each needs its own review and confirmation.`);
+  });
+  $('[data-session-selection-clear]', sessionBulkControls)?.addEventListener('click', () => {
+    cancelSessionBulkReview();
+    selectedSessionIds.clear();
+    updateSessionSelectionControls();
+    setSessionBulkStatus('Selection cleared. No connection was changed.');
+  });
+  $('[data-session-review-selected]', sessionBulkControls)?.addEventListener('click', beginSessionBulkReview);
+  $('[data-session-review-next]', sessionBulkControls)?.addEventListener('click', reviewNextSession);
+  $('[data-session-review-cancel]', sessionBulkControls)?.addEventListener('click', () => {
+    cancelSessionBulkReview('Remaining reviews canceled. Any connection already confirmed remains disconnected; pending connections were not changed.');
+  });
+}
+
 function applyHistoryFilters() {
   const query = $('[data-history-search]')?.value.trim().toLocaleLowerCase() || '';
   const category = $('[data-history-category]')?.value || 'all';
@@ -2354,6 +2628,10 @@ document.addEventListener('click', async (event) => {
     $('[data-revoke-apply]', form).disabled = true;
     openDialog('revoke-device-dialog');
   } else if (button.matches('[data-terminate]')) {
+    const sessionId = String(button.dataset.sessionId || '');
+    if (sessionReviewQueue && sessionReviewQueue.currentId !== sessionId) {
+      cancelSessionBulkReview('A separate single-session review was opened. The remaining queue was canceled; no queued disconnect was applied.');
+    }
     const form = $('#terminate-form');
     const sessionCard = button.closest('.session-card');
     form.reset();
@@ -2724,6 +3002,7 @@ $('#terminate-form')?.addEventListener('submit', async (event) => {
   try {
     await resultOrError(await api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', body: { confirmation: data.get('confirmation'), reason: data.get('reason'), review_token: data.get('review_token') } }));
     if (attempt.observedInactive) return;
+    completeQueuedSessionReview(String(sessionId || ''));
     setStatus(form, 'Session terminated.');
     toast('OpenVPN session terminated.');
     setTimeout(() => { getDialog('terminate-dialog').close(); pollStatus(); }, 450);

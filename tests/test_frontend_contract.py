@@ -60,6 +60,36 @@ class FrontendLiveUpdateContractTests(unittest.TestCase):
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("if (!user) return;", source)
 
+    def test_connection_selection_survives_live_card_replacement_and_ended_sessions_are_pruned(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const selectedSessionIds = new Set();", source)
+        sync = source.split("function syncActiveSessions(sessions, timestamp)", 1)[1].split(
+            "function preserveIncompleteSessionCounters", 1,
+        )[0]
+        self.assertIn("reconcileSessionSelection(activeIds);", sync)
+        self.assertIn("list.replaceChildren(", sync)
+        self.assertIn("window.scrollTo(scrollX, scrollY);", sync)
+        self.assertIn("updateSessionSelectionControls();", sync)
+        self.assertIn("selectedSessionIds.delete(id);", source)
+        self.assertIn("queue.skipped.add(id);", source)
+
+    def test_connection_sequential_review_reuses_single_session_mutation_guards(self) -> None:
+        source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        template = (ROOT / "templates.py").read_text(encoding="utf-8")
+        next_review = source.split("function reviewNextSession()", 1)[1].split(
+            "function completeQueuedSessionReview", 1,
+        )[0]
+        single_termination = source.split("$('#terminate-form')?.addEventListener('submit'", 1)[1].split(
+            "$('#terminate-form')?.addEventListener('input'", 1,
+        )[0]
+        self.assertIn("terminate.click();", next_review)
+        self.assertNotIn("api(", next_review)
+        self.assertIn("/api/sessions/${encodeURIComponent(data.get('session_id'))}/preview", source)
+        self.assertIn("review_token: data.get('review_token')", single_termination)
+        self.assertIn("completeQueuedSessionReview(String(sessionId || ''))", single_termination)
+        self.assertIn("Nothing is disconnected as a batch.", template)
+        self.assertIn("data-session-review-next", template)
+
     def test_live_rates_use_one_receive_clock_and_ignore_short_intervals(self) -> None:
         source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("const MIN_RATE_SAMPLE_INTERVAL_MS = 5000;", source)

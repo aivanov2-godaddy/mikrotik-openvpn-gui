@@ -674,9 +674,9 @@ class DevicePostureTests(unittest.TestCase):
 
 class DashboardTemplateRoleTests(unittest.TestCase):
     @staticmethod
-    def render_dashboard(role: str) -> str:
+    def render_dashboard(role: str, sessions: list[dict[str, Any]] | None = None) -> str:
         return dashboard_page(
-            actor="operator", csrf="csrf", users=[], sessions=[], admin_sessions=[],
+            actor="operator", csrf="csrf", users=[], sessions=sessions or [], admin_sessions=[],
             devices=[], connections=[], connection_summaries={}, certificates=[],
             profile_migrations={}, current_ca="", ovpn_server={}, warnings=[],
             audit=[], alerts=[], policy_templates=[], admin_role=role, router={},
@@ -690,6 +690,25 @@ class DashboardTemplateRoleTests(unittest.TestCase):
         self.assertIn('Add VPN user', owner_page)
         self.assertNotIn('data-open-add', read_only_page)
         self.assertIn('Read-only RouterOS account', read_only_page)
+
+    def test_connection_selection_and_review_toolbar_are_gated_by_session_manage(self) -> None:
+        sessions = [{
+            "id": "*A1", "name": "user-two", "source_address": "192.0.2.8",
+            "vpn_address": "10.8.0.8", "encoding": "AES-256-GCM", "uptime": "1m",
+        }]
+        owner_page = self.render_dashboard("owner", sessions)
+        read_only_page = self.render_dashboard("read_only", sessions)
+
+        self.assertIn('data-session-bulk-controls', owner_page)
+        self.assertIn('data-session-select value="*A1"', owner_page)
+        self.assertIn('data-can-manage-sessions="true"', owner_page)
+        self.assertIn('Review selected disconnects', owner_page)
+        read_only_sessions = read_only_page.split('data-active-session-list', 1)[1].split('data-connection-history', 1)[0]
+        self.assertNotIn('data-session-bulk-controls', read_only_page)
+        self.assertNotIn('data-session-select', read_only_page)
+        self.assertNotIn('data-terminate', read_only_sessions)
+        self.assertIn('data-can-manage-sessions="false"', read_only_page)
+        self.assertIn('Session control restricted', read_only_page)
 
 
 class DashboardIntegrationTests(unittest.TestCase):
