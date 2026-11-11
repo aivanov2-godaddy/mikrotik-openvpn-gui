@@ -191,6 +191,25 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
         )
         self.assertIn("superseded by PR #894 above", routeros)
 
+    def test_current_inventory_group_policy_does_not_relabel_old_report(self) -> None:
+        roadmap = " ".join(
+            (ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8").split()
+        )
+        acceptance = " ".join(
+            (ROOT / "docs" / "ROUTEROS_ACCEPTANCE.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        for document in (roadmap, acceptance):
+            self.assertIn("`read,api,rest-api`", document)
+            self.assertIn("one existing group member", document)
+            self.assertIn("predates this policy change", document)
+            self.assertIn("No account was created and no password was changed", document)
+        self.assertIn("all installed sources still require private review", roadmap)
+        self.assertIn(
+            "scheduler bindings still require private reconciliation", acceptance
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

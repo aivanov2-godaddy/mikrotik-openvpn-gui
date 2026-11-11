@@ -50,6 +50,19 @@ identity and address details, raw source, and source fingerprints remain in
 the operator-controlled private record. The candidate binding and installed
 sources require private review.
 
+## Current inventory-group policy read-back — 2026-11-11
+
+A later read-only WinBox read-back verified the existing inventory group's
+exact enabled policies as `read,api,rest-api` and showed one existing group
+member. This verifies the group policy and membership count only; the member's
+source-address restriction and exhaustive RouterOS visibility were not
+rechecked. No account was created and no password was changed. The 13:02 UTC
+private inventory report above predates this policy change, so it must not be
+used as a post-change source/scheduler inventory. Installed script contents and
+scheduler bindings still require private reconciliation. Keep the updater
+disabled. This policy read-back is not candidate staging or deployment
+acceptance.
+
 A bounded local exact-hash check performed before PR #916 merged compared the
 five private source fingerprints with 58 `.rsc` or updater-named blobs
 reachable from fetched Git refs at base `5f8f4aa`; it found no exact matches.
