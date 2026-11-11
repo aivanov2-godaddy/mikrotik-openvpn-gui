@@ -207,6 +207,8 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         self.assertIsNone(report["opaque_scheduler_event_count"])
         self.assertEqual(report["inventory_scope"], "manifest_listed_only")
         self.assertEqual(report["inventory_exhaustiveness"], "not_verified")
+        self.assertTrue(report["script_binding_references_resolved"])
+        self.assertIsNone(report["manifest_scheduler_targets_resolved"])
         self.assertTrue(report["listed_bindings_resolved"])
         copies = report["scripts"]
         self.assertTrue(copies[0]["exact_match"])
@@ -335,7 +337,9 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         self.assertEqual(report["disabled_scheduler_count"], 2)
         self.assertEqual(report["opaque_scheduler_event_count"], 2)
         self.assertEqual(report["enabled_opaque_scheduler_event_count"], 1)
-        self.assertTrue(report["listed_bindings_resolved"])
+        self.assertTrue(report["script_binding_references_resolved"])
+        self.assertFalse(report["manifest_scheduler_targets_resolved"])
+        self.assertFalse(report["listed_bindings_resolved"])
         scripts = report["scripts"]
         self.assertEqual(scripts[0]["scheduler_binding_count"], 2)
         self.assertEqual(scripts[0]["enabled_scheduler_binding_count"], 1)
@@ -344,6 +348,34 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         rendered = json.dumps(report)
         for marker in ("active-updater", "disabled-updater", "disabled-other", "active-opaque"):
             self.assertNotIn(marker, rendered)
+
+    def test_inventory_v2_reports_resolved_when_all_manifest_targets_are_listed_scripts(self) -> None:
+        reference = b":local updater \"reviewed\"\n"
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "copy-a.rsc").write_bytes(reference)
+            manifest = {
+                "schema_version": 2,
+                "scripts": [{"id": "copy-a", "path": "copy-a.rsc"}],
+                "schedulers": [
+                    {
+                        "id": "listed-updater",
+                        "enabled": True,
+                        "target_kind": "listed_script",
+                        "script_id": "copy-a",
+                    }
+                ],
+            }
+            inventory_path = root / "inventory.json"
+            inventory_path.write_text("{}", encoding="utf-8")
+
+            report = compare_routeros_updater.compare_inventory(
+                reference, json.dumps(manifest).encode(), inventory_path
+            )
+
+        self.assertTrue(report["script_binding_references_resolved"])
+        self.assertTrue(report["manifest_scheduler_targets_resolved"])
+        self.assertTrue(report["listed_bindings_resolved"])
 
     def test_inventory_v2_cli_keeps_opaque_event_values_out_of_report(self) -> None:
         reference = b":local updater \"reviewed\"\n"
@@ -373,6 +405,9 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(report["opaque_scheduler_event_count"], 1)
         self.assertEqual(report["enabled_opaque_scheduler_event_count"], 0)
+        self.assertTrue(report["script_binding_references_resolved"])
+        self.assertFalse(report["manifest_scheduler_targets_resolved"])
+        self.assertFalse(report["listed_bindings_resolved"])
         self.assertNotIn("private-scheduler-id", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
 
@@ -457,6 +492,8 @@ class CompareRouterOSUpdaterTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(report["inventory_scope"], "manifest_listed_only")
         self.assertEqual(report["inventory_exhaustiveness"], "not_verified")
+        self.assertTrue(report["script_binding_references_resolved"])
+        self.assertIsNone(report["manifest_scheduler_targets_resolved"])
         self.assertTrue(report["listed_bindings_resolved"])
         self.assertTrue(report["scripts"][0]["risk_flags"]["credential_marker_added"])
         self.assertEqual(stderr.getvalue(), "")

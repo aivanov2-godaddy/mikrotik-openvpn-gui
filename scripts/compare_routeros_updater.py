@@ -452,6 +452,14 @@ def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> di
 
     The manifest is a normalized operator transcription, not a RouterOS export
     parser and not proof that its contents match the live device.
+
+    ``script_binding_references_resolved`` reports whether every represented
+    direct reference points to a listed script. The explicit
+    ``manifest_scheduler_targets_resolved`` field is ``None`` for legacy
+    schema 1, which cannot classify all scheduler entries, and otherwise is
+    false when any schema 2 scheduler target is opaque. The legacy
+    ``listed_bindings_resolved`` flag remains present and becomes conservative
+    for schema 2 by returning false when opaque targets remain.
     """
     _validate_text(reference)
     scripts, schedulers, schema_version = _parse_inventory(data)
@@ -515,6 +523,10 @@ def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> di
                 "risk_flags": report["risk_flags"],
             }
         )
+    manifest_scheduler_targets_resolved = (
+        opaque_scheduler_count == 0 if schema_version == 2 else None
+    )
+    listed_bindings_resolved = manifest_scheduler_targets_resolved is not False
     return {
         "script_count": len(scripts),
         "scheduler_count": len(schedulers),
@@ -531,7 +543,9 @@ def compare_inventory(reference: bytes, data: bytes, inventory_path: Path) -> di
         "enabled_opaque_scheduler_event_count": (
             enabled_opaque_scheduler_count if schema_version == 2 else None
         ),
-        "listed_bindings_resolved": True,
+        "script_binding_references_resolved": True,
+        "manifest_scheduler_targets_resolved": manifest_scheduler_targets_resolved,
+        "listed_bindings_resolved": listed_bindings_resolved,
         "scripts": comparisons,
     }
 

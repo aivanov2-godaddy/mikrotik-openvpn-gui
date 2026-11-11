@@ -347,12 +347,23 @@ returns only aggregate enabled/disabled scheduler counts and the count of
 opaque events; it never returns scheduler IDs or event contents.
 `scheduler_inventory_classified: true` means each scheduler entry in the
 manifest was represented as a listed-script binding or opaque event; it does
-not mean an opaque event was analyzed. The report also includes
-`inventory_scope: "manifest_listed_only"` and
-`inventory_exhaustiveness: "not_verified"`; `listed_bindings_resolved` only
-describes direct bindings to script IDs present in the manifest. The offline
-tool cannot prove that every RouterOS script, scheduler, or indirect invocation
-was inventoried, so even a zero exit code is not proof of a complete
+not mean an opaque event was analyzed.
+
+`script_binding_references_resolved` reports whether every direct script
+reference points to a script ID in the manifest.
+`manifest_scheduler_targets_resolved` is `true` only for schema version 2
+when every represented scheduler target is classified as a listed script; it
+is `false` when any represented target is opaque, and `null` for schema
+version 1, which cannot classify all scheduler entries. The legacy
+`listed_bindings_resolved` remains `false` for schema version 2 when opaque
+targets remain. Schema version 1 may still report `true` because the legacy
+field predates full scheduler classification; consumers should prefer the
+explicit fields above.
+
+The report also includes `inventory_scope: "manifest_listed_only"` and
+`inventory_exhaustiveness: "not_verified"`. The offline tool cannot prove
+that every RouterOS script, scheduler, or indirect invocation was inventoried,
+so even a zero exit code is not proof of a complete
 installed-device reconciliation. Any nonzero opaque-event count still needs
 private manual review before updater execution.
 Keep that report private too: a full-file hash can fingerprint known content.
