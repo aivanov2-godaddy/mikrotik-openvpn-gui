@@ -44,6 +44,16 @@ visibility. Exact identity and address details, raw source, and source
 fingerprints remain in the operator-controlled private record. The candidate
 binding and installed sources require private review.
 
+A separate local exact-hash check compared the five private source fingerprints
+with 58 `.rsc` or updater-named blobs reachable from the currently fetched Git
+refs at `5f8f4aa`; it found no exact matches. This rules out only an exact copy
+among those repository blobs. The inventory contains fingerprints and
+redacted markers, not raw script source, so it does not support a code-level
+review of the installed scripts or the unresolved scheduler internal-ID
+candidate. No private hash, filename, source text, scheduler event, or router
+identifier was added to this document. The updater remains disabled pending
+private source review and binding verification.
+
 This inventory is not a canary read-back or acceptance result. It does not
 identify an image digest, embedded revision, readiness, running health,
 production-unchanged state, or rollback. No RouterOS script, scheduler,
