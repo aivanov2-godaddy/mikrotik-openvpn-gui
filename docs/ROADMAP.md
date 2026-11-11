@@ -60,8 +60,13 @@ internal script-ID candidate, with no opaque or ambiguous targets in the
 returned data. No installed source exactly matched a reviewed repository
 template, and all five source assessments flag missing canary rollback/restore
 verification. The collector's complete-print-response flag describes returned
-API replies only; it does not establish caller authorization or exhaustive
-RouterOS visibility. The private report and source fingerprints remain
+API replies only; it does not establish exhaustive RouterOS visibility. A
+separate read-only WinBox inspection confirmed the existing inventory identity
+is in a `read,api` group with write, policy, sensitive, and interactive-service
+privileges denied, and its RouterOS user record is restricted to the collection
+VM's source address. This verifies configured role and source restrictions; it
+does not prove exhaustive record visibility. Exact identity and address details
+remain private. The private report and source fingerprints remain
 operator-controlled; no raw source, scheduler event text, or credentials were
 written. The internal-ID candidate and all installed sources still require
 private review. Keep the dedicated updater disabled; the separate generic
@@ -136,13 +141,17 @@ five scripts and three scheduler entries, classified two direct bindings and
 one internal-ID candidate, and reported no opaque or ambiguous targets in the
 returned data. No installed source exactly matched a reviewed repository
 template; each of the five assessments flags missing canary rollback/restore
-verification. The report remains review-required and its response-completeness
-flag does not prove caller authorization or exhaustive RouterOS visibility.
-The private report/fingerprints remain operator-controlled. No RouterOS script,
-scheduler, or configuration changed. Private source review and binding
+verification. A separate read-only WinBox view confirmed the existing
+inventory identity's `read,api` group denies write, policy, sensitive, and
+interactive-service privileges, and restricts the user record to the collection
+VM's source address. This verifies configured role and source restrictions,
+but the report remains review-required and does not prove exhaustive record
+visibility. The private report/fingerprints remain operator-controlled. No
+RouterOS script, scheduler, or configuration changed. Private source review and binding
 reconciliation remain outstanding; the collector has not resolved the
-mismatch. A separate partial operator-reported inspection is described in the
-Current project snapshot above. The installed updater was not run.
+mismatch. The separate read-only WinBox permission check above does not review
+installed script behavior or resolve its binding. The installed updater was
+not run.
 Historical record: PR #806 was manually staged on canary and its exact embedded
 revision and healthy readiness were read back at that time. That record does
 not describe the current canary; see the Current project snapshot above for the

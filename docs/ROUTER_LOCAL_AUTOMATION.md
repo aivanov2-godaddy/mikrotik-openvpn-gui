@@ -275,9 +275,14 @@ completed a TLS-verified, read-only inventory and wrote a report classified
 direct bindings, and one internal script-ID candidate. No opaque or ambiguous
 target was reported in the returned data, but no installed source exactly
 matched a reviewed repository template; all five assessments flag missing
-canary rollback/restore verification. The report's complete-print-response
-flag does not establish caller authorization or exhaustive RouterOS visibility.
-Its fingerprints stay in the operator-controlled private report. The candidate
+canary rollback/restore verification. A separate read-only WinBox inspection
+confirmed the existing inventory identity is in a `read,api` group with write,
+policy, sensitive, and interactive-service privileges denied, and that the
+RouterOS user record is restricted to the collection VM's source address. This
+verifies configured role and source restrictions; the collector's
+complete-print-response flag still does not establish exhaustive RouterOS
+visibility. Exact identity and address details and the report fingerprints stay
+in the operator-controlled private record. The candidate
 binding and each source remain subject to private review; do not run the
 unknown updater to learn its behavior. Issue #785 remains open until source and
 binding discrepancies are resolved, every returned target is understood, and

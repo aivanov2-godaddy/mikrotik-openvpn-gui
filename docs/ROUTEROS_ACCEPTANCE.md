@@ -35,10 +35,14 @@ It received five script records and three scheduler records: two direct
 bindings and one internal script-ID candidate. No opaque or ambiguous target
 was reported in returned data. No installed source exactly matched a reviewed
 repository template, and all five source assessments flag missing canary
-rollback/restore verification. The returned-print-response completeness flag
-does not establish caller authorization or exhaustive RouterOS visibility.
-Raw source and source fingerprints remain in the operator-controlled private
-report. The candidate binding and installed sources require private review.
+rollback/restore verification. A separate read-only WinBox inspection confirmed
+the existing inventory identity is in a `read,api` group with write, policy,
+sensitive, and interactive-service privileges denied, and that the RouterOS
+user record is restricted to the collection VM's source address. This verifies
+configured role and source restrictions but does not prove exhaustive record
+visibility. Exact identity and address details, raw source, and source
+fingerprints remain in the operator-controlled private record. The candidate
+binding and installed sources require private review.
 
 This inventory is not a canary read-back or acceptance result. It does not
 identify an image digest, embedded revision, readiness, running health,
