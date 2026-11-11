@@ -354,7 +354,8 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #907", release_record)
+        self.assertIn("## Latest published mainline image — PR #909", release_record)
+        self.assertIn("## Previous published mainline image — PR #907", release_record)
         self.assertIn("## Previous published mainline image — PR #901", release_record)
         self.assertIn("## Previous published mainline image — PR #897", release_record)
         self.assertIn("## Previous published mainline image — PR #896", release_record)
@@ -383,7 +384,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:ac36036b13842a7bb2ac5611705403e1165c84ac2a07115af8a192f9ccf7ba6f", release_record)
         self.assertIn("sha256:55aae2f27b0469b807c27064a339a04bbb7c938c1198f51e033440aa9f2f67f4", release_record)
         self.assertIn(
-            "PR #907 has not been staged on RouterOS",
+            "PR #909 has not been staged on RouterOS",
             " ".join(release_record.split()),
         )
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
@@ -498,7 +499,7 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Latest published image: PR #907; not staged on RouterOS.",
+            "Latest published image: PR #909; not staged on RouterOS.",
             installation,
         )
         self.assertIn(
@@ -506,7 +507,7 @@ class ReleaseContractTests(unittest.TestCase):
             installation,
         )
         self.assertIn(
-            "PR #907, commit `a03767c3e06791d591b2460bbd9a54209c8692c4`",
+            "PR #909, commit `344cd03a41d18eb3b98076d5dbed8be60ef60a02`",
             installation,
         )
         self.assertIn("sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581", release_record)
