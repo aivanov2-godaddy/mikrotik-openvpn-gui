@@ -1,5 +1,5 @@
 # Optional native Socket.IO WebSocket runtime.  The stdlib polling bridge
 # remains available as the rollback mode.
-python-socketio==5.17.0
+python-socketio==5.18.1
 uvicorn==0.54.0
-websockets==17.3
+websockets==17.4
