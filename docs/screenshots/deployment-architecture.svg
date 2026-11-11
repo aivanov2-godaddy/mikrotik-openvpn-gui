@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
   <title id="title">MikroTik OpenVPN deployment architecture</title>
-  <desc id="desc">Public GitHub repository publishes an immutable GHCR image. A RouterOS scheduler downloads it, validates canary, and promotes production. Private configuration and data stay on the router.</desc>
+  <desc id="desc">Supported design: a public GitHub repository publishes an immutable GHCR image. A RouterOS scheduler stages it on canary and checks readiness. A separate local promotion controller rechecks fresh acceptance evidence and exact image identities before a production update. Private configuration and data stay on the router. The current installation is not claimed to match this design.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#172631"/><stop offset="1" stop-color="#101b23"/>
@@ -28,27 +28,30 @@
   <rect x="640" y="125" width="220" height="105" class="box private" filter="url(#shadow)"/>
   <text x="750" y="163" text-anchor="middle" class="title">RouterOS scheduler</text>
   <text x="750" y="192" text-anchor="middle" class="label">Runs on your router</text>
-  <text x="750" y="215" text-anchor="middle" class="small">Verifies approved SHA</text>
+  <text x="750" y="215" text-anchor="middle" class="small">Stages canary only</text>
 
   <path d="M280 178 H345" class="arrow"/><path d="M570 178 H635" class="arrow"/>
 
-  <rect x="790" y="300" width="220" height="105" class="box private" filter="url(#shadow)"/>
-  <text x="900" y="338" text-anchor="middle" class="title">Canary validation</text>
-  <text x="900" y="367" text-anchor="middle" class="label">Health + readiness checks</text>
-  <text x="900" y="390" text-anchor="middle" class="small">Production untouched if bad</text>
+  <rect x="900" y="125" width="240" height="105" class="box private" filter="url(#shadow)"/>
+  <text x="1020" y="163" text-anchor="middle" class="title">Canary validation</text>
+  <text x="1020" y="192" text-anchor="middle" class="label">Health + readiness checks</text>
+  <text x="1020" y="215" text-anchor="middle" class="small">Production remains untouched</text>
 
-  <rect x="500" y="475" width="220" height="105" class="box private" filter="url(#shadow)"/>
-  <text x="610" y="513" text-anchor="middle" class="title">Production update</text>
-  <text x="610" y="542" text-anchor="middle" class="label">Promote only when healthy</text>
-  <text x="610" y="565" text-anchor="middle" class="small">Previous image retained</text>
+  <rect x="850" y="305" width="340" height="110" class="box private" filter="url(#shadow)"/>
+  <text x="1020" y="343" text-anchor="middle" class="title">Local promotion controller</text>
+  <text x="1020" y="372" text-anchor="middle" class="label">Rechecks fresh acceptance evidence</text>
+  <text x="1020" y="399" text-anchor="middle" class="small">Matches exact canary and production images</text>
 
-  <path d="M750 230 V275 H900 V295" class="arrow"/><path d="M900 405 V450 H610 V470" class="arrow"/>
-  <text x="935" y="268" class="small">download</text><text x="735" y="442" class="small">pass</text>
+  <rect x="900" y="485" width="240" height="100" class="box private" filter="url(#shadow)"/>
+  <text x="1020" y="523" text-anchor="middle" class="title">Production update</text>
+  <text x="1020" y="552" text-anchor="middle" class="label">Only after evidence passes</text>
+  <text x="1020" y="575" text-anchor="middle" class="small">Previous image retained</text>
 
-  <rect x="70" y="300" width="560" height="180" fill="#172b25" stroke="#39c98a" stroke-width="2" rx="12"/>
-  <text x="95" y="337" class="title">Private router-local state</text>
-  <text x="95" y="372" class="label">• RouterOS configuration, credentials, VPN users</text>
-  <text x="95" y="401" class="label">• Certificates, private keys, and generated profiles</text>
-  <text x="95" y="430" class="label">• Persistent /data SQLite database and audit history</text>
-  <text x="95" y="459" class="small">None of this is committed to GitHub or baked into the image.</text>
+  <path d="M860 178 H895" class="arrow"/><path d="M1020 230 V300" class="arrow"/><path d="M1020 415 V480" class="arrow"/>
+  <rect x="60" y="305" width="720" height="200" fill="#172b25" stroke="#39c98a" stroke-width="2" rx="12"/>
+  <text x="85" y="342" class="title">Private router-local state</text>
+  <text x="85" y="377" class="label">• RouterOS configuration, credentials, VPN users</text>
+  <text x="85" y="406" class="label">• Certificates, private keys, and generated profiles</text>
+  <text x="85" y="435" class="label">• Persistent /data SQLite database and audit history</text>
+  <text x="85" y="474" class="small">None of this is committed to GitHub or baked into the image.</text>
 </svg>

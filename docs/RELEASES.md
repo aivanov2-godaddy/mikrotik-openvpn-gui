@@ -19,11 +19,10 @@ RouterOS configuration, raw time-series telemetry, and session-level details
 remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #901
-(`0fe43250131e3a5e598bd736278531bc4d71417f`) is the latest published image
-source; it updates two runtime dependencies and does not change the formal
-version. PR #901 has not been staged on RouterOS. The exact PR #894 ARM64
-candidate initially passed readiness and
+version, v2.8.0, has not been tagged or published. PR #907
+(`a03767c3e06791d591b2460bbd9a54209c8692c4`) is the latest published
+mainline image source; publication does not change the formal version. PR #907
+has not been staged on RouterOS. The exact PR #894 ARM64 candidate initially passed readiness and
 revision read-back on canary. A later same-day health check found the canary
 unhealthy and bounded in-container `/healthz` and `/readyz` requests timed out.
 After an authorized canary-only restart, RouterOS's healthy marker returned;
@@ -62,7 +61,31 @@ manifest. The manifest asset SHA-256 is
 Code scanning returned zero open alerts on 2026-10-30. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #901 — 2026-11-11
+## Latest published mainline image — PR #907 — 2026-11-11
+
+PR [#907](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/907)
+merged as `a03767c3e06791d591b2460bbd9a54209c8692c4`. Post-merge CI run
+[#42955904009](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/42955904009)
+and container publisher run
+[#42955904268](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/42955904268)
+passed. The publisher built, scanned, attested, and smoke-tested ARM64 and
+AMD64 images. Its verification steps passed for SLSA provenance and SPDX SBOM
+attestations for both image digests; separate local `gh attestation verify`
+checks also passed for provenance. The stable manifest was published and read
+back. Its downloaded `routeros-release.json` asset has SHA-256
+`sha256:45f61f3cd9e48c6c0842dcad4806804fe811896f0416fcca9d410d79834c0082`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a03767c3e06791d591b2460bbd9a54209c8692c4-arm64` | `sha256:47176714b950de5d7889c78b1ce77e85b06315ebe8e6a1ab801172ccbc68ec6b` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-a03767c3e06791d591b2460bbd9a54209c8692c4-amd64` | `sha256:82efb9b4f43466edc7da1e0e109040a78075e19c289ee8d3fc8d613dc1cd389c` |
+
+Publication is not a numbered release or RouterOS deployment. PR #907 has not
+been staged on RouterOS. The latest documented canary read-back remains PR #894;
+its later unhealthy observation, canary-only restart, and missing post-restart
+revision/soak evidence are recorded below. Production was not changed.
+
+## Previous published mainline image — PR #901 — 2026-11-11
 
 PR [#901](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/901)
 merged as `0fe43250131e3a5e598bd736278531bc4d71417f`. Post-merge CI run
@@ -1849,12 +1872,13 @@ remote router-deployment workflow. A fork inherits no route to another
 operator's network.
 
 Use the explicit local procedure in [DEPLOYMENT.md](DEPLOYMENT.md) for a
-router update. The supported automated option is an operator-installed,
-router-local scheduler that validates the public manifest and promotes a
-pinned SHA image through canary. It keeps all router state and credentials
-local; see [ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md). Never add
-secrets, a router endpoint, or a remote deployment runner to this public source
-repository.
+router update. The operator-installed RouterOS scheduler validates the public
+manifest and stages a pinned SHA image on canary only. A separate local
+promotion controller requires fresh passing acceptance evidence and exact live
+image matches before it changes production. This keeps router state and
+credentials local; see [ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md).
+Never add secrets, a router endpoint, or a remote deployment runner to this
+public source repository.
 
 ## Maintainer release checklist
 
