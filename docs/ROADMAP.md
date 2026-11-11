@@ -57,23 +57,27 @@ checked-in collector completed a TLS-verified, read-only Binary API collection
 and wrote a report classified `inventory_collected_review_required`. The report
 contains five scripts and three scheduler entries: two direct bindings and one
 internal script-ID candidate, with no opaque or ambiguous targets in the
-returned data. No installed source exactly matched a reviewed repository
-template, and all five source assessments flag missing canary rollback/restore
-verification. The collector's complete-print-response flag describes returned
-API replies only; it does not establish exhaustive RouterOS visibility. A
-separate read-only WinBox inspection confirmed the existing inventory identity
-is in a `read,api` group with write, policy, sensitive, and interactive-service
-privileges denied, and its RouterOS user record is restricted to the collection
-VM's source address. This verifies configured role and source restrictions; it
-does not prove exhaustive record visibility. Exact identity and address details
-remain private. The private report and source fingerprints remain
-operator-controlled; no raw source, scheduler event text, or credentials were
-written. The internal-ID candidate and all installed sources still require
-private review. Keep the dedicated updater disabled; the separate generic
-path's source and relationship also remain unverified. No RouterOS script,
-scheduler, account, configuration, container, or VPN policy changed during this
-collection. Production promotion and the next numbered release stay gated on
-source/binding review and candidate-bound acceptance.
+returned data. The redacted collector comparison reported no exact match to the
+checked-in reviewed templates; that finding is not a code-level review of the
+installed sources. All five source assessments flag missing canary
+rollback/restore verification. The collector's complete-print-response flag
+describes returned API replies only; it does not establish exhaustive RouterOS
+visibility. An earlier, separately supplied WinBox inspection recorded the
+inventory identity in a `read,api` group with write, policy, sensitive, and
+interactive-service privileges denied, and a source-address restriction on
+that user. A later screenshot showed existing terminal scrollback whose group
+output included additional privileges beyond read-only collection. Because the
+GUI denied terminal interaction, no fresh RouterOS read-back was possible;
+current role and source restrictions therefore remain unverified, and
+least-privilege is not validated. Exact identity and address details remain
+private. The private report and source fingerprints remain operator-controlled;
+no raw source, scheduler event text, or credentials were written. The internal-ID
+candidate and all installed sources still require private review. Keep the
+dedicated updater disabled; the separate generic path's source and relationship
+also remain unverified. No RouterOS script, scheduler, account, configuration,
+container, or VPN policy changed during the collector run. Production promotion
+and the next numbered release stay gated on source/binding review and
+candidate-bound acceptance.
 
 ### Historical deployment checkpoints
 
@@ -139,19 +143,20 @@ example. PR #851 adds a TLS-verified, print-only local inventory collector for
 RouterOS scripts and scheduler bindings. Its successful 2026-11-11 run returned
 five scripts and three scheduler entries, classified two direct bindings and
 one internal-ID candidate, and reported no opaque or ambiguous targets in the
-returned data. No installed source exactly matched a reviewed repository
-template; each of the five assessments flags missing canary rollback/restore
-verification. A separate read-only WinBox view confirmed the existing
-inventory identity's `read,api` group denies write, policy, sensitive, and
-interactive-service privileges, and restricts the user record to the collection
-VM's source address. This verifies configured role and source restrictions,
-but the report remains review-required and does not prove exhaustive record
+returned data. The redacted collector comparison reported no exact match to
+the checked-in reviewed templates; it does not review the installed source
+code. Each of the five assessments flags missing canary rollback/restore
+verification. An earlier, separately supplied WinBox view recorded the
+inventory identity's `read,api` group and source-address restriction. A later
+screenshot showed existing terminal scrollback with additional group
+privileges, but the GUI denied terminal interaction and no fresh RouterOS
+read-back was obtained. Current role and source restrictions remain
+unverified, and least-privilege is not validated.
+The report remains review-required and does not prove exhaustive record
 visibility. The private report/fingerprints remain operator-controlled. No
-RouterOS script, scheduler, or configuration changed. Private source review and binding
-reconciliation remain outstanding; the collector has not resolved the
-mismatch. The separate read-only WinBox permission check above does not review
-installed script behavior or resolve its binding. The installed updater was
-not run.
+RouterOS script, scheduler, or configuration changed during collection.
+Private source review and binding reconciliation remain outstanding; the
+collector has not resolved the mismatch. The installed updater was not run.
 Historical record: PR #806 was manually staged on canary and its exact embedded
 revision and healthy readiness were read back at that time. That record does
 not describe the current canary; see the Current project snapshot above for the

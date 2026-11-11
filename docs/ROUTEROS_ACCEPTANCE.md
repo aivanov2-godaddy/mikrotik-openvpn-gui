@@ -33,26 +33,30 @@ The checked-in TLS-verifying, read-only RouterOS Binary API collector completed
 and wrote a private report classified `inventory_collected_review_required`.
 It received five script records and three scheduler records: two direct
 bindings and one internal script-ID candidate. No opaque or ambiguous target
-was reported in returned data. No installed source exactly matched a reviewed
-repository template, and all five source assessments flag missing canary
-rollback/restore verification. A separate read-only WinBox inspection confirmed
-the existing inventory identity is in a `read,api` group with write, policy,
-sensitive, and interactive-service privileges denied, and that the RouterOS
-user record is restricted to the collection VM's source address. This verifies
-configured role and source restrictions but does not prove exhaustive record
-visibility. Exact identity and address details, raw source, and source
-fingerprints remain in the operator-controlled private record. The candidate
-binding and installed sources require private review.
+was reported in returned data. The redacted collector comparison reported no
+exact match to the checked-in reviewed templates; that finding is not a
+code-level review of the installed sources. All five source assessments flag
+missing canary rollback/restore verification. An earlier, separately supplied
+WinBox inspection recorded the inventory identity in a `read,api` group with
+write, policy, sensitive, and interactive-service privileges denied, and a
+source-address restriction on that user. A later screenshot showed existing
+terminal scrollback whose group output included additional privileges beyond
+read-only collection. Because the GUI denied terminal interaction, no fresh
+RouterOS read-back was possible; current role and source restrictions therefore
+remain unverified and the existing role is not validated least-privilege. Exact
+identity and address details, raw source, and source fingerprints remain in
+the operator-controlled private record. The candidate binding and installed
+sources require private review.
 
-A separate local exact-hash check compared the five private source fingerprints
-with 58 `.rsc` or updater-named blobs reachable from the currently fetched Git
-refs at `5f8f4aa`; it found no exact matches. This rules out only an exact copy
-among those repository blobs. The inventory contains fingerprints and
-redacted markers, not raw script source, so it does not support a code-level
-review of the installed scripts or the unresolved scheduler internal-ID
-candidate. No private hash, filename, source text, scheduler event, or router
-identifier was added to this document. The updater remains disabled pending
-private source review and binding verification.
+A bounded local exact-hash check performed before PR #916 merged compared the
+five private source fingerprints with 58 `.rsc` or updater-named blobs
+reachable from fetched Git refs at base `5f8f4aa`; it found no exact matches.
+This rules out only an exact copy among those repository blobs. The inventory
+contains fingerprints and redacted markers, not raw script source, so it does
+not support a code-level review of the installed scripts or the unresolved
+scheduler internal-ID candidate. No private hash, filename, source text,
+scheduler event, or router identifier was added to this document. The updater
+remains disabled pending private source review and binding verification.
 
 This inventory is not a canary read-back or acceptance result. It does not
 identify an image digest, embedded revision, readiness, running health,
