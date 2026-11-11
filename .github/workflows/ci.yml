@@ -87,7 +87,7 @@ jobs:
       contents: read
     services:
       redis:
-        image: redis:8.0.5-alpine@sha256:6c8e66693fa71bad36ae06c75c990446ad01dbd4b081dd847eb9869f20d7c6ee
+        image: redis:8.0.5@sha256:dbd4be0dd40f16bd91486087680fc2d25666e807b937774906dc111a621ce556
         ports:
           - 6379:6379
         options: >-
@@ -104,6 +104,19 @@ jobs:
           python-version: "3.14"
       - name: Install the optional Redis client
         run: python -m pip install --disable-pip-version-check --requirement requirements-redis.txt
+      - name: Expose pinned Redis server for restart tests
+        run: |
+          image='redis:8.0.5@sha256:dbd4be0dd40f16bd91486087680fc2d25666e807b937774906dc111a621ce556'
+          container_id="$(docker create "$image")"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          redis_bin_dir="$RUNNER_TEMP/redis-server-bin"
+          mkdir -p "$redis_bin_dir"
+          docker cp "$container_id:/usr/local/bin/redis-server" "$redis_bin_dir/redis-server"
+          docker rm "$container_id" >/dev/null
+          trap - EXIT
+          chmod +x "$redis_bin_dir/redis-server"
+          "$redis_bin_dir/redis-server" --version
+          echo "$redis_bin_dir" >> "$GITHUB_PATH"
       - name: Verify Redis service readiness
         run: |
           python -c "import redis; assert redis.Redis(host='127.0.0.1', port=6379, socket_connect_timeout=5, socket_timeout=5).ping() is True"
