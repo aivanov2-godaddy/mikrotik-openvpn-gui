@@ -1,8 +1,15 @@
 """Collect a redacted, read-only RouterOS updater and scheduler inventory.
 
-Only the reviewed updater source and scheduler binding fields are requested.
-Raw source, event text, names, IDs, credentials, and router identity stay in
-process memory and are never written to the report.
+For every returned script, the collector requests ``.id``, ``name``, and
+``source``; for every returned scheduler, it requests ``name``, ``on-event``,
+and ``disabled``. Script sources are compared with the reviewed local template
+in memory. The report includes redacted fingerprints, comparison findings,
+scheduler-binding classifications, and aggregate metadata; it omits raw source,
+event text, names, IDs, credentials, and router identity.
+
+Record-count and source-size limits reject oversized collections before a
+success report is produced; failure reports contain only safe status metadata.
+The report does not prove caller authorization or RouterOS-side visibility.
 """
 
 from __future__ import annotations

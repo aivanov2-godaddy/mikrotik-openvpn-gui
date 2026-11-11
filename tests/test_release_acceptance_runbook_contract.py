@@ -88,6 +88,14 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
+            "Historical canary checkpoint — PR #806 — 2026-10-24",
+            report,
+        )
+        self.assertIn(
+            "This checkpoint is superseded by the current PR #894 canary checkpoint at the top of this report",
+            report,
+        )
+        self.assertIn(
             "PR #901 (`0fe43250131e3a5e598bd736278531bc4d71417f`) is the latest published image source",
             report,
         )

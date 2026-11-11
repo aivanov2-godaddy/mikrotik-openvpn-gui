@@ -54,6 +54,16 @@ def _done() -> RouterOSReply:
 
 
 class CollectRouterOSUpdaterInventoryTests(unittest.TestCase):
+    def test_module_docstring_describes_the_actual_inventory_read_scope(self) -> None:
+        docstring = inventory.__doc__ or ""
+
+        self.assertIn("For every returned script", docstring)
+        self.assertIn("for every returned scheduler", docstring)
+        self.assertIn("compared with the reviewed local template", docstring)
+        self.assertIn("omits raw source", docstring)
+        self.assertIn("does not prove caller authorization", docstring)
+        self.assertNotIn("Only the reviewed updater source", docstring)
+
     def test_reads_only_allowlisted_properties_and_redacts_private_values(self) -> None:
         reference = b":local updater \"reviewed\"\n"
         scripts = [

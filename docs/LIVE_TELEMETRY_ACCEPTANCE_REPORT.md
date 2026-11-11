@@ -119,6 +119,9 @@ unreconciled and was not run.
 
 ## Live UI spot check — 2026-10-27
 
+This was a historical observation on PR #806 and does not describe the current
+canary. See the current checkpoint at the top of this report.
+
 On the existing PR #806 canary image, an authenticated Connections page showed
 the Socket.IO live indicator and changing five-second traffic-rate samples.
 After the disposable test session was terminated, the same page showed zero
@@ -128,7 +131,10 @@ established, and it is not a 30-minute soak, reconnect/snapshot-recovery result,
 or acceptance of PR #873. A reconnect/snapshot check and the controlled soak
 remain outstanding. No production image change is claimed.
 
-## Last recorded canary checkpoint — PR #806
+## Historical canary checkpoint — PR #806 — 2026-10-24
+
+This checkpoint is superseded by the current PR #894 canary checkpoint at the
+top of this report; it does not describe the current canary.
 
 PR [#806](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/806)
 merged as `79816625e493f9581e7389b95760403ac6c9a327`. CI, CodeQL, ARM64 image
