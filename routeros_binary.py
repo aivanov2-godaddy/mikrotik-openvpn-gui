@@ -28,6 +28,9 @@ MAX_RESPONSE_WORDS = 65_536
 MAX_REPLY_KIND_BYTES = 32
 MAX_REPLY_FIELD_NAME_BYTES = 128
 MAX_REPLY_FIELD_VALUE_BYTES = 4 << 10
+# RouterOS script source is the sole reviewed field that may exceed the
+# ordinary 4 KiB reply-value ceiling. Keep it below the 64 KiB API-word cap.
+MAX_REPLY_SOURCE_VALUE_BYTES = 60 << 10
 MAX_QUERY_WORD_BYTES = 512
 
 
@@ -171,7 +174,12 @@ def parse_reply(words: Iterable[bytes]) -> RouterOSReply:
                 "RouterOS Binary API field name exceeds configured safety limit",
                 failure_kind="invalid_response",
             )
-        if separator and len(value_bytes) > MAX_REPLY_FIELD_VALUE_BYTES:
+        value_limit = (
+            MAX_REPLY_SOURCE_VALUE_BYTES
+            if checked_key == b"source"
+            else MAX_REPLY_FIELD_VALUE_BYTES
+        )
+        if separator and len(value_bytes) > value_limit:
             raise RouterOSBinaryError(
                 "RouterOS Binary API field value exceeds configured safety limit",
                 failure_kind="invalid_response",
@@ -332,6 +340,8 @@ class RouterOSBinaryConnection:
     )
     READ_ONLY_PRINT_QUERY_FIELDS = MappingProxyType(
         {
+            "/system/script/print": frozenset({".id", "name", "source"}),
+            "/system/scheduler/print": frozenset({"name", "on-event", "disabled"}),
             "/interface/print": frozenset(
                 {".id", "name", "rx-byte", "tx-byte", "rx-packet", "tx-packet"}
             ),
@@ -561,8 +571,8 @@ class RouterOSBinaryConnection:
     def execute(self, path: str, *, query: Iterable[str] = ()) -> list[RouterOSReply]:
         """Execute one read-only ``print`` command and return its replies.
 
-        Only explicitly reviewed telemetry paths are allowed. Callers should
-        use a narrow ``.proplist`` query for those paths.
+        Only explicitly reviewed telemetry and updater-inventory paths are
+        allowed. Callers should use a narrow ``.proplist`` query for each path.
         """
 
         if not path.startswith("/"):

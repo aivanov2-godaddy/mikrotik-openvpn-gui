@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from routeros_binary import RouterOSReply
+from routeros_binary import RouterOSBinaryConnection, RouterOSReply, decode_words, encode_sentence
 from scripts import collect_routeros_updater_inventory as inventory
 
 
@@ -54,6 +54,58 @@ def _done() -> RouterOSReply:
 
 
 class CollectRouterOSUpdaterInventoryTests(unittest.TestCase):
+    def test_real_binary_connection_collects_large_script_and_scheduler_rows(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.response = b""
+
+            def sendall(self, payload: bytes) -> None:
+                words = decode_words(payload)
+                path = words[0].decode()
+                tag = next(word.decode().split("=", 1)[1] for word in words if word.startswith(b".tag="))
+                if path == inventory.SCRIPT_PATH:
+                    reply = encode_sentence(
+                        [
+                            b"!re",
+                            f".tag={tag}".encode(),
+                            b"=.id=*1",
+                            b"=name=immutable-updater",
+                            b"=source=" + inventory.TEMPLATE_PATH.read_bytes(),
+                        ]
+                    )
+                elif path == inventory.SCHEDULER_PATH:
+                    reply = encode_sentence(
+                        [
+                            b"!re",
+                            f".tag={tag}".encode(),
+                            b"=name=immutable-updater-schedule",
+                            b"=on-event=immutable-updater",
+                            b"=disabled=no",
+                        ]
+                    )
+                else:
+                    raise AssertionError(f"unexpected RouterOS path: {path}")
+                self.response = reply + encode_sentence([b"!done", f".tag={tag}".encode()])
+
+            def recv(self, size: int) -> bytes:
+                chunk, self.response = self.response[:size], self.response[size:]
+                return chunk
+
+            def close(self) -> None:
+                return None
+
+        connection = RouterOSBinaryConnection("router.example")
+        connection._socket = FakeSocket()  # noqa: SLF001 - exercise the collector through the Binary API parser
+        reference = inventory.TEMPLATE_PATH.read_bytes()
+
+        report = inventory.collect_inventory(connection, reference)
+
+        self.assertEqual(report["script_count"], 1)
+        self.assertEqual(report["exact_template_match_count"], 1)
+        self.assertEqual(report["direct_scheduler_binding_count"], 1)
+        self.assertNotIn("immutable-updater", json.dumps(report))
+        self.assertNotIn(reference.decode(), json.dumps(report))
+
     def test_module_docstring_describes_the_actual_inventory_read_scope(self) -> None:
         docstring = inventory.__doc__ or ""
 
