@@ -44,6 +44,8 @@ MAX_CPU_PERCENT = 80
 MAX_MEMORY_PERCENT = 90
 MAX_STORAGE_PERCENT = 90
 CONTAINER_NAMES = {"canary": "vpn-dashboard-canary", "production": "vpn-dashboard-production"}
+FORMAT = "vpn-dashboard-routeros-acceptance-v4"
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 PROJECT_IMAGE = re.compile(
     r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:"
     r"sha-(?P<revision>[0-9a-f]{40})-arm64(?:@(?P<digest>sha256:[0-9a-f]{64}))?$"
@@ -136,6 +138,7 @@ def _snapshot_from_records(
         result_containers[environment] = {
             "healthy": normalize_container_status(dict(row)) == "running",
             "revision": image_match.group("revision") if image_match else None,
+            "configured_digest": image_match.group("digest") if image_match else None,
         }
 
     return {
@@ -279,6 +282,7 @@ def collect(
     username: str,
     password: str,
     expected_revisions: Mapping[str, str],
+    expected_digests: Mapping[str, str | None],
     duration_seconds: float = MIN_WINDOW_SECONDS,
     interval_seconds: float = 60,
     clock: Callable[[], datetime] = _utc_now,
@@ -297,6 +301,19 @@ def collect(
         not re.fullmatch(r"[0-9a-f]{40}", revision) for revision in expected_revisions.values()
     ):
         raise ValueError("expected canary and production revisions must be full commit SHAs")
+    if (
+        set(expected_digests) != set(CONTAINER_NAMES)
+        or not isinstance(expected_digests["canary"], str)
+        or DIGEST.fullmatch(expected_digests["canary"]) is None
+        or (
+            expected_digests["production"] is not None
+            and (
+                not isinstance(expected_digests["production"], str)
+                or DIGEST.fullmatch(expected_digests["production"]) is None
+            )
+        )
+    ):
+        raise ValueError("expected canary digest and optional production digest must be lowercase SHA-256")
 
     samples: list[dict[str, Any]] = []
     try:
@@ -353,6 +370,10 @@ def collect(
         name: sorted(revision for revision in revision_values[name] if revision is not None)
         for name in container_names
     }
+    digest_values = {
+        name: {sample["containers"][name]["configured_digest"] for sample in successful}
+        for name in container_names
+    }
     cpu_values = [sample["router_cpu_percent"] for sample in successful]
     memory_values = [sample["router_memory_used_percent"] for sample in successful]
     storage_values = [sample["router_storage_used_percent"] for sample in successful]
@@ -387,6 +408,10 @@ def collect(
         for name in container_names
     ):
         failed.append("container_revision_mismatch")
+    if any(len(digest_values[name]) != 1 for name in container_names):
+        failed.append("container_configured_digest_missing_or_changed")
+    if any(digest_values[name] != {expected_digests[name]} for name in container_names):
+        failed.append("container_configured_digest_mismatch")
     if max(cpu_values, default=math.inf) > MAX_CPU_PERCENT:
         failed.append("router_cpu_threshold_exceeded")
     if max(memory_values, default=math.inf) > MAX_MEMORY_PERCENT:
@@ -400,7 +425,7 @@ def collect(
         failed.append("vpn_test_session_not_observed")
 
     return {
-        "format": "vpn-dashboard-routeros-acceptance-v3",
+        "format": FORMAT,
         "collected_at": ended.isoformat(),
         "observation_started_at": started.isoformat(),
         "observation_ended_at": ended.isoformat(),
@@ -429,6 +454,12 @@ def collect(
                     sample["containers"][name]["healthy"] for sample in successful
                 ),
                 "observed_source_revisions": revisions[name],
+                "observed_configured_digests": sorted(
+                    digest for digest in digest_values[name] if digest is not None
+                ),
+                "configured_digest_matches_expected": (
+                    bool(successful) and digest_values[name] == {expected_digests[name]}
+                ),
             }
             for name in container_names
         },
@@ -454,6 +485,8 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8729)
     parser.add_argument("--canary-revision", required=True, help="expected full immutable canary source commit")
     parser.add_argument("--production-revision", required=True, help="expected full immutable production source commit")
+    parser.add_argument("--canary-digest", required=True, help="expected digest pinned in the canary RouterOS image reference")
+    parser.add_argument("--production-digest", help="expected digest pinned in the production RouterOS image reference; omit for a tag-only prior image")
     parser.add_argument("--duration-seconds", type=float, default=MIN_WINDOW_SECONDS)
     parser.add_argument("--interval-seconds", type=float, default=60)
     args = parser.parse_args()
@@ -486,6 +519,10 @@ def main() -> int:
                 "canary": args.canary_revision,
                 "production": args.production_revision,
             },
+            expected_digests={
+                "canary": args.canary_digest,
+                "production": args.production_digest,
+            },
             duration_seconds=args.duration_seconds,
             interval_seconds=args.interval_seconds,
         )
@@ -495,7 +532,7 @@ def main() -> int:
     except (OSError, ValueError, RouterOSBinaryError) as error:
         # Exception text can contain private endpoints or RouterOS response data.
         failure_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v3",
+            "format": FORMAT,
             "collected": False,
             "collected_at": _utc_now().isoformat(),
             "passed": False,

@@ -25,6 +25,8 @@ from scripts.collect_routeros_acceptance import (
     main,
 )
 
+CANARY_DIGEST = "sha256:" + "d" * 64
+
 
 class RouterOSAcceptanceSamplerTests(unittest.TestCase):
     def _fake_connection(
@@ -34,6 +36,8 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         lifecycle=None,
         active_sessions=1,
         session_sequence=None,
+        canary_digest=CANARY_DIGEST,
+        production_digest=None,
     ):
         connection = Mock()
         revision = "a" * 40
@@ -46,6 +50,10 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         )
         session_samples = session_sequence or [active_sessions]
         session_index = 0
+
+        def image(environment):
+            digest = canary_digest if environment == "canary" else production_digest
+            return f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64" + (f"@{digest}" if digest else "")
 
         def execute(path, *, query=()):
             nonlocal session_index
@@ -60,8 +68,8 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 expected_proplist = MODERN_CONTAINER_PROPLIST if modern else LEGACY_CONTAINER_PROPLIST
                 self.assertEqual(query, (f".proplist={expected_proplist}",))
                 return [
-                    RouterOSReply("re", {"name": name, **state, "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64", "root-dir": "/must-not-leak"})
-                    for name in CONTAINER_NAMES.values()
+                    RouterOSReply("re", {"name": name, **state, "remote-image": image(environment), "root-dir": "/must-not-leak"})
+                    for environment, name in CONTAINER_NAMES.items()
                 ] + [RouterOSReply("done", {})]
             if path == "/ppp/active/print":
                 self.assertEqual(query, (".proplist=.id",))
@@ -79,7 +87,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         connection.execute.side_effect = execute
         return connection
 
-    def _fake_rest_reader(self, *, mismatch=False, active_sessions=1, session_sequence=None):
+    def _fake_rest_reader(self, *, mismatch=False, active_sessions=1, session_sequence=None, canary_digest=CANARY_DIGEST, production_digest=None):
         reader = Mock()
         revision = "a" * 40
         snapshot = {
@@ -88,7 +96,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             "router_storage_used_percent": 30.0,
             "active_vpn_sessions": active_sessions,
             "containers": {
-                name: {"healthy": True, "revision": revision}
+                name: {"healthy": True, "revision": revision, "configured_digest": canary_digest if name == "canary" else production_digest}
                 for name in CONTAINER_NAMES
             },
         }
@@ -149,6 +157,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             username="reader",
             password="do-not-log",
             expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            expected_digests={"canary": CANARY_DIGEST, "production": None},
             duration_seconds=1800,
             interval_seconds=60,
             clock=lambda: now + timedelta(seconds=elapsed[0]),
@@ -178,6 +187,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             username="reader",
             password="do-not-log",
             expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            expected_digests={"canary": CANARY_DIGEST, "production": None},
             duration_seconds=1800,
             interval_seconds=60,
             clock=lambda: now + timedelta(seconds=elapsed[0]),
@@ -201,6 +211,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             username="reader",
             password="do-not-log",
             expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            expected_digests={"canary": CANARY_DIGEST, "production": None},
             duration_seconds=1800,
             interval_seconds=60,
             clock=lambda: now + timedelta(seconds=elapsed[0]),
@@ -225,6 +236,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             username="reader",
             password="do-not-log",
             expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            expected_digests={"canary": CANARY_DIGEST, "production": None},
             duration_seconds=1800,
             interval_seconds=60,
             clock=lambda: now + timedelta(seconds=elapsed[0]),
@@ -235,6 +247,54 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertTrue(report["passed"], report["failed_gates"])
         self.assertEqual(report["active_vpn_sessions_min"], 0)
         self.assertEqual(report["active_vpn_sessions_max"], 1)
+
+    def test_configured_digest_is_bound_throughout_window_and_rest_parity(self):
+        alternate = "sha256:" + "e" * 64
+
+        def sample(connection, rest_reader, production_digest=None):
+            now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+            elapsed = [0.0]
+            return collect(
+                connection,
+                rest_reader=rest_reader,
+                username="reader",
+                password="do-not-log",
+                expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+                expected_digests={"canary": CANARY_DIGEST, "production": production_digest},
+                duration_seconds=1800,
+                interval_seconds=60,
+                clock=lambda: now + timedelta(seconds=elapsed[0]),
+                monotonic=lambda: elapsed[0],
+                sleep=lambda delay: elapsed.__setitem__(0, elapsed[0] + delay),
+            )
+
+        changed_canary = sample(
+            self._fake_connection(canary_digest=alternate),
+            self._fake_rest_reader(canary_digest=alternate),
+        )
+        self.assertIn("container_configured_digest_mismatch", changed_canary["failed_gates"])
+        self.assertEqual(changed_canary["rest_parity_failed_sample_count"], 0)
+
+        parity_mismatch = sample(
+            self._fake_connection(),
+            self._fake_rest_reader(canary_digest=alternate),
+        )
+        self.assertIn("routeros_rest_parity_unavailable_or_mismatched", parity_mismatch["failed_gates"])
+
+        pinned_production = sample(
+            self._fake_connection(production_digest=alternate),
+            self._fake_rest_reader(production_digest=alternate),
+            production_digest=alternate,
+        )
+        self.assertTrue(pinned_production["passed"], pinned_production["failed_gates"])
+        self.assertEqual(pinned_production["containers"]["production"]["observed_configured_digests"], [alternate])
+
+        tag_only_production = sample(
+            self._fake_connection(),
+            self._fake_rest_reader(),
+            production_digest=alternate,
+        )
+        self.assertIn("container_configured_digest_mismatch", tag_only_production["failed_gates"])
 
     def test_rest_reader_rejects_non_https_and_embedded_credentials(self):
         for url in ("http://router.example", "https://reader:secret@router.example", "https://router.example/rest?x=1"):
@@ -326,6 +386,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 username="reader",
                 password="secret",
                 expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+                expected_digests={"canary": CANARY_DIGEST, "production": None},
                 duration_seconds=60,
             )
         connection.connect.assert_not_called()
@@ -350,6 +411,8 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 str(output),
                 "--canary-revision",
                 "a" * 40,
+                "--canary-digest",
+                CANARY_DIGEST,
                 "--production-revision",
                 "b" * 40,
             ]

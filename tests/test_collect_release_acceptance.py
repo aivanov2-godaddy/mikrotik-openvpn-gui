@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from contextlib import redirect_stdout
 from io import StringIO
@@ -257,12 +258,12 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "ended_at": "2026-10-01T00:30:00Z",
             },
             "deployments": [
-                {"environment": environment, "image": image_ref(revision)}
+                {"environment": environment, "image": image_ref(revision), "digest": DIGEST}
                 for environment in ("canary", "production")
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v3",
+            "format": "vpn-dashboard-routeros-acceptance-v4",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -285,6 +286,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                 environment: {
                     "healthy_for_all_successful_samples": True,
                     "observed_source_revisions": [revision],
+                    "observed_configured_digests": [DIGEST],
+                    "configured_digest_matches_expected": True,
                 }
                 for environment in ("canary", "production")
             },
@@ -295,9 +298,17 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(app_evidence["deployments"][0]["router_cpu_peak_percent"], 24.0)
         self.assertEqual(app_evidence["deployments"][1]["router_memory_peak_percent"], 35.0)
         self.assertTrue(app_evidence["collection"]["routeros_resource_evidence"]["container_revisions_matched"])
+        self.assertTrue(app_evidence["collection"]["routeros_resource_evidence"]["container_configured_digests_matched"])
+
+        # A prior production tag may still be unpinned before promotion.
+        tag_only_evidence = deepcopy(app_evidence)
+        tag_only_evidence["deployments"][1]["image"] = image_ref(revision).split("@")[0]
+        tag_only_report = deepcopy(routeros_report)
+        tag_only_report["containers"]["production"]["observed_configured_digests"] = []
+        attach_routeros_resource_evidence(tag_only_evidence, tag_only_report)
+        self.assertTrue(tag_only_evidence["collection"]["routeros_resource_evidence"]["container_configured_digests_matched"])
 
     def test_routeros_resource_evidence_rejects_window_or_revision_mismatch(self) -> None:
-        from copy import deepcopy
         from scripts.collect_release_acceptance import attach_routeros_resource_evidence
 
         revision = "a" * 40
@@ -307,12 +318,12 @@ class ReleaseCollectionTests(unittest.TestCase):
                 "ended_at": "2026-10-01T00:30:00Z",
             },
             "deployments": [
-                {"environment": environment, "image": image_ref(revision)}
+                {"environment": environment, "image": image_ref(revision), "digest": DIGEST}
                 for environment in ("canary", "production")
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v3",
+            "format": "vpn-dashboard-routeros-acceptance-v4",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -335,12 +346,18 @@ class ReleaseCollectionTests(unittest.TestCase):
                 environment: {
                     "healthy_for_all_successful_samples": True,
                     "observed_source_revisions": [revision],
+                    "observed_configured_digests": [DIGEST],
+                    "configured_digest_matches_expected": True,
                 }
                 for environment in ("canary", "production")
             },
         }
         mismatch = deepcopy(routeros_report)
         mismatch["containers"]["canary"]["observed_source_revisions"] = ["c" * 40]
+        digest_mismatch = deepcopy(routeros_report)
+        digest_mismatch["containers"]["canary"]["observed_configured_digests"] = ["sha256:" + "e" * 64]
+        missing_pin = deepcopy(routeros_report)
+        missing_pin["containers"]["canary"]["observed_configured_digests"] = []
         parity_gap = deepcopy(routeros_report)
         parity_gap["rest_parity_successful_sample_count"] -= 1
         parity_failure = deepcopy(routeros_report)
@@ -348,6 +365,9 @@ class ReleaseCollectionTests(unittest.TestCase):
 
         for report in (
             mismatch,
+            digest_mismatch,
+            missing_pin,
+            {**routeros_report, "format": "vpn-dashboard-routeros-acceptance-v3"},
             {**routeros_report, "observation_started_at": "2026-10-01T00:02:00Z"},
             parity_gap,
             parity_failure,
@@ -1638,7 +1658,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 from scripts.collect_release_acceptance import attach_routeros_resource_evidence
 
                 routeros_report = {
-                    "format": "vpn-dashboard-routeros-acceptance-v3",
+                    "format": "vpn-dashboard-routeros-acceptance-v4",
                     "passed": True,
                     "failed_gates": [],
                     "credentials_or_raw_router_data_written": False,
@@ -1661,10 +1681,14 @@ class ReleaseCollectionTests(unittest.TestCase):
                         "canary": {
                             "healthy_for_all_successful_samples": True,
                             "observed_source_revisions": [REVISION],
+                            "observed_configured_digests": [DIGEST],
+                            "configured_digest_matches_expected": True,
                         },
                         "production": {
                             "healthy_for_all_successful_samples": True,
                             "observed_source_revisions": ["c" * 40],
+                            "observed_configured_digests": [PRIOR_DIGEST],
+                            "configured_digest_matches_expected": True,
                         },
                     },
                 }

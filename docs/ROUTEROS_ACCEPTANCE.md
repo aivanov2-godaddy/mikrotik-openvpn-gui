@@ -881,7 +881,8 @@ container, and active-session fields over both transports; it fails acceptance
 if either read fails or the normalized snapshots disagree. CPU readings allow
 at most a 10 percentage-point difference to account for sequential sampling;
 memory and storage percentages allow at most 1 point; active-session counts,
-container state, and immutable revisions must match exactly. The REST reader
+container state, immutable revisions, and configured image digests must match
+exactly. The REST reader
 uses only HTTPS GET requests to `/rest/system/resource`, `/rest/container`,
 and `/rest/ppp/active`, with `.proplist` restrictions, normal certificate
 validation, no redirects, a 10-second timeout, and a 1 MiB response limit.
@@ -904,7 +905,8 @@ environment variables, with separate masked password prompts as fallback. Set
 the REST URL as a credential-free HTTPS origin (no `/rest` suffix is required).
 The output contains CPU, memory, and storage peaks, aggregate active-session
 counts, named canary and production health, recognized immutable source
-revisions, and REST-parity sample counts. It omits host, username, session
+revisions, configured digest observations, and REST-parity sample counts. It
+omits host, username, session
 identities/addresses, IDs, container paths, environment lists, mounts, full
 image strings, raw replies, and individual mismatching values. Keep the report
 private and join its values with the corresponding deployment records locally.
@@ -922,6 +924,7 @@ $env:ROUTEROS_ACCEPTANCE_REST_USERNAME = '<dedicated read-only REST user>'
 python scripts/collect_routeros_acceptance.py `
   --output private-routeros-window.json `
   --canary-revision <full-canary-commit-sha> `
+  --canary-digest sha256:<canary-configured-64-hex-digest> `
   --production-revision <full-production-commit-sha> `
   --duration-seconds 1800 --interval-seconds 60
 Remove-Item Env:ROUTEROS_ACCEPTANCE_HOST, Env:ROUTEROS_ACCEPTANCE_USERNAME, `
@@ -935,8 +938,14 @@ malformed capacity readings, missing/changed immutable revisions, sample
 failures, incomplete windows, or gaps over two minutes. The source revision is
 reported only when the container image matches this repository's immutable
 ARM64 tag format, and each observation is checked against the expected
-canary/production revision supplied on the command line; the router's locally
-cached image digest remains unverified. It also fails if peak CPU exceeds 80%,
+canary/production revision supplied on the command line. The canary must use a
+digest-pinned image reference matching `--canary-digest`. For a prior production
+image that is already digest-pinned, add `--production-digest sha256:<digest>`;
+omit that flag only when the prior production image uses an immutable tag
+without a digest pin. Each successful sample must retain the expected
+configured digest, and the release collector joins that configured reference
+to the app deployment record. This verifies the configured reference, not the
+router's locally cached or running image digest. It also fails if peak CPU exceeds 80%,
 memory exceeds 90%, or storage exceeds 90%.
 
 Each completed report is atomically replaced. If setup or collection fails, the

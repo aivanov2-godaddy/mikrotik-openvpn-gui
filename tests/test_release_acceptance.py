@@ -74,7 +74,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     @staticmethod
     def _routeros_resource_evidence() -> dict[str, object]:
         return {
-            "format": "vpn-dashboard-routeros-acceptance-v3",
+            "format": "vpn-dashboard-routeros-acceptance-v4",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
@@ -89,6 +89,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 "router_storage_peak_percent": 20,
             },
             "container_revisions_matched": True,
+            "container_configured_digests_matched": True,
         }
 
     @staticmethod
@@ -343,7 +344,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_routeros_resource_evidence_is_preserved_only_when_it_matches_the_soak(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["collection"]["routeros_resource_evidence"] = {
-            "format": "vpn-dashboard-routeros-acceptance-v3",
+            "format": "vpn-dashboard-routeros-acceptance-v4",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
@@ -358,6 +359,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 "router_storage_peak_percent": 20,
             },
             "container_revisions_matched": True,
+            "container_configured_digests_matched": True,
         }
 
         code, report = evaluate(evidence, now=self.NOW)
@@ -367,6 +369,18 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(report["routeros_resource_evidence"]["rest_parity_successful_sample_count"], 31)
         self.assertEqual(report["routeros_resource_evidence"]["resource_peaks"]["router_cpu_peak_percent"], 25)
 
+        missing_digest_binding = deepcopy(evidence)
+        del missing_digest_binding["collection"]["routeros_resource_evidence"]["container_configured_digests_matched"]
+        code, report = evaluate(missing_digest_binding, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("routeros_resource_evidence_invalid", report["failed_gates"])
+
+        old_format = deepcopy(evidence)
+        old_format["collection"]["routeros_resource_evidence"]["format"] = "vpn-dashboard-routeros-acceptance-v3"
+        code, report = evaluate(old_format, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("routeros_resource_evidence_invalid", report["failed_gates"])
+
         evidence["collection"]["routeros_resource_evidence"]["observation_ended_at"] = "2026-10-02T10:31:11Z"
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
@@ -374,7 +388,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
 
         evidence = deepcopy(self.evidence)
         evidence["collection"]["routeros_resource_evidence"] = {
-            "format": "vpn-dashboard-routeros-acceptance-v3",
+            "format": "vpn-dashboard-routeros-acceptance-v4",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
@@ -389,6 +403,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 "router_storage_peak_percent": 20,
             },
             "container_revisions_matched": True,
+            "container_configured_digests_matched": True,
         }
         code, report = evaluate(evidence, now=self.NOW)
         self.assertEqual(code, 1)
