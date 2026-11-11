@@ -1004,6 +1004,8 @@ class ReleaseContractTests(unittest.TestCase):
         roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
         self.assertIn("[#190](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/190)", roadmap)
         self.assertIn("Implementation in PR #907", roadmap)
+        self.assertIn("PR #906 merged as b0dfe22", roadmap)
+        self.assertIn("neither provides device-side inventory", roadmap)
         self.assertIn("each queued disconnect reuses the live single-session impact review", roadmap)
         self.assertNotIn("decide whether Connections bulk selection is useful", roadmap)
         closed_row = next(line for line in roadmap.splitlines() if "[#188]" in line and "## Issue status" not in line)
