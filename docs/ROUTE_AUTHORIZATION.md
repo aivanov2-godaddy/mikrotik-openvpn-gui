@@ -256,8 +256,8 @@ disables the account, and verifies both connection forms fail closed in
 Already-open streams use a separate one-second application role-cache
 interval; this is a freshness threshold, not a one-second polling timer. The
 SSE handler checks on its two-second loop, so an expired cache is refreshed on
-the next loop plus RouterOS REST response time. Socket.IO checks on its
-connect/poll/pump/send paths. A process-wide runtime semaphore caps live
+the next loop plus fresh RouterOS API-SSL TLS/login/read time. Socket.IO checks
+on its connect/poll/pump/send paths. A process-wide runtime semaphore caps live
 RouterOS role refreshes across SSE, threaded polling, and ASGI at four
 concurrent checks; stale authorization fails closed when capacity is
 saturated. ASGI also keeps its own bounded worker-thread gate, and a cancelled

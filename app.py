@@ -1091,7 +1091,7 @@ class DashboardServer(AutomationMixin, ThreadingHTTPServer):
             insecure_tls=context.config.routeros_insecure_tls,
             api_ssl_port=context.config.routeros_api_ssl_port,
             requested_transport=context.config.live_transport,
-            role_resolver=lambda session: context.router.get_admin_role(
+            role_resolver=lambda session: context.router.get_admin_role_fresh(
                 RouterOSCredentials(session.username, session.password)
             ),
             on_session_snapshot=context.store.observe_sessions,
@@ -4588,7 +4588,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid RouterOS credentials")
             credentials = RouterOSCredentials(username, password)
             self.server.context.router.verify_credentials(credentials)
-            role = self.server.context.router.get_admin_role(
+            role = self.server.context.router.get_admin_role_fresh(
                 credentials,
                 raise_on_error=True,
             )
@@ -4813,7 +4813,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         credentials = RouterOSCredentials(session.username, password)
         try:
             self.server.context.router.verify_credentials(credentials)
-            role = self.server.context.router.get_admin_role(
+            role = self.server.context.router.get_admin_role_fresh(
                 credentials,
                 raise_on_error=True,
             )
@@ -8499,6 +8499,7 @@ def build_context() -> AppContext:
         ca_file=config.routeros_ca_file,
         insecure_tls=config.routeros_insecure_tls,
         topology=config.topology,
+        api_ssl_port=config.routeros_api_ssl_port,
     )
     context = AppContext(
         router=router,
