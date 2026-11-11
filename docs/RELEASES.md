@@ -897,9 +897,11 @@ stable manifest was published and read back.
 
 This is an immutable published mainline image, not a numbered release;
 v2.7.0 remains the latest formal release. Publication did not stage or run the
-updater on RouterOS. Current PR #806 canary staging and sparse healthy
-readiness samples are recorded above; a candidate-specific rollback rehearsal,
-30-minute soak, and live acceptance remain pending. Do not tag or publish
+updater on RouterOS. At the time this historical entry was written, PR #806
+staging and sparse healthy readiness samples were the recorded canary state.
+That checkpoint was later superseded by the PR #894 checkpoint at the top of
+this file. Candidate-specific rollback, soak, and live acceptance remain
+pending. Do not tag or publish
 v2.8.0 until current candidate-specific acceptance gates pass.
 
 ### Previously published mainline image — PR #797 — 2026-10-23
@@ -951,8 +953,10 @@ source commit and both immutable architecture tags.
 These are immutable published mainline images, not a numbered release; v2.7.0
 remains the latest formal release. Publication did not stage or run the updater
 on RouterOS and is not candidate-specific acceptance or production promotion.
-PR #803 canary staging and rollback evidence is historical. Current PR #806
-staging and pending full live acceptance are recorded above.
+PR #803 canary staging and rollback evidence is historical. PR #806 staging
+and pending live acceptance were later recorded as the then-current state;
+that checkpoint was subsequently superseded by PR #894 at the top of this
+file.
 
 ### Previously published mainline image — PR #793 — 2026-10-23
 
@@ -975,9 +979,10 @@ published/read back the stable manifest.
 
 These are immutable published mainline images, not a numbered release; v2.7.0
 remains the latest formal release. No RouterOS staging for PR #793 was
-recorded at the time; later PR #803 staging and rollback evidence is historical,
-and the current PR #806 state is documented above. Neither publication record
-replaces the pending live acceptance gates.
+recorded at the time; later PR #803 staging, rollback evidence, and PR #806
+staging were subsequent historical records. The current documented checkpoint
+is PR #894 at the top of this file. Neither publication record replaces the
+pending live acceptance gates.
 
 ### Previously published mainline image — PR #791 — 2026-10-23
 
@@ -1023,8 +1028,9 @@ source commit.
 No RouterOS staging for this image is recorded. It was superseded by PR #794
 at the time of that earlier record; PR #811 was then the latest published
 image, later superseded by PR #815 and PR #817. PR #776 below is a historical
-candidate-bound record; the current PR #806
-canary evidence is above. No #778 hardware acceptance is claimed. Production
+candidate-bound record. PR #806 canary evidence was recorded later and is now
+superseded by the PR #894 checkpoint at the top of this file. No #778 hardware
+acceptance is claimed. Production
 was not changed. This is an immutable published mainline image, not a numbered
 release; v2.7.0 remains the latest formal release. Do not tag or publish
 v2.8.0 until the current candidate-specific acceptance gates pass.

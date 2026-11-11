@@ -287,8 +287,9 @@ security checks, and rollback rehearsal are all **not verified**.
 This is historical evidence only. PR #793 was the latest published runtime
 when this checkpoint was written; PR #794 superseded it at that time, followed
 by later publications including PR #798 and PR #817. PR #776 was the latest
-recorded canary candidate at that historical checkpoint; PR #806 is the last
-candidate-bound read-back documented above. A subsequent WinBox read-back
+recorded canary candidate in its own historical checkpoint. PR #806 was the
+last candidate-bound read-back when this section was written; that checkpoint
+has since been superseded by PR #894 above. A subsequent WinBox read-back
 showed PR #806's embedded revision healthy, but did not read the full configured
 tag or digest. Use the exact candidate and its recorded acceptance status
 above for any new acceptance run. Do not treat image
