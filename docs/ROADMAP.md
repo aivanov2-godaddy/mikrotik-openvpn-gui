@@ -195,10 +195,17 @@ the current snapshot above; publication does not satisfy the live acceptance
 gates. PR #830
 improves offline updater comparison only. PR #851 adds local read-only
 inventory tooling for #785. The 2026-10-30 WinBox view did not establish the
-`*8` internal-ID target or prove inventory exhaustiveness. A separate
-read-only source-fingerprint follow-up is recorded on #785; it found no match
-to the three reviewed examples but does not resolve completeness or scheduler
-binding. No RouterOS mutation occurred.
+`*8` internal-ID target or prove inventory exhaustiveness.
+A separate read-only source-fingerprint follow-up recorded on #785 found no
+match to three reviewed examples. On 2026-11-11, the existing redacted inventory
+was compared locally and in memory with historical `.rsc` and updater-named
+files reachable from refs in this checkout at main commit
+`778642bc9ff7c8fb728225eaadd75d3f8d76a495`; no exact matches were found.
+This bounded search does not include detached Git objects, other local clones,
+untracked operator copies, or RouterOS source not returned by the collector.
+Because the report omits raw source, installed behavior and scheduler binding
+remain unresolved; it also does not prove caller authorization or RouterOS-side
+visibility. No RouterOS mutation occurred.
 The 2026-10-30 read-back below is historical: it covered PR #862 only and
 returned revision `445c1d5ca0f28174629be8e8cd94f04de132f0fc`. It predates the
 PR #894 canary checkpoint recorded at the top of this roadmap. The 30-minute
