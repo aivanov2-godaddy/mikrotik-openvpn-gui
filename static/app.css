@@ -464,7 +464,7 @@ progress::-moz-progress-bar { background: #1f9fe3; }
 .connection-summary small, .history-notice small { color: #91a79b; font-size: 12px; }
 .standalone-session-list { margin-top: 8px; border: 1px solid var(--line); background: #19242c; }
 .standalone-session-list .session-card { padding: 10px; }
-.session-bulk-panel { margin-top: 8px; padding: 0; }
+.session-bulk-panel { margin-top: 8px; padding: 0; border: 1px solid var(--line); background: var(--panel); }
 .session-bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
 .session-select-all { display: inline-flex; min-height: 32px; align-items: center; gap: 8px; color: var(--text-bright); font-size: 11px; font-weight: 600; cursor: pointer; }
 .session-select-all input, .session-select-control input { width: 17px; height: 17px; flex: 0 0 17px; margin: 0; accent-color: var(--blue); cursor: pointer; }
@@ -747,6 +747,12 @@ dialog::backdrop { background: rgb(7 12 16 / 72%); }
   .session-card { grid-template-columns: 1fr auto; padding-left: 10px; }
   .session-facts { grid-column: 1 / 3; }
   .session-graphs { grid-column: 1 / -1; }
+}
+
+@media (max-width: 900px) {
+  .app-view[data-view="live-sessions"] .view-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .app-view[data-view="live-sessions"] .heading-actions { width: 100%; flex-wrap: wrap; justify-content: space-between; }
+  .app-view[data-view="live-sessions"] .session-graphs { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {

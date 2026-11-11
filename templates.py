@@ -572,7 +572,7 @@ def dashboard_page(
         <div class="empty session-empty"><span>{_icon('session')}</span><strong>No devices connected</strong><p>Connections will appear here automatically. Nothing needs to be refreshed manually.</p></div>"""
 
     session_bulk_controls = """
-        <section class="panel session-bulk-panel" data-session-bulk-controls aria-label="Bulk connection actions">
+        <section class="session-bulk-panel" data-session-bulk-controls aria-label="Bulk connection actions">
           <div class="session-bulk-toolbar">
             <label class="session-select-all"><input type="checkbox" data-session-select-all disabled><span>Select all active connections</span></label>
             <span class="muted-label" data-session-selection-count role="status" aria-live="polite">0 selected</span>
