@@ -676,8 +676,9 @@ def evaluate(
                 max_gap = _number(raw_routeros_evidence, "max_sample_gap_seconds")
                 resource_values = raw_routeros_evidence.get("resource_peaks")
                 if (
-                    raw_routeros_evidence.get("format") != "vpn-dashboard-routeros-acceptance-v3"
+                    raw_routeros_evidence.get("format") != "vpn-dashboard-routeros-acceptance-v4"
                     or raw_routeros_evidence.get("container_revisions_matched") is not True
+                    or raw_routeros_evidence.get("container_configured_digests_matched") is not True
                     or rest_parity_successful != sample_count
                     or rest_parity_failed != 0
                     or active_sessions_max < active_sessions_min
@@ -705,7 +706,7 @@ def evaluate(
                 if active_sessions_max < 1:
                     failures.append("vpn_test_session_not_observed")
                 routeros_resource_evidence = {
-                    "format": "vpn-dashboard-routeros-acceptance-v3",
+                    "format": "vpn-dashboard-routeros-acceptance-v4",
                     "observation_started_at": routeros_started.isoformat(),
                     "observation_ended_at": routeros_ended.isoformat(),
                     "sample_count": sample_count,
@@ -716,6 +717,7 @@ def evaluate(
                     "max_sample_gap_seconds": max_gap,
                     "resource_peaks": resource_numbers,
                     "container_revisions_matched": True,
+                    "container_configured_digests_matched": True,
                 }
             except ValueError:
                 failures.append("routeros_resource_evidence_invalid")

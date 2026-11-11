@@ -302,7 +302,7 @@ def _evidence_timestamp(value: Any, name: str) -> datetime:
 
 def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -> None:
     """Join a redacted RouterOS sample window to matching app-soak evidence."""
-    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v3":
+    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v4":
         raise ValueError("RouterOS evidence format is invalid")
     if routeros.get("passed") is not True or routeros.get("failed_gates") != []:
         raise ValueError("RouterOS evidence did not pass its acceptance gates")
@@ -375,16 +375,21 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
             raise ValueError("app deployment image must use a full immutable revision tag")
         observed = containers[environment]
         expected_revision = image_match.group("revision")
+        pinned_digest = image_match.group("reference_digest")
+        expected_configured_digests = [pinned_digest] if pinned_digest is not None else []
         if (
             not isinstance(observed, dict)
             or observed.get("healthy_for_all_successful_samples") is not True
             or observed.get("observed_source_revisions") != [expected_revision]
+            or observed.get("configured_digest_matches_expected") is not True
+            or observed.get("observed_configured_digests") != expected_configured_digests
+            or (pinned_digest is not None and record.get("digest") != pinned_digest)
         ):
-            raise ValueError("RouterOS container health or revision does not match app evidence")
+            raise ValueError("RouterOS container health, revision, or configured digest does not match app evidence")
         record.update(resources)
 
     collection["routeros_resource_evidence"] = {
-        "format": "vpn-dashboard-routeros-acceptance-v3",
+        "format": "vpn-dashboard-routeros-acceptance-v4",
         "observation_started_at": router_started.isoformat(),
         "observation_ended_at": router_ended.isoformat(),
         "sample_count": sample_count,
@@ -395,6 +400,7 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
         "max_sample_gap_seconds": float(max_gap),
         "resource_peaks": resources,
         "container_revisions_matched": True,
+        "container_configured_digests_matched": True,
     }
 
 
