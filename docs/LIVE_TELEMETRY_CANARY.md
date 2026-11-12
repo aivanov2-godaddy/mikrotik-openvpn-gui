@@ -1,25 +1,34 @@
 # Live telemetry canary procedure
 
-This procedure validates the Binary API telemetry path without changing
-RouterOS policy or VPN data. It is intentionally separate from the production
-watchdog and uses only immutable images.
+This procedure describes a local comparison tool for caller-supplied redacted
+samples. The comparator itself does not query RouterOS, collect live snapshots,
+measure resources or event latency, run reconnect/reconciliation tests, change
+transports, or authorize a release. It is intentionally separate from the
+production watchdog.
 
-## What the canary proves
+## What the comparator checks
 
-- Binary API-SSL and the redacted broker see the same session set as the
-  existing REST snapshot.
-- The Binary API snapshot is fresh and remains healthy for consecutive samples.
-- Reconnect and reconciliation tests pass without RouterOS mutations.
-- Router CPU, memory, event latency, and reconnect behavior stay within the
-  acceptance targets in `docs/LIVE_TELEMETRY_PLAN.md`.
+- The supplied redacted session identifier sets match under the configured
+  missing/extra limits.
+- Every sample has a finite `binary_timestamp` that is present, not future
+  dated, and no older than the configured maximum age.
+- The configured number of consecutive supplied samples passes those checks.
+
+`ready_to_promote` from this comparator means only that its input file meets
+these local comparison rules. It is not a release or promotion decision and
+does not prove that the samples came from RouterOS or that the browser received
+live updates. Use the candidate-bound collectors and acceptance gates in
+`docs/ROUTEROS_ACCEPTANCE.md` for deployed evidence.
 
 ## Capture and compare privately
 
 The operator harness should write newline-delimited JSON to a private file or
-pipe. It must contain only redacted session records, for example:
+pipe. Each record must contain only redacted session records and a Unix
+`binary_timestamp` captured with the Binary API snapshot. This schema example
+uses a placeholder; substitute the real capture-time integer before use:
 
-```json
-{"legacy":[{"id":"opaque-1"}],"binary":[{"id":"opaque-1"}],"binary_timestamp":1720000000}
+```text
+{"legacy":[{"id":"opaque-1"}],"binary":[{"id":"opaque-1"}],"binary_timestamp":<capture-time-unix-seconds>}
 ```
 
 Do not commit this file, paste it into an issue, or send it to a public service.
@@ -30,9 +39,11 @@ python telemetry_canary.py --input private-samples.ndjson \
   --max-age 10 --required-consecutive 3
 ```
 
-The command prints only counts, age, reason, and promotion readiness. Exit code
-`0` means the required consecutive healthy samples were observed. Exit code `1`
-means the canary is not ready; exit code `2` means the input was invalid.
+The command prints only counts, age, reason, and local comparison readiness.
+Missing or future timestamps fail closed and do not contribute to the
+consecutive healthy count. Exit code `0` means the supplied consecutive samples
+pass this comparator's rules; exit code `1` means the local comparison is not
+ready; exit code `2` means the input was invalid.
 
 After the session comparison, run the resource-impact gate against a separate
 redacted NDJSON file. The file may contain only numeric measurements and the
@@ -59,14 +70,20 @@ All numeric limits must be finite and non-negative; `NaN` and infinities are
 invalid inputs, not ways to disable an acceptance threshold.
 
 For the complete acceptance report, combine resource samples with reconnect,
-ordering, counter-reset, and security checks:
+ordering, counter-reset, and security checks. Values such as
+`visible_without_refresh`, `api_interruption_tested`, and
+`binary_matches_rest` are assertions supplied by the harness; the JSON
+validator does not independently observe those events. Keep the original
+candidate-bound collection and its limits in view when evaluating the report:
 
 The example assumes periodic sample records span the full 30-minute interval
 from `1728000000` through `1728001800`; intermediate sample lines are omitted.
 Every attestation timestamp below falls inside that same interval.
+The origin field is a placeholder for the locally approved value; keep the
+actual origin out of evidence files and public reports.
 
 ```json
-{"type":"deployment_identity","origin":"https://vpn-dev.wanted.sx","candidate_revision":"<full-candidate-sha>","observed_revision":"<full-candidate-sha>","observed_at":1728000900}
+{"type":"deployment_identity","origin":"<approved-canary-origin>","candidate_revision":"<full-candidate-sha>","observed_revision":"<full-candidate-sha>","observed_at":1728000900}
 {"type":"sample","observed_at":1728000000,"transport":"binary","latency_ms":180,"event_age_seconds":0.7,"router_cpu_percent":22,"router_memory_percent":34,"router_storage_percent":12,"event_epoch":0,"event_sequence":101,"event_lost":false,"event_duplicated":false,"out_of_order":false}
 {"type":"session_transition","observed_at":1728000300,"connected":true,"visible_without_refresh":true,"latency_ms":180}
 {"type":"session_transition","observed_at":1728000600,"connected":false,"visible_without_refresh":true,"latency_ms":220}
@@ -82,8 +99,8 @@ Every attestation timestamp below falls inside that same interval.
 python scripts/telemetry_acceptance.py --input private-acceptance.ndjson --candidate-revision <full-candidate-sha> --max-session-event-latency-ms 1000
 ```
 
-The release collector independently samples `https://vpn-dev.wanted.sx/readyz`
-over certificate-verified HTTPS without following redirects throughout the full
+The release collector independently samples the configured, allowlisted
+canary `/readyz` origin over certificate-verified HTTPS without following redirects throughout the full
 soak. Every readiness sample must match the candidate revision, and the
 timestamped NDJSON identity plus the complete telemetry sample window must fit
 inside that same observed interval. A one-shot identity check cannot establish

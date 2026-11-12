@@ -6,27 +6,29 @@ call RouterOS, modify configuration, disconnect clients, or write event
 payloads. The report contains aggregate event counts, connection lifecycle,
 and sequence-gap/duplicate/order checks only.
 
-The observer accepts only the exact HTTPS origin `https://vpn-dev.wanted.sx`
-(with an optional trailing slash or explicit default port 443). Lookalike
-domains, alternate ports, paths, query strings, and credentials are rejected
-before any request is made. Supply a short-lived dashboard `Cookie` header
-through a named environment variable, not a command-line argument. The
-observer first reads only the authenticated `/api/observability` runtime
+The observer accepts only its pinned HTTPS canary origin (with an optional
+trailing slash or explicit default port 443). Lookalike domains, alternate
+ports, paths, query strings, and credentials are rejected before any request is
+made. Supply the approved origin through the local environment and a short-lived
+dashboard `Cookie` header through a named environment variable, not a command-line
+argument. The observer first reads only the authenticated `/api/observability` runtime
 revision, refuses redirects, and does not start the stream unless the revision
 matches the candidate SHA. It then sends the cookie only to that pinned host;
 the cookie and API response are never written to the report or logs. Keep the
 output file private because it records deployment timing and operational
 evidence.
 
-Example invocation (provide the cookie through the operating system's secret
-or environment injection mechanism, not shell history):
+Example invocation (set the approved origin and provide the cookie through the
+operating system's secret or environment injection mechanism, not shell history):
 
-```text
-python scripts/telemetry_stream_observer.py --canary-origin https://vpn-dev.wanted.sx --expected-revision <40-character-candidate-sha> --cookie-env VPN_CANARY_COOKIE --duration-seconds 1800 --output private-canary-stream.json
+```powershell
+python scripts/telemetry_stream_observer.py --canary-origin $env:VPN_CANARY_ORIGIN --expected-revision <40-character-candidate-sha> --cookie-env VPN_CANARY_COOKIE --duration-seconds 1800 --output private-canary-stream.json
 ```
 
-This is partial evidence, not a release-acceptance pass. The observer does not
-measure RouterOS-to-dashboard latency: the client/server clock offset is not
+This is partial evidence, not a release-acceptance pass. The observer validates
+its pinned origin before making a request, but its output remains a local stream
+observation. It does not measure RouterOS-to-dashboard latency because the
+client/server clock offset is not
 established. It also cannot prove that a human-visible page updated without a
 refresh, that REST/Binary snapshots match, or that counter reset and
 unauthenticated-access tests passed. The browser acceptance projection retains

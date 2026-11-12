@@ -7,8 +7,10 @@ tests.
 
 The procedure is deliberately read-only except for the disposable canary
 container and a disposable VPN profile. Do not paste router exports, passwords,
-private keys, certificates, profile archives, public IP addresses, or real
-domain names into an issue, pull request, or test result.
+private keys, certificates, profile archives, public IP addresses, private
+hostnames, or private origin URLs into an issue, pull request, or test result.
+The acceptance tools use narrow checked-in HTTPS host allowlists;
+do not repeat origin values in reports.
 
 ## Scope and prerequisites
 
@@ -548,11 +550,11 @@ against its own recorded revision throughout the window and requires
 production to remain on a different prior immutable image from the canary
 candidate. The default `--phase postpromotion` is for verification after
 promotion and requires canary and production to report the same candidate
-image/revision. In `canary-prepromotion`, only the candidate canary tag/digest
-is checked against GHCR; the prior production digest and metrics endpoint are
-not required. In `postpromotion`, both canary and production tag/digest pairs
-are checked; any required candidate registry digest that is unavailable or
-mismatched fails closed. This verifies registry artifact identity, not the
+image/revision. In `canary-prepromotion`, the candidate canary and the prior
+production image tag/digest pairs are both checked against GHCR; production
+metrics are not required. In `postpromotion`, both canary and production
+tag/digest pairs are checked; any required registry digest that is unavailable
+or mismatched fails closed. This verifies registry artifact identity, not the
 bytes cached on the router. The report declares the registry-check scope, and
 the final evaluator reports
 `promotion_eligible` for a passing pre-promotion candidate gate and
@@ -598,9 +600,10 @@ The rollback report must be captured by
 `scripts/collect_rollback_acceptance.py`; do not hand-author the checkpoint
 booleans or timestamps. It reads both dashboard containers through authenticated
 RouterOS Binary API and REST, independently checks both `/readyz` origins, and
-fails unless those observations agree. Probes are restricted to the exact HTTPS
-hosts `vpn-dev.wanted.sx` for canary and `vpn.wanted.sx` for production; IP
+fails unless those observations agree. Probes are restricted to the collector's
+two approved HTTPS host allowlist entries for canary and production; IP
 literals, plaintext HTTP, nonstandard ports, and arbitrary hosts are rejected.
+Keep the approved origin values in the local environment and out of reports.
 It prompts for six ordered
 canary-only stages; it does not issue RouterOS commands or modify production.
 Use the redacted shape in
@@ -618,8 +621,9 @@ raw logs.
 
 Run the rollback capture before the candidate soak, with read-only RouterOS
 API/REST credentials supplied via the documented environment variables (or
-entered at hidden prompts). Readiness URLs must use the exact configured
-environment hostname over HTTPS.
+entered at hidden prompts). Readiness URLs must use the exact locally configured,
+allowlisted environment origins over HTTPS. Do not put those origins in evidence
+files.
 
 ```powershell
 python scripts/collect_rollback_acceptance.py `
@@ -628,13 +632,14 @@ python scripts/collect_rollback_acceptance.py `
   --candidate-digest sha256:<candidate-registry-digest> `
   --previous-canary-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<previous-sha>-arm64@sha256:<previous-digest> `
   --production-image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<production-sha>-arm64@sha256:<production-digest> `
-  --canary-url https://vpn-dev.wanted.sx `
-  --production-url https://vpn.wanted.sx
+  --canary-url $env:VPN_CANARY_ORIGIN `
+  --production-url $env:VPN_PRODUCTION_ORIGIN
 ```
 
-The example uses placeholders; replace them locally. The capture remains
-read-only and asks the operator to perform each canary transition between
-checkpoints. Never promote production as part of this drill.
+Set those environment values locally to the two allowlisted origins before
+running the command. The example uses placeholders; replace them locally. The
+capture remains read-only and asks the operator to perform each canary
+transition between checkpoints. Never promote production as part of this drill.
 
 ### Certificate lifecycle acceptance evidence
 

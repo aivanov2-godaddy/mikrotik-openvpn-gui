@@ -1,15 +1,15 @@
-"""Read-only canary comparison for Binary API telemetry.
+"""Compare caller-supplied redacted telemetry samples.
 
-The canary compares a new redacted snapshot with the existing REST snapshot.
-It never writes to RouterOS, SQLite, certificates, profiles, or user data.
-Production must keep the legacy transport unless a policy reports a healthy
-comparison for the configured number of consecutive samples.
+This local comparator does not collect from RouterOS, measure live behavior,
+change transports, or authorize a release. It only checks the supplied
+session sets and Binary API timestamp against the configured policy.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from dataclasses import dataclass
@@ -37,7 +37,7 @@ class CanaryPolicy:
 class CanaryResult:
     healthy: bool
     observed_at: int
-    age_seconds: float
+    age_seconds: float | None
     missing_sessions: tuple[str, ...]
     extra_sessions: tuple[str, ...]
     reason: str
@@ -46,7 +46,7 @@ class CanaryResult:
         return {
             "healthy": self.healthy,
             "observed_at": self.observed_at,
-            "age_seconds": round(self.age_seconds, 3),
+            "age_seconds": None if self.age_seconds is None else round(self.age_seconds, 3),
             "missing_session_count": len(self.missing_sessions),
             "extra_session_count": len(self.extra_sessions),
             "reason": self.reason,
@@ -62,7 +62,7 @@ def compare_snapshots(
     binary: Iterable[Mapping[str, Any]],
     *,
     observed_at: int | None = None,
-    binary_timestamp: int | None = None,
+    binary_timestamp: int | float | None = None,
     policy: CanaryPolicy | None = None,
     clock: Callable[[], float] = time.time,
 ) -> CanaryResult:
@@ -71,17 +71,36 @@ def compare_snapshots(
     selected = policy or CanaryPolicy()
     now = float(clock())
     observed = int(now if observed_at is None else observed_at)
-    age = max(0.0, now - int(binary_timestamp or observed))
+    timestamp_failure: str | None = None
+    age: float | None
+    if binary_timestamp is None:
+        age = None
+        timestamp_failure = "binary_timestamp_missing"
+    else:
+        if isinstance(binary_timestamp, bool) or not isinstance(binary_timestamp, (int, float)):
+            raise ValueError("binary_timestamp must be a finite number")
+        timestamp = float(binary_timestamp)
+        if not math.isfinite(timestamp):
+            raise ValueError("binary_timestamp must be a finite number")
+        if timestamp > now:
+            age = None
+            timestamp_failure = "binary_timestamp_in_future"
+        else:
+            age = now - timestamp
     legacy_ids = _ids(legacy)
     binary_ids = _ids(binary)
     missing = tuple(sorted(legacy_ids - binary_ids))
     extra = tuple(sorted(binary_ids - legacy_ids))
     healthy = (
-        age <= selected.max_age_seconds
+        timestamp_failure is None
+        and age is not None
+        and age <= selected.max_age_seconds
         and len(missing) <= selected.max_missing_sessions
         and len(extra) <= selected.max_extra_sessions
     )
-    if age > selected.max_age_seconds:
+    if timestamp_failure is not None:
+        reason = timestamp_failure
+    elif age is not None and age > selected.max_age_seconds:
         reason = "binary_snapshot_stale"
     elif missing or extra:
         reason = "session_set_mismatch"
