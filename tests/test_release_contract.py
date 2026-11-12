@@ -354,7 +354,11 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #926", release_record)
+        self.assertIn("## Latest published mainline image — PR #935", release_record)
+        self.assertIn("## Previous published mainline image — PR #926", release_record)
+        self.assertIn("sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd", release_record)
+        self.assertIn("sha256:4aec06e36796a1c6ea019fa8559d1ba11e4a2373615f68490e4f8a1fff6122b1", release_record)
+        self.assertIn("sha256:6fb18fbbada53bceffad7418881c26a05e9481f2e2263eb954924fdcd5d195ae", release_record)
         self.assertIn("## Previous published mainline image — PR #915", release_record)
         self.assertIn("sha256:969cff69318e9abc73a047c4a09afeca1268b8d73a3eec6d13a755529404e150", release_record)
         self.assertIn("sha256:3f1085d607ed87a4c129b88360ec9d874bf3c466f7372d09ad28e3f5f03a3ca1", release_record)
@@ -394,7 +398,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:ac36036b13842a7bb2ac5611705403e1165c84ac2a07115af8a192f9ccf7ba6f", release_record)
         self.assertIn("sha256:55aae2f27b0469b807c27064a339a04bbb7c938c1198f51e033440aa9f2f67f4", release_record)
         self.assertIn(
-            "PR #926 has not been staged on RouterOS",
+            "PR #935 has not been staged on RouterOS",
             " ".join(release_record.split()),
         )
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
@@ -512,7 +516,7 @@ class ReleaseContractTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "Latest published image: PR #926; not staged on RouterOS.",
+            "Latest published image: PR #935; not staged on RouterOS.",
             installation,
         )
         self.assertIn(
@@ -520,7 +524,7 @@ class ReleaseContractTests(unittest.TestCase):
             installation,
         )
         self.assertIn(
-            "PR #926, commit `301e725c8e3d28761fb408920f08947ee3f43075`",
+            "PR #935, commit `3f8fc22ec3166b3074fb54f54c79d6dede256ed4`",
             installation,
         )
         self.assertIn("sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581", release_record)

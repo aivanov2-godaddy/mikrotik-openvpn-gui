@@ -11,14 +11,15 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-Formal release **v2.7.0** remains the latest numbered release. PR #926
-(`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published mainline
-image source. Post-merge main CI run #43126239562, CodeQL run #43126239938, and
-container publisher run #43126239602 passed. The publisher built and scanned
-both architecture images, passed published-runtime smoke tests, verified
-provenance and SPDX SBOM attestations, and published/read back the stable
-manifest. Exact tags, digests, and manifest checksum are in
-[RELEASES.md](RELEASES.md). PR #926 has not been staged on RouterOS.
+Formal release **v2.7.0** remains the latest numbered release. PR #935
+(`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published mainline
+image source. Post-merge main CI run #43174815746, main push analysis run
+#43174814930, and container publisher run #43174815700 passed. The publisher
+built and scanned both architecture images and published/read back the stable
+manifest. Exact immutable tags, digests, and manifest checksum are in
+[RELEASES.md](RELEASES.md). PR #935 has not been staged on RouterOS. Its
+timestamp validation hardening improves the supplied-sample comparator; it
+does not prove live RouterOS/API/browser or reconnect behavior.
 
 A fresh TLS-verified Binary API snapshot at 00:44 UTC on 2026-11-12 found the
 canary configured for the PR #894 ARM64 digest
@@ -34,7 +35,7 @@ running registry digest was not verified.
 
 PR #932 merged at `8aba6f69c8e982af3d28d8dd9ab2055313ae284c`; post-merge main
 CI run #43158080040 and CodeQL run #43158079958 passed. This documentation-only
-merge published no image. PR #926 remains the latest published image and has
+merge published no image. At that checkpoint, PR #926 was the latest published image and had
 not been staged. A later read-only WebFig point check on 2026-11-12 showed the
 canary unhealthy and production healthy; production's latest verified running
 digest remains unknown. Issue #927 tracks candidate device validation and
@@ -129,6 +130,19 @@ script, scheduler, configuration, container, account, VPN policy, or production
 setting changed during collection. Continue #785 through staging-failure
 diagnostics and rollback only when its safety gates permit. Production
 promotion remains gated on candidate-bound acceptance.
+
+### Latest RouterOS point check — 2026-11-12 07:38–07:40 UTC
+
+A read-only WinBox observation at 07:38 UTC showed the canary unhealthy and
+production healthy. A separate TLS-verified REST configuration read-back at
+07:39 UTC found the canary still pinned to the older PR #894 image, not PR #935,
+and production configured by a tag without a digest. Neither running registry
+digest was verified. The canary healthcheck continued to report process/fork
+resource exhaustion followed by a segmentation-fault marker; the failing
+process and root cause remain unknown. No RouterOS write, staging, rollback, or
+production change was made. The canary is not a healthy rollback baseline, so
+the staging preflight blocks before writes. PR #935 remains unstaged; candidate
+acceptance and production promotion remain gated.
 
 ### Historical deployment checkpoints
 
@@ -231,8 +245,8 @@ pass.
 | Complete | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201), [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202), [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | RouterOS least-privilege diagnostics, mutation safety, SBOM/provenance and compatibility policy |
 | Closed in GitHub — implementation; device/certificate acceptance remains | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. PR #702 adds a collapsed, read-only CRL configuration observation to Device Profiles without restoring the removed overview alert. PR #705 hardens cleanup of temporary RouterOS profile-export artifacts. PR #707 gates retirement on testing the replacement identity; PR #718 adds fail-closed checkpoint-failure coverage; PR #722 rejects stale, malformed, missing-expiry, and wrong-CA CRL snapshots. PR #730 requires both the stored RouterOS certificate ID and normalized fingerprint to match for a read-only inventory match. PR #737 adds a candidate-bound, operator-attested certificate-lifecycle evidence gate; its merge does not itself prove a successful live lifecycle test. The GitHub issue is closed, but candidate/device-backed CRL freshness, staged renewal and retirement, fresh-connect rejection, active-session behavior, read-back, and canary rollback evidence remain release gates tracked by #205. Profile recovery issues a new identity rather than re-downloading a retained private key. |
 | Complete — acceptance tooling; live gates remain | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Closed by PR #709. The bounded read-only collector and SQLite restore verifier are implemented. Candidate-matched live soak, deployment, and rollback evidence remain release gates tracked by #205 (device/certificate acceptance) and #200 (security assurance); closing this implementation issue does not claim device acceptance. |
-| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published mainline image source (see RELEASES.md), with ARM64 digest `sha256:969cff69318e9abc73a047c4a09afeca1268b8d73a3eec6d13a755529404e150`; it has not been staged. PR #930 merged at `ecc77c4` with passing CI/CodeQL and no publisher run for that merge. A read-only WebFig/WinBox point check at 04:06 UTC on 2026-11-12 showed the canary still on PR #894's pinned digest and `unhealthy`; the default healthcheck was failed with a segmentation-fault marker. A separate private direct probe at 03:31 UTC returned HTTP 200 for `/healthz` and `/readyz`, with `ready` at PR #894 revision `84a3148de713abe49be0c7be8f21caa652b68dd9`; these are point samples. Production showed a healthy marker but remains configured with a tag-only image; its running digest was not verified. The scoped matrix review confirmed 43 pinned ASVS IDs and 146 named test references; it is internal repository evidence, not external assessment. No synchronized latency result against ≤1 s was recorded, no API interruption was simulated, and no 30-minute soak has passed. Still required: issue #927 candidate validation; candidate-bound authenticated connect/reconnect latency (≤1 s), traffic freshness (≤2 s), API interruption/snapshot recovery and authorization checks; measured 30-minute soak; event/counter integrity and Binary API/REST parity; deployed Redis/SQLite recovery; RouterOS permission and credential-exposure review; canary rollback; external review; and owner risk decision. No production deployment is claimed. |
-| Open — updater safety / staging and rollback | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | A TLS-verified read-only inventory under the existing `read,api,rest-api` group returned five scripts and three schedulers. A private export matched every source hash and scheduler classification: two enabled name-based events resolve to the first source; the disabled `/system/script/run` event contains the fourth source's exact internal ID. MikroTik documents `run` by ID or name, resolving this configured target within the export; the disabled scheduler was not executed. None of the five sources matches the reviewed template, and the comparator flags the canary restore verifier/call site missing in all five. The installed updater remains disabled. PR #930 merged the fixed-canary staging controller, which requires healthy/ready baselines, a fresh encrypted-backup receipt, a second pre-write snapshot, and exact canary rollback on readiness failure. Its behavior is covered by local mocks only; the current unhealthy canary fails the preflight, so there was no device staging. The #926 healthcheck fault remains tracked by #927. The CLI emits a versioned allowlisted diagnostic with phase/code, possible-write state, rollback attempt and verified prior-state outcomes; unexpected post-start failures require manual read-back. It omits raw exception text and RouterOS responses. This source-only change does not stage the candidate or satisfy rollback/live acceptance. A read-only WebFig point check around 05:25 UTC showed production HEALTHY and canary UNHEALTHY, so the healthy-baseline guard would block before writes. No RouterOS state changed. |
+| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published mainline image source (see RELEASES.md), with ARM64 digest `sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd`; it has not been staged. PR #935 hardens timestamp validation for supplied telemetry samples; it does not provide live acceptance. A read-only WinBox observation at 07:38 UTC on 2026-11-12 showed the canary unhealthy and production healthy. A TLS-verified REST configuration read-back at 07:39 UTC found the canary still configured with PR #894's pinned ARM64 digest and production tag-only; neither running registry digest was verified. The canary healthcheck reported process/fork resource exhaustion followed by a segmentation-fault marker; its failing process and root cause remain unknown. The scoped matrix review confirmed 43 pinned ASVS IDs and 146 named test references; it is internal repository evidence, not external assessment. No synchronized latency result against ≤1 s was recorded, no API interruption was simulated, and no 30-minute soak has passed. Still required: issue #927 candidate validation; candidate-bound authenticated connect/reconnect latency (≤1 s), traffic freshness (≤2 s), API interruption/snapshot recovery and authorization checks; measured 30-minute soak; event/counter integrity and Binary API/REST parity; deployed Redis/SQLite recovery; RouterOS permission and credential-exposure review; canary rollback; external review; and owner risk decision. No production deployment is claimed. |
+| Open — updater safety / staging and rollback | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | A TLS-verified read-only inventory under the existing `read,api,rest-api` group returned five scripts and three schedulers. A private export matched every source hash and scheduler classification: two enabled name-based events resolve to the first source; the disabled `/system/script/run` event contains the fourth source's exact internal ID. MikroTik documents `run` by ID or name, resolving this configured target within the export; the disabled scheduler was not executed. None of the five sources matches the reviewed template, and the comparator flags the canary restore verifier/call site missing in all five. The installed updater remains disabled. PR #930 merged the fixed-canary staging controller, which requires healthy/ready baselines, a fresh encrypted-backup receipt, a second pre-write snapshot, and exact canary rollback on readiness failure. Its behavior is covered by local mocks only; the current unhealthy canary fails the preflight, so there was no device staging. The prior-image healthcheck fault and unverified PR #926 healthcheck fix remain tracked by #927. The CLI emits a versioned allowlisted diagnostic with phase/code, possible-write state, rollback attempt and verified prior-state outcomes; unexpected post-start failures require manual read-back. It omits raw exception text and RouterOS responses. This source-only change does not stage the candidate or satisfy rollback/live acceptance. A read-only WebFig point check around 05:25 UTC showed production HEALTHY and canary UNHEALTHY, so the healthy-baseline guard would block before writes. No RouterOS state changed. |
 | Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Close only after remaining device/certificate acceptance (tracked here despite #194's GitHub closure), #200 security review, and candidate-specific live acceptance gates pass; include the #199 collector/restore evidence in the candidate report. Current point checks show canary unhealthy and production healthy but tag-only with unverified running digest. The source-only CLI diagnostics improve failure reporting; PR #930's fail-closed stage guard remains in force. The canary is unhealthy, so no candidate staging or production deployment is claimed. |
 
 PR #776 added a regression-tested logout ordering fix: revoke the session
@@ -245,7 +259,7 @@ merged Engine.IO quota-retention hardening, and PR #891 rejects ambiguous
 handshake query parameters and prevents new polling handshakes from bypassing
 the quota reservation. PR #891's post-merge CI, CodeQL, and image publication
 passed. PR #893 was published with passing CI, CodeQL, image publication, and
-attestations; PR #926 now supersedes it as the latest published image. Immutable
+attestations; PR #935 now supersedes it as the latest published image. Immutable
 tags and digests are in RELEASES.md. The current #894 canary read-back and its limits are recorded in
 the current snapshot above; publication does not satisfy the live acceptance
 gates. PR #830
