@@ -10,6 +10,8 @@ Bounded direct private canary GETs at 17:21:03 UTC returned HTTP 200 for `/healt
 
 Follow-up TLS-verified REST classification at 17:48:38 UTC still reported a `failed`/`segmentation_fault` healthcheck with the default command present, no per-container command override, and the reviewed timeout/wget readiness-check shape. Separate direct private canary GETs at 17:48:54 UTC returned HTTP 200 for `/healthz` and `/readyz`, with readiness still `ready` at PR #894. The app probes do not override RouterOS's failed healthcheck or establish a sustained healthy interval.
 
+A bounded TLS-verified RouterOS log query at about 17:54 UTC found no records matching its healthcheck, segmentation-fault, timeout, wget, unhealthy, memory-pressure, fork, or process-exit filters. No raw log lines were printed or retained. This limited negative query does not show that the fault is absent or identify its cause.
+
 A separate REST classification at 17:23:29 UTC returned `good` for the production healthcheck, with no custom command override. Direct private production `/healthz` and `/readyz` probes from the collection host at 17:24:31 UTC received no HTTP status. This transport result is not evidence that RouterOS marked production unhealthy; deployed production HTTP readiness remains unverified from that probe.
 
 PR #935 has not been staged on RouterOS.
