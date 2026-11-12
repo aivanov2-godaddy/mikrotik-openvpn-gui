@@ -1,6 +1,14 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #945 merged to `main` at `7f7aa5cb2a8bf0b5ed820e49ce934f5235c38c0d`; required PR checks, post-merge main CI #43245852829, and CodeQL #43245853782 passed. No publisher run was triggered. At about 15:25 UTC the canary was still unhealthy on the PR #894 configured reference and the count-only OpenVPN query returned zero. At 15:33 UTC production healthcheck-status was good, but its image reference was tag-only and its running OCI digest remains unverified.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #946 merged to `main` at `d82c73f7c463d141d5f05cab7ea813237d11e5d1`; required PR checks, post-merge CodeQL #43252242467, and post-merge CI #43252244657 passed. The current publisher history has no run for the #946 merge SHA. A fresh WinBox readback around 15:54 UTC found production healthcheck-status `good` but a tag-only reference, while the canary remains failed on the PR #894 reference with resource-unavailable/fork and segmentation-fault markers; neither running OCI digest is verified.**
+
+## Current RouterOS point check — 2026-11-12 about 15:54 UTC
+
+A fresh read-only WinBox query found production healthcheck-status `good`, but the configured production image reference was not digest pinned. RouterOS still reports the canary healthcheck failed with a resource-unavailable/fork marker followed by a segmentation-fault marker. A bounded reference comparison confirmed that canary remains configured for PR #894's immutable ARM64 candidate and not PR #935. The exact failing process and underlying cause remain unknown. Neither running OCI manifest digest was verified. This check did not repeat the direct canary `/healthz` or `/readyz` probes.
+
+A count-only active OpenVPN query at about 15:25 UTC returned zero. No session rows, identifiers, or addresses were requested or retained; client-dependent #200 checks remain deferred.
+
+The latest publisher remains PR #935; the merged PR #946 changed documentation only. PR #935 has not been staged. The unhealthy canary is not a healthy rollback baseline, so no staging, restart, rollback, or production deployment was performed. No RouterOS setting, account, or password was changed. Issues #927, #785, #200, and epic #205 remain open.
 
 ## Current RouterOS and updater point checks — 2026-11-12 15:25–15:35 UTC
 

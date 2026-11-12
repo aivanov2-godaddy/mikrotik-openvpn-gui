@@ -11,17 +11,17 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Verified checkpoint — 2026-11-12 15:35 UTC.** Documentation PR #945 merged to `main` at `7f7aa5cb2a8bf0b5ed820e49ce934f5235c38c0d`. Post-merge main CI #43245852829 and CodeQL #43245853782 passed. The merge changed documentation only; the merge-SHA workflow list contained no image publisher run.
+**Verified checkpoint — 2026-11-12 about 15:54 UTC.** Documentation PR #946 merged to `main` as `d82c73f7c463d141d5f05cab7ea813237d11e5d1`; all required PR checks passed and main CodeQL #43252242467 passed. Main CI #43252244657 was still running its rendered-browser and ARM64 image jobs at the time of this router readback, then completed successfully at 16:00 UTC. The merge changed documentation only; the latest publisher run remains PR #935's successful run #43174815700, with no publisher run for the #946 merge SHA.
 
 PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) remains the latest published image source and has not been staged on RouterOS. Its source includes PR #926's exec-form image healthcheck fix. Formal release **v2.7.0** remains the latest numbered release.
 
-Read-only WinBox checks at about 15:25 UTC still reported the canary healthcheck failed with resource-unavailable/fork and segmentation-fault markers; the exact failing process and root cause remain unknown. The current canary configured reference matches PR #894's immutable ARM64 reference, not PR #935. RouterOS's running OCI manifest digest remains unverified. A count-only active OpenVPN query returned zero; no session rows or identifiers were requested or retained, so client-dependent #200 checks remain deferred.
+A fresh read-only WinBox query at about 15:54 UTC found production healthcheck-status `good`, but its configured image reference is still not digest pinned. The canary healthcheck remains failed with resource-unavailable/fork and segmentation-fault markers. Its configured image reference matches PR #894's immutable ARM64 candidate, not PR #935. The exact failing process and root cause remain unknown, and the running OCI manifest digest is not verified for either container. No direct `/healthz` or `/readyz` probe was repeated in this check.
 
-At 15:33 UTC, RouterOS returned `good` for the production healthcheck-status field. Its configured image reference remains tag-only, and the running OCI manifest digest is not verified. A healthy marker does not satisfy production image-identity or deployment acceptance.
+A count-only active OpenVPN query at about 15:25 UTC returned zero; no session rows or identifiers were requested or retained, so client-dependent #200 checks remain deferred.
 
 An offline #785 source recheck compared the retained private source export with the later 13:50 UTC inventory. All five source fingerprints and all three scheduler classifications matched. None of the five scripts exactly matched the reviewed template, and all five were missing the canary restore-verification check. The comparator found zero added credential, private-key, destructive-operation, or fetch/download token markers relative to that template; this token comparison is not semantic approval or an updater safety review. The installed updater remains disabled.
 
-The unhealthy canary is not a verified healthy rollback baseline, so PR #935 remains unstaged. Issues #785, #927, #200, and epic #205 remain open. Within the original #188–#204 roadmap, #188–#199 and #201–#204 are closed; #200 remains open. No RouterOS write, staging, restart, rollback, production change, or deployment occurred. Multi-tenancy remains excluded.
+The unhealthy canary is not a verified healthy rollback baseline, so PR #935 remains unstaged. Issues #785, #927, #200, and epic #205 remain open. Within the original #188–#204 roadmap, #188–#199 and #201–#204 are closed; #200 remains open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; no staging, restart, rollback, or deployment occurred. Multi-tenancy remains excluded.
 ### Previous checkpoint — PR #938 (2026-11-12 about 11:18 UTC)
 
 PR #938 merged to
