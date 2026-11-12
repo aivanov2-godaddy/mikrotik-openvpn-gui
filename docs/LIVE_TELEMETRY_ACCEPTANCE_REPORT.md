@@ -1,7 +1,7 @@
 # Live telemetry acceptance status
 
-Status: **PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) remains the
-latest published image source, with immutable ARM64 and AMD64 images. Post-merge
+Status: **PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest
+published image source, with immutable ARM64 and AMD64 images. Post-merge
 CI, CodeQL, image scans, runtime smoke tests, provenance, SPDX SBOM checks, and
 stable-manifest publication passed. See [RELEASES.md](RELEASES.md) for exact
 digests and the manifest checksum. PR #930 merged at
