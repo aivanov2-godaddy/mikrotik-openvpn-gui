@@ -19,7 +19,7 @@ Fresh TLS-verified, read-only RouterOS diagnostics on 2026-11-12 found the canar
 
 A paired RouterOS configuration/lifecycle read and private HTTP probe completed at 13:14 UTC. RouterOS still reported the canary unhealthy with the older PR #894 image configured, while direct `/healthz` and `/readyz` GETs returned 200/ready for that old revision. Production remained running with a tag-only configured reference. Neither running registry digest is verified. The aggregate active OpenVPN session count was zero at 13:20 UTC; no session details were requested or retained, so client-dependent acceptance remains deferred.
 
-The unhealthy canary does not satisfy the reviewed healthy rollback-baseline precondition; PR #935 remains unstaged. Issues #927, #785, and #200 remain open for healthcheck/device validation, safe updater/canary rollback, and candidate-bound security/live-session acceptance. No RouterOS write, staging, restart, rollback, production change, or deployment occurred. Multi-tenancy remains excluded.
+The unhealthy canary does not satisfy the reviewed healthy rollback-baseline precondition; PR #935 remains unstaged. Issues #927 and #785 remain open for healthcheck/device validation and safe updater/canary rollback. Within the original #188–#204 roadmap, #188–#199 and #201–#204 are closed; #200 remains open for candidate-bound security/live-session acceptance. No RouterOS write, staging, restart, rollback, production change, or deployment occurred. Multi-tenancy remains excluded.
 ### Previous checkpoint — PR #938 (2026-11-12 about 11:18 UTC)
 
 PR #938 merged to
