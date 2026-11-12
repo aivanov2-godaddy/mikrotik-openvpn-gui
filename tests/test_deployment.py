@@ -251,7 +251,11 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertIn("integrations.py", containerfile)
         self.assertIn("http://127.0.0.1:8080/readyz", containerfile)
         self.assertIn("HEALTHCHECK --interval=30s --timeout=3s", containerfile)
-        self.assertIn("timeout 2 wget -q -T 2 -O /dev/null", containerfile)
+        self.assertIn(
+            'CMD ["wget", "-q", "-T", "2", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]',
+            containerfile,
+        )
+        self.assertNotIn("CMD timeout 2 wget", containerfile)
         ci_workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text(
             encoding="utf-8"
         )
@@ -260,9 +264,16 @@ class DeploymentPolicyTests(unittest.TestCase):
         self.assertIn("--health-interval=1s", ci_workflow)
         self.assertIn("seq 1 120", ci_workflow)
         self.assertIn(
-            'docker exec "$container_id" timeout 2 wget -q -T 2 -O /dev/null',
+            'docker exec "$container_id" wget -q -T 2 -O /dev/null',
             ci_workflow,
         )
+        self.assertIn('Config.Healthcheck.Test', ci_workflow)
+        publisher_workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/container.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('Config.Healthcheck.Test', publisher_workflow)
+        self.assertIn('test "${health_status:-}" = "healthy"', publisher_workflow)
+        self.assertIn('--health-interval=1s --detach "$RELEASE_IMAGE"', publisher_workflow)
         self.assertNotIn("http://127.0.0.1:8080/healthz", containerfile)
 
     def test_waf_plan_creates_updates_and_is_idempotent(self) -> None:
