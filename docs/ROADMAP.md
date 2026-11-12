@@ -11,7 +11,15 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**RouterOS and promotion checkpoint — 2026-11-12 about 11:18 UTC.** PR #938 merged to
+**Verified checkpoint — 2026-11-12 about 12:54 UTC.** Documentation PR #940 merged to `main` at `7cbbee2c2464658a1b66e120f1714ce14303a4a5`. All required PR checks passed; post-merge main CI run #43220383677 and main CodeQL run #43220382628 also passed. No publisher run was triggered by this documentation-only merge. PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source; PR #935 has not been staged on RouterOS. Formal release **v2.7.0** remains the latest numbered release.
+
+Fresh TLS-verified, read-only RouterOS checks on 2026-11-12 at 12:48–12:52 UTC found the canary still configured with the older pinned PR #894 image and unhealthy. At 12:50 UTC its default healthcheck remained failed/segmentation_fault, with the reviewed default check present and no per-container override. The exact failing executable and root cause remain unknown. Separate direct `/healthz` and `/readyz` GETs returned 200/ready for that old revision; these point samples do not satisfy a soak or candidate acceptance.
+
+Production remains running with a tag-only configured reference. Neither running registry digest is verified. The aggregate active OpenVPN session count was zero, so client-dependent acceptance remains deferred. Issues #927, #785, and #200 remain open for healthcheck/device validation, safe updater/canary rollback, and candidate-bound security/live-session acceptance. No RouterOS write, staging, restart, rollback, production change, or deployment occurred. Multi-tenancy remains excluded.
+
+### Previous checkpoint — PR #938 (2026-11-12 about 11:18 UTC)
+
+PR #938 merged to
 `main` as `6290c4d026d9a139bd5af7b660092e5bb08a073b`. It adds a fail-closed
 promotion gate requiring a current, candidate-bound independent security
 assessment and a separate owner accepted-risk decision. PR checks, including
