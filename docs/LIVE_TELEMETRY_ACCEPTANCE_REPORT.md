@@ -1,8 +1,18 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. PR #948 merged to `main` at `ff6775227ff7b7471efb6b56c9e50561d000da00`; its required PR checks, post-merge CI #43263376608, and CodeQL #43263377503 passed. The documentation-only merge published no image. TLS-verified API readbacks between 17:19 and 17:48 UTC found the canary unhealthy on PR #894; its healthcheck still failed at 17:48 while separate direct `/healthz` and `/readyz` probes returned 200/ready. Production healthcheck-status was good at 18:02 UTC with a tag-only configured reference; direct private production probes from the collection host again obtained no HTTP status. The count-only OpenVPN query returned zero at 17:47 UTC. Neither running OCI digest is verified.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. PR #949 merged to `main` at `8e6e0e8e012893201ca595b27b885751370571ae`; its latest-head required checks passed, including the targeted browser/accessibility rerun. Post-merge CI #43280993640 and main push analysis #43280992832 completed successfully by 18:40 UTC. The documentation-only merge did not publish an image. TLS-verified readbacks at 18:17:35 and 18:18:27 UTC found the canary unhealthy on PR #894 with a failed/segmentation-fault healthcheck; no per-container override was present. A count-only OpenVPN query at 18:28:31 UTC returned zero with no session details saved. Production was running with a tag-only configured reference at 18:17:35 UTC. Neither running OCI digest is verified.**
 
-## Current RouterOS point check — 2026-11-12 17:19–18:02 UTC
+## Current RouterOS point check — 2026-11-12 18:17–18:28 UTC
+
+A TLS-verified, read-only Binary API container snapshot at 18:17:35 UTC found the canary lifecycle `unhealthy`, configured with the pinned PR #894 reference rather than PR #935. Production was `running` with a tag-only configured reference. Neither running OCI manifest digest was verified.
+
+A separate TLS-verified REST classification at 18:18:27 UTC reported the canary healthcheck category `segmentation_fault` with a `failed` status prefix. The default healthcheck was present and matched the reviewed legacy timeout/wget shape; no per-container healthcheck override was present. These fields do not identify the faulting executable or root cause. No direct health/readiness probe was repeated at this checkpoint; the last direct canary `/healthz` and `/readyz` probes are the 17:48:54 UTC point observations on PR #894.
+
+The count-only active OpenVPN query at 18:28:31 UTC returned zero. It requested only the service field and saved no session details. Client-dependent #200 checks remain deferred until the disposable client is connected.
+
+The unhealthy canary is not a verified healthy rollback baseline, so PR #935 remains unstaged. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; no staging, restart, rollback, or production deployment occurred.
+
+## Earlier RouterOS observations — 2026-11-12 17:19–18:02 UTC
 
 A TLS-verified, read-only Binary API snapshot at 17:19:59 UTC found the canary lifecycle `unhealthy`, with a pinned configured reference matching PR #894 rather than PR #935. Production was `running` with a tag-only configured reference. Neither running OCI manifest digest was verified.
 
