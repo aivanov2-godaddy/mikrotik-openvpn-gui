@@ -44,6 +44,23 @@ diagnostics, but device acceptance remains open and the installed updater stays
 disabled. Issue #200 candidate acceptance remains open. No router write,
 production change, new numbered release, or production deployment is claimed.
 
+PR #933 merged at `31f4976d98526d8629797ceb3bf3ecebb672d45d` after its required
+CI and CodeQL checks passed. It adds versioned, allowlisted failure diagnostics
+to the #785 canary staging CLI; it does not change RouterOS state or publish an
+image. Post-merge CodeQL run #43163704180 and main CI run
+#43163704164 both passed for the merge SHA. All main CI jobs passed, including
+Python 3.13/3.14, pre-commit,
+security scans, Redis integration/evidence attestation, Socket.IO same-origin,
+rendered browser/accessibility regression, and ARM64 image build.
+No container publisher run appeared for this merge. A TLS-verified read-only
+REST point read at 05:54 UTC could not classify either container's lifecycle;
+it confirmed only that the canary's configured reference is digest-pinned,
+production's is tag-only, and neither running digest is verified. A separate
+read-only WebFig point check at 05:56 UTC showed the canary unhealthy and
+production healthy. WinBox was reachable, but its accessibility tree exposed
+no container status. These point checks do not meet canary or
+production acceptance. The exact RouterOS healthcheck fault remains unknown.
+
 
 On 2026-11-04, RouterOS was read back with the exact immutable PR #894 ARM64
 candidate configured. Initial authenticated readiness returned revision
