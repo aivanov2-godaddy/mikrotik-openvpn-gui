@@ -65,6 +65,12 @@ override present and the image default matching the reviewed healthcheck shape.
 The raw status and command were omitted; the exact failing executable and root
 cause remain unknown.
 
+A subsequent read-only healthcheck-status read at 06:14 UTC again showed the
+canary unhealthy. RouterOS reported that the timeout healthcheck process could
+not fork because a resource was temporarily unavailable, followed by a
+segmentation-fault marker. This identifies the immediate fork failure but does
+not establish its underlying cause or identify the faulting process.
+
 
 On 2026-11-04, RouterOS was read back with the exact immutable PR #894 ARM64
 candidate configured. Initial authenticated readiness returned revision
