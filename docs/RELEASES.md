@@ -19,18 +19,31 @@ RouterOS configuration, raw time-series telemetry, and session-level details
 remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #915
-(`5db3a0d4a220348c2f49934db4a3263776390c6c`) is the latest published
-mainline image source; publication does not change the formal version. PR #915
-has not been staged on RouterOS. The exact PR #894 ARM64 candidate initially
-passed readiness and revision read-back on canary. A later same-day health
-check found the canary unhealthy and bounded in-container `/healthz` and
-`/readyz` requests timed out. After an authorized canary-only restart,
-RouterOS's healthy marker returned; post-restart revision read-back and
-sustained recovery are not verified. A newer read-only WinBox observation on
-2026-11-11 found the current canary health marker unhealthy; its running image
-was not matched to a publisher digest. Full acceptance and production
-promotion remain pending. PR #893
+version, v2.8.0, has not been tagged or published. PR #926
+(`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published mainline
+image source; publication does not change the formal version. Post-merge main
+CI run #43126239562, CodeQL run #43126239938, and container publisher run
+#43126239602 succeeded. The publisher built and scanned both architectures,
+passed published-runtime smoke checks, verified provenance and SPDX SBOM
+attestations, and published/read back the stable manifest. The manifest asset
+SHA-256 is `sha256:d286b4decf5cf102ea32a7bcf8592ff7cd199ef8929c09117ab581899d6ff10e`.
+Exact immutable tags and digests are in the latest-image section below. PR #926
+has not been staged on RouterOS.
+
+A fresh TLS-verified Binary API read-back at 00:44 UTC on 2026-11-12 still
+found the canary configured for PR #894's exact ARM64 digest
+`sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`,
+with lifecycle state `unhealthy`. Separate direct private HTTP probes at 00:46
+returned HTTP 200 for `/healthz` and `/readyz`; readiness reported revision
+`84a3148de713abe49be0c7be8f21caa652b68dd9`. A read-only RouterOS REST
+classification at 00:46 found the default healthcheck failed with a
+segmentation-fault marker and no configured healthcheck override. The exact
+crashing executable remains unknown. Production was still running with a
+tag-only image reference; neither running digest was verified. Issue #927
+tracks validation of PR #926 on RouterOS. Issues #785 and #200, and production
+promotion, remain gated.
+
+PR #893
 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) updated the Python 3.15 Alpine
 base-image digest. PR #891
 (`58a680423a4d616eb926a47c486847c8a4c062fe`) rejects ambiguous Engine.IO
@@ -64,7 +77,35 @@ manifest. The manifest asset SHA-256 is
 Code scanning returned zero open alerts on 2026-10-30. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #915 — 2026-11-11
+## Latest published mainline image — PR #926 — 2026-11-12
+
+PR [#926](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/926)
+merged as `301e725c8e3d28761fb408920f08947ee3f43075`. Post-merge main CI run
+[#43126239562](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43126239562),
+CodeQL run
+[#43126239938](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43126239938),
+and container publisher run
+[#43126239602](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43126239602)
+passed. The publisher built and scanned ARM64 and AMD64 images, passed
+published-runtime smoke tests, verified detached provenance and SPDX SBOM
+attestations against the exact image digests, and published/read back the stable
+manifest. The downloaded `routeros-release.json` asset SHA-256 is
+`sha256:d286b4decf5cf102ea32a7bcf8592ff7cd199ef8929c09117ab581899d6ff10e`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-301e725c8e3d28761fb408920f08947ee3f43075-arm64` | `sha256:969cff69318e9abc73a047c4a09afeca1268b8d73a3eec6d13a755529404e150` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-301e725c8e3d28761fb408920f08947ee3f43075-amd64` | `sha256:3f1085d607ed87a4c129b88360ec9d874bf3c466f7372d09ad28e3f5f03a3ca1` |
+
+Publication is not a numbered release or RouterOS deployment. PR #926 has not
+been staged. The currently configured canary still uses the older PR #894
+image and RouterOS reports it unhealthy, despite a separate direct readiness
+probe returning 200 for that PR #894 revision. RouterOS's default healthcheck
+reports a segmentation-fault marker; the precise failing executable is
+unknown. Issue #927 tracks the device validation. Issue #785 and #200 remain
+open, and production promotion remains gated.
+
+## Previous published mainline image — PR #915 — 2026-11-11
 
 PR [#915](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/915)
 merged as `5db3a0d4a220348c2f49934db4a3263776390c6c`. Post-merge main CI run
@@ -84,11 +125,12 @@ downloaded `routeros-release.json` asset SHA-256 is
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5db3a0d4a220348c2f49934db4a3263776390c6c-arm64` | `sha256:8b5fed8dda70ea1db628c4d261873458086ff4b8a381c33b2f9ebaf16abda407` |
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-5db3a0d4a220348c2f49934db4a3263776390c6c-amd64` | `sha256:5805292d6f2f72a5c91ad2128c2b6e902bca4ccd033931875e3f4199e9961a76` |
 
-Publication is not a numbered release or RouterOS deployment. This image has
-not been staged on RouterOS. A newer read-only WinBox observation found the
-current canary health marker unhealthy and did not verify its running digest.
-Issue #785 inventory reconciliation and issue #200 candidate-bound acceptance
-remain open; production promotion remains gated.
+Publication is not a numbered release or RouterOS deployment. PR #926 now
+supersedes PR #915 as the latest published image. The current canary still
+runs PR #894 and RouterOS reports it unhealthy; neither its running digest nor
+the production running digest is verified. Issue #785 inventory reconciliation
+and issue #200 candidate-bound acceptance remain open; production promotion
+remains gated.
 
 ## Previous published mainline image — PR #909 — 2026-11-11
 

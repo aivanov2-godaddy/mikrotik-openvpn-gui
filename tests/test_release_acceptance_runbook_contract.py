@@ -92,21 +92,21 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "This checkpoint is superseded by the current PR #894 canary checkpoint at the top of this report",
+            "This checkpoint is historical; the latest PR #926 post-publication read-back is recorded near the top of this report",
             report,
         )
         self.assertIn(
-            "PR #915 (`5db3a0d4a220348c2f49934db4a3263776390c6c`) is the latest published image source",
+            "PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published image source",
             report,
         )
         self.assertIn(
-            "The exact ARM64 candidate initially passed canary readiness and revision read-back",
+            "the canary still configured with PR #894's pinned ARM64 digest",
             report,
         )
-        self.assertIn("PR #915 has not been staged on RouterOS", report)
-        self.assertIn("bounded in-container requests to `/healthz` and `/readyz` timed out", report)
-        self.assertIn("authorized restart of canary only restored RouterOS's healthy", report)
-        self.assertIn("post-restart authenticated revision read-back and sustained health are not verified", report)
+        self.assertIn("PR #926 has not been staged on RouterOS", report)
+        self.assertIn("Bounded in-container HTTP requests to both `/healthz` and `/readyz` timed out", report)
+        self.assertIn("After an authorized restart of canary only, RouterOS reported a healthy marker again", report)
+        self.assertIn("No authenticated readiness response was captured after that restart, so the running revision and sustained recovery remain unverified", report)
         self.assertIn(
             "no synchronized event timestamps were captured",
             report,
