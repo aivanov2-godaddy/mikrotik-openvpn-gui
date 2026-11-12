@@ -205,10 +205,14 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             self.assertIn("one existing group member", document)
             self.assertIn("predates this policy change", document)
             self.assertIn("No account was created and no password was changed", document)
-        self.assertIn("complete private source/relationship review", roadmap)
         self.assertIn(
-            "scheduler bindings still require private reconciliation", acceptance
+            "the configured target is therefore resolved within the exported set",
+            roadmap,
         )
+        self.assertIn(
+            "This resolves the configured target in the exported set", acceptance
+        )
+        self.assertIn("the scheduler is disabled and was not", acceptance)
 
 
 if __name__ == "__main__":
