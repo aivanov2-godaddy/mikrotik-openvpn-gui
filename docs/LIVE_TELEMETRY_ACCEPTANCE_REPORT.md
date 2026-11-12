@@ -1,32 +1,34 @@
 # Live telemetry acceptance status
 
-Status: **PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest
-published image source, with immutable ARM64 and AMD64 images. Post-merge
+Status: **PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published image source.
+It remains published with immutable ARM64 and AMD64 images. Post-merge
 CI, CodeQL, image scans, runtime smoke tests, provenance, SPDX SBOM checks, and
 stable-manifest publication passed. See [RELEASES.md](RELEASES.md) for exact
 digests and the manifest checksum. PR #930 merged at
-`ecc77c4cac578e79740f6e592dff3773a81642a2`; its CI and CodeQL passed and it
-did not publish a new image. PR #926 has not been staged on RouterOS. A fresh
-read-only WebFig/WinBox point check at 04:06 UTC on 2026-11-12 showed the
-canary still on PR #894's pinned digest and `unhealthy`, with a failed default
-healthcheck carrying a segmentation-fault marker. A separate private probe at
-03:31 UTC returned HTTP 200 for `/healthz` and `/readyz`, with readiness at the
-PR #894 revision; this is not continuous health evidence. Production showed a
-healthy marker but remains configured with a tag-only image and no verified
-running digest. Qualitative disconnect/reconnect and SSE fallback observations
-remain unmeasured; latency, freshness, API recovery, soak, privacy, and rollback
-gates remain pending. No production deployment is claimed.**
+`ecc77c4cac578e79740f6e592dff3773a81642a2`. Documentation PR #931 merged at
+`b605e1859fd5ad5f292d31157eea67ecf2bf2659`; post-merge CI run #43155794246
+and CodeQL run #43155794515 passed. Neither documentation/staging-guard merge
+published a new image. PR #926 has not been staged on RouterOS. A fresh
+read-only WinBox point check at approximately 04:45 UTC on 2026-11-12 showed
+the canary still on PR #894's pinned digest and `unhealthy`; its default
+healthcheck failed with process/fork exhaustion and a segmentation-fault
+marker. A separate private probe at 03:31 UTC returned HTTP 200 for `/healthz`
+and `/readyz`, with readiness at the PR #894 revision; these are separate
+point samples, not continuous health evidence. Production showed healthy but
+remains configured with a tag-only image and no verified running digest.
+Latency, freshness, API recovery, soak, privacy, and rollback gates remain
+pending. No production deployment is claimed.**
 
-## Current RouterOS point check — 2026-11-12 04:06 UTC
+## Current RouterOS point check — 2026-11-12 approximately 04:45 UTC
 
-The authenticated WebFig/WinBox views were inspected read-only. The canary was
-marked `unhealthy` and remained configured for PR #894's immutable ARM64
-digest
-`sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`.
-The displayed default healthcheck result was failed with a segmentation-fault
-marker; the exact failing executable remains unknown. At 03:31 UTC, the
-separate bounded private HTTP probe returned 200 for `/healthz` and `/readyz`
-and reported `ready` at revision
+The authenticated WinBox view was inspected read-only. The canary remained
+configured for PR #894's immutable ARM64 digest
+`sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`
+and was marked `unhealthy`. RouterOS's default healthcheck showed process/fork
+exhaustion followed by a segmentation-fault marker. This classifies the
+healthcheck failure; the faulting executable and root cause remain unknown.
+At 03:31 UTC, the separate bounded private HTTP probe returned 200 for
+`/healthz` and `/readyz` and reported `ready` at revision
 `84a3148de713abe49be0c7be8f21caa652b68dd9`. The probe and UI state are
 different point samples and do not establish a continuous healthy interval.
 
