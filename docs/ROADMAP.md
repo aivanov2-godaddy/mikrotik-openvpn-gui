@@ -30,8 +30,11 @@ the image-default healthcheck failed with a segmentation-fault marker; no
 configured override was present and the exact failing executable is unknown.
 Production remains `running` with a tag-only configured image reference; no
 running digest was verified. Issue #927 tracks device validation of PR #926.
-Issue #785 source/binding review and issue #200 candidate acceptance remain
-open. No new numbered release or production deployment is claimed.
+Issue #785 remains open for updater safety, staging-failure diagnostics, and a
+reviewed canary-only staging/rollback path; the private source and configured
+target relationships have been reviewed, and the installed updater remains
+disabled. Issue #200 candidate acceptance remains open. No new numbered release
+or production deployment is claimed.
 
 
 On 2026-11-04, RouterOS was read back with the exact immutable PR #894 ARM64
@@ -58,50 +61,39 @@ and resource window; connect/reconnect latency; RouterOS API interruption and
 snapshot recovery; counter reset and event ordering/loss/duplication; Binary
 API/REST parity; Redis outage and recovery; SQLite restore and interrupted-write
 checks; authorization/privacy checks; and canary rollback rehearsal.
-Issue #785 remains open because installed source and scheduler bindings still need
-private reconciliation. PR #902 merged as efd634d and fixed Windows 8.3 path
-aliases in local inventory/comparison tools; PR #906 merged as b0dfe22 and made
-offline scheduler resolution conservative. PR #904 clarified historical canary
-evidence. Both are offline tooling changes; neither provides device-side inventory. On
-2026-11-11, the
-checked-in collector completed a TLS-verified, read-only Binary API collection
-and wrote a report classified `inventory_collected_review_required`. The report
-contains five scripts and three scheduler entries: two direct bindings and one
-internal script-ID candidate, with no opaque or ambiguous targets in the
-returned data. The redacted collector comparison reported no exact match to the
-checked-in reviewed templates; that finding is not a code-level review of the
-installed sources. All five source assessments flag missing canary
-rollback/restore verification. The collector's complete-print-response flag
-describes returned API replies only; it does not establish exhaustive RouterOS
-visibility. An earlier, separately supplied WinBox inspection recorded the
-inventory identity in a `read,api` group with write, policy, sensitive, and
-interactive-service privileges denied, and a source-address restriction on
-that user. A later screenshot showed existing terminal scrollback whose group
-output included additional privileges beyond read-only collection. A subsequent
-read-only WinBox read-back on 2026-11-11 verified that the existing inventory
-group's exact enabled policies are `read,api,rest-api`, with one existing group
-member. The earlier 13:02 UTC inventory report predates this policy change and
-is not a post-change collection. A fresh TLS-verified Binary API collection at
-22:36:36 UTC on 2026-11-11 succeeded under the current group policy. It again
-returned five scripts and three schedulers: two direct bindings, one unresolved
-internal script-ID candidate, and no opaque targets or exact matches to the
-reviewed repository template. Completed print replies do not prove exhaustive
-RouterOS visibility or the member's source-address restriction. Both reports
-remain operator-controlled and redact raw source, scheduler event text,
-credentials, and device identity. No account was created and no password was
-changed. At 22:45 UTC, a separate private read-only export matched every
-installed source hash and scheduler classification to the fresh report. The
-disabled scheduler's simple event text targets the fourth source's internal
-ID, still a candidate rather than verified runtime binding. None of the five
-sources matches the reviewed template, and the static comparator flags the
-reviewed canary restore verifier/call site absent in each. The candidate
-source contains container mutation commands and production references; this
-bounded scan does not establish safe execution or rollback. Keep the dedicated
-updater disabled; complete private source/relationship review and the separate
-reviewed canary-only staging/rollback path. No RouterOS script,
-scheduler, configuration, container, or VPN policy changed during collection.
-Production promotion and the next numbered release stay gated on source/binding
-review and candidate-bound acceptance.
+Issue #785 remains open for updater safety, staging-failure diagnostics, and the
+reviewed canary-only staging/rollback path. PR #902 merged as efd634d and fixed
+Windows 8.3 path aliases in local inventory/comparison tools; PR #906 merged as b0dfe22 and made offline scheduler resolution conservative. PR #904 clarified
+historical canary evidence. These offline tooling changes did not change device
+state, and neither provides device-side inventory. On 2026-11-11, the checked-in collector completed a TLS-verified,
+read-only Binary API collection under the verified existing
+`read,api,rest-api` group with one existing group member. The report was
+classified `inventory_collected_review_required`.
+The earlier 13:02 UTC report predates this policy change. The returned inventory
+contains five scripts and three scheduler entries; the
+redacted collector reported two direct bindings and one internal script-ID
+candidate, with no opaque or ambiguous targets. A separate private read-only
+export at 22:45 UTC matched all five source hashes and all three scheduler
+classifications to that report. Two enabled script-run events resolve by unique
+name to the first returned source. The disabled event uses
+`/system/script/run` with the exact internal ID of the fourth source. MikroTik
+documents `run` by ID or name ([RouterOS Scripting
+reference](https://help.mikrotik.com/docs/spaces/ROS/pages/47579229/Scripting));
+the configured target is therefore resolved within the exported set. The
+scheduler remains disabled and was not executed. The authorized API print
+replies do not prove exhaustive RouterOS visibility, and the member's
+source-address restriction remains unverified. No account was created and no
+password was changed.
+
+None of the five installed sources exactly matches the reviewed repository
+template. The offline comparator flags the canary restore verifier/call site as
+missing in each. The fourth source contains container stop/set/update/start
+operations and production references; static inspection does not establish
+safe execution or rollback. Keep the dedicated updater disabled. No RouterOS
+script, scheduler, configuration, container, account, VPN policy, or production
+setting changed during collection. Continue #785 through staging-failure
+diagnostics and rollback only when its safety gates permit. Production
+promotion remains gated on candidate-bound acceptance.
 
 ### Historical deployment checkpoints
 
@@ -205,7 +197,7 @@ pass.
 | Closed in GitHub — implementation; device/certificate acceptance remains | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. PR #702 adds a collapsed, read-only CRL configuration observation to Device Profiles without restoring the removed overview alert. PR #705 hardens cleanup of temporary RouterOS profile-export artifacts. PR #707 gates retirement on testing the replacement identity; PR #718 adds fail-closed checkpoint-failure coverage; PR #722 rejects stale, malformed, missing-expiry, and wrong-CA CRL snapshots. PR #730 requires both the stored RouterOS certificate ID and normalized fingerprint to match for a read-only inventory match. PR #737 adds a candidate-bound, operator-attested certificate-lifecycle evidence gate; its merge does not itself prove a successful live lifecycle test. The GitHub issue is closed, but candidate/device-backed CRL freshness, staged renewal and retirement, fresh-connect rejection, active-session behavior, read-back, and canary rollback evidence remain release gates tracked by #205. Profile recovery issues a new identity rather than re-downloading a retained private key. |
 | Complete — acceptance tooling; live gates remain | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Closed by PR #709. The bounded read-only collector and SQLite restore verifier are implemented. Candidate-matched live soak, deployment, and rollback evidence remain release gates tracked by #205 (device/certificate acceptance) and #200 (security assurance); closing this implementation issue does not claim device acceptance. |
 | Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #926 is the latest published image (see RELEASES.md), with ARM64 digest `sha256:969cff69318e9abc73a047c4a09afeca1268b8d73a3eec6d13a755529404e150`; it has not been staged. Fresh read-only evidence at 00:44–00:46 UTC on 2026-11-12 found the canary still on PR #894's pinned digest and `unhealthy`, while direct `/healthz` and `/readyz` returned HTTP 200 for revision `84a3148de713abe49be0c7be8f21caa652b68dd9`; RouterOS reported the default healthcheck failed with a segmentation-fault marker. The exact failing executable remains unknown. Production is still configured with a tag-only image and no running digest was verified. The qualitative authenticated disconnect/reconnect and SSE fallback remain observations only. No synchronized latency result against ≤1 s was recorded, no API interruption was simulated, and no 30-minute soak has passed. Still required: issue #927 candidate validation; independent scoped ASVS assessment; authenticated connect/reconnect latency (≤1 s), traffic freshness (≤2 s), API interruption/snapshot recovery and authorization checks; measured 30-minute soak; event/counter integrity and Binary API/REST parity; deployed Redis/SQLite recovery; RouterOS permission and credential-exposure review; canary rollback; and owner risk decision. No production deployment is claimed. |
-| Open — updater reconciliation / safe staging | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | A TLS-verified, read-only inventory under the existing `read,api,rest-api` group returned five scripts and three schedulers. A private source export matched all five source hashes and all three scheduler classifications to the fresh redacted report. Two enabled name-based bindings resolve to the first script; a disabled internal-ID scheduler targets the fourth source as a candidate binding, not proven runtime behavior. None of the five sources exactly matches a reviewed repository template; the offline comparator flags the canary restore verifier/call site missing in all five. The installed updater remains disabled. The #926 canary healthcheck fault is separately tracked by #927. No router account was created, no password changed, and no router script, scheduler, or container was changed during read-only collection. Continue only after private source/binding and reviewed canary-only staging/rollback gates pass. |
+| Open — updater safety / staging and rollback | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | A TLS-verified read-only inventory under the existing `read,api,rest-api` group returned five scripts and three schedulers. A private export matched every source hash and scheduler classification: two enabled name-based events resolve to the first source; the disabled `/system/script/run` event contains the fourth source's exact internal ID. MikroTik documents `run` by ID or name, resolving this configured target within the export; the disabled scheduler was not executed. None of the five sources matches the reviewed template, and the comparator flags the canary restore verifier/call site missing in all five. The installed updater remains disabled. The #926 healthcheck fault is separately tracked by #927. No router account was created, no password changed, and no router script, scheduler, or container changed during collection. Keep staging and rollback gated. |
 | Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Close only after remaining device/certificate acceptance (tracked here despite #194's GitHub closure), #200 security review, and candidate-specific live acceptance gates pass; include the #199 collector/restore evidence in the candidate report. |
 
 PR #776 added a regression-tested logout ordering fix: revoke the session

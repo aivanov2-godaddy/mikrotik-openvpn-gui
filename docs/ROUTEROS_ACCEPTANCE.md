@@ -62,8 +62,8 @@ interaction, so no fresh role read-back was possible. The later policy and API
 results below supersede that uncertainty about the group policy; the member's
 source-address restriction remains unverified. Exact
 identity and address details, raw source, and source fingerprints remain in
-the operator-controlled private record. The candidate binding and installed
-sources require private review.
+the operator-controlled private record. The private source and binding review is summarized below; no installed
+script was executed.
 
 ## Current inventory-group policy read-back — 2026-11-11
 
@@ -72,45 +72,41 @@ exact enabled policies as `read,api,rest-api` and showed one existing group
 member. This verifies the group policy and membership count only; the member's
 source-address restriction and exhaustive RouterOS visibility were not
 rechecked. No account was created and no password was changed. The 13:02 UTC
-private inventory report above predates this policy change, so it must not be
-used as a post-change source/scheduler inventory. Installed script contents and
-scheduler bindings still require private reconciliation. Keep the updater
+private inventory report above predates this policy change, so it is not used
+as the post-change source/scheduler inventory. Keep the dedicated updater
 disabled. This policy read-back is not candidate staging or deployment
 acceptance.
 
 At 22:36:36 UTC on 2026-11-11, the TLS-verified Binary API collector completed
-a new read-only report under this policy. It returned five scripts and three
-schedulers: two direct bindings, one unresolved internal script-ID candidate,
-zero opaque targets, and zero exact matches to the reviewed repository
-template. The new report is still classified
-`inventory_collected_review_required` and contains no raw script source or
-scheduler event text. Completed print replies do not establish exhaustive
-RouterOS visibility. The private source/binding review, canary rollback, and
-candidate-bound acceptance remain open.
+a read-only report under this policy. It returned five scripts and three
+schedulers: two name-based direct bindings and one internal script-ID candidate,
+with no opaque targets and no exact match to the reviewed repository template.
+The redacted report is classified `inventory_collected_review_required` and
+contains no raw source or scheduler event text. Completed print replies do not
+establish exhaustive RouterOS visibility.
 
-A bounded local exact-hash check performed before PR #916 merged compared the
-five private source fingerprints with 58 `.rsc` or updater-named blobs
-reachable from fetched Git refs at base `5f8f4aa`; it found no exact matches.
-This rules out only an exact copy among those repository blobs. The redacted
-inventory alone contains fingerprints and markers, not raw source. A separate
-private read-only export at 22:45 UTC matched all five source hashes and three
-scheduler classifications to the fresh report. The disabled scheduler's simple
-script-run event targeted the fourth source's exact internal ID, which remains
-a candidate binding. None of the five installed sources exactly matches the
-reviewed template, and the offline comparator flags its canary restore
-verifier/call site missing in each. The candidate source contains container
-stop/set/update/start commands and production references; this bounded static
-scan does not establish its full execution behavior or safe rollback. No
-private hash, filename, source text,
-scheduler event, or router identifier was added to this document. The updater
-remains disabled pending private source review and binding verification.
+A separate private read-only export at 22:45 UTC matched all five source hashes
+and all three scheduler classifications to that report. The two enabled
+script-run events resolve by unique name to the first returned source. The
+disabled event uses `/system/script/run` with the exact internal ID of the
+fourth source. MikroTik documents `run` as accepting a script ID or name in the
+[RouterOS Scripting reference](https://help.mikrotik.com/docs/spaces/ROS/pages/47579229/Scripting).
+This resolves the configured target in the exported set; it is static
+relationship evidence only, because the scheduler is disabled and was not
+executed. The export and hashes remain private; no source, scheduler event,
+identifier, or private network detail is included here.
 
-This inventory is not a canary read-back or acceptance result. It does not
-identify an image digest, embedded revision, readiness, running health,
-production-unchanged state, or rollback. No RouterOS script, scheduler,
-configuration, container, account, or VPN policy changed during collection.
-Keep the dedicated updater disabled and follow the separate reviewed
-canary-only staging/rollback procedure only after source and binding review.
+None of the five installed sources exactly matches the reviewed template. The
+offline comparator flags the reviewed canary restore verifier/call site as
+missing in every source. The fourth source contains container stop/set/update/
+start operations and production references; this bounded static review does not
+establish safe execution or rollback. Keep the dedicated updater disabled.
+Issue #785 remains open for staging-failure diagnostics and the separately
+reviewed canary-only staging/rollback path. This inventory is not a canary
+read-back or acceptance result: it does not identify an image digest, embedded
+revision, readiness, running health, production-unchanged state, or rollback.
+No RouterOS script, scheduler, configuration, container, account, or VPN policy
+changed during collection.
 
 ## Historical canary checkpoint — PR #894 — 2026-11-04
 
