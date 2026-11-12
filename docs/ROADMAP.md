@@ -11,16 +11,15 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Verified checkpoint — 2026-11-12 13:59 UTC.** Documentation PR #942 merged to `main` at `3676ea909c723e898d44cb5cfbff762f42a72713`; required checks passed. Post-merge main CI #43229432870 and CodeQL #43229433195 passed. The docs-only merge triggered no publisher run.
+**Verified checkpoint — 2026-11-12 14:32 UTC.** Documentation PR #943 merged to `main` at `44d294cd178765431019743467c438b11abe9f6c`. Post-merge main CI #43236137835 and CodeQL #43236135180 both passed. The merge changed documentation only; no container publisher run was triggered.
 
-PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) remains the latest published image source and has not been staged on RouterOS. Its source includes PR #926's exec-form image healthcheck fix. No application runtime or container build inputs changed after PR #935; formal release **v2.7.0** remains the latest numbered release.
+PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) remains the latest published image source and has not been staged on RouterOS. Its source includes PR #926's exec-form image healthcheck fix. The documentation-only PR #943 did not change application runtime or image build inputs. Formal release **v2.7.0** remains the latest numbered release.
 
-At 13:58:21 UTC, a TLS-verified read-only RouterOS Binary API snapshot reported the canary unhealthy on the older PR #894 image and production running with a tag-only configured reference. Neither running registry digest is verified. The current WinBox read-only view still showed a canary healthcheck segmentation-fault marker; the faulting executable and cause remain unknown.
+A read-only WinBox observation at 14:32:25 UTC showed the canary healthcheck still failed with the previously observed segmentation-fault marker; the exact failing process and underlying cause remain unknown. Production was marked healthy in the same WinBox session. This view does not verify either running OCI manifest digest. A prior bounded canary probe at 13:57:38 UTC returned HTTP 200 for `/healthz` and `/readyz`, with readiness `ready` at the old PR #894 revision; that is an earlier point probe, not current candidate acceptance.
 
-A separate bounded private canary probe at 13:57:38 UTC returned HTTP 200 for `/healthz` and `/readyz`, with readiness `ready` at the PR #894 revision. Those point responses do not override RouterOS's unhealthy lifecycle state or establish candidate acceptance. A TLS-verified aggregate OpenVPN session count at 13:59:36 UTC was zero; no session details were requested or retained, so client-dependent #200 checks remain deferred.
+A read-only aggregate OpenVPN session-count query at 14:32:25 UTC returned zero. No session rows, identifiers, or addresses were requested or retained, so client-dependent #200 checks remain deferred.
 
 The unhealthy canary does not satisfy the reviewed healthy rollback-baseline precondition; PR #935 remains unstaged. Issues #785, #927, #200, and epic #205 remain open. Within the original #188–#204 roadmap, #188–#199 and #201–#204 are closed; #200 remains open. No RouterOS write, staging, restart, rollback, production change, or deployment occurred. Multi-tenancy remains excluded.
-
 ### Previous checkpoint — PR #938 (2026-11-12 about 11:18 UTC)
 
 PR #938 merged to
