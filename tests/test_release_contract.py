@@ -1002,6 +1002,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("CHANGE-ME-IN-ROUTER", helper)
         self.assertIn("previous slots were preserved", helper)
         self.assertIn("backupPassword", helper)
+        self.assertIn("canary-backup-receipt.txt", helper)
+        self.assertIn("created-gmt-offset=", helper)
+        self.assertIn("prior-canary-image=", helper)
+        self.assertIn("encrypted=true", helper)
         self.assertNotIn("wanted.sx", helper)
         self.assertNotIn("/file/remove [find", helper)
 
