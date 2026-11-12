@@ -9,7 +9,7 @@ import os
 import re
 import sys
 from typing import Any, Callable
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from scripts.deploy_routeros_release import (
     DeploymentError,
