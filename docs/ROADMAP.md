@@ -11,7 +11,7 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Verified checkpoint — 2026-11-12 about 15:54 UTC.** Documentation PR #946 merged to `main` as `d82c73f7c463d141d5f05cab7ea813237d11e5d1`; all required PR checks passed and main CodeQL #43252242467 passed. Main CI #43252244657 was still running its rendered-browser and ARM64 image jobs at the time of this router readback. The merge changed documentation only; the latest publisher run remains PR #935's successful run #43174815700, with no publisher run for the #946 merge SHA.
+**Verified checkpoint — 2026-11-12 about 15:54 UTC.** Documentation PR #946 merged to `main` as `d82c73f7c463d141d5f05cab7ea813237d11e5d1`; all required PR checks passed and main CodeQL #43252242467 passed. Main CI #43252244657 was still running its rendered-browser and ARM64 image jobs at the time of this router readback, then completed successfully at 16:00 UTC. The merge changed documentation only; the latest publisher run remains PR #935's successful run #43174815700, with no publisher run for the #946 merge SHA.
 
 PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) remains the latest published image source and has not been staged on RouterOS. Its source includes PR #926's exec-form image healthcheck fix. Formal release **v2.7.0** remains the latest numbered release.
 

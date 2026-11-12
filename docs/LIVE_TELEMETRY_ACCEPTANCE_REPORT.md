@@ -1,6 +1,6 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #946 merged to `main` at `d82c73f7c463d141d5f05cab7ea813237d11e5d1`; required PR checks and post-merge CodeQL #43252242467 passed. Main CI #43252244657 was still running at the time of the latest router readback. The current publisher history has no run for the #946 merge SHA. A fresh WinBox readback around 15:54 UTC found production healthcheck-status `good` but a tag-only reference, while the canary remains failed on the PR #894 reference with resource-unavailable/fork and segmentation-fault markers; neither running OCI digest is verified.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #946 merged to `main` at `d82c73f7c463d141d5f05cab7ea813237d11e5d1`; required PR checks, post-merge CodeQL #43252242467, and post-merge CI #43252244657 passed. The current publisher history has no run for the #946 merge SHA. A fresh WinBox readback around 15:54 UTC found production healthcheck-status `good` but a tag-only reference, while the canary remains failed on the PR #894 reference with resource-unavailable/fork and segmentation-fault markers; neither running OCI digest is verified.**
 
 ## Current RouterOS point check — 2026-11-12 about 15:54 UTC
 
