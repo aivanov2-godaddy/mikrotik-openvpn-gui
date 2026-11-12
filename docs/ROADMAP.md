@@ -59,7 +59,11 @@ production's is tag-only, and neither running digest is verified. A separate
 read-only WebFig point check at 05:56 UTC showed the canary unhealthy and
 production healthy. WinBox was reachable, but its accessibility tree exposed
 no container status. These point checks do not meet canary or
-production acceptance. The exact RouterOS healthcheck fault remains unknown.
+production acceptance. A TLS-verified read-only healthcheck classification at
+06:06 UTC again reported the segmentation-fault category, with no container
+override present and the image default matching the reviewed healthcheck shape.
+The raw status and command were omitted; the exact failing executable and root
+cause remain unknown.
 
 
 On 2026-11-04, RouterOS was read back with the exact immutable PR #894 ARM64
