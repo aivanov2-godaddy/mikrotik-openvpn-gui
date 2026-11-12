@@ -1,37 +1,16 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest
-published image source. Main CI run #43174815746, push analysis run #43174814930,
-and container publisher run #43174815700 passed. Both architecture images were
-built and scanned; the stable manifest was published and read back. Exact
-digests and manifest checksum are in [RELEASES.md](RELEASES.md). PR #935 has not
-been staged on RouterOS. A fresh WinBox point observation at 07:38 UTC on
-2026-11-12 showed the canary unhealthy and production healthy. A separate
-TLS-verified REST configuration read-back at 07:39 UTC found the canary still
-pinned to PR #894's older image and production configured by a tag without a
-digest; neither running registry digest was verified. The canary healthcheck
-continued to report process/fork resource exhaustion followed by a
-segmentation-fault marker; its failing process and root cause remain unknown.
-These are point observations, not continuous health evidence. Latency,
-freshness, API recovery, soak, privacy, and rollback gates remain pending. No
-production deployment is claimed.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. Main CI run #43174815746, push analysis run #43174814930, and container publisher run #43174815700 passed. Both architecture images were built and scanned; the stable manifest was published and read back. Exact digests and manifest checksum are in [RELEASES.md](RELEASES.md). PR #935 has not been staged on RouterOS. A read-only WinBox view at about 09:04 UTC on 2026-11-12 showed canary unhealthy and production healthy. TLS-verified REST at 09:07:57 UTC categorized the canary healthcheck as failed/segmentation-fault, with no custom override, the default legacy shell/timeout/wget readiness check present, absent lifecycle fields, and restart count 0. A narrow image-identity query around 09:17 UTC found the canary reference digest-pinned and production tag-only. Both image-id values were opaque 64-hex hashes that did not match the known PR #894 or PR #935 manifest digests; the current MikroTik CLI reference does not define image-id as an OCI manifest digest. The earlier 08:44 configuration read identified the canary reference as PR #894. Neither running registry digest is verified. These are point observations, not continuous health evidence. Latency, freshness, API recovery, soak, privacy, and rollback gates remain pending. No production deployment is claimed.**
 
-## Current RouterOS point check — 2026-11-12 07:38–07:40 UTC
+## Latest RouterOS point check — 2026-11-12 09:04–09:17 UTC
 
-The read-only WinBox point observation at 07:38 UTC showed the canary marked
-`unhealthy` and production marked `healthy`. The visible canary healthcheck
-failure reported process/fork resource exhaustion followed by a
-segmentation-fault marker. The exact failing process and cause remain unknown.
+A read-only WinBox container-table view at about 09:04 UTC showed the canary marked unhealthy and production marked healthy.
 
-The TLS-verified read-only REST configuration snapshot at 07:39:47 UTC found
-the canary configured with the older PR #894 pinned ARM64 digest, not the PR
-#935 candidate. Production remained configured by a revision tag without a
-digest. The REST snapshot is configuration evidence only; neither running
-registry digest was verified. No readiness probe or client test was performed
-as part of this point check. No RouterOS write, candidate stage, rollback, or
-production change was made. PR #930's staging preflight blocks while the canary
-baseline is unhealthy. PR #935 remains unstaged, and no candidate-specific
-30-minute, telemetry, recovery, privacy, or rollback acceptance is claimed.
+At 09:07:57 UTC, a TLS-verified read-only REST classification categorized the canary healthcheck as failed with a segmentation-fault marker. The custom command was absent and the default healthcheck matched the previously reviewed legacy shell/timeout/wget readiness-check shape. RouterOS lifecycle fields were absent from that narrow response; the helper reported restart count 0. This does not identify the failing executable or root cause.
+
+A narrow TLS-verified image-identity read around 09:17 UTC found the canary reference digest-pinned and production tag-only. The RouterOS image-id for each was an opaque 64-hex value unequal to the known PR #894 and PR #935 OCI manifest digests. MikroTik's current CLI reference lists image-id as a read-only string but does not define it as the OCI manifest digest. Neither running registry digest is verified.
+
+A prior 08:44 UTC configuration read identified the canary as PR #894 and production as tag-only. Separate bounded direct private GETs at about 08:22 UTC returned HTTP 200 for /healthz and /readyz with readiness ready at PR #894 revision 84a3148de713abe49be0c7be8f21caa652b68dd9; these earlier point probes are not a current healthcheck result or a soak. Current VPN-client connectivity is not asserted because the visible browser terminal scrollback has no reliable command timestamp. No RouterOS write, candidate stage, rollback, restart, or production change occurred. PR #935 remains unstaged; #927, #785, and #200 acceptance remain open.
 
 ## Previous RouterOS point check — 2026-11-12 approximately 04:45 UTC
 

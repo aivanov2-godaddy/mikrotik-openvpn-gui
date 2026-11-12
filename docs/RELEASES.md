@@ -28,15 +28,9 @@ verification, browser regression, and stable-manifest publication/read-back
 succeeded. The downloaded manifest SHA-256 and immutable image digests are
 recorded below. PR #935 has not been staged on RouterOS.
 
-A read-only WinBox point check at 07:38 UTC on 2026-11-12 showed the canary
-unhealthy and production healthy. A separate TLS-verified REST configuration
-read-back at 07:39 UTC found the canary still pinned to the older PR #894 image,
-not the PR #935 candidate, and production configured by a tag without a digest.
-Neither running registry digest was verified. The canary healthcheck continued
-to report process/fork resource exhaustion followed by a segmentation-fault
-marker; the exact failing process and cause remain unknown. Issue #927 tracks
-the device healthcheck gate. Issues #785 and #200, and production promotion,
-remain gated.
+A read-only WinBox view at about 09:04 UTC on 2026-11-12 showed the canary unhealthy and production healthy. A TLS-verified REST healthcheck classification at 09:07:57 UTC categorized the canary result as failed with a segmentation-fault marker. No custom healthcheck command was present; the default check was present and matched the previously reviewed legacy shell/timeout/wget readiness-check shape. Lifecycle fields in that narrow REST response were absent and the reported restart count was 0. This does not identify the faulting executable or root cause.
+
+A separate REST configuration snapshot at 08:44 UTC identified the canary as configured for PR #894's older pinned ARM64 digest and production as tag-only; neither running registry digest was verified then. A narrow image-identity read around 09:17 UTC found the canary configured reference digest-pinned and production tag-only. RouterOS returned opaque 64-hex image-id values for both containers, unequal to the known PR #894 and PR #935 manifest digests. MikroTik's current CLI reference lists image-id as a read-only string but does not define it as an OCI manifest digest. Neither running registry digest is verified. The exact failing process and cause remain unknown. PR #935 remains unstaged; issues #927, #785, and #200, and production promotion, remain gated.
 
 PR #893
 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) updated the Python 3.15 Alpine
