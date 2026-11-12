@@ -143,6 +143,27 @@ to stage the candidate. A preflight failure makes zero RouterOS writes. Do not
 use this controller to repair an unhealthy canary: restore and verify a known
 healthy rollback baseline first.
 
+Failures exit with code 2 and write one allowlisted JSON diagnostic to stderr
+using schema `mikrotik-canary-stage-diagnostic-v1`. Its `phase` and `code`
+identify safe failure categories such as `canary_unhealthy`,
+`canary_readiness_failed`, `backup_receipt_invalid`, `prewrite_state_drift`,
+`candidate_readiness_failed`, and `rollback_unverified`. The payload also
+reports whether RouterOS writes may have started, whether rollback was
+attempted, whether the exact prior canary state and unchanged production were
+verified, and whether manual recovery is required. It deliberately omits raw
+exception text, RouterOS responses, URLs, identifiers, image references, and
+paths.
+
+`result=preflight_blocked` with
+`router_writes_may_have_started=false` means this controller did not enter its
+mutation phase. `result=stage_failed_prior_state_verified` is emitted only after
+read-back confirms the prior canary image/readiness and unchanged production;
+review the failure before retrying. `result=recovery_unverified` means one or
+more post-write invariants could not be verified. Do not retry staging or
+promote production until an operator completes read-back and recovery.
+An `unclassified_stage_failure` also means RouterOS writes may have started;
+check the router before any retry.
+
 The offline `deploy_routeros_canary.py` helper writes a reviewable RouterOS
 configuration plan only to the required `--output` file; stdout contains only a
 generic completion message. The plan includes router addresses, object names,

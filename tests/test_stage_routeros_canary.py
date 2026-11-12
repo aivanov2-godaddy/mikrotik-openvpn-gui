@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from contextlib import redirect_stderr
+import io
+import json
 import unittest
 from unittest.mock import patch
 
@@ -7,8 +10,11 @@ from scripts.deploy_routeros_release import DeploymentError
 from scripts.stage_routeros_canary import (
     BACKUP_FORMAT,
     BACKUP_RECEIPT,
+    CanaryStageFailure,
     CanaryStageSettings,
+    StageFailureDiagnostic,
     _verify_backup_receipt,
+    main,
     stage_canary,
 )
 
@@ -97,9 +103,13 @@ class CanaryStageTests(unittest.TestCase):
     def test_unhealthy_canary_blocks_before_receipt_or_any_write(self) -> None:
         router = FakeRouterOS(canary_status="unhealthy")
 
-        with self.assertRaisesRegex(DeploymentError, "both RouterOS containers must be healthy"):
+        with self.assertRaises(CanaryStageFailure) as caught:
             stage_canary(settings(), client=router, ready_probe=lambda *_: True)
 
+        self.assertEqual(caught.exception.diagnostic.result, "preflight_blocked")
+        self.assertEqual(caught.exception.diagnostic.phase, "baseline")
+        self.assertEqual(caught.exception.diagnostic.code, "canary_unhealthy")
+        self.assertFalse(caught.exception.diagnostic.router_writes_may_have_started)
         self.assertEqual(router.calls, [])
         self.receipt_mock.assert_not_called()
 
@@ -107,9 +117,13 @@ class CanaryStageTests(unittest.TestCase):
         router = FakeRouterOS()
         self.receipt_mock.side_effect = DeploymentError("encrypted backup receipt is stale")
 
-        with self.assertRaisesRegex(DeploymentError, "backup receipt is stale"):
+        with self.assertRaises(CanaryStageFailure) as caught:
             stage_canary(settings(), client=router, ready_probe=lambda *_: True)
 
+        self.assertEqual(caught.exception.diagnostic.result, "preflight_blocked")
+        self.assertEqual(caught.exception.diagnostic.phase, "backup")
+        self.assertEqual(caught.exception.diagnostic.code, "backup_receipt_invalid")
+        self.assertFalse(caught.exception.diagnostic.router_writes_may_have_started)
         self.assertEqual(router.calls, [])
 
     def test_staging_readiness_failure_restores_exact_canary_and_leaves_production(self) -> None:
@@ -126,9 +140,17 @@ class CanaryStageTests(unittest.TestCase):
             return revision != "b" * 40
 
         with patch("scripts.stage_routeros_canary.deploy", side_effect=deploy_candidate):
-            with self.assertRaisesRegex(DeploymentError, "prior healthy canary was restored"):
+            with self.assertRaises(CanaryStageFailure) as caught:
                 stage_canary(settings(), client=router, ready_probe=readiness)
 
+        diagnostic = caught.exception.diagnostic
+        self.assertEqual(diagnostic.result, "stage_failed_prior_state_verified")
+        self.assertEqual(diagnostic.code, "candidate_readiness_failed")
+        self.assertTrue(diagnostic.router_writes_may_have_started)
+        self.assertTrue(diagnostic.rollback_attempted)
+        self.assertTrue(diagnostic.canary_prior_state_verified)
+        self.assertTrue(diagnostic.production_unchanged_verified)
+        self.assertFalse(diagnostic.manual_recovery_required)
         self.assertEqual(router.records["*1"]["remote-image"], PRIOR_IMAGE.removeprefix("ghcr.io/"))
         self.assertEqual(router.records["*1"]["status"], "running")
         self.assertEqual(router.records["*2"]["remote-image"], PRODUCTION_IMAGE)
@@ -142,6 +164,127 @@ class CanaryStageTests(unittest.TestCase):
                 ("command", "start", "*1"),
             ],
         )
+
+    def test_rollback_failure_requires_manual_recovery_without_raw_error(self) -> None:
+        router = FakeRouterOS()
+
+        def deploy_candidate(_deploy_settings, client, *, rollback_image):
+            self.assertEqual(rollback_image, PRIOR_IMAGE.removeprefix("ghcr.io/"))
+            client.records["*1"]["remote-image"] = CANDIDATE_IMAGE.removeprefix("ghcr.io/")
+            client.records["*1"]["status"] = "running"
+            return "b" * 40
+
+        def readiness(_url: str, revision: str, _timeout: float, _ca: str | None) -> bool:
+            return revision != "b" * 40
+
+        with patch("scripts.stage_routeros_canary.deploy", side_effect=deploy_candidate), patch(
+            "scripts.stage_routeros_canary._restore_canary",
+            side_effect=RuntimeError("private-router-sentinel https://private.example.test/secret"),
+        ):
+            with self.assertRaises(CanaryStageFailure) as caught:
+                stage_canary(settings(), client=router, ready_probe=readiness)
+
+        diagnostic = caught.exception.diagnostic
+        self.assertEqual(diagnostic.result, "recovery_unverified")
+        self.assertEqual(diagnostic.code, "rollback_unverified")
+        self.assertTrue(diagnostic.router_writes_may_have_started)
+        self.assertTrue(diagnostic.rollback_attempted)
+        self.assertIsNone(diagnostic.canary_prior_state_verified)
+        self.assertIsNone(diagnostic.production_unchanged_verified)
+        self.assertTrue(diagnostic.manual_recovery_required)
+        self.assertNotIn("private-router-sentinel", str(caught.exception))
+
+    def test_cli_emits_allowlisted_json_without_exception_details(self) -> None:
+        diagnostic = StageFailureDiagnostic(
+            result="recovery_unverified",
+            phase="recovery",
+            code="rollback_unverified",
+            router_writes_may_have_started=True,
+            rollback_attempted=True,
+            canary_prior_state_verified=None,
+            production_unchanged_verified=None,
+            manual_recovery_required=True,
+        )
+
+        def raise_diagnostic(*_args, **_kwargs):
+            try:
+                raise RuntimeError("secret-sentinel private URL and local path")
+            except RuntimeError as cause:
+                raise CanaryStageFailure(diagnostic) from cause
+
+        stderr = io.StringIO()
+        with patch("scripts.stage_routeros_canary._settings_from_environment", return_value=settings()), patch(
+            "scripts.stage_routeros_canary.stage_canary", side_effect=raise_diagnostic
+        ), redirect_stderr(stderr):
+            exit_code = main(["--image", CANDIDATE_IMAGE])
+
+        self.assertEqual(exit_code, 2)
+        output = stderr.getvalue()
+        self.assertNotIn("secret-sentinel", output)
+        self.assertNotIn("private URL", output)
+        self.assertNotIn("local path", output)
+        self.assertEqual(
+            json.loads(output),
+            {
+                "schema": "mikrotik-canary-stage-diagnostic-v1",
+                "result": "recovery_unverified",
+                "phase": "recovery",
+                "code": "rollback_unverified",
+                "router_writes_may_have_started": True,
+                "rollback_attempted": True,
+                "canary_prior_state_verified": None,
+                "production_unchanged_verified": None,
+                "manual_recovery_required": True,
+                "review_before_retry": True,
+            },
+        )
+
+    def test_cli_unknown_stage_error_reports_uncertain_state_without_raw_details(self) -> None:
+        def fail_unexpectedly(*_args, **_kwargs):
+            raise RuntimeError("private-router-sentinel https://private.example.test/secret")
+
+        stderr = io.StringIO()
+        with patch("scripts.stage_routeros_canary._settings_from_environment", return_value=settings()), patch(
+            "scripts.stage_routeros_canary.stage_canary", side_effect=fail_unexpectedly
+        ), redirect_stderr(stderr):
+            exit_code = main(["--image", CANDIDATE_IMAGE])
+
+        self.assertEqual(exit_code, 2)
+        output = stderr.getvalue()
+        self.assertNotIn("private-router-sentinel", output)
+        self.assertNotIn("private.example.test", output)
+        self.assertEqual(
+            json.loads(output),
+            {
+                "schema": "mikrotik-canary-stage-diagnostic-v1",
+                "result": "recovery_unverified",
+                "phase": "recovery",
+                "code": "unclassified_stage_failure",
+                "router_writes_may_have_started": True,
+                "rollback_attempted": False,
+                "canary_prior_state_verified": None,
+                "production_unchanged_verified": None,
+                "manual_recovery_required": True,
+                "review_before_retry": True,
+            },
+        )
+
+    def test_cli_unknown_configuration_error_remains_zero_write(self) -> None:
+        stderr = io.StringIO()
+        with patch(
+            "scripts.stage_routeros_canary._settings_from_environment",
+            side_effect=RuntimeError("private configuration sentinel"),
+        ), redirect_stderr(stderr):
+            exit_code = main(["--image", CANDIDATE_IMAGE])
+
+        self.assertEqual(exit_code, 2)
+        output = stderr.getvalue()
+        self.assertNotIn("private configuration sentinel", output)
+        diagnostic = json.loads(output)
+        self.assertEqual(diagnostic["result"], "preflight_blocked")
+        self.assertEqual(diagnostic["code"], "unclassified_preflight_failure")
+        self.assertFalse(diagnostic["router_writes_may_have_started"])
+        self.assertFalse(diagnostic["manual_recovery_required"])
 
 
 class BackupReceiptTests(unittest.TestCase):
