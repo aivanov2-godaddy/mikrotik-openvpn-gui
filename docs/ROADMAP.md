@@ -21,20 +21,26 @@ manifest. Exact tags, digests, and manifest checksum are in
 [RELEASES.md](RELEASES.md). PR #926 has not been staged on RouterOS.
 
 A fresh TLS-verified Binary API snapshot at 00:44 UTC on 2026-11-12 found the
-canary still configured for the PR #894 ARM64 digest
+canary configured for the PR #894 ARM64 digest
 `sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`,
 with lifecycle `unhealthy`. Separate private `/healthz` and `/readyz` GETs at
 00:46 returned HTTP 200 and readiness revision
-`84a3148de713abe49be0c7be8f21caa652b68dd9`. A narrow REST read at 00:46 found
-the image-default healthcheck failed with a segmentation-fault marker; no
-configured override was present and the exact failing executable is unknown.
-Production remains `running` with a tag-only configured image reference; no
-running digest was verified. Issue #927 tracks device validation of PR #926.
-Issue #785 remains open for updater safety, staging-failure diagnostics, and a
-reviewed canary-only staging/rollback path; the private source and configured
-target relationships have been reviewed, and the installed updater remains
-disabled. Issue #200 candidate acceptance remains open. No new numbered release
-or production deployment is claimed.
+`84a3148de713abe49be0c7be8f21caa652b68dd9`. A read-only WinBox point view at
+approximately 04:45 UTC again found the canary unhealthy and its default
+healthcheck showing process/fork exhaustion followed by a segmentation-fault
+marker. The exact faulting executable and root cause remain unknown. Production
+was marked healthy but remains configured with a tag-only image reference; its
+running registry digest was not verified.
+
+PR #931 merged at `b605e1859fd5ad5f292d31157eea67ecf2bf2659`; post-merge main
+CI run #43155794246 and CodeQL run #43155794515 passed. This documentation-only
+merge published no image. PR #926 remains the latest published image and has
+not been staged. Issue #927 tracks candidate device validation and resolving
+the healthcheck fault. Issue #785 remains open for updater safety,
+staging-failure diagnostics, and reviewed canary-only staging/rollback; the
+installed updater remains disabled. Issue #200 candidate acceptance remains
+open. No router write, production change, new numbered release, or production
+deployment is claimed.
 
 
 On 2026-11-04, RouterOS was read back with the exact immutable PR #894 ARM64
