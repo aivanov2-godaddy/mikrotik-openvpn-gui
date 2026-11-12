@@ -92,18 +92,18 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "This checkpoint is historical; the latest PR #926 post-publication read-back is recorded near the top of this report",
+            "This checkpoint is historical; the latest post-publication RouterOS point read-back is recorded near the top of this report",
             report,
         )
         self.assertIn(
-            "PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published image source",
+            "PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source",
             report,
         )
         self.assertIn(
             "the canary still configured with PR #894's pinned ARM64 digest",
             report,
         )
-        self.assertIn("PR #926 has not been staged on RouterOS", report)
+        self.assertIn("PR #935 has not been staged on RouterOS", report)
         self.assertIn("Bounded in-container HTTP requests to both `/healthz` and `/readyz` timed out", report)
         self.assertIn("After an authorized restart of canary only, RouterOS reported a healthy marker again", report)
         self.assertIn("No authenticated readiness response was captured after that restart, so the running revision and sustained recovery remain unverified", report)

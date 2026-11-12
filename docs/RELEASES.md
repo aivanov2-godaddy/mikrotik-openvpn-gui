@@ -19,29 +19,24 @@ RouterOS configuration, raw time-series telemetry, and session-level details
 remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #926
-(`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published mainline
+version, v2.8.0, has not been tagged or published. PR #935
+(`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published mainline
 image source; publication does not change the formal version. Post-merge main
-CI run #43126239562, CodeQL run #43126239938, and container publisher run
-#43126239602 succeeded. The publisher built and scanned both architectures,
-passed published-runtime smoke checks, verified provenance and SPDX SBOM
-attestations, and published/read back the stable manifest. The manifest asset
-SHA-256 is `sha256:d286b4decf5cf102ea32a7bcf8592ff7cd199ef8929c09117ab581899d6ff10e`.
-Exact immutable tags and digests are in the latest-image section below. PR #926
-has not been staged on RouterOS.
+CI run #43174815746, main push analysis run #43174814930, and container
+publisher run #43174815700 succeeded. Both architecture builds and scans, source
+verification, browser regression, and stable-manifest publication/read-back
+succeeded. The downloaded manifest SHA-256 and immutable image digests are
+recorded below. PR #935 has not been staged on RouterOS.
 
-A fresh TLS-verified Binary API read-back at 00:44 UTC on 2026-11-12 still
-found the canary configured for PR #894's exact ARM64 digest
-`sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`,
-with lifecycle state `unhealthy`. Separate direct private HTTP probes at 00:46
-returned HTTP 200 for `/healthz` and `/readyz`; readiness reported revision
-`84a3148de713abe49be0c7be8f21caa652b68dd9`. A read-only RouterOS REST
-classification at 00:46 found the default healthcheck failed with a
-segmentation-fault marker and no configured healthcheck override. The exact
-crashing executable remains unknown. Production was still running with a
-tag-only image reference; neither running digest was verified. Issue #927
-tracks validation of PR #926 on RouterOS. Issues #785 and #200, and production
-promotion, remain gated.
+A read-only WinBox point check at 07:38 UTC on 2026-11-12 showed the canary
+unhealthy and production healthy. A separate TLS-verified REST configuration
+read-back at 07:39 UTC found the canary still pinned to the older PR #894 image,
+not the PR #935 candidate, and production configured by a tag without a digest.
+Neither running registry digest was verified. The canary healthcheck continued
+to report process/fork resource exhaustion followed by a segmentation-fault
+marker; the exact failing process and cause remain unknown. Issue #927 tracks
+the device healthcheck gate. Issues #785 and #200, and production promotion,
+remain gated.
 
 PR #893
 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) updated the Python 3.15 Alpine
@@ -77,7 +72,33 @@ manifest. The manifest asset SHA-256 is
 Code scanning returned zero open alerts on 2026-10-30. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #926 — 2026-11-12
+## Latest published mainline image — PR #935 — 2026-11-12
+
+PR [#935](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/935)
+merged as `3f8fc22ec3166b3074fb54f54c79d6dede256ed4`. Post-merge main CI run
+[#43174815746](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43174815746),
+main push analysis run
+[#43174814930](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43174814930),
+and container publisher run
+[#43174815700](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43174815700)
+passed. The publisher completed both architecture builds and scans, verified
+the release source and rendered browser behavior, and published/read back the
+stable manifest. The downloaded `routeros-release.json` asset SHA-256 is
+`sha256:6fb18fbbada53bceffad7418881c26a05e9481f2e2263eb954924fdcd5d195ae`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3f8fc22ec3166b3074fb54f54c79d6dede256ed4-arm64` | `sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-3f8fc22ec3166b3074fb54f54c79d6dede256ed4-amd64` | `sha256:4aec06e36796a1c6ea019fa8559d1ba11e4a2373615f68490e4f8a1fff6122b1` |
+
+Publication is not a numbered release or RouterOS deployment. PR #935 has not
+been staged. The current canary remains pinned to the earlier PR #894 image and
+RouterOS reports it unhealthy; production is healthy but still tag-only. Neither
+running registry digest is verified. The new candidate's canary health, live
+telemetry, recovery, privacy, and rollback acceptance remain pending. No
+production deployment is claimed.
+
+## Previous published mainline image — PR #926 — 2026-11-12
 
 PR [#926](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/926)
 merged as `301e725c8e3d28761fb408920f08947ee3f43075`. Post-merge main CI run
@@ -97,13 +118,11 @@ manifest. The downloaded `routeros-release.json` asset SHA-256 is
 | RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-301e725c8e3d28761fb408920f08947ee3f43075-arm64` | `sha256:969cff69318e9abc73a047c4a09afeca1268b8d73a3eec6d13a755529404e150` |
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-301e725c8e3d28761fb408920f08947ee3f43075-amd64` | `sha256:3f1085d607ed87a4c129b88360ec9d874bf3c466f7372d09ad28e3f5f03a3ca1` |
 
-Publication is not a numbered release or RouterOS deployment. PR #926 has not
-been staged. The currently configured canary still uses the older PR #894
-image and RouterOS reports it unhealthy, despite a separate direct readiness
-probe returning 200 for that PR #894 revision. RouterOS's default healthcheck
-reports a segmentation-fault marker; the precise failing executable is
-unknown. Issue #927 tracks the device validation. Issue #785 and #200 remain
-open, and production promotion remains gated.
+Publication is not a numbered release or RouterOS deployment. At this
+checkpoint PR #926 remained unstaged; the current canary and #935 candidate
+state are recorded above. PR #926's exec-form healthcheck change has not been
+validated on the RouterOS device. Issue #927 remains open, and #785, #200, and
+production promotion remain gated.
 
 ## Previous published mainline image — PR #915 — 2026-11-11
 

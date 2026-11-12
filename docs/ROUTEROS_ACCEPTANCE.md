@@ -15,35 +15,36 @@ do not repeat origin values in reports.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #926
-(`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published image.
-Post-merge main CI, CodeQL, and container publication passed; both architecture
-images were scanned and smoke-tested, and the publisher verified provenance
-and SPDX SBOM attestations. The stable manifest was published and read back.
-See [`RELEASES.md`](RELEASES.md) for immutable tags and digests. PR #926 has not
-been staged on RouterOS. A fresh read-only Binary API snapshot at 00:44 UTC on
-2026-11-12 found the canary still configured for the exact PR #894 ARM64 digest
-with lifecycle `unhealthy`; direct private `/healthz` and `/readyz` probes at
-00:46 returned HTTP 200 for PR #894's revision. RouterOS's default healthcheck
-was failed with a segmentation-fault marker and no configured override was
-present. The precise failing executable is unknown. Production remains running
-with a tag-only image reference, and no running digest was verified. Issues
-#785, #927, and #200 remain open; the full acceptance gates below are
-incomplete.
+prove RouterOS compatibility. PR #935
+(`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image.
+Post-merge main CI, push analysis, image builds/scans, source verification,
+rendered-browser checks, and stable-manifest publication/read-back passed. See
+[`RELEASES.md`](RELEASES.md) for immutable tags and digests. PR #935 has not
+been staged on RouterOS. At 07:38 UTC on 2026-11-12, a read-only WinBox point
+observation marked the canary unhealthy and production healthy. A separate
+TLS-verified REST configuration snapshot at 07:39 UTC found the canary still
+pinned to PR #894, not PR #935, while production remained tag-only; neither
+running digest was verified. The default healthcheck continued to report
+process/fork resource exhaustion and a segmentation-fault marker. The failing
+process and cause are unknown. Issues #785, #927, and #200 remain open; the
+full acceptance gates below are incomplete.
 
 ## Latest-image canary read-back — 2026-11-12
 
-The published PR #926 ARM64 image is not staged. The canary still uses PR #894
-and remains unhealthy in the fresh RouterOS Binary API read-back, even though
-the app's direct private health and readiness endpoints returned HTTP 200 at a
-separate point sample. RouterOS reported a failed image-default healthcheck
-with a segmentation-fault marker; the exact failure source is unknown. The
-current canary is not a healthy rollback baseline, and the app probe does not
-override RouterOS's unhealthy state. Production remains unchanged and its
-running registry digest is unverified. See [#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927)
-for the device-bound healthcheck gate and [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200)
-for the separate live acceptance program.
-
+The published PR #935 ARM64 image is not staged. The canary still uses the older
+PR #894 pinned digest and RouterOS marks it unhealthy; production is healthy but
+remains configured with a tag-only image. Neither running registry digest is
+verified. The default healthcheck reports process/fork resource exhaustion
+followed by a segmentation-fault marker, while the faulting process and root
+cause remain unknown. The new image includes the exec-form healthcheck change
+from PR #926, but this device has not tested it. The current unhealthy canary
+is not a healthy rollback baseline, so the merged staging preflight blocks
+before a write. The app probe does not override RouterOS's unhealthy state.
+See [#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927)
+for the device-bound healthcheck gate and
+[#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200)
+for the separate live acceptance program. No router write or production
+deployment is claimed.
 
 ## Separate updater inventory evidence — 2026-11-11
 
