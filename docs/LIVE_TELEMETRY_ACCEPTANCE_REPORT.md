@@ -1,17 +1,16 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. PR #942 merged with required checks and post-merge CI/CodeQL passing. The current canary is unhealthy on the older PR #894 image; private app health endpoints return 200/ready for that old revision. Production is running with a tag-only configured reference, and neither running digest is verified. No active test session is available; client-dependent acceptance remains deferred.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #943 merged to `main` at `44d294cd178765431019743467c438b11abe9f6c`; post-merge CI #43236137835 and CodeQL #43236135180 passed. The current WinBox read-only view still shows the canary healthcheck failed with a segmentation-fault marker, while production is marked healthy. No running registry digest is verified. The latest aggregate OpenVPN session count is zero, so client-dependent acceptance remains deferred.**
 
-## Current RouterOS point check — 2026-11-12 13:57–13:59 UTC
+## Current RouterOS point check — 2026-11-12 14:32 UTC
 
-At 13:58:21 UTC, a TLS-verified read-only Binary API snapshot reported the canary `unhealthy` on the older PR #894 image. Production was `running` with a tag-only configured reference. Neither running registry digest was verified. The authenticated WinBox read-only view during this check also showed a segmentation-fault marker for the canary healthcheck; the failing executable and root cause remain unknown.
+A read-only WinBox observation at 14:32:25 UTC showed the canary healthcheck still failed with the previously observed segmentation-fault marker; the faulting process and underlying cause remain unknown. Production was marked healthy in the same session. This visual readback does not establish either running OCI manifest digest or candidate-bound health acceptance.
 
-At 13:57:38 UTC, bounded direct private HTTP GETs returned 200 for `/healthz` and `/readyz`; readiness was `ready` at the PR #894 revision. These point probes do not override RouterOS's unhealthy lifecycle state or establish a continuous healthy interval or candidate acceptance.
+A read-only aggregate OpenVPN session-count query at 14:32:25 UTC returned zero. No session rows, identifiers, or addresses were requested or retained; client-dependent acceptance remains deferred.
 
-A TLS-verified read-only aggregate OpenVPN session count at 13:59:36 UTC was zero. No session rows, identifiers, or addresses were requested or retained; client-dependent acceptance remains deferred.
+The latest bounded direct canary HTTP probes remain the earlier 13:57:38 UTC point check: `/healthz` and `/readyz` returned HTTP 200 and readiness was `ready` at the old PR #894 revision. They do not establish current health or readiness for the published PR #935 candidate.
 
-PR #935 remains the latest published image source and has not been staged. The healthy rollback baseline is still unverified, so the reviewed stage gate remains closed. Issues #785, #927, #200, and epic #205 remain open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed. No staging, restart, rollback, or deployment occurred.
-
+PR #943 was documentation-only and did not change the image or RouterOS state. PR #935 remains unstaged. The canary remains unhealthy and the healthy rollback baseline remains unverified, so the reviewed stage gate remains closed. Issues #785, #927, #200, and epic #205 remain open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; no staging, restart, rollback, or deployment occurred.
 ## Previous RouterOS point check — 2026-11-12 12:48–12:52 UTC
 
 A TLS-verified read-only Binary API snapshot completed at 12:48:37 UTC. The canary remained configured with the pinned PR #894 image and RouterOS reported it unhealthy. Production remained running with a tag-only configured image reference. Neither running registry digest is verified.
