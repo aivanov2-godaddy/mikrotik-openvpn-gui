@@ -52,7 +52,7 @@ def run(lines: Iterable[str], *, policy: CanaryPolicy) -> tuple[int, dict[str, A
         "samples": samples,
         "healthy": last.healthy,
         "reason": last.reason,
-        "age_seconds": round(last.age_seconds, 3),
+        "age_seconds": None if last.age_seconds is None else round(last.age_seconds, 3),
         "missing_count": len(last.missing_sessions),
         "extra_count": len(last.extra_sessions),
         "consecutive_healthy": canary.consecutive_healthy,
