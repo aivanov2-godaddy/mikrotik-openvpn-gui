@@ -1,14 +1,16 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #944 merged to `main` at `8d7cc81adee5640c9d8499e48f2167a629a9b8fb`; required PR checks, post-merge main CI #43241413392, and CodeQL #43241414337 passed. The docs-only merge triggered no image publisher run. WinBox still shows the canary healthcheck failed; production is marked healthy, but neither running OCI manifest digest is verified. A count-only OpenVPN query returned zero, so client-dependent acceptance remains deferred.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #945 merged to `main` at `7f7aa5cb2a8bf0b5ed820e49ce934f5235c38c0d`; required PR checks, post-merge main CI #43245852829, and CodeQL #43245853782 passed. No publisher run was triggered. At about 15:25 UTC the canary was still unhealthy on the PR #894 configured reference and the count-only OpenVPN query returned zero. At 15:33 UTC production healthcheck-status was good, but its image reference was tag-only and its running OCI digest remains unverified.**
 
-## Current RouterOS point check — 2026-11-12 14:54 UTC
+## Current RouterOS and updater point checks — 2026-11-12 15:25–15:35 UTC
 
-At 14:54:14 UTC, a read-only WinBox query reported the canary healthcheck failed with a resource-unavailable/fork error followed by a segmentation-fault marker. The exact failing process and root cause remain unknown. Production showed a healthy marker in the same session, but this does not verify its running image digest.
+At about 15:25 UTC, read-only WinBox healthcheck-status for the canary remained failed with a resource-unavailable/fork marker followed by a segmentation-fault marker. The exact failing process and root cause remain unknown. A current exact-reference comparison found the configured canary image matches PR #894's immutable ARM64 reference and does not match PR #935's published candidate. The running OCI manifest digest is not verified. No direct `/healthz` or `/readyz` probe was repeated in this check.
 
-At 14:54:48 UTC, a count-only active OpenVPN query returned zero. No session rows, identifiers, or addresses were requested or retained; client-dependent acceptance remains deferred.
+The count-only active OpenVPN query returned zero around 15:25 UTC. No session rows, identifiers, or addresses were requested or retained; client-dependent acceptance remains deferred.
 
-Earlier bounded direct canary HTTP probes returned 200 for `/healthz` and `/readyz` at the old PR #894 revision. Those point probes do not establish RouterOS health, current PR #935 readiness, or a continuous candidate acceptance window.
+At 15:33 UTC, RouterOS returned `good` for the production healthcheck-status field. A read-only comparison found its configured reference was not digest-pinned; the running OCI manifest digest remains unverified. This health marker is not production image-identity or deployment acceptance.
+
+A local offline recheck of #785's retained private updater source export against the later 13:50 UTC inventory found all five source fingerprints and all three scheduler classifications matched. None of the five scripts exactly matched the reviewed template; all five were missing its canary restore-verification check. The comparator found zero added credential, private-key, destructive-operation, or fetch/download token markers relative to the template. This is a bounded token comparison, not semantic approval or an updater safety review. The installed updater remains disabled.
 
 PR #935 remains unstaged because the canary is not a verified healthy rollback baseline. Issues #785, #927, #200, and epic #205 remain open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; no staging, restart, rollback, or deployment occurred. Multi-tenancy remains excluded.
 ## Previous RouterOS point check — 2026-11-12 12:48–12:52 UTC
