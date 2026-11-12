@@ -54,7 +54,7 @@ in [SESSION_LIFETIME_RATIONALE.md](SESSION_LIFETIME_RATIONALE.md).
 | V3.3.1 | TESTED | The dashboard session cookie uses the `__Host-` prefix and `Secure`. `tests/test_app.py::DashboardIntegrationTests.test_login_session_cookie_has_required_host_security_and_size_properties` asserts those attributes. This is repository evidence, not deployed-proxy evidence. |
 | V3.3.2 | TESTED | `SameSite=Strict` is set on session cookie creation, rotation, and deletion; `tests/test_app.py::DashboardIntegrationTests.test_login_session_cookie_has_required_host_security_and_size_properties` and `tests/test_app.py::DashboardIntegrationTests.test_reauthentication_rotates_cookie_csrf_and_uses_current_routeros_capabilities` assert it. |
 | V3.3.3 | TESTED | Session cookies use `__Host-`, `Path=/`, and no `Domain` attribute; `tests/test_app.py::DashboardIntegrationTests.test_login_session_cookie_has_required_host_security_and_size_properties` asserts these required host-only properties. `tests/test_app.py::DashboardIntegrationTests.test_legacy_unprefixed_session_cookie_is_not_accepted` rejects the previous unprefixed cookie name. |
-| V3.3.4 | TESTED | The cookie bearer is returned only in `Set-Cookie`, not in the login response body or session inventory JSON. `tests/test_app.py::DashboardIntegrationTests.test_login_session_cookie_has_required_host_security_and_size_properties` asserts the issued bearer is absent from the response body. Session-management views expose a separately generated, non-authenticating revocation reference. `tests/test_app.py::DashboardIntegrationTests.test_admin_session_response_fields_are_capability_gated_at_http_boundary` verifies that the reference cannot authenticate as a session cookie; `tests/test_app.py::DashboardIntegrationTests.test_admin_session_revocation_reference_projection_matches_all_routeros_roles` verifies cookie bearers are absent from inventory for every RouterOS role. |
+| V3.3.4 | TESTED | The session cookie is `HttpOnly`; the cookie bearer is returned only in `Set-Cookie`, not in the login response body or session inventory JSON. `tests/test_app.py::DashboardIntegrationTests.test_login_session_cookie_has_required_host_security_and_size_properties` asserts `HttpOnly` and that the issued bearer is absent from the response body. Session-management views expose a separately generated, non-authenticating revocation reference. `tests/test_app.py::DashboardIntegrationTests.test_admin_session_response_fields_are_capability_gated_at_http_boundary` verifies that the reference cannot authenticate as a session cookie; `tests/test_app.py::DashboardIntegrationTests.test_admin_session_revocation_reference_projection_matches_all_routeros_roles` verifies cookie bearers are absent from inventory for every RouterOS role. |
 | V3.3.5 | TESTED | The issued session-cookie name/value pair is bounded below 4096 bytes in `tests/test_app.py::DashboardIntegrationTests.test_login_session_cookie_has_required_host_security_and_size_properties`. |
 | V3.5.1 | PARTIAL | Every current non-GET API dispatch is tested with a valid browser CSRF token and a foreign `Origin`, and with a forged token plus the configured same-origin value; both must be denied without RouterOS mutations or non-audit persistent-state changes. Logout has valid-token foreign/duplicate-Origin and duplicate-CSRF-header regressions. Explicit foreign or duplicate `Origin` values and duplicate `X-CSRF-Token` fields are rejected centrally by `_require_csrf`; the ASGI adapter preserves repeated Origin and CSRF fields for that check (`tests/test_asgi_contract.py::ASGIContractTests.test_http_adapter_preserves_duplicate_origin_and_csrf_fields_for_handler`). Opaque `Origin: null` is accepted only with a same-origin `Referer`, and a missing `Origin` is accepted only with a valid CSRF token (reauthentication also requires same-origin Referer evidence when Origin is absent). Login rejects duplicate Origin fields and duplicate fallback Referer fields. Deployed proxy behavior and independent review remain outstanding. |
 | V3.5.3 | PARTIAL | Every enumerated state-changing API route is exercised with safe `GET`, `HEAD`, and `OPTIONS` requests while an owner session is active; `tests/test_app.py::DashboardIntegrationTests.test_api_dispatch_has_exhaustive_role_capability_inventory` asserts no RouterOS mutation or non-audit persistent-state change. `GET /login` only renders the form and does not create a session. `GET /share/{token}` renders a no-store confirmation page without exposing or consuming the profile; the state-changing download is a same-origin `POST`, covered by `tests/test_app.py::DashboardIntegrationTests.test_qr_profile_share_is_a_bounded_zip_download` including safe-method, foreign-origin, and download-limit checks. Other state-changing actions use `POST`, `PATCH`, or `DELETE` as documented in [ROUTE_AUTHORIZATION.md](ROUTE_AUTHORIZATION.md). This is repository evidence; deployed proxy behavior and independent review remain outstanding. |
@@ -1023,15 +1023,15 @@ test window:
 
 ## Independent source review — 2026-10-27
 
-An independent internal reviewer checked the 42 control IDs in the declared
-matrix scope against ASVS 5.0.0 at the official [`v5.0.0_release`](https://github.com/OWASP/ASVS/releases/tag/v5.0.0_release)
-commit `5cf9b032440be53ce345ab3c130fda46ba1ce7a2`. The review found that the
-previously recorded commit identifier was invalid; the release tag and the
-JSON artifact digest are now pinned in the fixture. No additional omitted
-control ID or unsupported positive status was identified within that scope.
-This is a bounded internal review, not an external assessment, penetration
-test, or compliance attestation; it does not close the independent review gate
-above.
+An earlier internal-review note reported 42 control IDs; that count was one
+short. The current matrix has 40 rows expanding to 43 controls. A recheck on
+2026-11-12 against ASVS 5.0.0 at the official
+[`v5.0.0_release`](https://github.com/OWASP/ASVS/releases/tag/v5.0.0_release)
+commit `5cf9b032440be53ce345ab3c130fda46ba1ce7a2` confirms that all 43 IDs
+match the pinned JSON fixture, with no missing, duplicate, or unexpected IDs.
+The fixture pins the release tag and JSON artifact digest. This is a bounded
+internal review, not an external assessment, penetration test, or compliance
+attestation; it does not close the independent review gate above.
 
 The reviewer confirmed that V7.4.3 and V7.5.1 are explicitly excluded only for
 dashboard operator accounts. VPN-user passwords belong to a separate RouterOS
@@ -1312,6 +1312,27 @@ can be lost after SQLite has acknowledged a successful stream append. These
 are explicit operational/recovery limits, not newly confirmed ASVS violations.
 Candidate-bound device checks and the independent external review remain open
 under #200.
+
+## Independent matrix and session review — 2026-11-12
+
+An independent internal review rechecked the scoped ASVS matrix and the
+repository evidence links. The 40 matrix rows expand to 43 unique controls,
+all present in the pinned official ASVS 5.0.0 fixture. The 146 distinct named
+test references in the matrix resolve to existing test declarations. The
+review identified that the V3.3.4 finding should explicitly state the
+`HttpOnly` cookie attribute; the matrix now names that assertion and its test.
+`python -m unittest tests.test_security_assurance_contract` passed all 30
+tests on the reviewed mainline base `ecc77c4cac578e79740f6e592dff3773a81642a2`.
+
+The repository evidence covers session cookies and logout, CSRF and origin
+checks, role/capability downgrade and revocation, recent reauthentication, and
+review safeguards for destructive actions. The review did not establish
+deployed proxy or MFA policy, external session controls, RouterOS permission
+behavior, host credential exposure in process memory or crash dumps, or
+external log retention. Those require deployment or device evidence. No
+external assessment or blanket ASVS compliance conclusion is claimed. The
+candidate-bound live-session, telemetry, recovery, and canary acceptance gates
+remain open under #200.
 
 ## Non-goals
 
