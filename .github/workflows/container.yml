@@ -419,7 +419,7 @@ jobs:
         run: |
           set -euo pipefail
           docker pull --platform "$TARGET_PLATFORM" "$RELEASE_IMAGE"
-          container_id="$(docker run --platform "$TARGET_PLATFORM" --detach "$RELEASE_IMAGE")"
+          container_id="$(docker run --platform "$TARGET_PLATFORM" --health-interval=1s --detach "$RELEASE_IMAGE")"
           trap 'docker logs "$container_id" || true; docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
           for attempt in $(seq 1 30); do
             payload="$(docker exec "$container_id" wget -q -O - http://127.0.0.1:8080/readyz 2>/dev/null || true)"
@@ -430,6 +430,16 @@ jobs:
           done
           test "${payload:-}" != ""
           printf '%s' "$payload" | grep -Fq '"revision":"${{ github.sha }}"'
+          healthcheck_test="$(docker inspect --format '{{json .Config.Healthcheck.Test}}' "$container_id")"
+          test "$healthcheck_test" = '["CMD","wget","-q","-T","2","-O","/dev/null","http://127.0.0.1:8080/readyz"]'
+          for attempt in $(seq 1 30); do
+            health_status="$(docker inspect --format '{{.State.Health.Status}}' "$container_id")"
+            if [ "$health_status" = "healthy" ]; then
+              break
+            fi
+            sleep 1
+          done
+          test "${health_status:-}" = "healthy"
           runtime_uids="$(docker exec "$container_id" awk '/^Uid:/ { print $2, $3, $4, $5; exit }' /proc/1/status)"
           test "$runtime_uids" = "65534 65534 65534 65534"
           test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container_id")" = "${{ github.sha }}"

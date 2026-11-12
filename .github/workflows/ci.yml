@@ -260,7 +260,9 @@ jobs:
           done
           test "${payload:-}" != ""
           printf '%s' "$payload" | grep -Fq '"status":"ready"'
-          if ! docker exec "$container_id" timeout 2 wget -q -T 2 -O /dev/null http://127.0.0.1:8080/readyz; then
+          healthcheck_test="$(docker inspect --format '{{json .Config.Healthcheck.Test}}' "$container_id")"
+          test "$healthcheck_test" = '["CMD","wget","-q","-T","2","-O","/dev/null","http://127.0.0.1:8080/readyz"]'
+          if ! docker exec "$container_id" wget -q -T 2 -O /dev/null http://127.0.0.1:8080/readyz; then
             echo "Image healthcheck command failed after /readyz became ready"
             exit 1
           fi
