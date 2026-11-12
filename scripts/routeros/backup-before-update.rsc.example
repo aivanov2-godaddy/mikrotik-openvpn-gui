@@ -9,6 +9,9 @@
 :local backupPrefix "vpn-dashboard-predeploy"
 :local backupPassword "CHANGE-ME-IN-ROUTER"
 :local slotStateFile ($backupDirectory . "/next-slot.txt")
+:local receiptFile ($backupDirectory . "/canary-backup-receipt.txt")
+:local receiptFormat "vpn-gui-encrypted-canary-backup-v1"
+:local canaryContainer "vpn-dashboard-canary"
 :local slotCount 3
 
 :if ($backupPassword = "CHANGE-ME-IN-ROUTER") do={
@@ -41,7 +44,36 @@
     :error ("backup slot " . $slot . " failed; previous slots were preserved")
 }
 
-# Advance only after both backup commands complete successfully.
+# Write a narrow receipt only after both backup artifacts succeeded. The stage
+# controller verifies the exact image, file size, and RouterOS clock window.
+:local canaryId [/container/find where name=$canaryContainer]
+:if ([:len $canaryId] != 1) do={ :error "exactly one canary container is required for a staging receipt" }
+:local priorCanaryImage [/container/get $canaryId remote-image]
+:if ([:len $priorCanaryImage] = 0) do={ :error "canary image is missing; backup receipt was not written" }
+:local backupId [/file/find where name=$binary]
+:if ([:len $backupId] != 1) do={ :error "encrypted backup file is missing; receipt was not written" }
+:local backupSize [:tonum [/file/get $backupId size]]
+:if ($backupSize <= 0) do={ :error "encrypted backup file is empty; receipt was not written" }
+:local createdDate [/system/clock get date]
+:local createdTime [/system/clock get time]
+:local createdOffset [/system/clock get gmt-offset]
+:local receipt ("format=" . $receiptFormat . "\n")
+:set receipt ($receipt . "encrypted=true\n")
+:set receipt ($receipt . "backup-file=" . $binary . "\n")
+:set receipt ($receipt . "backup-size=" . $backupSize . "\n")
+:set receipt ($receipt . "prior-canary-image=" . $priorCanaryImage . "\n")
+:set receipt ($receipt . "created-date=" . $createdDate . "\n")
+:set receipt ($receipt . "created-time=" . $createdTime . "\n")
+:set receipt ($receipt . "created-gmt-offset=" . $createdOffset)
+:local existingReceipt [/file/find where name=$receiptFile]
+:if ([:len $existingReceipt] > 1) do={ :error "backup receipt path is ambiguous" }
+:if ([:len $existingReceipt] = 0) do={
+    /file/add name=$receiptFile contents=$receipt
+} else={
+    /file/set $existingReceipt contents=$receipt
+}
+
+# Advance only after both backup commands and the private receipt succeed.
 :local nextSlot ($slot + 1)
 :if ($nextSlot >= $slotCount) do={ :set nextSlot 0 }
 :local stateEntry ("" . $nextSlot)

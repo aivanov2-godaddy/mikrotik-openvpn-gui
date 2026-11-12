@@ -105,6 +105,44 @@ the separate evidence-gated promotion procedure in
 [ROUTER_LOCAL_AUTOMATION.md](ROUTER_LOCAL_AUTOMATION.md) before any production
 change.
 
+### Guarded single-router canary staging
+
+Use `scripts/stage_routeros_canary.py` for a candidate on the fixed
+`vpn-dashboard-canary` container. It refuses staging unless the canary and
+production are both healthy and report the expected `/readyz` revision, the
+canary rollback image is already digest-pinned, and a recent encrypted backup
+receipt matches that exact image and backup file. The controller rechecks both
+containers immediately before staging, verifies the candidate readiness, and
+restores the exact prior canary image if candidate readiness fails. It never
+targets the production container; production remains governed by the separate
+acceptance-gated promotion procedure.
+
+Run the router-local `scripts/routeros/backup-before-update.rsc.example`
+helper with its privately configured backup password before canary staging.
+After a successful encrypted backup and redacted export, it writes a narrow
+receipt under the private backup directory. The receipt contains image and
+backup metadata only. Keep the configured helper, password, receipt, backups,
+and export on the router's private storage.
+
+Configure local secret-manager values for `ROUTEROS_REST_URL`,
+`ROUTEROS_DEPLOY_USERNAME`, `ROUTEROS_DEPLOY_PASSWORD`,
+`ROUTEROS_CANARY_READY_URL`, and `ROUTEROS_PRODUCTION_READY_URL`. The REST
+identity used for staging must be authorized for container lifecycle updates
+and local receipt reads. Supply `ROUTEROS_REST_CA_PEM` and
+`ROUTEROS_READY_CA_PEM` as PEM text when the local trust store does not already
+trust the relevant certificates. Readiness URLs must end in `/readyz`; plain
+HTTP is allowed only for RFC1918 IPv4 on port 8080. Check the gates without
+changing RouterOS first:
+
+```powershell
+python -m scripts.stage_routeros_canary --image ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-<40-character-commit>-arm64@sha256:<64-hex-digest> --check-only
+```
+
+Only after that exits successfully, run the same command without `--check-only`
+to stage the candidate. A preflight failure makes zero RouterOS writes. Do not
+use this controller to repair an unhealthy canary: restore and verify a known
+healthy rollback baseline first.
+
 The offline `deploy_routeros_canary.py` helper writes a reviewable RouterOS
 configuration plan only to the required `--output` file; stdout contains only a
 generic completion message. The plan includes router addresses, object names,
