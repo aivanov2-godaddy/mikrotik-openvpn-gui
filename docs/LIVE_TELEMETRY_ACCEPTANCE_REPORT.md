@@ -1,16 +1,17 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. PR #941 is merged; post-merge main CI #43224635215 and CodeQL #43224635103 both passed. PR #935 source includes PR #926 exec-form healthcheck fix. Current canary remains unhealthy on older PR #894 image; production is tag-only and neither running digest is verified. Client-dependent acceptance is deferred with no active test session.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. PR #942 merged with required checks and post-merge CI/CodeQL passing. The current canary is unhealthy on the older PR #894 image; private app health endpoints return 200/ready for that old revision. Production is running with a tag-only configured reference, and neither running digest is verified. No active test session is available; client-dependent acceptance remains deferred.**
 
-## Current RouterOS point check — 2026-11-12 13:08–13:20 UTC
+## Current RouterOS point check — 2026-11-12 13:57–13:59 UTC
 
-At 13:08:43 UTC, a TLS-verified REST classification reported the canary healthcheck as failed with a segmentation-fault marker. No per-container command override was present; the default command matched the reviewed legacy readiness-check shape. Lifecycle/healthy fields were absent from that narrow response and restart count was 0. A bounded all-topic filtered RouterOS log query around 13:09 UTC returned zero matching records. No raw log lines were printed or retained; the query does not identify a root cause or prove no relevant logs exist elsewhere.
+At 13:58:21 UTC, a TLS-verified read-only Binary API snapshot reported the canary `unhealthy` on the older PR #894 image. Production was `running` with a tag-only configured reference. Neither running registry digest was verified. The authenticated WinBox read-only view during this check also showed a segmentation-fault marker for the canary healthcheck; the failing executable and root cause remain unknown.
 
-A paired TLS-verified REST configuration/lifecycle read and direct private probe completed at 13:14:35 UTC. RouterOS still reported the canary unhealthy with the older PR #894 image configured. Separate direct GETs returned HTTP 200 for `/healthz` and `/readyz`; readiness was ready at the old PR #894 revision. Production was running with a tag-only configured reference. Neither running registry digest was verified. The direct app responses do not override RouterOS's unhealthy state or establish a healthy observation window.
+At 13:57:38 UTC, bounded direct private HTTP GETs returned 200 for `/healthz` and `/readyz`; readiness was `ready` at the PR #894 revision. These point probes do not override RouterOS's unhealthy lifecycle state or establish a continuous healthy interval or candidate acceptance.
 
-A TLS-verified read-only aggregate OpenVPN session count at 13:20:20 UTC was zero. No session rows, identifiers, or addresses were requested or retained; candidate-bound client and recovery checks remain deferred.
+A TLS-verified read-only aggregate OpenVPN session count at 13:59:36 UTC was zero. No session rows, identifiers, or addresses were requested or retained; client-dependent acceptance remains deferred.
 
-PR #935 remains the latest published image source and has not been staged. The PR #935 source includes PR #926 exec-form image healthcheck fix. The healthy rollback baseline is still unverified, so the reviewed stage gate remains closed. No RouterOS setting, account, password, container, scheduler, updater, or production state changed. No staging, restart, rollback, or deployment occurred.
+PR #935 remains the latest published image source and has not been staged. The healthy rollback baseline is still unverified, so the reviewed stage gate remains closed. Issues #785, #927, #200, and epic #205 remain open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed. No staging, restart, rollback, or deployment occurred.
+
 ## Previous RouterOS point check — 2026-11-12 12:48–12:52 UTC
 
 A TLS-verified read-only Binary API snapshot completed at 12:48:37 UTC. The canary remained configured with the pinned PR #894 image and RouterOS reported it unhealthy. Production remained running with a tag-only configured image reference. Neither running registry digest is verified.

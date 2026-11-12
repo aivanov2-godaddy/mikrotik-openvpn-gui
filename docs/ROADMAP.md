@@ -11,15 +11,16 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Verified checkpoint — 2026-11-12 about 13:21 UTC.** Documentation PR #941 merged to `main` at `6736b2bb6da08cea8814ff9d5236c5910b3a554d`; all required PR checks passed. Post-merge main CI run #43224635215 and main CodeQL run #43224635103 passed; CI completed at 13:20:51 UTC. The docs-only merge triggered no publisher run.
+**Verified checkpoint — 2026-11-12 13:59 UTC.** Documentation PR #942 merged to `main` at `3676ea909c723e898d44cb5cfbff762f42a72713`; required checks passed. Post-merge main CI #43229432870 and CodeQL #43229433195 passed. The docs-only merge triggered no publisher run.
 
-PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source; PR #935 has not been staged on RouterOS. GitHub commit ancestry verifies PR #935 includes PR #926's exec-form image healthcheck fix. The changes after PR #935 are documentation and local release-promotion/security-assurance tooling and tests; no application runtime or container build-input files changed. Formal release **v2.7.0** remains the latest numbered release.
+PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) remains the latest published image source and has not been staged on RouterOS. Its source includes PR #926's exec-form image healthcheck fix. No application runtime or container build inputs changed after PR #935; formal release **v2.7.0** remains the latest numbered release.
 
-Fresh TLS-verified, read-only RouterOS diagnostics on 2026-11-12 found the canary healthcheck still failed with a segmentation-fault marker at 13:08 UTC. No per-container healthcheck override was present; the default command matched the previously reviewed legacy readiness-check shape. The bounded all-topic filtered log query around 13:09 UTC returned zero matching records. Neither observation identifies the failing executable or root cause.
+At 13:58:21 UTC, a TLS-verified read-only RouterOS Binary API snapshot reported the canary unhealthy on the older PR #894 image and production running with a tag-only configured reference. Neither running registry digest is verified. The current WinBox read-only view still showed a canary healthcheck segmentation-fault marker; the faulting executable and cause remain unknown.
 
-A paired RouterOS configuration/lifecycle read and private HTTP probe completed at 13:14 UTC. RouterOS still reported the canary unhealthy with the older PR #894 image configured, while direct `/healthz` and `/readyz` GETs returned 200/ready for that old revision. Production remained running with a tag-only configured reference. Neither running registry digest is verified. The aggregate active OpenVPN session count was zero at 13:20 UTC; no session details were requested or retained, so client-dependent acceptance remains deferred.
+A separate bounded private canary probe at 13:57:38 UTC returned HTTP 200 for `/healthz` and `/readyz`, with readiness `ready` at the PR #894 revision. Those point responses do not override RouterOS's unhealthy lifecycle state or establish candidate acceptance. A TLS-verified aggregate OpenVPN session count at 13:59:36 UTC was zero; no session details were requested or retained, so client-dependent #200 checks remain deferred.
 
-The unhealthy canary does not satisfy the reviewed healthy rollback-baseline precondition; PR #935 remains unstaged. Issues #927 and #785 remain open for healthcheck/device validation and safe updater/canary rollback. Within the original #188–#204 roadmap, #188–#199 and #201–#204 are closed; #200 remains open for candidate-bound security/live-session acceptance. No RouterOS write, staging, restart, rollback, production change, or deployment occurred. Multi-tenancy remains excluded.
+The unhealthy canary does not satisfy the reviewed healthy rollback-baseline precondition; PR #935 remains unstaged. Issues #785, #927, #200, and epic #205 remain open. Within the original #188–#204 roadmap, #188–#199 and #201–#204 are closed; #200 remains open. No RouterOS write, staging, restart, rollback, production change, or deployment occurred. Multi-tenancy remains excluded.
+
 ### Previous checkpoint — PR #938 (2026-11-12 about 11:18 UTC)
 
 PR #938 merged to
