@@ -13,23 +13,35 @@ domain names into an issue, pull request, or test result.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #915
-(`5db3a0d4a220348c2f49934db4a3263776390c6c`) is the latest published image.
-Its post-merge CI and container publication passed; both architecture images
-were scanned and smoke-tested, and the publisher verified provenance and SPDX
-SBOM attestations. The stable manifest was published and read back. See
-[`RELEASES.md`](RELEASES.md) for immutable tags and digests. PR #915 has not
-been staged on RouterOS. The latest authenticated canary revision
-read-back remains PR #894. A fresh read-only Binary API snapshot at 22:56 UTC
-on 2026-11-11 found its exact published ARM64 digest still configured, but the
-canary lifecycle state was unhealthy. Production was running with a tag-only
-image reference. Neither running digest was verified.
-That exact ARM64 candidate initially passed
-canary readiness and revision read-back. A later same-day check found the
-canary unhealthy; bounded in-container `/healthz` and `/readyz` requests timed
-out. An authorized canary-only restart restored RouterOS's healthy marker, but
-post-restart revision read-back and sustained health are not verified. The full
-acceptance gates below remain incomplete.
+prove RouterOS compatibility. PR #926
+(`301e725c8e3d28761fb408920f08947ee3f43075`) is the latest published image.
+Post-merge main CI, CodeQL, and container publication passed; both architecture
+images were scanned and smoke-tested, and the publisher verified provenance
+and SPDX SBOM attestations. The stable manifest was published and read back.
+See [`RELEASES.md`](RELEASES.md) for immutable tags and digests. PR #926 has not
+been staged on RouterOS. A fresh read-only Binary API snapshot at 00:44 UTC on
+2026-11-12 found the canary still configured for the exact PR #894 ARM64 digest
+with lifecycle `unhealthy`; direct private `/healthz` and `/readyz` probes at
+00:46 returned HTTP 200 for PR #894's revision. RouterOS's default healthcheck
+was failed with a segmentation-fault marker and no configured override was
+present. The precise failing executable is unknown. Production remains running
+with a tag-only image reference, and no running digest was verified. Issues
+#785, #927, and #200 remain open; the full acceptance gates below are
+incomplete.
+
+## Latest-image canary read-back — 2026-11-12
+
+The published PR #926 ARM64 image is not staged. The canary still uses PR #894
+and remains unhealthy in the fresh RouterOS Binary API read-back, even though
+the app's direct private health and readiness endpoints returned HTTP 200 at a
+separate point sample. RouterOS reported a failed image-default healthcheck
+with a segmentation-fault marker; the exact failure source is unknown. The
+current canary is not a healthy rollback baseline, and the app probe does not
+override RouterOS's unhealthy state. Production remains unchanged and its
+running registry digest is unverified. See [#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927)
+for the device-bound healthcheck gate and [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200)
+for the separate live acceptance program.
+
 
 ## Separate updater inventory evidence — 2026-11-11
 
@@ -100,7 +112,7 @@ configuration, container, account, or VPN policy changed during collection.
 Keep the dedicated updater disabled and follow the separate reviewed
 canary-only staging/rollback procedure only after source and binding review.
 
-## Current canary checkpoint — 2026-11-04
+## Historical canary checkpoint — PR #894 — 2026-11-04
 
 The isolated canary was configured with the immutable PR #894 ARM64 reference
 `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-84a3148de713abe49be0c7be8f21caa652b68dd9-arm64@sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`.

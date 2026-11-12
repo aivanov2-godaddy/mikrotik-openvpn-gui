@@ -1,25 +1,46 @@
 # Live telemetry acceptance status
 
-Status: **PR #915 (`5db3a0d4a220348c2f49934db4a3263776390c6c`) is the latest
-published image source, with immutable ARM64 and AMD64 images. Main CI and
-container publication passed; both images were scanned, smoke-tested, and
-verified by the publisher for provenance and SPDX SBOM attestations. The stable
-manifest was published and read back. See [RELEASES.md](RELEASES.md) for exact
-image digests and manifest checksum. PR #915 has not been staged on RouterOS.
-The latest documented canary revision read-back remains PR #894. A newer
-read-only WinBox observation on 2026-11-11 found the current canary health
-marker unhealthy and did not verify its running image digest. The exact ARM64
-candidate initially passed canary readiness and revision read-back. A later
-revision read-back. A later same-day probe found the
-canary unhealthy and bounded in-container requests to `/healthz` and `/readyz`
-timed out. An authorized restart of canary only restored RouterOS's healthy
-marker; post-restart authenticated revision read-back and sustained health are
-not verified. Qualitative disconnect and automatic client reconnect were
-observed without a page reload, including SSE fallback. Latency was not measured
-against the one-second target; RouterOS API recovery, sustained freshness,
-privacy, and rollback gates remain pending. Production was not changed.**
+Status: **PR #926 (`301e725c8e3d28761fb408920f08947ee3f43075`) is the
+latest published image source, with immutable ARM64 and AMD64 images. Post-merge
+CI, CodeQL, image scans, runtime smoke tests, provenance, SPDX SBOM checks, and
+stable-manifest publication passed. See [RELEASES.md](RELEASES.md) for exact
+digests and the manifest checksum. PR #926 has not been staged on RouterOS.
+Fresh read-only canary evidence at 00:44–00:46 UTC on 2026-11-12 still
+identifies PR #894 as the configured image, with RouterOS lifecycle
+`unhealthy` and a failed default healthcheck carrying a segmentation-fault
+marker. Direct `/healthz` and `/readyz` probes returned HTTP 200 for the PR #894
+revision. The exact failing executable is unknown. Production remains on a
+tag-only configured image and no running digest was verified. Qualitative
+disconnect/reconnect and SSE fallback observations remain unmeasured; latency,
+freshness, API recovery, soak, privacy, and rollback gates remain pending. No
+production deployment is claimed.**
 
-## Current canary checkpoint — 2026-11-04
+## Current canary read-back — after PR #926 publication — 2026-11-12
+
+At 00:44:48 UTC, a TLS-verified read-only Binary API snapshot found the canary
+still configured with PR #894's pinned ARM64 digest
+`sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581`;
+RouterOS reported lifecycle `unhealthy`. Production was `running` with its
+prior tag-only configured image. The API report does not verify either running
+registry digest.
+
+At 00:46:01 UTC, bounded direct private HTTP GETs returned 200 for `/healthz`
+and `/readyz`. The readiness response was `ready` at revision
+`84a3148de713abe49be0c7be8f21caa652b68dd9`, matching PR #894. At 00:46:31 UTC,
+a separate read-only RouterOS REST classification found the image-default
+healthcheck status failed with a segmentation-fault marker; no configured
+healthcheck override was present. The observed default command matched PR
+#894's reviewed shell-form healthcheck shape. These are separate point samples,
+not a continuous health result. The exact crashing executable and root cause
+remain unknown.
+
+PR #926's immutable ARM64 digest is published but remains unstaged. It changes
+the image probe to exec form; RouterOS behavior must be rechecked after a
+reviewed canary stage. Issue #927 tracks that check. The installed updater
+remains disabled under #785. No canary mutation, rollback, 30-minute acceptance
+window, or production deployment is claimed.
+
+## Historical canary checkpoint — PR #894 — 2026-11-04
 
 At the initial 2026-11-04 read-back, the canary was configured with the
 immutable PR #894 ARM64 reference
@@ -136,8 +157,8 @@ remain outstanding. No production image change is claimed.
 
 ## Historical canary checkpoint — PR #806 — 2026-10-24
 
-This checkpoint is superseded by the current PR #894 canary checkpoint at the
-top of this report; it does not describe the current canary.
+This checkpoint is historical; the latest PR #926 post-publication read-back
+is recorded near the top of this report.
 
 PR [#806](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/806)
 merged as `79816625e493f9581e7389b95760403ac6c9a327`. CI, CodeQL, ARM64 image
