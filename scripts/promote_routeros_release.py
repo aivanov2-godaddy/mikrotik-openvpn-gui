@@ -35,6 +35,10 @@ from scripts.deploy_routeros_release import (
 )
 from scripts.release_acceptance import evaluate
 from scripts.collect_release_acceptance import _registry_digest
+from scripts.release_security_assurance import (
+    SecurityAssuranceError,
+    verify_promotion_security_assurance,
+)
 from scripts.release_images import image_digest, parse_project_image, pin_project_image
 
 
@@ -63,6 +67,7 @@ class PromotionSettings:
     poll_seconds: float = 2.0
     ca_pem: str | None = None
     ready_ca_pem: str | None = None
+    external_review_report: str | None = field(default=None, repr=False)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -323,6 +328,20 @@ def promote(
         raise DeploymentError("acceptance evidence image digests are invalid") from error
     prior_revision = prior_identity.revision
 
+    # The independent scoped ASVS review and the owner's candidate-bound risk
+    # decision are external acceptance gates. Verify their authenticated issue
+    # records before registry, RouterOS, readiness, or deployment operations.
+    try:
+        verify_promotion_security_assurance(
+            candidate_digest,
+            now=clock(),
+            report_path=settings.external_review_report,
+        )
+    except SecurityAssuranceError as error:
+        raise DeploymentError(
+            "candidate-bound external security review and owner risk decision are required"
+        ) from error
+
     # Re-resolve the prior production tag immediately before RouterOS access so
     # rollback is pinned to the exact bytes covered by the accepted evidence.
     digest_resolver = registry_digest_resolver or _registry_digest
@@ -435,12 +454,18 @@ def _settings_from_environment(args: argparse.Namespace) -> PromotionSettings:
         timeout_seconds=args.timeout,
         ca_pem=os.environ.get("ROUTEROS_REST_CA_PEM") or None,
         ready_ca_pem=ready_ca,
+        external_review_report=args.security_review_report,
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, help="private collected canary-prepromotion evidence JSON")
+    parser.add_argument(
+        "--security-review-report",
+        required=True,
+        help="private local copy of the candidate-bound external ASVS report; path is never printed",
+    )
     parser.add_argument("--canary-container", default="vpn-dashboard-canary")
     parser.add_argument("--production-container", default="vpn-dashboard-production")
     parser.add_argument("--canary-ready-url", required=True, help="private app /readyz origin; URL is never printed")

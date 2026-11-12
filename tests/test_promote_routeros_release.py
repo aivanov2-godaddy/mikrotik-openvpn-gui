@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timezone
 import unittest
 from unittest.mock import patch
 
 from scripts.deploy_routeros_release import DeploymentError
+from scripts.release_security_assurance import SecurityAssuranceError
 from scripts.promote_routeros_release import (
     PromotionSettings,
     _safe_ready_url,
@@ -119,9 +121,19 @@ class PromotionTests(unittest.TestCase):
         self.digest_patcher = patch("scripts.promote_routeros_release._registry_digest", side_effect=resolve)
         self.digest_patcher.start()
         self.addCleanup(self.digest_patcher.stop)
+        self.assurance_patcher = patch(
+            "scripts.promote_routeros_release.verify_promotion_security_assurance",
+            return_value={"candidate_digest": CANDIDATE_DIGEST},
+        )
+        self.assurance_patcher.start()
+        self.addCleanup(self.assurance_patcher.stop)
 
     def test_settings_repr_does_not_expose_password(self) -> None:
         self.assertNotIn("not-used-by-fake", repr(settings()))
+        self.assertNotIn(
+            "private-report-location",
+            repr(replace(settings(), external_review_report="C:/private-report-location/review.pdf")),
+        )
 
     def test_passing_fresh_evidence_and_matching_router_promotes_candidate(self) -> None:
         router = FakeRouterOS()
@@ -152,6 +164,23 @@ class PromotionTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(DeploymentError, "acceptance did not pass"):
                 promote({}, settings(), client=router, ready_probe=lambda *_: True, clock=lambda: NOW)
+        self.assertEqual(router.calls, [])
+
+    def test_missing_security_assurance_blocks_before_registry_or_router_access(self) -> None:
+        router = FakeRouterOS()
+        with (
+            patch("scripts.promote_routeros_release.evaluate", return_value=(0, deepcopy(REPORT))),
+            patch(
+                "scripts.promote_routeros_release.verify_promotion_security_assurance",
+                side_effect=SecurityAssuranceError("missing review"),
+            ) as assurance,
+            patch("scripts.promote_routeros_release._registry_digest") as digest_resolver,
+        ):
+            with self.assertRaisesRegex(DeploymentError, "external security review and owner risk decision"):
+                promote({}, settings(), client=router, ready_probe=lambda *_: True, clock=lambda: NOW)
+
+        assurance.assert_called_once_with(CANDIDATE_DIGEST, now=NOW, report_path=None)
+        digest_resolver.assert_not_called()
         self.assertEqual(router.calls, [])
 
     def test_candidate_or_production_drift_causes_zero_router_writes(self) -> None:

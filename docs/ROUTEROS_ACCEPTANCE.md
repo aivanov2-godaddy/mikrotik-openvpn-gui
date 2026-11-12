@@ -1007,6 +1007,9 @@ that promotes after readiness alone bypasses the full acceptance gate. The
 stage-only updater writes a small pending record only after its canary
 readiness soak and never changes production. The promotion controller requires
 that record to match the collected candidate and the exact production baseline.
+It also requires the candidate-bound independent ASVS review and owner risk
+decision described in [`SECURITY_PROMOTION_EVIDENCE.md`](SECURITY_PROMOTION_EVIDENCE.md);
+the technical acceptance report alone is insufficient.
 
 Set `ROUTEROS_REST_URL`, `ROUTEROS_DEPLOY_USERNAME`, and
 `ROUTEROS_DEPLOY_PASSWORD` in the local process environment, plus
@@ -1024,6 +1027,7 @@ that can reach the router and private VETH endpoints:
 ```powershell
 python -m scripts.promote_routeros_release `
   --input private-collected-evidence.json `
+  --security-review-report private-external-asvs-review.pdf `
   --canary-ready-url http://<private-canary-ip>:8080/readyz `
   --production-ready-url http://<private-production-ip>:8080/readyz `
   --check-only
