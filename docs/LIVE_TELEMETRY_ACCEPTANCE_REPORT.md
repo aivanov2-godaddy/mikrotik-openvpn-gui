@@ -1,8 +1,8 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. PR #948 merged to `main` at `ff6775227ff7b7471efb6b56c9e50561d000da00`; its required PR checks, post-merge CI #43263376608, and CodeQL #43263377503 passed. The documentation-only merge published no image. TLS-verified API readbacks between 17:19 and 17:48 UTC found the canary unhealthy on PR #894; its healthcheck still failed at 17:48 while separate direct `/healthz` and `/readyz` probes returned 200/ready. Production healthcheck-status was good at 17:23 UTC with a tag-only configured reference; direct private production probes from the collection host obtained no HTTP status. The count-only OpenVPN query returned zero at 17:47 UTC. Neither running OCI digest is verified.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. PR #948 merged to `main` at `ff6775227ff7b7471efb6b56c9e50561d000da00`; its required PR checks, post-merge CI #43263376608, and CodeQL #43263377503 passed. The documentation-only merge published no image. TLS-verified API readbacks between 17:19 and 17:48 UTC found the canary unhealthy on PR #894; its healthcheck still failed at 17:48 while separate direct `/healthz` and `/readyz` probes returned 200/ready. Production healthcheck-status was good at 18:02 UTC with a tag-only configured reference; direct private production probes from the collection host again obtained no HTTP status. The count-only OpenVPN query returned zero at 17:47 UTC. Neither running OCI digest is verified.**
 
-## Current RouterOS point check — 2026-11-12 17:19–17:48 UTC
+## Current RouterOS point check — 2026-11-12 17:19–18:02 UTC
 
 A TLS-verified, read-only Binary API snapshot at 17:19:59 UTC found the canary lifecycle `unhealthy`, with a pinned configured reference matching PR #894 rather than PR #935. Production was `running` with a tag-only configured reference. Neither running OCI manifest digest was verified.
 
@@ -13,6 +13,8 @@ Follow-up TLS-verified REST classification at 17:48:38 UTC still reported a `fai
 A bounded TLS-verified RouterOS log query at about 17:54 UTC found no records matching its healthcheck, segmentation-fault, timeout, wget, unhealthy, memory-pressure, fork, or process-exit filters. No raw log lines were printed or retained. This limited negative query does not show that the fault is absent or identify its cause.
 
 A separate REST classification at 17:23:29 UTC returned `good` for the production healthcheck, with no custom command override. Direct private production `/healthz` and `/readyz` probes from the collection host at 17:24:31 UTC received no HTTP status. This transport result is not evidence that RouterOS marked production unhealthy; deployed production HTTP readiness remains unverified from that probe.
+
+Follow-up TLS-verified REST classification at 18:02:11 UTC again returned `good` for the production healthcheck, with no per-container override; its default command did not match the reviewed healthcheck shape. Separate direct private production `/healthz` and `/readyz` probes at 18:02:48 UTC again received no HTTP status from the collection host. This does not establish that RouterOS marked production unhealthy. Deployed production HTTP readiness and its running OCI digest remain unverified.
 
 PR #935 has not been staged on RouterOS.
 
