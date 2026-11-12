@@ -1,18 +1,20 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. PR #948 merged to `main` at `ff6775227ff7b7471efb6b56c9e50561d000da00`; its required PR checks, post-merge CI #43263376608, and CodeQL #43263377503 passed. The documentation-only merge published no image. TLS-verified API readbacks between 17:19 and 17:24 UTC found the canary unhealthy on PR #894, while production healthcheck-status was good with a tag-only configured reference. The canary's direct `/healthz` and `/readyz` returned 200/ready at PR #894; direct private production probes from the collection host obtained no HTTP status. Neither running OCI digest is verified.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. PR #948 merged to `main` at `ff6775227ff7b7471efb6b56c9e50561d000da00`; its required PR checks, post-merge CI #43263376608, and CodeQL #43263377503 passed. The documentation-only merge published no image. TLS-verified API readbacks between 17:19 and 17:48 UTC found the canary unhealthy on PR #894; its healthcheck still failed at 17:48 while separate direct `/healthz` and `/readyz` probes returned 200/ready. Production healthcheck-status was good at 17:23 UTC with a tag-only configured reference; direct private production probes from the collection host obtained no HTTP status. The count-only OpenVPN query returned zero at 17:47 UTC. Neither running OCI digest is verified.**
 
-## Current RouterOS point check — 2026-11-12 17:19–17:24 UTC
+## Current RouterOS point check — 2026-11-12 17:19–17:48 UTC
 
 A TLS-verified, read-only Binary API snapshot at 17:19:59 UTC found the canary lifecycle `unhealthy`, with a pinned configured reference matching PR #894 rather than PR #935. Production was `running` with a tag-only configured reference. Neither running OCI manifest digest was verified.
 
 Bounded direct private canary GETs at 17:21:03 UTC returned HTTP 200 for `/healthz` and `/readyz`; readiness was `ready` at the PR #894 revision. A separate TLS-verified REST classification at 17:21:52 UTC reported the RouterOS healthcheck category as `segmentation_fault` with a `failed` status prefix. No custom per-container healthcheck command was present; the default command matched the reviewed timeout/wget readiness-check shape. These point samples do not identify the failing executable or cause, and do not establish a sustained healthy interval.
 
+Follow-up TLS-verified REST classification at 17:48:38 UTC still reported a `failed`/`segmentation_fault` healthcheck with the default command present, no per-container command override, and the reviewed timeout/wget readiness-check shape. Separate direct private canary GETs at 17:48:54 UTC returned HTTP 200 for `/healthz` and `/readyz`, with readiness still `ready` at PR #894. The app probes do not override RouterOS's failed healthcheck or establish a sustained healthy interval.
+
 A separate REST classification at 17:23:29 UTC returned `good` for the production healthcheck, with no custom command override. Direct private production `/healthz` and `/readyz` probes from the collection host at 17:24:31 UTC received no HTTP status. This transport result is not evidence that RouterOS marked production unhealthy; deployed production HTTP readiness remains unverified from that probe.
 
 PR #935 has not been staged on RouterOS.
 
-The latest count-only active OpenVPN query remains the 15:25 UTC observation of zero; no newer count was collected. No session rows, identifiers, or addresses were requested or retained. Current client-dependent #200 checks remain unverified.
+The count-only active OpenVPN query at 17:47:24 UTC returned zero. It queried only the `service` field and saved no session details. No session identifiers or addresses were requested or retained; current client-dependent #200 checks remain unverified and are deferred until the disposable client is connected.
 
 The unhealthy canary is not a verified healthy rollback baseline, so PR #935 remains unstaged. The stage controller's healthy-baseline guard remains in force. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; no staging, restart, rollback, or production deployment occurred. Issues #927, #785, #200, and epic #205 remain open.
 
