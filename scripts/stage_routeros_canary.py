@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
+import json
 import os
 import re
 import sys
@@ -44,6 +45,102 @@ _ROUTER_DATE = re.compile(
 )
 _ROUTER_TIME = re.compile(r"^(?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})$")
 _GMT_OFFSET = re.compile(r"^(?P<sign>[+-])?(?P<hour>[0-9]{2}):(?P<minute>[0-9]{2})$")
+
+_DIAGNOSTIC_RESULTS = frozenset(
+    {"preflight_blocked", "stage_failed_prior_state_verified", "recovery_unverified"}
+)
+_DIAGNOSTIC_PHASES = frozenset(
+    {"configuration", "baseline", "backup", "prewrite", "candidate", "production", "recovery"}
+)
+_DIAGNOSTIC_CODES = frozenset(
+    {
+        "configuration_invalid",
+        "baseline_readback_failed",
+        "canary_unhealthy",
+        "production_unhealthy",
+        "baseline_image_invalid",
+        "canary_readiness_failed",
+        "production_readiness_failed",
+        "backup_receipt_invalid",
+        "prewrite_recheck_failed",
+        "prewrite_state_drift",
+        "candidate_stage_failed",
+        "candidate_readback_failed",
+        "candidate_readiness_failed",
+        "production_changed",
+        "rollback_unverified",
+        "post_failure_readback_failed",
+        "post_failure_state_mismatch",
+        "unclassified_preflight_failure",
+        "unclassified_stage_failure",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class StageFailureDiagnostic:
+    result: str
+    phase: str
+    code: str
+    router_writes_may_have_started: bool
+    rollback_attempted: bool
+    canary_prior_state_verified: bool | None
+    production_unchanged_verified: bool | None
+    manual_recovery_required: bool
+    review_before_retry: bool = True
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema": "mikrotik-canary-stage-diagnostic-v1",
+            "result": self.result,
+            "phase": self.phase,
+            "code": self.code,
+            "router_writes_may_have_started": self.router_writes_may_have_started,
+            "rollback_attempted": self.rollback_attempted,
+            "canary_prior_state_verified": self.canary_prior_state_verified,
+            "production_unchanged_verified": self.production_unchanged_verified,
+            "manual_recovery_required": self.manual_recovery_required,
+            "review_before_retry": self.review_before_retry,
+        }
+
+
+class CanaryStageFailure(DeploymentError):
+    """A staging failure with a closed, non-sensitive diagnostic payload."""
+
+    def __init__(self, diagnostic: StageFailureDiagnostic) -> None:
+        if (
+            diagnostic.result not in _DIAGNOSTIC_RESULTS
+            or diagnostic.phase not in _DIAGNOSTIC_PHASES
+            or diagnostic.code not in _DIAGNOSTIC_CODES
+        ):
+            raise ValueError("invalid canary staging diagnostic")
+        self.diagnostic = diagnostic
+        super().__init__(diagnostic.code)
+
+
+def _stage_failure(
+    result: str,
+    phase: str,
+    code: str,
+    *,
+    writes_may_have_started: bool,
+    rollback_attempted: bool = False,
+    canary_prior_state_verified: bool | None = None,
+    production_unchanged_verified: bool | None = None,
+    manual_recovery_required: bool = False,
+) -> CanaryStageFailure:
+    return CanaryStageFailure(
+        StageFailureDiagnostic(
+            result=result,
+            phase=phase,
+            code=code,
+            router_writes_may_have_started=writes_may_have_started,
+            rollback_attempted=rollback_attempted,
+            canary_prior_state_verified=canary_prior_state_verified,
+            production_unchanged_verified=production_unchanged_verified,
+            manual_recovery_required=manual_recovery_required,
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,14 +372,37 @@ def _assert_ready(
     url: str,
     revision: str,
     settings: CanaryStageSettings,
+    *,
+    phase: str,
+    failure_code: str,
+    writes_may_have_started: bool = False,
+    rollback_attempted: bool = False,
 ) -> None:
-    if not ready_probe(
-        url,
-        revision,
-        min(30.0, float(settings.timeout_seconds)),
-        settings.ready_ca_pem,
-    ):
-        raise DeploymentError("RouterOS container readiness did not match the expected revision")
+    try:
+        ready = ready_probe(
+            url,
+            revision,
+            min(30.0, float(settings.timeout_seconds)),
+            settings.ready_ca_pem,
+        )
+    except Exception as error:
+        raise _stage_failure(
+            "preflight_blocked" if not writes_may_have_started else "recovery_unverified",
+            phase,
+            failure_code,
+            writes_may_have_started=writes_may_have_started,
+            rollback_attempted=rollback_attempted,
+            manual_recovery_required=writes_may_have_started,
+        ) from error
+    if not ready:
+        raise _stage_failure(
+            "preflight_blocked" if not writes_may_have_started else "recovery_unverified",
+            phase,
+            failure_code,
+            writes_may_have_started=writes_may_have_started,
+            rollback_attempted=rollback_attempted,
+            manual_recovery_required=writes_may_have_started,
+        )
 
 
 def _healthy_snapshot(
@@ -290,13 +410,43 @@ def _healthy_snapshot(
     settings: CanaryStageSettings,
     ready_probe: Callable[[str, str, float, str | None], bool],
 ) -> tuple[str, str, str]:
-    canary, production = _records(client)
-    if _status(canary) != "running" or _status(production) != "running":
-        raise DeploymentError("both RouterOS containers must be healthy before canary staging")
-    canary_image, canary_revision = _image_identity(canary, require_digest=True)
-    production_image, production_revision = _image_identity(production, require_digest=False)
-    _assert_ready(ready_probe, settings.canary_ready_url, canary_revision, settings)
-    _assert_ready(ready_probe, settings.production_ready_url, production_revision, settings)
+    try:
+        canary, production = _records(client)
+    except Exception as error:
+        raise _stage_failure(
+            "preflight_blocked", "baseline", "baseline_readback_failed", writes_may_have_started=False
+        ) from error
+    if _status(canary) != "running":
+        raise _stage_failure(
+            "preflight_blocked", "baseline", "canary_unhealthy", writes_may_have_started=False
+        )
+    if _status(production) != "running":
+        raise _stage_failure(
+            "preflight_blocked", "baseline", "production_unhealthy", writes_may_have_started=False
+        )
+    try:
+        canary_image, canary_revision = _image_identity(canary, require_digest=True)
+        production_image, production_revision = _image_identity(production, require_digest=False)
+    except Exception as error:
+        raise _stage_failure(
+            "preflight_blocked", "baseline", "baseline_image_invalid", writes_may_have_started=False
+        ) from error
+    _assert_ready(
+        ready_probe,
+        settings.canary_ready_url,
+        canary_revision,
+        settings,
+        phase="baseline",
+        failure_code="canary_readiness_failed",
+    )
+    _assert_ready(
+        ready_probe,
+        settings.production_ready_url,
+        production_revision,
+        settings,
+        phase="baseline",
+        failure_code="production_readiness_failed",
+    )
     return canary_image, production_image, production_revision
 
 
@@ -335,7 +485,16 @@ def _restore_canary(
     started = _wait_for(client, container_id, "running", deploy_settings)
     if _registry_relative_image(_image(started)) != previous_image:
         raise DeploymentError("RouterOS did not start the exact prior canary image")
-    _assert_ready(ready_probe, settings.canary_ready_url, previous_revision, settings)
+    _assert_ready(
+        ready_probe,
+        settings.canary_ready_url,
+        previous_revision,
+        settings,
+        phase="recovery",
+        failure_code="rollback_unverified",
+        writes_may_have_started=True,
+        rollback_attempted=True,
+    )
 
 
 def stage_canary(
@@ -347,30 +506,57 @@ def stage_canary(
 ) -> str:
     """Stage one immutable image on the isolated canary, never on production."""
 
-    settings.validate()
-    candidate = _registry_relative_image(settings.candidate_image)
-    candidate_revision = settings.candidate_identity.revision
-    deploy_settings = DeploymentSettings(
-        rest_url=settings.rest_url,
-        username=settings.username,
-        password=settings.password,
-        container_name=CANARY_CONTAINER,
-        release_image=candidate,
-        timeout_seconds=settings.timeout_seconds,
-        poll_seconds=settings.poll_seconds,
-        ca_pem=settings.ca_pem,
-    )
-    client = client or RouterOSRest(deploy_settings)
+    try:
+        settings.validate()
+        candidate = _registry_relative_image(settings.candidate_image)
+        candidate_revision = settings.candidate_identity.revision
+        deploy_settings = DeploymentSettings(
+            rest_url=settings.rest_url,
+            username=settings.username,
+            password=settings.password,
+            container_name=CANARY_CONTAINER,
+            release_image=candidate,
+            timeout_seconds=settings.timeout_seconds,
+            poll_seconds=settings.poll_seconds,
+            ca_pem=settings.ca_pem,
+        )
+        client = client or RouterOSRest(deploy_settings)
+    except Exception as error:
+        raise _stage_failure(
+            "preflight_blocked",
+            "configuration",
+            "configuration_invalid",
+            writes_may_have_started=False,
+        ) from error
 
-    prior_canary_image, prior_production_image, _ = _healthy_snapshot(client, settings, ready_probe)
-    _verify_backup_receipt(
-        client,
-        prior_canary_image=prior_canary_image,
-    )
+    try:
+        prior_canary_image, prior_production_image, _ = _healthy_snapshot(client, settings, ready_probe)
+    except CanaryStageFailure:
+        raise
+    except Exception as error:
+        raise _stage_failure(
+            "preflight_blocked", "baseline", "baseline_readback_failed", writes_may_have_started=False
+        ) from error
+    try:
+        _verify_backup_receipt(
+            client,
+            prior_canary_image=prior_canary_image,
+        )
+    except Exception as error:
+        raise _stage_failure(
+            "preflight_blocked", "backup", "backup_receipt_invalid", writes_may_have_started=False
+        ) from error
     # Repeat the live image/readiness check immediately before the first write.
-    rechecked_canary, rechecked_production, _ = _healthy_snapshot(client, settings, ready_probe)
+    try:
+        rechecked_canary, rechecked_production, _ = _healthy_snapshot(client, settings, ready_probe)
+    except Exception as error:
+        raise _stage_failure(
+            "preflight_blocked", "prewrite", "prewrite_recheck_failed", writes_may_have_started=False
+        ) from error
     if rechecked_canary != prior_canary_image or rechecked_production != prior_production_image:
-        raise DeploymentError("RouterOS image drifted during canary preflight")
+        raise _stage_failure(
+            "preflight_blocked", "prewrite", "prewrite_state_drift", writes_may_have_started=False
+        )
     if check_only:
         return candidate_revision
 
@@ -385,23 +571,63 @@ def stage_canary(
             _registry_relative_image(_image(staged)) != candidate
             or _status(staged) != "running"
         ):
-            raise DeploymentError("RouterOS did not report the healthy immutable canary candidate")
-        _assert_ready(ready_probe, settings.canary_ready_url, candidate_revision, settings)
+            raise _stage_failure(
+                "recovery_unverified",
+                "candidate",
+                "candidate_readback_failed",
+                writes_may_have_started=True,
+                manual_recovery_required=True,
+            )
+        _assert_ready(
+            ready_probe,
+            settings.canary_ready_url,
+            candidate_revision,
+            settings,
+            phase="candidate",
+            failure_code="candidate_readiness_failed",
+            writes_may_have_started=True,
+        )
         production_after = _find_target(client, PRODUCTION_CONTAINER)
         if (
             _registry_relative_image(_image(production_after)) != prior_production_image
             or _status(production_after) != "running"
         ):
-            raise DeploymentError("production changed during canary staging")
+            raise _stage_failure(
+                "recovery_unverified",
+                "production",
+                "production_changed",
+                writes_may_have_started=True,
+                manual_recovery_required=True,
+            )
         _assert_ready(
             ready_probe,
             settings.production_ready_url,
             _image_identity(production_after, require_digest=False)[1],
             settings,
+            phase="production",
+            failure_code="production_readiness_failed",
+            writes_may_have_started=True,
         )
     except Exception as error:
-        current_canary = _find_target(client, CANARY_CONTAINER)
-        if _registry_relative_image(_image(current_canary)) == candidate:
+        failure_code = "candidate_stage_failed"
+        failure_phase = "candidate"
+        if isinstance(error, CanaryStageFailure):
+            failure_code = error.diagnostic.code
+            failure_phase = error.diagnostic.phase
+        try:
+            current_canary = _find_target(client, CANARY_CONTAINER)
+            candidate_is_configured = _registry_relative_image(_image(current_canary)) == candidate
+        except Exception as readback_error:
+            raise _stage_failure(
+                "recovery_unverified",
+                "recovery",
+                "post_failure_readback_failed",
+                writes_may_have_started=True,
+                manual_recovery_required=True,
+            ) from readback_error
+        rollback_attempted = False
+        if candidate_is_configured:
+            rollback_attempted = True
             try:
                 _restore_canary(
                     client,
@@ -416,16 +642,46 @@ def stage_canary(
                     ready_probe=ready_probe,
                 )
             except Exception as rollback_error:
-                raise DeploymentError(
-                    "canary staging failed and the prior healthy image could not be restored"
+                raise _stage_failure(
+                    "recovery_unverified",
+                    "recovery",
+                    "rollback_unverified",
+                    writes_may_have_started=True,
+                    rollback_attempted=True,
+                    manual_recovery_required=True,
                 ) from rollback_error
-        restored_canary, restored_production, _ = _healthy_snapshot(client, settings, ready_probe)
-        if restored_canary != prior_canary_image or restored_production != prior_production_image:
-            raise DeploymentError(
-                "canary staging failed; read-back did not verify the prior canary and unchanged production"
+        try:
+            restored_canary, restored_production, _ = _healthy_snapshot(client, settings, ready_probe)
+        except Exception as readback_error:
+            raise _stage_failure(
+                "recovery_unverified",
+                "recovery",
+                "post_failure_readback_failed",
+                writes_may_have_started=True,
+                rollback_attempted=rollback_attempted,
+                manual_recovery_required=True,
+            ) from readback_error
+        canary_prior_state_verified = restored_canary == prior_canary_image
+        production_unchanged_verified = restored_production == prior_production_image
+        if not canary_prior_state_verified or not production_unchanged_verified:
+            raise _stage_failure(
+                "recovery_unverified",
+                "recovery",
+                "post_failure_state_mismatch",
+                writes_may_have_started=True,
+                rollback_attempted=rollback_attempted,
+                canary_prior_state_verified=canary_prior_state_verified,
+                production_unchanged_verified=production_unchanged_verified,
+                manual_recovery_required=True,
             ) from error
-        raise DeploymentError(
-            "canary staging failed; the prior healthy canary was restored and production stayed unchanged"
+        raise _stage_failure(
+            "stage_failed_prior_state_verified",
+            failure_phase,
+            failure_code,
+            writes_may_have_started=True,
+            rollback_attempted=rollback_attempted,
+            canary_prior_state_verified=True,
+            production_unchanged_verified=True,
         ) from error
     return candidate_revision
 
@@ -468,12 +724,39 @@ def main(argv: list[str] | None = None) -> int:
         help="verify healthy baselines and the fresh encrypted backup without changing RouterOS",
     )
     arguments = parser.parse_args(argv)
+    stage_started = False
     try:
         settings = _settings_from_environment(arguments)
         settings = replace(settings, timeout_seconds=arguments.timeout)
+        stage_started = True
         revision = stage_canary(settings, check_only=arguments.check_only)
-    except (DeploymentError, OSError, ValueError, TypeError):
-        print("canary staging blocked: preflight or RouterOS verification failed", file=sys.stderr)
+    except CanaryStageFailure as error:
+        print(json.dumps(error.diagnostic.as_dict(), separators=(",", ":")), file=sys.stderr)
+        return 2
+    except Exception:
+        if stage_started and not arguments.check_only:
+            diagnostic = StageFailureDiagnostic(
+                result="recovery_unverified",
+                phase="recovery",
+                code="unclassified_stage_failure",
+                router_writes_may_have_started=True,
+                rollback_attempted=False,
+                canary_prior_state_verified=None,
+                production_unchanged_verified=None,
+                manual_recovery_required=True,
+            )
+        else:
+            diagnostic = StageFailureDiagnostic(
+                result="preflight_blocked",
+                phase="configuration",
+                code="unclassified_preflight_failure",
+                router_writes_may_have_started=False,
+                rollback_attempted=False,
+                canary_prior_state_verified=None,
+                production_unchanged_verified=None,
+                manual_recovery_required=False,
+            )
+        print(json.dumps(diagnostic.as_dict(), separators=(",", ":")), file=sys.stderr)
         return 2
     action = "preflight passed for" if arguments.check_only else "staged revision"
     print(f"canary {action} {revision}")
