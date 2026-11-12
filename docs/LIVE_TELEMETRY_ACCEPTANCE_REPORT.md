@@ -1,16 +1,16 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #943 merged to `main` at `44d294cd178765431019743467c438b11abe9f6c`; post-merge CI #43236137835 and CodeQL #43236135180 passed. The current WinBox read-only view still shows the canary healthcheck failed with a segmentation-fault marker, while production is marked healthy. No running registry digest is verified. The latest aggregate OpenVPN session count is zero, so client-dependent acceptance remains deferred.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source. PR #935 has not been staged on RouterOS. Documentation PR #944 merged to `main` at `8d7cc81adee5640c9d8499e48f2167a629a9b8fb`; required PR checks, post-merge main CI #43241413392, and CodeQL #43241414337 passed. The docs-only merge triggered no image publisher run. WinBox still shows the canary healthcheck failed; production is marked healthy, but neither running OCI manifest digest is verified. A count-only OpenVPN query returned zero, so client-dependent acceptance remains deferred.**
 
-## Current RouterOS point check — 2026-11-12 14:32 UTC
+## Current RouterOS point check — 2026-11-12 14:54 UTC
 
-A read-only WinBox observation at 14:32:25 UTC showed the canary healthcheck still failed with the previously observed segmentation-fault marker; the faulting process and underlying cause remain unknown. Production was marked healthy in the same session. This visual readback does not establish either running OCI manifest digest or candidate-bound health acceptance.
+At 14:54:14 UTC, a read-only WinBox query reported the canary healthcheck failed with a resource-unavailable/fork error followed by a segmentation-fault marker. The exact failing process and root cause remain unknown. Production showed a healthy marker in the same session, but this does not verify its running image digest.
 
-A read-only aggregate OpenVPN session-count query at 14:32:25 UTC returned zero. No session rows, identifiers, or addresses were requested or retained; client-dependent acceptance remains deferred.
+At 14:54:48 UTC, a count-only active OpenVPN query returned zero. No session rows, identifiers, or addresses were requested or retained; client-dependent acceptance remains deferred.
 
-The latest bounded direct canary HTTP probes remain the earlier 13:57:38 UTC point check: `/healthz` and `/readyz` returned HTTP 200 and readiness was `ready` at the old PR #894 revision. They do not establish current health or readiness for the published PR #935 candidate.
+Earlier bounded direct canary HTTP probes returned 200 for `/healthz` and `/readyz` at the old PR #894 revision. Those point probes do not establish RouterOS health, current PR #935 readiness, or a continuous candidate acceptance window.
 
-PR #943 was documentation-only and did not change the image or RouterOS state. PR #935 remains unstaged. The canary remains unhealthy and the healthy rollback baseline remains unverified, so the reviewed stage gate remains closed. Issues #785, #927, #200, and epic #205 remain open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; no staging, restart, rollback, or deployment occurred.
+PR #935 remains unstaged because the canary is not a verified healthy rollback baseline. Issues #785, #927, #200, and epic #205 remain open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; no staging, restart, rollback, or deployment occurred. Multi-tenancy remains excluded.
 ## Previous RouterOS point check — 2026-11-12 12:48–12:52 UTC
 
 A TLS-verified read-only Binary API snapshot completed at 12:48:37 UTC. The canary remained configured with the pinned PR #894 image and RouterOS reported it unhealthy. Production remained running with a tag-only configured image reference. Neither running registry digest is verified.
