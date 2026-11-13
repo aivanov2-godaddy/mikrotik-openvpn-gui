@@ -1,6 +1,19 @@
 # Live telemetry acceptance status
 
-Status: PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source. Its immutable RouterOS ARM64 digest is `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`; its AMD64 digest is `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`. Publisher run #43446742850 succeeded, and the stable manifest asset SHA-256 is `sha256:344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`. Provenance and SPDX SBOM attestations were independently verified. This publication is not RouterOS deployment evidence. A post-publication TLS-verified REST healthcheck read at 15:45:38 UTC found the canary still configured to old PR #894 and unhealthy, with failed, `resource_unavailable`, `segmentation_fault`, and timeout categories; production remained running with a tag-only configured reference and health category `good`. That query did not verify running digests. Earlier direct canary `/healthz` and `/readyz` probes returned HTTP 200 and ready at the old PR #894 revision, before publication. PR #971 remains unstaged. Production deployment is not claimed.
+Status: PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source. Its immutable RouterOS ARM64 digest is `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`; its AMD64 digest is `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`. Publisher run #43446742850 succeeded, and the stable manifest asset SHA-256 is `sha256:344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`. Provenance and SPDX SBOM attestations were independently verified. This publication is not RouterOS deployment evidence. A 16:26:58 UTC TLS-verified read-only REST healthcheck classification still reports the canary category `segmentation_fault`; production reports `good` with its healthy field true. RouterOS omitted lifecycle/running fields and the canary healthy field in that response. It did not query image references, running digests, readiness, or sessions. The separate 15:45:38 UTC post-publication configuration read found the canary on old PR #894 and production tag-only, without verifying running digests. Earlier direct canary `/healthz` and `/readyz` probes returned HTTP 200 and ready at the old PR #894 revision, before publication. PR #971 remains unstaged. Production deployment is not claimed.
+
+## Latest canary healthcheck point read — 2026-11-13 16:26:58 UTC
+
+A TLS-verified, read-only RouterOS REST classification still reported the
+canary healthcheck category `segmentation_fault`, with no per-container
+command and the previously reviewed legacy default-check shape. Production's
+healthcheck category was `good`, its healthy field was true, and its default
+command did not match that legacy shape. RouterOS omitted the container
+status/running fields and the canary healthy field; restart count was 0 for
+both. This read did not request image references, running digests, readiness,
+or VPN sessions. It does not identify the failing executable or root cause,
+clear the canary gate, or verify candidate acceptance. No RouterOS state
+changed.
 
 ## Latest published candidate and RouterOS read-back — 2026-11-13 14:28–15:45 UTC
 

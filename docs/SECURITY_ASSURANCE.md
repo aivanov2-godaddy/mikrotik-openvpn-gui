@@ -6,7 +6,7 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
-## Current candidate and deployed-state checkpoint — 2026-11-13 15:45 UTC
+## Current candidate and deployed-state checkpoint — 2026-11-13 16:26 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Post-merge main CI
@@ -16,19 +16,29 @@ digests, SLSA provenance, and SPDX SBOM attestations; immutable tags and
 digests are recorded in [RELEASES.md](RELEASES.md). This publication is not
 deployment or candidate-bound acceptance.
 
-The latest RouterOS read is a TLS-verified read-only REST healthcheck and
-configuration query at 15:45:38 UTC, after publication. It found the canary
-still configured at old PR #894 revision
+PR #973 later merged documentation-only at
+`ff3e6904d72fb8a7f5f0258c432d90d63cad9ce6`; post-merge main CI #43460554370
+and CodeQL #43460553975 passed.
+
+A TLS-verified read-only REST healthcheck classification at 16:26:58 UTC still
+reported the canary as `segmentation_fault`. The custom command was absent and
+the default command matched the previously reviewed legacy shape. Production's
+healthcheck was `good` with its healthy field true. RouterOS omitted lifecycle
+and running fields and the canary healthy field; restart count was zero for
+both containers. This classification did not query image references, running
+digests, readiness, or sessions. The latest full configuration read remains
+15:45:38 UTC; it found the canary still configured at old PR #894 revision
 `84a3148de713abe49be0c7be8f21caa652b68dd9`, digest-pinned but unhealthy, with
 failed, `resource_unavailable`, `segmentation_fault`, and timeout categories.
 Production remained at old revision `8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7`
-with a tag-only reference and health category `good`. This read did not verify
-either running image digest. The last runtime manifest identity reconciliation
-remains the 14:28:43 UTC pre-publication Binary API read, compared against
-PR #965 only. Direct canary probes at 14:37:16 UTC returned HTTP 200 and
-readiness `ready` at old PR #894; they also predate publication. No staging or
-deployment is verified. The faulting process and root cause remain unknown,
-and the live candidate security review and owner risk decision remain open.
+with a tag-only reference and reported running with health category `good`.
+Neither RouterOS read verified a running image digest. The last runtime
+manifest identity reconciliation remains the 14:28:43 UTC pre-publication
+Binary API read, compared against PR #965 only. Direct canary probes at
+14:37:16 UTC returned HTTP 200 and readiness `ready` at old PR #894; they also
+predate publication. No staging or deployment is verified. The faulting
+process and root cause remain unknown, and the live candidate security review
+and owner risk decision remain open.
 
 ## Previous candidate and deployed-state checkpoint — 2026-11-13 11:29 UTC
 
