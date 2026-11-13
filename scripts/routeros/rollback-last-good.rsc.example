@@ -1,13 +1,31 @@
 # Router-local manual rollback helper for MikroTik OpenVPN GUI.
-# Run only after reviewing the private updater journal.
+# Review the journal, target, and this file before every production rollback.
+# This helper is manual only; do not attach it to a scheduler.
 
-:local productionContainer "vpn-dashboard"
+:local productionContainer "vpn-dashboard-production"
 :local stateFile "disk1/vpn-dashboard/routeros-update-state.txt"
 :local imagePrefix "ghcr.io/CHANGE-ME/mikrotik-openvpn-gui:sha-"
 :local productionReadyUrl "http://192.168.251.2:8080/readyz"
 :local pollAttempts 6
 :local pollDelay 10s
 
+# Use the single RouterOS script object with this exact name. This prevents a
+# second copy under a different name from bypassing the job-count guard.
+:local rollbackScriptName "vpn-gui-manual-rollback"
+:local rollbackScriptIds [/system/script/find where name=$rollbackScriptName]
+:if ([:len $rollbackScriptIds] != 1) do={ :error "exactly one named manual rollback script is required" }
+:if ([:jobname] != $rollbackScriptName) do={ :error "run this helper only as vpn-gui-manual-rollback" }
+:local activeRollbackRuns [/system script job print count-only as-value where script=$rollbackScriptName]
+:if ($activeRollbackRuns > 1) do={
+    :log warning "vpn-gui rollback: another helper run is active; stopping"
+    :error "vpn-gui rollback instance already running"
+}
+
+:local canonicalImage do={
+    :local value $1
+    :if ([:pick $value 0 9] = "ghcr.io/") do={ :return $value }
+    :return ("ghcr.io/" . $value)
+}
 :local stateLine do={
     :local contents $1
     :local key $2
@@ -18,42 +36,134 @@
     :if ($ending = nil) do={ :return [:pick $contents $start [:len $contents]] }
     :return [:pick $contents $start $ending]
 }
+:local imageRevision do={
+    :local value $1
+    :local prefix $2
+    :local prefixLength [:len $prefix]
+    :local revisionEnd ($prefixLength + 40)
+    :local architectureEnd ($revisionEnd + 6)
+    :local digestMarker "@sha256:"
+    :local digestStart ($architectureEnd + [:len $digestMarker])
+    :if (([:len $value] != ($digestStart + 64)) || ([:pick $value 0 $prefixLength] != $prefix) || ([:pick $value $revisionEnd $architectureEnd] != "-arm64") || ([:pick $value $architectureEnd $digestStart] != $digestMarker)) do={
+        :return ""
+    }
+    :local hex "0123456789abcdef"
+    :for revisionIndex from=$prefixLength to=($revisionEnd - 1) do={
+        :if ([:find $hex [:pick $value $revisionIndex ($revisionIndex + 1)]] = nil) do={ :return "" }
+    }
+    :for digestIndex from=$digestStart to=([:len $value] - 1) do={
+        :if ([:find $hex [:pick $value $digestIndex ($digestIndex + 1)]] = nil) do={ :return "" }
+    }
+    :return [:pick $value $prefixLength $revisionEnd]
+}
+:local readinessTransport do={
+    :local endpoint $1
+    :if (([:len $endpoint] <= 7) || ([:pick $endpoint 0 7] != "http://")) do={
+        :error "rollback readiness must use private router-local HTTP"
+    }
+    :local requiredSuffix ":8080/readyz"
+    :local suffixStart [:find $endpoint $requiredSuffix]
+    :if (($suffixStart = nil) || (($suffixStart + [:len $requiredSuffix]) != [:len $endpoint])) do={
+        :error "rollback readiness must use port 8080 and exact /readyz path"
+    }
+    :local host [:pick $endpoint 7 $suffixStart]
+    :local privatePrefix false
+    :foreach prefix in={"10.";"192.168.";"172.16.";"172.17.";"172.18.";"172.19.";"172.20.";"172.21.";"172.22.";"172.23.";"172.24.";"172.25.";"172.26.";"172.27.";"172.28.";"172.29.";"172.30.";"172.31."} do={
+        :if ([:pick $host 0 [:len $prefix]] = $prefix) do={ :set privatePrefix true }
+    }
+    :if (!$privatePrefix) do={ :error "rollback readiness must use a private RFC1918 IPv4 address" }
+    :local parsedIp ""
+    :do { :set parsedIp [:toip $host] } on-error={ :error "rollback readiness host is malformed" }
+    :if (([:typeof $parsedIp] != "ip") || ([:tostr $parsedIp] != $host)) do={
+        :error "rollback readiness host is malformed"
+    }
+    :return "http"
+}
 
-:local state [/file/get [find where name=$stateFile] contents]
+:local stateId [/file/find where name=$stateFile]
+:if ([:len $stateId] != 1) do={ :error "exactly one release journal is required" }
+:local state [/file/get $stateId contents]
 :local image [$stateLine $state "last-good-image="]
+:local restoreImage [$stateLine $state "previous-good-image="]
 :local prefixLength [:len $imagePrefix]
-:local architectureEnd ($prefixLength + 46)
-:local digestMarker "@sha256:"
-:local digestStart ($architectureEnd + [:len $digestMarker])
-:local expectedLength ($digestStart + 64)
-:if (([:len $image] != $expectedLength) || ([:pick $image 0 $prefixLength] != $imagePrefix) || ([:pick $image ($prefixLength + 40) $architectureEnd] != "-arm64") || ([:pick $image $architectureEnd $digestStart] != $digestMarker)) do={
-    :error "local journal does not contain a valid immutable ARM64 image"
-}
-:local digest [:pick $image $digestStart $expectedLength]
-:for digestIndex from=0 to=63 do={
-    :local digit [:pick $digest $digestIndex ($digestIndex + 1)]
-    :if ([:find "0123456789abcdef" $digit] = nil) do={ :error "local journal image digest is malformed" }
-}
+:local expectedRevision [$imageRevision $image $imagePrefix]
+:if ($expectedRevision = "") do={ :error "journal current image is not a valid immutable ARM64 reference" }
+:local restoreRevision [$imageRevision $restoreImage $imagePrefix]
+:if ($restoreRevision = "") do={ :error "journal has no valid previous immutable ARM64 image" }
+:if ($restoreImage = $image) do={ :error "previous image equals current journal image; no rollback target exists" }
+:local journalRevision [$stateLine $state "commit="]
+:if ($journalRevision != $expectedRevision) do={ :error "journal commit does not match its current immutable image" }
 
 :local productionId [/container/find where name=$productionContainer]
 :if ([:len $productionId] != 1) do={ :error "exactly one production container is required" }
+:local productionInterface [/container/get $productionId interface]
+:if ([:len $productionInterface] = 0) do={ :error "production container has no assigned VETH interface" }
+:local productionVethId [/interface/veth/find where name=$productionInterface]
+:if ([:len $productionVethId] != 1) do={ :error "production container VETH interface is missing or ambiguous" }
+:local productionVethAddress [/interface/veth/get $productionVethId address]
+:if ([:find $productionVethAddress ","] != nil) do={ :error "production VETH has multiple addresses; configure one exact IPv4 readiness target" }
+:local addressSlash [:find $productionVethAddress "/"]
+:if ($addressSlash = nil) do={ :error "production VETH has no configured IPv4 prefix" }
+:local productionVethIp [:pick $productionVethAddress 0 $addressSlash]
+:local expectedReadyUrl ("http://" . $productionVethIp . ":8080/readyz")
+:if ($productionReadyUrl != $expectedReadyUrl) do={ :error "readiness URL does not match the production container VETH address" }
+:local readyMode [$readinessTransport $productionReadyUrl]
 :local current [/container/get $productionId remote-image]
-:if ($current = $image) do={ :log info ("vpn-gui rollback: production already uses " . $image); :error "rollback is a no-op" }
+:local currentCanonical [$canonicalImage $current]
+:if ($currentCanonical != $image) do={ :error "live production image does not match the current journal image; operator review required" }
 
-:log warning ("vpn-gui rollback: restoring " . $image)
-/container/stop $productionId
-/container/set $productionId remote-image=$image
-/container/update $productionId
-/container/start $productionId
+:global vpnGuiRollbackAuthorization
+:local requiredAuthorization ("ROLLBACK " . $image . " TO " . $restoreImage)
+:if ($vpnGuiRollbackAuthorization != $requiredAuthorization) do={
+    :error "one-time operator authorization must exactly name the current and previous immutable images"
+}
+
+# Consume the exact approval immediately before the first RouterOS mutation.
+:set vpnGuiRollbackAuthorization ""
+:log warning "vpn-gui rollback: restoring the reviewed previous production image"
+:local registryImage [:pick $restoreImage 9 [:len $restoreImage]]
+:local stepFailed false
+:do { /container/stop $productionId } on-error={ :set stepFailed true }
+:if ($stepFailed) do={ :log error "vpn-gui rollback failed at stop; inspect production before recovery"; :error "rollback stop failed; operator action required" }
+:set stepFailed false
+:do { /container/set $productionId remote-image=$registryImage } on-error={ :set stepFailed true }
+:if ($stepFailed) do={ :log error "vpn-gui rollback failed at image-set; production may be stopped"; :error "rollback image set failed; operator action required" }
+:set stepFailed false
+:do { /container/update $productionId } on-error={ :set stepFailed true }
+:if ($stepFailed) do={ :log error "vpn-gui rollback failed at update; production may be stopped"; :error "rollback update failed; operator action required" }
+:set stepFailed false
+:do { /container/start $productionId } on-error={ :set stepFailed true }
+:if ($stepFailed) do={ :log error "vpn-gui rollback failed at start; inspect production before recovery"; :error "rollback start failed; operator action required" }
+
+:local restoredImage ""
+:local imageReadFailed false
+:do {
+    :set restoredImage [/container/get $productionId remote-image]
+} on-error={ :set imageReadFailed true }
+:if ($imageReadFailed) do={ :error "rollback image read-back failed; operator action required" }
+:local restoredCanonical [$canonicalImage $restoredImage]
+:if ($restoredCanonical != $restoreImage) do={ :error "rollback image read-back did not match the approved target; operator action required" }
 
 :local healthy false
+:local expectedRevisionText ("\"revision\":\"" . $restoreRevision . "\"")
 :for attempt from=1 to=$pollAttempts do={
     :delay $pollDelay
     :do {
-        :local result [/tool/fetch url=$productionReadyUrl mode=http output=user as-value]
-        :if ((($result->"status") = "finished") && (($result->"code") = 200) && ([:find ($result->"data") "\"status\":\"ready\""] != nil)) do={ :set healthy true }
+        :local result [/tool/fetch url=$productionReadyUrl mode=$readyMode output=user as-value]
+        :local body ($result->"data")
+        :local readyText "\"status\":\"ready\""
+        :if ((($result->"status") = "finished") && (($result->"code") = 200) && ([:typeof $body] = "str") && ([:find $body $readyText] != nil) && ([:find $body $expectedRevisionText] != nil)) do={
+            :set healthy true
+        }
     } on-error={ :log warning ("vpn-gui rollback: readiness attempt " . $attempt . " failed") }
     :if ($healthy) do={ :break }
 }
-:if (!$healthy) do={ :error "rollback image started but did not pass readiness" }
-:log info "vpn-gui rollback: completed; persistent data was not modified"
+:if (!$healthy) do={ :error "rollback image or expected readiness revision was not verified; operator action required" }
+:local updatedAt ([/system/clock/get date] . " " . [/system/clock/get time])
+:local updatedState ("last-good-image=" . $restoreImage . "\ncommit=" . $restoreRevision . "\nrollback-of=" . $image . "\nupdated-at=" . $updatedAt)
+:local journalWriteFailed false
+:do { /file/set $stateId contents=$updatedState } on-error={ :set journalWriteFailed true }
+:if ($journalWriteFailed) do={ :log error "vpn-gui rollback restored readiness but could not update the release journal"; :error "rollback journal update failed; operator action required" }
+:local journalReadback [/file/get $stateId contents]
+:if ($journalReadback != $updatedState) do={ :error "rollback release journal read-back mismatch; operator action required" }
+:log info "vpn-gui rollback: configured image and ready revision verified; persistent data was not restored or removed"

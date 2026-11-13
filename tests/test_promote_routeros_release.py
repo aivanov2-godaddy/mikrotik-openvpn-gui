@@ -40,6 +40,11 @@ class FakeRouterOS:
         }
         self.calls: list[tuple[str, str, object]] = []
 
+    def request(self, method: str, path: str, body: dict[str, object] | None = None) -> object:
+        if method == "POST" and path == "/file/print":
+            return []
+        raise AssertionError(f"unexpected metadata REST operation: {method} {path}")
+
     def containers(self) -> list[dict[str, str]]:
         return [dict(record) for record in self.records.values()]
 
@@ -281,6 +286,26 @@ class PromotionTests(unittest.TestCase):
             (PRIOR_IMAGE + "@" + PRIOR_DIGEST, "a" * 40),
         )
 
+    def test_failed_promotion_does_not_carry_a_stale_previous_rollback_target(self) -> None:
+        router = FakeRouterOS()
+        with (
+            patch("scripts.promote_routeros_release.evaluate", return_value=(0, deepcopy(REPORT))),
+            patch("scripts.promote_routeros_release._verify_staged_record"),
+            patch(
+                "scripts.promote_routeros_release._read_state_image",
+                side_effect=[CANDIDATE_IMAGE, PRIOR_IMAGE + "@" + PRIOR_DIGEST],
+            ),
+            patch(
+                "scripts.promote_routeros_release._write_last_good",
+                side_effect=[DeploymentError("journal verification failed"), None],
+            ) as write_last_good,
+            patch("scripts.promote_routeros_release._write_quarantine"),
+        ):
+            with self.assertRaisesRegex(DeploymentError, "prior production image was restored"):
+                promote({}, settings(), client=router, ready_probe=lambda *_: True, clock=lambda: NOW)
+
+        self.assertIsNone(write_last_good.call_args_list[-1].kwargs["previous_image"])
+
     def test_plain_http_readiness_is_private_ipv4_only(self) -> None:
         _safe_ready_url("http://10.20.30.40:8080/readyz")
         for url in (
@@ -294,10 +319,18 @@ class PromotionTests(unittest.TestCase):
 
     def test_last_good_and_failure_journal_are_written_only_to_named_metadata_files(self) -> None:
         router = FakeRouterFiles()
-        _write_last_good(router, "disk1/vpn-dashboard/routeros-update-state.txt", CANDIDATE_IMAGE, "b" * 40, NOW)
+        _write_last_good(
+            router,
+            "disk1/vpn-dashboard/routeros-update-state.txt",
+            CANDIDATE_IMAGE,
+            "b" * 40,
+            NOW,
+            previous_image=PRIOR_IMAGE + "@" + PRIOR_DIGEST,
+        )
         _write_quarantine(router, "disk1/vpn-dashboard/routeros-update-state.txt.failed", CANDIDATE_IMAGE, NOW)
 
         self.assertIn(f"last-good-image={CANDIDATE_IMAGE}", router.files["*1"]["contents"])
+        self.assertIn(f"previous-good-image={PRIOR_IMAGE}@{PRIOR_DIGEST}", router.files["*1"]["contents"])
         self.assertIn(f"failed-image={CANDIDATE_IMAGE}", router.files["*2"]["contents"])
         self.assertIn("failure-count=3", router.files["*2"]["contents"])
 

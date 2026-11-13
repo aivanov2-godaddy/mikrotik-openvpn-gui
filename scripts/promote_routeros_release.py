@@ -137,7 +137,7 @@ def _records(client: RouterOSRest, canary_name: str, production_name: str) -> tu
     return canary, production
 
 
-def _file_record(client: RouterOSRest, file_name: str) -> dict[str, Any]:
+def _optional_file_record(client: RouterOSRest, file_name: str) -> dict[str, Any] | None:
     result = client.request(
         "POST",
         "/file/print",
@@ -150,9 +150,16 @@ def _file_record(client: RouterOSRest, file_name: str) -> dict[str, Any]:
         record for record in records
         if isinstance(record, dict) and record.get("name") == file_name and record.get(".id")
     ]
-    if len(matches) != 1:
-        raise DeploymentError("required router-local release metadata file is missing or ambiguous")
-    return matches[0]
+    if len(matches) > 1:
+        raise DeploymentError("router-local release metadata file is ambiguous")
+    return matches[0] if matches else None
+
+
+def _file_record(client: RouterOSRest, file_name: str) -> dict[str, Any]:
+    record = _optional_file_record(client, file_name)
+    if record is None:
+        raise DeploymentError("required router-local release metadata file is missing")
+    return record
 
 
 def _validate_file_path(file_name: str) -> None:
@@ -179,6 +186,20 @@ def _read_router_text_file(client: RouterOSRest, file_name: str) -> str:
     if not isinstance(contents, str) or not contents or len(contents) > 4096:
         raise DeploymentError("router-local release metadata file is invalid")
     return contents
+
+
+def _read_state_image(client: RouterOSRest, file_name: str, key: str) -> str | None:
+    if _optional_file_record(client, file_name) is None:
+        return None
+    fields = _key_value_file(_read_router_text_file(client, file_name))
+    image = fields.get(key)
+    if image is None:
+        return None
+    try:
+        parse_project_image(image, require_digest=True, architecture="arm64")
+    except ValueError as error:
+        raise DeploymentError(f"router-local {key} image is invalid") from error
+    return image
 
 
 def _key_value_file(contents: str) -> dict[str, str]:
@@ -228,11 +249,26 @@ def _write_router_text_file(client: RouterOSRest, file_name: str, contents: str)
         raise DeploymentError("RouterOS did not persist the release metadata record")
 
 
-def _write_last_good(client: RouterOSRest, file_name: str, image: str, revision: str, updated_at: datetime) -> None:
+def _write_last_good(
+    client: RouterOSRest,
+    file_name: str,
+    image: str,
+    revision: str,
+    updated_at: datetime,
+    *,
+    previous_image: str | None = None,
+) -> None:
     if updated_at.tzinfo is None or updated_at.utcoffset() is None:
         raise DeploymentError("promotion timestamp must include a timezone")
-    contents = (
-        f"last-good-image={image}\n"
+    if previous_image is not None:
+        try:
+            parse_project_image(previous_image, require_digest=True, architecture="arm64")
+        except ValueError as error:
+            raise DeploymentError("previous production image is invalid") from error
+    contents = f"last-good-image={image}\n"
+    if previous_image is not None:
+        contents += f"previous-good-image={previous_image}\n"
+    contents += (
         f"commit={revision}\n"
         f"updated-at={updated_at.astimezone(timezone.utc).isoformat()}\n"
     )
@@ -382,6 +418,13 @@ def promote(
     _verify_staged_record(client, settings.pending_file, candidate_image, prior_image, candidate_revision)
     if check_only:
         return candidate_revision
+    last_good_image = _read_state_image(client, settings.state_file, "last-good-image")
+    previous_good_image = _read_state_image(client, settings.state_file, "previous-good-image")
+    if last_good_image != restore_image:
+        # The journal may predate a manual emergency rollback. Do not carry an
+        # older rollback pointer forward when that journal no longer describes
+        # the live image accepted as this promotion's rollback target.
+        previous_good_image = None
 
     try:
         deploy(
@@ -403,7 +446,14 @@ def promote(
             sleep(min(5.0, settings.poll_seconds or 1.0))
         if not ready:
             raise DeploymentError("promoted production revision did not become ready")
-        _write_last_good(client, settings.state_file, candidate_image, candidate_revision, clock())
+        _write_last_good(
+            client,
+            settings.state_file,
+            candidate_image,
+            candidate_revision,
+            clock(),
+            previous_image=restore_image,
+        )
     except Exception as error:
         rollback_settings = DeploymentSettings(
             rest_url=settings.rest_url,
@@ -422,7 +472,14 @@ def promote(
         except Exception as rollback_error:
             raise DeploymentError("promotion failed and prior production readiness could not be restored; operator action required") from rollback_error
         try:
-            _write_last_good(client, settings.state_file, restore_image, prior_revision, clock())
+            _write_last_good(
+                client,
+                settings.state_file,
+                restore_image,
+                prior_revision,
+                clock(),
+                previous_image=previous_good_image,
+            )
         except Exception as state_error:
             raise DeploymentError("prior production was restored but last-good state could not be reset; operator action required") from state_error
         try:

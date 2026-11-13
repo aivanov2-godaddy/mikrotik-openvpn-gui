@@ -1,61 +1,124 @@
-# Rollback runbook
+# RouterOS rollback runbook
 
-Read this runbook before the first GHCR promotion. A rollback is successful only when the previous UI, RouterOS integration, data, and public access path are all healthy.
+This runbook covers the current single-router layout: an isolated canary and
+one production container named **vpn-dashboard-production**. The canary is the
+acceptance environment; normal production promotions occur only through the
+reviewed release controller after the required acceptance gates pass. The
+operator-reviewed emergency rollback below is a separate recovery path. There
+is no blue/green production pair.
+
+A production image rollback interrupts dashboard access while RouterOS stops,
+updates, and starts its production container. The helper does not alter
+OpenVPN configuration or client tunnels, and it does not restore or delete
+the SQLite volume. Starting an older application image may still write
+application events or schema changes to that volume; an image rollback does
+not reverse those writes or migrations.
 
 ## Roll back when
 
-- the new container restarts, fails health checks, or cannot verify RouterOS TLS;
-- administrator login, CSRF protection, user/session reads, profile generation, or downloads regress;
+- the candidate repeatedly fails readiness or loses its exact revision;
+- login, CSRF protection, role enforcement, session reads, profile generation,
+  or downloads regress;
+- telemetry privacy, freshness, event ordering, reconnect, or fallback checks
+  fail;
 - unexpected RouterOS changes occur;
-- CPU, memory, storage, or request latency exceeds the approved threshold;
-- the proxy, redirect, Cloudflare Access, or origin restriction behaves differently;
-- audit or database errors appear.
+- resource use, request latency, audit, or database behavior crosses an
+  approved threshold;
+- the proxy, redirect, access policy, or public TLS path behaves differently.
 
-## Fast application rollback
+Stop further promotion activity and keep the current configured image reference
+and incident evidence private. Do not execute an installed RouterOS updater as
+an improvised rollback path.
 
-For the normal immutable deployment path, the fastest safe option is the
-reviewed router-local helper `scripts/routeros/rollback-last-good.rsc.example`.
-It reads only the last-known-good full SHA from the private update journal,
-restores that image, and waits for readiness. It does not restore or overwrite
-the SQLite volume. Use it after confirming the journal entry and keep the
-manual steps below as the recovery fallback.
+## Operator-reviewed last-good rollback
 
-The helper validates the architecture-specific digest-pinned image reference
-written by the promotion workflow, including its `@sha256:` marker and
-lowercase 64-character digest. `tests/test_release_contract.py` checks this
-format contract; an actual RouterOS rollback rehearsal is still required before
-claiming runtime rollback acceptance.
+The manual helper is a production-changing emergency path, not a one-click
+operation or scheduled task. Journals written before the
+`previous-good-image` field was added cannot drive this helper. It intentionally
+refuses to infer a target from a mutable tag, opaque RouterOS `image-id`, or a
+registry lookup that does not prove what is running. The helper becomes usable
+only after a reviewed promotion has written both immutable journal entries.
+Until then, do not use this helper or seed its journal by guessing. Use it only
+after reviewing the private journal,
+confirming the fixed production target, planning the dashboard interruption,
+and confirming that the required encrypted data backup is available. RouterOS
+configuration and OpenVPN data remain the source of truth.
 
-1. Stop new write activity and announce the maintenance state through the private operator channel.
-2. Start the retained blue container against its separate, frozen data directory and require its private `/readyz` before changing traffic.
-3. Point the HTTPS reverse proxy and HTTP redirect NAT target back to blue, preserving every other field and rule position.
-4. Verify private `/readyz`, then public TLS/Access/login and read-only RouterOS views.
-5. Set blue `start-on-boot=yes`, set green `start-on-boot=no`, and stop green only after traffic is confirmed on blue.
-6. Confirm that no canary or failed container remains publicly reachable.
-7. Preserve logs and record the failed image digest without copying secrets into GitHub.
+1. Verify there is exactly one **vpn-dashboard-production** container and that
+   the private journal has both the current `last-good-image` and intended
+   `previous-good-image` as full ARM64 references with SHA-256 digests. Confirm
+   the live configured production image matches `last-good-image`. The helper
+   refuses missing, equal, mismatched, or malformed targets. Do not substitute
+   a tag or guess an image.
+2. Review the helper's package prefix and readiness address against the
+   production container's assigned VETH. The helper derives that VETH's
+   configured IPv4 address and refuses a readiness URL that does not match its
+   exact `http://<VETH-IPv4>:8080/readyz` value; it also validates the address
+   as RFC1918. Keep those values private; never commit router addresses or
+   local journal contents.
+3. Save the helper as the single RouterOS system script named
+   **vpn-gui-manual-rollback** and review it with the planned maintenance
+   window. The helper requires exactly one script object with that name and
+   rejects execution from another script or terminal context. In the RouterOS
+   terminal, set the global
+   `vpnGuiRollbackAuthorization` to the exact text
+   `ROLLBACK <current-image> TO <previous-image>`, copying both complete
+   digest-pinned references from the reviewed journal. Run the named script
+   manually immediately. It checks for overlapping jobs, compares the exact
+   image pair, and clears the authorization marker immediately before the
+   first container write. Never schedule the helper or run it concurrently
+   with another release operation.
+4. The helper stops only the fixed production container, sets
+   `previous-good-image` in RouterOS's registry-relative form, updates and
+   starts it, then checks the configured `remote-image` read-back and `/readyz`
+   source revision against that previous image. It records the restored image
+   as current and removes the previous rollback target from the journal after
+   readiness succeeds. It does not change mounts, environment lists, **/config**,
+   VPN objects, firewall, proxy, or certificates.
+5. RouterOS command errors can leave production stopped or partially changed;
+   the helper reports the failed lifecycle step but cannot guarantee atomic
+   recovery. If a lifecycle command, image read-back, journal write, or
+   readiness check fails, treat the result as operator-action-required. Inspect
+   the actual container and journal before using the reviewed recovery
+   procedure. Do not rerun blindly. A successful app start may write to **/data**
+   as described above; the helper does not restore or delete application data.
+6. Verify production lifecycle health, **/healthz**, **/readyz**, the public
+   access path, login, and read-only RouterOS views. Confirm the response
+   revision matches the journal's full source commit. The next successful
+   reviewed promotion will create a new previous rollback target.
 
-The old container record, root directory, image reference, network settings, mounts, and environment list must remain intact until this step is no longer needed.
+The helper proves the configured immutable image reference and an application
+readiness response for the expected source revision. Those checks do not prove
+the running OCI manifest digest or RouterOS's healthcheck state. Do not treat a
+configured reference, opaque **image-id**, or app revision as running-digest
+proof. Record a deployment as accepted only after the separate candidate-bound
+digest, canary, and production health gates pass.
 
-## Database decision
+## Data and RouterOS decisions
 
-Do not restore a database merely because the application image was rolled back.
-
-- A fast rollback uses blue's frozen, separate data directory. It is deterministic but does not include dashboard-only metadata written during the green window.
-- If the green release changed RouterOS state, reconcile those RouterOS-side actions explicitly; RouterOS remains the source of truth.
-- Restore the immutable pre-deployment checkpoint only when blue's frozen directory is unavailable or damaged, and only while every container that could reference it is stopped.
-- Never let old and new containers write the same SQLite file concurrently.
-
-After a restore, verify file ownership/permissions and check that the audit log reflects the last expected event.
+- Do not restore SQLite just because the application image was rolled back.
+- Keep **/data** single-writer. Never attach canary and production to one
+  database file or let two application versions write it concurrently.
+- Reconcile any RouterOS-side action explicitly; RouterOS remains authoritative.
+- Restore a pre-deployment data checkpoint only when the existing data is
+  damaged or unavailable and every container that could reference it is
+  stopped. Follow the separate tested backup/restore procedure.
+- Preserve the old image reference, mounts, environment lists, VETH interfaces,
+  proxy rules, firewall, and configuration until recovery is verified.
 
 ## Registry failure
 
-If GHCR is unavailable, use the already extracted previous container rather than changing to an unverified image. If the previous image has been removed, repull its recorded immutable digest after restoring the appropriate registry configuration and package-read credential.
+If GHCR is unavailable, do not switch to **latest**, **edge**, or another
+mutable tag. Use only an already available image whose exact digest and source
+revision are verified. If the journal or immutable image cannot be verified,
+stop and preserve the current state for operator recovery.
 
 ## Completion criteria
 
-- previous known-good image and data are active;
-- private and public health paths pass;
-- RouterOS login and read-only data work;
-- no unintended listener or proxy target remains;
-- incident evidence is retained privately;
-- the failed release is blocked from promotion until its cause and a regression test are documented.
+- production reports the intended configured immutable image reference and
+  expected readiness source revision;
+- RouterOS lifecycle health and private and public health paths pass;
+- login, read-only RouterOS views, and required telemetry behavior work;
+- no unintended listener, proxy target, extra container, or writer remains;
+- incident evidence is retained privately and the failed image is blocked from
+  promotion until its cause and regression coverage are documented.

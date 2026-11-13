@@ -461,16 +461,49 @@ Perform this once during a maintenance window:
 - Keep the previous known-good image and an encrypted data checkpoint through
   the observation window.
 
-### Manual one-click rollback
+### Manual operator-reviewed production rollback
 
-The updater writes the last successful immutable image to the router-only
-`routeros-update-state.txt` journal. If a promotion later needs to be undone,
-copy `scripts/routeros/rollback-last-good.rsc.example` to the router, replace
-only its public package prefix and private readiness address, review it, and
-run it from the RouterOS terminal. It validates the full SHA-tagged ARM64
-image, changes only the production container, and requires a healthy `/readyz`
-response before reporting success. Mounts, environment lists, certificates,
-RouterOS configuration, and `/data` are never changed.
+The promotion controller writes the last-good immutable image to the
+router-only `routeros-update-state.txt` journal. The helper
+`scripts/routeros/rollback-last-good.rsc.example` is a production-changing
+emergency path. It is not a one-click action and must never be attached to a
+scheduler.
+
+Before a manual run, verify that the journal names both the current and
+previous full ARM64 SHA-256 images, the live configured production image
+matches the current entry, exactly one `vpn-dashboard-production` container
+exists, and a maintenance window and encrypted data backup are in place.
+Review the package prefix, readiness origin, and full script. The helper reads
+the production container's assigned VETH address, requires the configured
+origin to match its exact private `http://<VETH-IPv4>:8080/readyz` URL, and
+rejects non-RFC1918, DNS, query, or alternate-port targets. Save exactly one
+RouterOS system script named `vpn-gui-manual-rollback`; the helper checks that
+unique name and rejects execution through another copy or terminal context.
+Its active-job check prevents overlapping runs. In the RouterOS terminal, set
+the global `vpnGuiRollbackAuthorization` to the
+exact text `ROLLBACK <current-image> TO <previous-image>`, using both full
+references from the journal. The helper checks and clears this one-use
+authorization immediately before its first container write.
+
+The helper refuses old-format journals that lack `previous-good-image`. A
+reviewed promotion must write the current and previous immutable references
+before this emergency path is available. Do not seed the missing field from a
+mutable tag, opaque RouterOS `image-id`, or a registry lookup that does not
+prove the running image.
+
+The helper requires the current configured image to match `last-good-image`,
+then restores only `previous-good-image`. It uses RouterOS's registry-relative
+image form, verifies the `remote-image` read-back and `/readyz` revision, and
+updates the private journal only after readiness succeeds. The restored image
+becomes current and the previous rollback target is cleared. It does not
+change mounts, environment lists, `/config`, VPN objects, firewall, proxy, or
+certificates. It does not restore or delete `/data`; older application startup
+may write database events or schema changes that an image rollback cannot
+reverse. A RouterOS command error may leave production stopped or partially
+changed. If a command, read-back, journal update, or readiness check fails,
+inspect the actual router state before recovery and do not rerun blindly.
+These checks do not establish RouterOS healthcheck success or the running OCI
+manifest digest.
 
 For manual recovery and the compatibility update path, see
 [DEPLOYMENT.md](DEPLOYMENT.md) and [ROLLBACK.md](ROLLBACK.md).
