@@ -11,7 +11,26 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — 2026-11-13 12:21 UTC.** GitHub `main` is at
+**Fresh read-only checkpoint — 2026-11-13 13:36 UTC; GitHub verified through
+13:47 UTC.** `main` is at
+`d8a297952933e5d70944871238458b14c21544d5` after documentation PR #969. Its
+required checks passed. Post-merge CI #43435515202 passed at 13:47 UTC, and
+CodeQL #43435515201 passed. PR #965 remains the latest published
+image; PR #969 did not publish or deploy.
+
+A fresh read-only WinBox view at about 13:36 UTC showed RouterOS 7.25.1, the
+canary unhealthy on the older PR #894 image, and production healthy with a
+tag-only configured reference. The displayed opaque `image-id` values do not
+verify an OCI manifest digest. The unhealthy canary is not a healthy rollback
+baseline. No staging, restart, rollback, or production deployment occurred.
+
+Issue #927 is open again after its acceptance criteria were rechecked at
+13:29 UTC. #785 is closed; installed-updater reconciliation and healthy-canary
+rollback remain follow-up gates under #205. Issues #200, #927, and epic #205
+remain open. The independent #200 assessment, client-bound live checks,
+candidate soak, and owner risk decision are still outstanding.
+
+**Prior read-only checkpoint — 2026-11-13 12:21 UTC.** GitHub `main` is at
 `c880bceb97a68cf8582e069ff54e96e86359c5b6` after PR #967; PR #965 remains the
 latest published image source. A WinBox count-only OVPN query returned zero
 active sessions. The canary still reports unhealthy on the old PR #894 image;
