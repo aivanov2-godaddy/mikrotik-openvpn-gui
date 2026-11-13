@@ -22,7 +22,44 @@ Its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — RouterOS healthcheck read 2026-11-13 16:42:42 UTC; publication verified 15:05 UTC
+## Current checkpoint — PR #974 and RouterOS reads 2026-11-13 16:56–16:57 UTC
+
+PR #974 merged documentation-only to main at 17:00:50 UTC as
+`3c54ae3e414a893bf61bd3c1913c88515da525cd` after its required checks passed.
+Post-merge main CI #43468485879 and CodeQL #43468484486 both passed. PR #974
+did not publish an image. PR #971 remains the latest published candidate, and
+no candidate staging or production deployment is verified.
+
+A TLS-verified read-only REST healthcheck comparison at 16:56:12 UTC still
+classified the canary healthcheck as `segmentation_fault`. No per-container
+override was present; the default profile matched the reviewed legacy shell/
+timeout/wget readiness shape; restart count was 0. Production reported health
+`good` and `healthy=true`; its default profile did not match that legacy shape.
+The narrow healthcheck response omitted both containers' running and lifecycle
+fields. This point read does not identify the faulting executable or cause.
+
+Read-only registry identity resolution verified the old configured PR #894
+image's healthcheck profile as `shell_timeout_wget_local_readyz_v1` and the
+published PR #971 candidate's profile as `exec_wget_local_readyz_v1`. This
+confirms an image-config difference only; the RouterOS read did not verify the
+running manifest digest, and the comparison does not prove the healthcheck
+profile caused the segmentation fault.
+
+A separate TLS-verified REST configuration read at 16:57:28 UTC found the
+canary still configured to the old PR #894 digest-pinned reference and
+production still configured with a mutable tag. Lifecycle state was unknown in
+that response, and neither running registry digest was verified. The new read
+did not query active VPN sessions or direct readiness endpoints. No raw image
+reference, healthcheck text, or private address is retained here.
+
+WinBox visual inspection was unavailable in this session: its window was
+minimized and Windows computer-control capture failed with access denied. The
+router findings above come from TLS-verified REST reads only. No RouterOS
+setting, account, container, scheduler, updater, or production state changed;
+there was no staging, restart, rollback, or deployment. The canary acceptance
+gate remains blocked.
+
+## Previous checkpoint — RouterOS healthcheck read 2026-11-13 16:42:42 UTC; publication verified 15:05 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
@@ -144,6 +181,17 @@ text are not emitted. The fixed categories are diagnostic only and are not
 independently used to determine acceptance. The combined release-acceptance
 report does not carry the categories forward. A category such as `good` does
 not replace a candidate-bound healthy interval or running-digest verification.
+
+For a runtime image identity matched against its verified GHCR manifest, the
+collector also emits
+`containers[*].registry_image_config_healthcheck_profile`. This fixed-label
+value is classified from the digest-verified image config and never includes
+command text. It is `null` unless RouterOS's image ID and ordered layer
+descriptors match the registry image identity. Labels distinguish the known
+exec-form and legacy shell-form local `/readyz` profiles, an explicitly
+disabled or unrecognized check, another check, and unavailable metadata.
+This is image-config evidence only: it does not reveal a RouterOS override,
+identify which process faulted, or independently pass health or release gates.
 
 ## Previous repository checkpoint — 2026-11-13 04:41 UTC
 
