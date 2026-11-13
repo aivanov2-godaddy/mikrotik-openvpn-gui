@@ -11,8 +11,8 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — RouterOS read at 2026-11-13 14:28 UTC; GitHub
-verified through 15:05 UTC.** PR #971 merged at 14:51:24 UTC as
+**Fresh read-only checkpoint — RouterOS read at 2026-11-13 15:45 UTC; GitHub
+verified through 15:52 UTC.** PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
 It fixes the narrow RouterOS Binary API client's allowlist for runtime image
 identity reads. Post-merge CodeQL #43446742646, main CI #43446742822, and
@@ -23,24 +23,27 @@ and AMD64 image at
 `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`.
 The stable manifest asset SHA-256 is
 `344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`.
-Publication is not RouterOS acceptance. The 14:28 RouterOS point read predates
-this publication and compared running identities only with PR #965; no
-post-publication RouterOS digest read or deployment is verified.
+Publication is not RouterOS acceptance. A post-publication REST healthcheck
+read at 15:45:38 UTC still found the canary configured to the old PR #894
+revision and unhealthy. Production remained configured by a tag and reported
+running with a `good` healthcheck. This narrow REST read did not verify either
+running registry digest; the last runtime manifest identity reconciliation
+remains the 14:28 Binary API point read, which predates PR #971 publication.
+PR #971 has not been staged, and no deployment is verified.
 
-A fresh TLS-verified read-only RouterOS point read at 14:28:43 UTC reported
-RouterOS 7.25.1. Runtime manifest identity reconciliation succeeded for both
-containers, but neither running image matched PR #965, the latest candidate
-published at the time of that read. The canary was unhealthy; reported health
-categories included failed, resource unavailable, segmentation fault, and
-timeout. Production was running and its health category was good; its
-configured reference remains tag-only even though its running manifest
-identity was reconciled. Count-only active OpenVPN sessions returned zero.
-Direct canary `/healthz` and `/readyz` probes at 14:37:16 UTC returned HTTP 200
-and readiness `ready` for the old PR #894 revision. A 14:37:49 UTC
-TLS-verified healthcheck read found no per-container override and again
-classified the RouterOS default healthcheck as a segmentation fault. These
-pre-publication point observations do not identify the failing executable or
-root cause, prove a healthy rollback baseline, or accept PR #971.
+A fresh TLS-verified read-only REST healthcheck read at 15:45:38 UTC reported
+the canary lifecycle as unhealthy with categories failed,
+resource_unavailable, segmentation_fault, and timeout. Its configured image
+remains digest-pinned to revision `84a3148de713abe49be0c7be8f21caa652b68dd9`
+(PR #894), not PR #971. Production remained running at revision
+`8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7` with a tag-only reference and
+health category `good`. The REST read did not verify either running registry
+digest. The latest active-session count is still the earlier count-only read
+at 14:28 UTC, which returned zero. Direct canary `/healthz` and `/readyz`
+probes at 14:37:16 UTC returned HTTP 200 and readiness `ready` for the old
+PR #894 revision; these probes also predate publication. These point samples
+do not identify the failing process or root cause, prove a healthy rollback
+baseline, or accept PR #971.
 
 Issue #927 remains open. #785 is closed; installed-updater reconciliation and
 healthy-canary rollback remain follow-up gates under #205. Issues #188–#199 and
@@ -354,10 +357,10 @@ pass.
 | Complete | [#201](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/201), [#202](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/202), [#203](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/203) | RouterOS least-privilege diagnostics, mutation safety, SBOM/provenance and compatibility policy |
 | Closed in GitHub — implementation; device/certificate acceptance remains | [#194](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/194) | PR #676 adds explicit active-session termination before deleting a VPN user, with mocked ordering/failure tests. PR #702 adds a collapsed, read-only CRL configuration observation to Device Profiles without restoring the removed overview alert. PR #705 hardens cleanup of temporary RouterOS profile-export artifacts. PR #707 gates retirement on testing the replacement identity; PR #718 adds fail-closed checkpoint-failure coverage; PR #722 rejects stale, malformed, missing-expiry, and wrong-CA CRL snapshots. PR #730 requires both the stored RouterOS certificate ID and normalized fingerprint to match for a read-only inventory match. PR #737 adds a candidate-bound, operator-attested certificate-lifecycle evidence gate; its merge does not itself prove a successful live lifecycle test. The GitHub issue is closed, but candidate/device-backed CRL freshness, staged renewal and retirement, fresh-connect rejection, active-session behavior, read-back, and canary rollback evidence remain release gates tracked by #205. Profile recovery issues a new identity rather than re-downloading a retained private key. |
 | Complete — acceptance tooling; live gates remain | [#199](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/199) | Closed by PR #709. The bounded read-only collector and SQLite restore verifier are implemented. Candidate-matched live soak, deployment, and rollback evidence remain release gates tracked by #205 (device/certificate acceptance) and #200 (security assurance); closing this implementation issue does not claim device acceptance. |
-| Open — canary healthcheck | [#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927) | PR #926's exec-form healthcheck is present in current main and published candidate PR #971, but remains unvalidated on RouterOS. The 14:28:43 UTC Binary API lifecycle read predates PR #971 publication and found the canary unhealthy on its old PR #894 image and production running with a tag-only reference. Neither running image matched PR #965 at that time; there is no post-publication running-digest read for PR #971. Direct private probes at 14:37:16 UTC returned HTTP 200 for `/healthz` and `/readyz`, ready at old PR #894. The 14:37:49 UTC TLS-verified REST healthcheck read classified the default canary healthcheck as `segmentation_fault`. These point samples do not identify the faulting process or root cause, establish a healthy rollback baseline, or pass acceptance. PR #971's candidate remains unstaged. |
-| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #938 adds a fail-closed gate for a current independent, candidate-bound scoped ASVS review and separate owner accepted-risk evidence. A separate read-only source review of PR #935's candidate commit `3f8fc22ec3166b3074fb54f54c79d6dede256ed4` found no actionable static code findings, but it was not a formal ASVS control-mapped/external attestation and did not verify a live image digest or deployment. The owner accepted-risk evidence is absent. The latest count-only active OpenVPN read at 14:28 UTC returned zero and saved no session details, so disposable-client identity and client-dependent acceptance remain unverified. PR #971 is the latest published image and remains unstaged; no post-publication running digest is verified. The 14:28 RouterOS point read still showed an unhealthy canary and production healthy but tag-only; it does not satisfy candidate-bound telemetry, recovery, privacy, security, or rollback evidence. |
+| Open — canary healthcheck | [#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927) | PR #926's exec-form healthcheck is present in current main and published candidate PR #971, but remains unvalidated on RouterOS. A 15:45:38 UTC TLS-verified REST healthcheck read found the canary still configured to old PR #894 revision `84a3148de713abe49be0c7be8f21caa652b68dd9` and unhealthy with failed, resource_unavailable, segmentation_fault, and timeout categories. Production remained running at its old tag-only revision with health category `good`. The REST read did not verify running digests. Earlier direct probes at 14:37:16 UTC returned HTTP 200 for `/healthz` and `/readyz`, ready at old PR #894; they predate PR #971 publication. The fault and a healthy rollback baseline remain unresolved. PR #971's candidate is unstaged. |
+| Open — security assurance | [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) | PR #938 adds a fail-closed gate for a current independent, candidate-bound scoped ASVS review and separate owner accepted-risk evidence. A separate read-only source review of PR #935's candidate commit `3f8fc22ec3166b3074fb54f54c79d6dede256ed4` found no actionable static code findings, but it was not a formal ASVS control-mapped/external attestation and did not verify a live image digest or deployment. The owner accepted-risk evidence is absent. The latest count-only active OpenVPN read at 14:28 UTC returned zero; no newer count-only read or disposable-client connection is verified. PR #971 is the latest published image and remains unstaged. The 15:45 REST read found the old canary unhealthy and production running/tag-only/good; neither running digest is verified. These observations do not satisfy candidate-bound telemetry, recovery, privacy, security, or rollback evidence. |
 | Closed in GitHub by PR #962 — device follow-up remains under #205 | [#785](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/785) | GitHub closed #785 when PR #962 merged at 07:11 UTC. The PR adds an operator-reviewed production rollback helper with exact previous-good image identity, one-use authorization, single-instance execution, VETH-bound readiness, and journal read-back; it was repository-only and was not executed on RouterOS. The 05:46 UTC bounded inventory returned five scripts and three schedulers: two enabled direct name bindings, one disabled script-ID candidate, and zero opaque targets. All five source fingerprints matched the private 03:43 UTC source export, but all five lack the reviewed canary restore-verification call and none exactly match the template. The bounded marker comparison is not semantic approval; no updater was run. Installed updater source reconciliation and healthy canary rollback/acceptance remain open release gates under #205. |
-| Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Keep open until device/certificate acceptance, installed updater source reconciliation and reviewed canary rollback (follow-up from closed #785), #927 healthcheck remediation, and #200 candidate-bound acceptance, formal scoped ASVS review, and owner decision pass. A separate read-only source review of PR #935's candidate commit found no actionable static code findings, but does not meet the formal ASVS/live acceptance gate. PR #971 merged as `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`; publisher run #43446742850 verified and published immutable ARM64/AMD64 images, but this is not RouterOS acceptance. PR #971 remains unstaged; the last RouterOS point read predates publication and found the canary unhealthy and production tag-only, with no post-publication running digest verified. The 14:37:49 UTC REST healthcheck category remains `segmentation_fault`. No candidate was staged, no production deployment is verified, and multi-tenancy remains excluded. |
+| Open — tracking epic | [#205](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/205) | Keep open until device/certificate acceptance, installed updater source reconciliation and reviewed canary rollback (follow-up from closed #785), #927 healthcheck remediation, and #200 candidate-bound acceptance, formal scoped ASVS review, and owner decision pass. A separate read-only source review of PR #935's candidate commit found no actionable static code findings, but does not meet the formal ASVS/live acceptance gate. PR #971 merged as `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`; publisher run #43446742850 verified and published immutable ARM64/AMD64 images, but this is not RouterOS acceptance. The 15:45:38 UTC post-publication REST read still found the old canary revision unhealthy and production tag-only/good; the read did not verify running digests. PR #971 remains unstaged, no production deployment is verified, and multi-tenancy remains excluded. |
 
 PR #776 added a regression-tested logout ordering fix: revoke the session
 before writing the audit event. PR #778 added redacted origin-rejection
