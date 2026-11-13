@@ -678,10 +678,10 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             releases,
         )
         self.assertIn(
-            "The latest published mainline image is PR #965",
+            "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) is the latest published",
             assurance,
         )
-        self.assertIn("10:21 UTC on 2026-11-13", assurance)
+        self.assertIn("2026-11-13 10:21 UTC", assurance)
         self.assertIn(
             "PR #862 is a published artifact, not a numbered release.",
             releases,
