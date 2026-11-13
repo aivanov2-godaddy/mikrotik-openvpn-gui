@@ -1,10 +1,10 @@
 # Live telemetry acceptance status
 
-Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. Documentation PR #959 merged to main at `0b58eb52fb6a19d81455c1288ac9f9942d82057e`; post-merge CI #43360298174 and CodeQL #43360298408 passed. No publisher run followed the documentation-only merge. The published ARM64 manifest remains sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd; publication does not prove RouterOS acceptance or a running digest. Latest read-only RouterOS point checks were collected between 03:57 and 04:14 UTC on 2026-11-13.**
+Status: **PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published image source and has not been staged on RouterOS. PR #960 merged to main at `2dbd46a8c6acf4a12c12a222fd008d0334f4643a`; post-merge CI #43365671859 and CodeQL #43365671726 passed. No publisher run followed the documentation-only merge. The published ARM64 manifest remains sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd; publication does not prove RouterOS acceptance or a running digest. Latest read-only RouterOS point checks were collected between 03:57 and 04:14 UTC on 2026-11-13.**
 
 ## Current repository and RouterOS point check — 2026-11-13 03:57–04:14 UTC
 
-A fresh GitHub read confirms issues #188–#199 and #201–#204 are closed; #200, #927, #785, and epic #205 remain open. PR #959 is merged, and its post-merge CI and CodeQL both passed. The latest container-publisher run remains PR #935's successful publication.
+A fresh GitHub read confirms issues #188–#199 and #201–#204 are closed; #200, #927, #785, and epic #205 remain open. PR #960 is merged, and its post-merge CI and CodeQL both passed. The latest container-publisher run remains PR #935's successful publication; no publisher run followed #960.
 
 Fresh TLS-verified, read-only checks found the canary still configured for old PR #894 with a digest-pinned reference; Binary API reported it unhealthy. Production is running with a tag-only configured reference. Neither running registry digest was verified. The count-only active OpenVPN query returned zero and requested no session identifiers or addresses; disposable-client identity remains unknown.
 
