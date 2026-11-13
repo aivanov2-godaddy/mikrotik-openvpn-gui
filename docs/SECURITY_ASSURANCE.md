@@ -6,18 +6,24 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
-## Current candidate and deployed-state checkpoint — 2026-11-13 10:21 UTC
+## Current candidate and deployed-state checkpoint — 2026-11-13 11:11 UTC
 
-PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) is the latest published
+PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`;
+its required checks, post-merge CI #43412162052, and CodeQL #43412161625 passed.
+PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published
 mainline image; its verified architecture digests and publisher evidence are
 recorded in [RELEASES.md](RELEASES.md). It has not been staged on RouterOS. A
-10:21 UTC TLS-verified Binary API read found the canary unhealthy on the older
-PR #894 configured image, with its running registry digest unverified. The
-production container was running with a tag-only configured reference, and its
-running registry digest was unverified. A separate 10:17 UTC TLS-verified REST
-healthcheck read still classified the canary check as failed /
-segmentation_fault. These reads do not identify the failing process or root
-cause, accept the candidate, or establish a production deployment.
+11:03:50 UTC TLS-verified Binary API read found the canary unhealthy on the
+older PR #894 configured image, with its running registry digest unverified.
+Production was running with a tag-only configured reference, and its running
+registry digest was unverified. Direct private probes at 11:10:21 UTC returned
+HTTP 200 and readiness `ready` for the old PR #894 revision. A separate
+11:11:50 UTC TLS-verified REST read classified the canary healthcheck as
+`segmentation_fault`; production's healthcheck status was `good` with its
+healthy field true. A bounded PR #965 `--check-only` preflight blocked at the
+unhealthy canary baseline before RouterOS writes. These reads do not identify
+the failing process or root cause, accept the candidate, or establish a
+production deployment.
 
 Issue #200 remains open for the independent scoped ASVS review and
 candidate-bound live-session, recovery, and rollback evidence. Issue #927

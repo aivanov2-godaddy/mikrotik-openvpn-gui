@@ -670,7 +670,7 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #965 (13cae96d27ad42920ca4685116cd475eaa457408) is the latest published mainline image source",
+            "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published mainline image source",
             roadmap,
         )
         self.assertIn(
@@ -678,10 +678,15 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             releases,
         )
         self.assertIn(
-            "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) is the latest published",
+            "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published",
             assurance,
         )
-        self.assertIn("2026-11-13 10:21 UTC", assurance)
+        self.assertIn("2026-11-13 11:11 UTC", assurance)
+        self.assertIn(
+            "PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`",
+            assurance,
+        )
+        self.assertIn("A bounded PR #965 `--check-only` preflight blocked", assurance)
         self.assertIn(
             "PR #862 is a published artifact, not a numbered release.",
             releases,
