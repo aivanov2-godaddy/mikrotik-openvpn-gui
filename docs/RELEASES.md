@@ -20,11 +20,35 @@ remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned version, v2.8.0, has not been tagged or published. PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published mainline image source; publication does not change the formal version. Post-merge CodeQL #43446742646, main CI #43446742822, and publisher run #43446742850 passed. The publisher's stable manifest and immutable architecture digests are recorded below. PR #971 has not been staged on RouterOS.
 
-PR #976 merged documentation-only at
-c23abd572ebdfbb73789a606af5e1d0939def7ec at 21:47:40 UTC. Its required
-checks passed, and post-merge main CI #43513832736 and CodeQL #43513832832
+PR #977 merged documentation-only at
+`f5be30a62fb36e0401b26c275c59d4105b1d0bfe` at 22:29:55 UTC. Its required
+checks passed, and post-merge main CI #43519747932 and CodeQL #43519748282
 passed. It did not trigger the container publisher; PR #971 remains the latest
 published image source. The formal release remains v2.7.0.
+
+## Fresh RouterOS point read — 2026-11-13 22:44–22:46 UTC
+
+A TLS-verified, read-only Binary API point read at 22:44:17 UTC verified the
+running OCI manifest identities for canary and production. Neither matched the
+latest published PR #971 candidate. The canary remained unhealthy, with failed,
+resource_unavailable, segmentation_fault, and timeout healthcheck categories;
+its configured reference remained digest-pinned but did not match the
+candidate. Production remained running with a `good` healthcheck category and
+a tag-only reference; its running identity was verified but was not the
+candidate. The count-only active-session read returned zero without requesting
+session identities.
+
+A direct private HTTP probe at 22:46:15 UTC returned HTTP 200 for both health
+endpoints and readiness `ready` at the old PR #894 revision. A TLS-verified REST
+healthcheck classification at 22:46:31 UTC again categorized the healthcheck
+as segmentation_fault with a failed prefix, no per-container override, and the
+reviewed legacy default-check shape. These are point samples; they do not
+identify the failing executable or cause, establish a healthy rollback
+baseline, or meet a canary soak.
+
+No RouterOS configuration or container state changed; PR #971 was not staged,
+and no production deployment occurred. Issues #927 and #200 and epic #205
+remain open.
 
 PR #975 merged at 17:55:32 UTC as
 741740de016852a9fb5230bead0fe5c04a0ff823. It adds a fixed-label image
@@ -33,11 +57,10 @@ The PR #894 image profile is `shell_timeout_wget_local_readyz_v1`; PR #971 is
 `exec_wget_local_readyz_v1`. These are registry/config classifications, not a
 device diagnosis. PR #975 did not trigger an image publisher.
 
-The latest dedicated REST healthcheck classification is at 21:31:08 UTC on
-2026-11-13; it reported segmentation_fault with a failed prefix, no
-per-container override, and the reviewed legacy readiness-check shape. The
-later Binary API point read at 22:05:12 UTC still found the canary unhealthy
-with failed, resource_unavailable, segmentation_fault, and timeout categories.
+The previous REST healthcheck classification at 21:31:08 UTC on 2026-11-13
+reported segmentation_fault with a failed prefix, no per-container override,
+and the reviewed legacy readiness-check shape. The later 22:44–22:46 UTC reads
+above confirm the same failure categories and direct endpoint response.
 
 A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC reported
 the canary unhealthy on a digest-pinned configured reference matching PR #894;
