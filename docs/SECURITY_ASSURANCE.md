@@ -6,7 +6,27 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
-## Current candidate and deployed-state checkpoint — 2026-11-13 11:29 UTC
+## Current candidate and deployed-state checkpoint — 2026-11-13 15:05 UTC
+
+PR #971 merged at 14:51:24 UTC as
+`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Post-merge main CI
+#43446742822, CodeQL #43446742646, and container publisher #43446742850
+passed. The publisher independently verified the ARM64 and AMD64 image
+digests, SLSA provenance, and SPDX SBOM attestations; immutable tags and
+digests are recorded in [RELEASES.md](RELEASES.md). This publication is not
+deployment or candidate-bound acceptance.
+
+The latest RouterOS read remains the 14:28:43 UTC TLS-verified Binary API
+point read, before PR #971 was published. It found the canary unhealthy on its
+older PR #894 image and production running with a tag-only configured
+reference. The subsequent 14:37:16 UTC direct canary probes returned HTTP 200
+and readiness `ready` at the old PR #894 revision; at 14:37:49 UTC REST still
+classified the default canary healthcheck as a segmentation fault. No
+post-publication RouterOS digest read, staging, or deployment is verified.
+The faulting process and root cause remain unknown, and the live candidate
+security review and owner risk decision remain open.
+
+## Previous candidate and deployed-state checkpoint — 2026-11-13 11:29 UTC
 
 PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`;
 its required checks, post-merge CI #43412162052, and CodeQL #43412161625 passed.

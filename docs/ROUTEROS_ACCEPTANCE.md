@@ -15,41 +15,75 @@ do not repeat origin values in reports.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #965
-(`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published
-image; its ARM64 manifest is
-`sha256:a83094cf709db13248e372b62dd2cdecf14d41ce2b20a88fda7e533a0ccf6f0c`.
+prove RouterOS compatibility. PR #971
+(`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image.
+Its ARM64 manifest is
+`sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`.
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — 2026-11-13 11:29 UTC
+## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC; publication verified 15:05 UTC
 
-PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`;
-its required checks, post-merge main CI #43412162052, and CodeQL #43412161625
-passed. PR #965 remains the latest published image and is not staged. Publication
-does not prove RouterOS acceptance or a running digest.
+PR #971 merged at 14:51:24 UTC as
+`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
+It adds `image-id` and `layers` to the narrow container read allowlist and
+allows `/container/layers/print` only with its explicit narrow `.proplist`.
+This fixes a local collector/client query mismatch; it does not change RouterOS
+or the application runtime. Post-merge CodeQL #43446742646, main CI
+#43446742822, and container publisher #43446742850 passed. The publisher
+verified and published PR #971's immutable ARM64 digest
+`sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`;
+the stable manifest asset SHA-256 is
+`344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`.
+The 14:28 RouterOS read predates publication and compared running images with
+PR #965 only. PR #971 has not been staged; there is no post-publication
+RouterOS running-digest read or acceptance result.
 
-The latest TLS-verified Binary API read at 11:03:50 UTC found the PR #894
-canary unhealthy and production running with a tag-only configured reference.
-Neither running OCI digest was verified. Direct private probes at 11:10:21 UTC
-returned HTTP 200 for canary `/healthz` and `/readyz`, with readiness `ready`
-at the old PR #894 revision. A TLS-verified REST healthcheck comparison at
-11:11:50 UTC classified the canary status as `segmentation_fault`, with no
-per-container override, the reviewed legacy default shape, and restart count 0;
-the production status was `good` with its healthy field true. A bounded filtered
-RouterOS log query returned no matching fault records. The PR #965 `--check-only`
-preflight blocked at `baseline / canary_unhealthy` with
-`router_writes_may_have_started=false`. These observations do not identify the
-failing executable or cause, accept the candidate, or establish a healthy
-rollback baseline. No RouterOS state changed, no candidate was staged, and no
-production deployment is claimed.
+A fresh TLS-verified read-only Binary API point read at 14:28:43 UTC reported
+RouterOS 7.25.1. Runtime manifest identity reconciliation succeeded for both
+containers, but neither running image matched PR #965, the latest candidate
+published at that time. The canary was unhealthy;
+health categories included failed, resource unavailable, segmentation fault,
+and timeout. Production was running with health category `good`; its configured
+image reference remains tag-only, though its running manifest identity was
+reconciled. A count-only active-session query returned zero and retained no
+session rows or identifiers.
+
+Direct private canary `/healthz` and `/readyz` GETs at 14:37:16 UTC returned
+HTTP 200, with readiness `ready` at the old PR #894 revision. At 14:37:49 UTC,
+a TLS-verified healthcheck read found no per-container override and classified
+the RouterOS default check as a segmentation fault. The exact failing
+executable/root cause remains unknown. These point reads do not establish a
+healthy rollback baseline, accept a candidate, or provide a soak. No RouterOS
+setting, account, container lifecycle, or production state changed; no staging,
+restart, rollback, or deployment occurred. The candidate gate remains blocked.
+
+## Previous checkpoint — PR #966 — 2026-11-13 11:29 UTC
+
+PR #966 merged documentation-only at
+`1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`; its required checks, post-merge
+main CI, and CodeQL passed. PR #965 remained the latest published image; it was
+not staged. Publication did not prove RouterOS acceptance or a running digest.
+
+The TLS-verified Binary API read at 11:03:50 UTC found the PR #894 canary
+unhealthy and production running with a tag-only configured reference; neither
+running OCI digest was verified. Direct private probes at 11:10:21 UTC returned
+HTTP 200 for canary `/healthz` and `/readyz`, with readiness `ready` at the old
+PR #894 revision. A TLS-verified REST healthcheck comparison at 11:11:50 UTC
+classified the canary as `segmentation_fault`, with no per-container override,
+the reviewed legacy default shape, and restart count 0. Production health was
+`good`. A bounded filtered RouterOS log query returned no matching fault
+records. The PR #965 `--check-only` preflight blocked at
+`baseline / canary_unhealthy` with `router_writes_may_have_started=false`. These
+observations did not identify the failing executable or cause, accept the
+candidate, or establish a healthy rollback baseline. No RouterOS state changed,
+no candidate was staged, and no production deployment was claimed.
 
 A fresh read-only WinBox container-list view at 11:28:59 UTC showed the canary
-unhealthy and production healthy. The list view does not expose their configured
-image references, revisions, or running registry digests, so it does not replace
-the TLS-verified API readbacks above. No RouterOS write was issued during this
-inspection. The canary fault, safe rollback baseline, and candidate acceptance
-remain unresolved.
+unhealthy and production healthy. The list view did not expose their configured
+image references, revisions, or running registry digests. No RouterOS write
+was issued during that inspection. The canary fault, safe rollback baseline,
+and candidate acceptance remained unresolved.
 
 ## Previous checkpoint — PR #964 — 2026-11-13 09:13 UTC
 

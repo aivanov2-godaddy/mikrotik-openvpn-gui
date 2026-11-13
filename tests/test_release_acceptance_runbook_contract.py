@@ -96,10 +96,11 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "PR #965 (13cae96d27ad42920ca4685116cd475eaa457408) remains the latest published image source",
+            "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source",
             report,
         )
-        self.assertIn("Latest RouterOS read-back — 2026-11-13 11:03–11:29 UTC", report)
+        self.assertIn("Latest published candidate and RouterOS read-back — 2026-11-13 14:28–15:05 UTC", report)
+        self.assertIn("Previous RouterOS read-back — 2026-11-13 11:03–11:29 UTC", report)
         self.assertIn("At 11:28:59 UTC, a fresh read-only WinBox container-list view showed the", report)
         self.assertIn("It classified production as `good` with its healthy field true", report)
         self.assertIn(
@@ -111,7 +112,7 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "the canary still configured with PR #894's pinned ARM64 digest",
             report,
         )
-        self.assertIn("PR #965 has not been staged on RouterOS", report)
+        self.assertIn("PR #971 remains unstaged", report)
         self.assertIn("Bounded in-container HTTP requests to both `/healthz` and `/readyz` timed out", report)
         self.assertIn("After an authorized restart of canary only, RouterOS reported a healthy marker again", report)
         self.assertIn("No authenticated readiness response was captured after that restart, so the running revision and sustained recovery remain unverified", report)

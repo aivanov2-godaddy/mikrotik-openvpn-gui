@@ -354,14 +354,15 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #965", release_record)
+        self.assertIn("## Latest published mainline image — PR #971", release_record)
+        self.assertIn("## Previous published mainline image — PR #965", release_record)
         self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
         self.assertIn(
-            "The latest TLS-verified API point readback is a Binary API container snapshot from 11:03:50 UTC",
+            "The latest RouterOS evidence is a TLS-verified Binary API container snapshot at 14:28:43 UTC",
             release_record,
         )
-        self.assertIn("A later read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy", release_record)
+        self.assertIn("A read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy", release_record)
         self.assertIn(
             "PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`",
             release_record,
@@ -416,15 +417,17 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:ac36036b13842a7bb2ac5611705403e1165c84ac2a07115af8a192f9ccf7ba6f", release_record)
         self.assertIn("sha256:55aae2f27b0469b807c27064a339a04bbb7c938c1198f51e033440aa9f2f67f4", release_record)
         self.assertIn(
-            "PR #965 has not been staged on RouterOS",
+            "PR #971 has not been staged on RouterOS",
             " ".join(release_record.split()),
         )
         routeros_acceptance = (ROOT / "docs/ROUTEROS_ACCEPTANCE.md").read_text(encoding="utf-8")
         self.assertIn(
-            "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published",
+            "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image",
             " ".join(routeros_acceptance.split()),
         )
-        self.assertIn("## Current checkpoint — 2026-11-13 11:29 UTC", routeros_acceptance)
+        self.assertIn("## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC", routeros_acceptance)
+        self.assertIn("A fresh TLS-verified read-only Binary API point read at 14:28:43 UTC", routeros_acceptance)
+        self.assertIn("## Previous checkpoint — PR #966 — 2026-11-13 11:29 UTC", routeros_acceptance)
         self.assertIn("A fresh read-only WinBox container-list view at 11:28:59 UTC showed the canary", routeros_acceptance)
         self.assertIn("`router_writes_may_have_started=false`", routeros_acceptance)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
