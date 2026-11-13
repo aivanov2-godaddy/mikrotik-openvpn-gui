@@ -22,42 +22,44 @@ Its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — PR #974 and RouterOS reads 2026-11-13 16:56–16:57 UTC
+## Current checkpoint — PR #975 and RouterOS reads 2026-11-13 18:05–21:31 UTC
 
-PR #974 merged documentation-only to main at 17:00:50 UTC as
-`3c54ae3e414a893bf61bd3c1913c88515da525cd` after its required checks passed.
-Post-merge main CI #43468485879 and CodeQL #43468484486 both passed. PR #974
-did not publish an image. PR #971 remains the latest published candidate, and
-no candidate staging or production deployment is verified.
+PR #975 merged to `main` at 17:55:32 UTC as
+`741740de016852a9fb5230bead0fe5c04a0ff823`. Its required CI and CodeQL checks
+passed; post-merge main CI #43477581774 and CodeQL #43477581924 also passed.
+PR #975 adds a fixed-label image healthcheck profile to read-only acceptance
+evidence when image identity is verified. It did not publish an image. PR #971
+remains the latest published candidate; publication does not prove RouterOS
+acceptance or a running digest.
 
-A TLS-verified read-only REST healthcheck comparison at 16:56:12 UTC still
-classified the canary healthcheck as `segmentation_fault`. No per-container
-override was present; the default profile matched the reviewed legacy shell/
-timeout/wget readiness shape; restart count was 0. Production reported health
-`good` and `healthy=true`; its default profile did not match that legacy shape.
-The narrow healthcheck response omitted both containers' running and lifecycle
-fields. This point read does not identify the faulting executable or cause.
+A TLS-verified REST healthcheck classification at 18:05:54 UTC reported the
+canary healthcheck as `segmentation_fault` with a `failed` status prefix. No
+per-container healthcheck override was present; the default profile matched
+the reviewed legacy timeout/wget readiness shape. The classification does not
+identify the failing executable or root cause.
 
-Read-only registry identity resolution verified the old configured PR #894
-image's healthcheck profile as `shell_timeout_wget_local_readyz_v1` and the
-published PR #971 candidate's profile as `exec_wget_local_readyz_v1`. This
-confirms an image-config difference only; the RouterOS read did not verify the
-running manifest digest, and the comparison does not prove the healthcheck
-profile caused the segmentation fault.
+A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC reported
+the canary as not healthy, with a digest-pinned configured reference matching
+the PR #894 revision. Production was reported healthy with a tag-only configured
+reference. The snapshot did not verify either running OCI manifest digest.
+Its aggregate active-session result found no active VPN sessions at that
+instant; it did not identify a particular client, so the disposable-client
+acceptance checks remain pending.
 
-A separate TLS-verified REST configuration read at 16:57:28 UTC found the
-canary still configured to the old PR #894 digest-pinned reference and
-production still configured with a mutable tag. Lifecycle state was unknown in
-that response, and neither running registry digest was verified. The new read
-did not query active VPN sessions or direct readiness endpoints. No raw image
-reference, healthcheck text, or private address is retained here.
+A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
+`/healthz` and `/readyz`; readiness was `ready` and matched the PR #894
+revision. A paired TLS-verified REST healthcheck classification at 21:31:08 UTC
+again reported `segmentation_fault` with a `failed` prefix, no per-container
+override, and the same reviewed legacy default-check shape. These close point
+samples show the app endpoints responding while RouterOS reports a failed
+healthcheck; they do not identify the crashing executable or prove the root
+cause, and they are not a soak.
 
-WinBox visual inspection was unavailable in this session: its window was
-minimized and Windows computer-control capture failed with access denied. The
-router findings above come from TLS-verified REST reads only. No RouterOS
-setting, account, container, scheduler, updater, or production state changed;
-there was no staging, restart, rollback, or deployment. The canary acceptance
-gate remains blocked.
+WinBox was not used for this checkpoint; these results are from TLS-verified
+REST and Binary API reads. No RouterOS setting, account, container, scheduler,
+updater, or production state changed. There was no staging, restart, rollback,
+or deployment. The canary acceptance gate remains blocked by the unhealthy
+baseline; production remains undeployed.
 
 ## Previous checkpoint — RouterOS healthcheck read 2026-11-13 16:42:42 UTC; publication verified 15:05 UTC
 
