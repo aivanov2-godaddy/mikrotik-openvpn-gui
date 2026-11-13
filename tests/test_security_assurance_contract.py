@@ -670,13 +670,18 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "PR #935 (`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published mainline image source",
+            "PR #965 (13cae96d27ad42920ca4685116cd475eaa457408) is the latest published mainline image source",
             roadmap,
         )
         self.assertIn(
-            "## Latest published mainline image — PR #935",
+            "## Latest published mainline image — PR #965",
             releases,
         )
+        self.assertIn(
+            "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) is the latest published",
+            assurance,
+        )
+        self.assertIn("2026-11-13 10:21 UTC", assurance)
         self.assertIn(
             "PR #862 is a published artifact, not a numbered release.",
             releases,

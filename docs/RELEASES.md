@@ -18,19 +18,9 @@ candidate-bound point samples and aggregate outcomes. Router identity, detailed
 RouterOS configuration, raw time-series telemetry, and session-level details
 remain in private operational records.
 
-The latest formal versioned release remains **v2.7.0**. The next planned
-version, v2.8.0, has not been tagged or published. PR #935
-(`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) is the latest published mainline
-image source; publication does not change the formal version. Post-merge main
-CI run #43174815746, main push analysis run #43174814930, and container
-publisher run #43174815700 succeeded. Both architecture builds and scans, source
-verification, browser regression, and stable-manifest publication/read-back
-succeeded. The downloaded manifest SHA-256 and immutable image digests are
-recorded below. PR #935 has not been staged on RouterOS.
+The latest formal versioned release remains **v2.7.0**. The next planned version, v2.8.0, has not been tagged or published. PR #965 (13cae96d27ad42920ca4685116cd475eaa457408) is the latest published mainline image source; publication does not change the formal version. Post-merge main CI run #43403760502, main push analysis run #43403760080, and container publisher run #43403760356 succeeded. Both architecture builds and scans, source verification, rendered browser checks, runtime smoke tests, digest/SBOM attestations, and stable-manifest publication/read-back succeeded. The downloaded manifest checksum and immutable image digests are recorded below. PR #965 has not been staged on RouterOS.
 
-A read-only WinBox view at about 09:04 UTC on 2026-11-12 showed the canary unhealthy and production healthy. A TLS-verified REST healthcheck classification at 09:07:57 UTC categorized the canary result as failed with a segmentation-fault marker. No custom healthcheck command was present; the default check was present and matched the previously reviewed legacy shell/timeout/wget readiness-check shape. Lifecycle fields in that narrow REST response were absent and the reported restart count was 0. This does not identify the faulting executable or root cause.
-
-A separate REST configuration snapshot at 08:44 UTC identified the canary as configured for PR #894's older pinned ARM64 digest and production as tag-only; neither running registry digest was verified then. A narrow image-identity read around 09:17 UTC found the canary configured reference digest-pinned and production tag-only. RouterOS returned opaque 64-hex image-id values for both containers, unequal to the known PR #894 and PR #935 manifest digests. MikroTik's current CLI reference lists image-id as a read-only string but does not define it as an OCI manifest digest. Neither running registry digest is verified. The exact failing process and cause remain unknown. PR #935 remains unstaged; issues #927 and #200, the #785 updater/rollback follow-up tracked under #205, and production promotion remain gated.
+The latest RouterOS point readback is a TLS-verified Binary API container snapshot from 10:21 UTC on 2026-11-13, after PR #965 publication. It found the canary unhealthy and still configured for the older PR #894 image; production was running with a tag-only configured reference. Neither running registry digest was verified, and the configured canary image does not match PR #965's digest or revision. A separate TLS-verified REST healthcheck read at 10:17 UTC still classified the canary check as failed / segmentation_fault, with no per-container override, the reviewed legacy default command shape, and restart count 0. These observations do not identify the failing executable or root cause, establish a healthy rollback baseline, or accept the newly published image.
 
 PR #893
 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) updated the Python 3.15 Alpine
@@ -66,7 +56,18 @@ manifest. The manifest asset SHA-256 is
 Code scanning returned zero open alerts on 2026-10-30. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #935 — 2026-11-12
+## Latest published mainline image — PR #965 — 2026-11-13
+
+PR [#965](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/965) merged as 13cae96d27ad42920ca4685116cd475eaa457408. Post-merge main CI run [#43403760502](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43403760502), main push analysis run [#43403760080](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43403760080), and container publisher run [#43403760356](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43403760356) passed. The publisher built and scanned both architecture images, published them by immutable digest, verified provenance and SPDX SBOM attestations, smoke-tested both published runtimes, and published/read back the stable manifest. The downloaded routeros-release.json asset SHA-256 is sha256:052e6fc22da92d8ca6ac6403fef5f18e76ba093964f90e3ee1e8ea5a8fdfb271.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-13cae96d27ad42920ca4685116cd475eaa457408-arm64 | sha256:a83094cf709db13248e372b62dd2cdecf14d41ce2b20a88fda7e533a0ccf6f0c |
+| AMD64 | ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-13cae96d27ad42920ca4685116cd475eaa457408-amd64 | sha256:026da66f73c838847343f65338d5941b02c9143d1bce16efe542ec99954865a1 |
+
+PR #965 adds privacy-safe diagnostics; it is not a numbered release or RouterOS deployment. The image has not been staged. At the latest verified RouterOS readback, the old PR #894 canary remains unhealthy, production remains tag-only, and neither running registry digest is verified. The separate REST healthcheck read remains failed / segmentation_fault. Issue #927 remains open pending canary fault diagnosis and candidate-bound RouterOS acceptance. No production deployment is claimed.
+
+## Previous published mainline image — PR #935 — 2026-11-12
 
 PR [#935](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/935)
 merged as `3f8fc22ec3166b3074fb54f54c79d6dede256ed4`. Post-merge main CI run

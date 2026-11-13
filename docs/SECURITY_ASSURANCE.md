@@ -6,6 +6,24 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
+## Current candidate and deployed-state checkpoint — 2026-11-13 10:21 UTC
+
+PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) is the latest published
+mainline image; its verified architecture digests and publisher evidence are
+recorded in [RELEASES.md](RELEASES.md). It has not been staged on RouterOS. A
+10:21 UTC TLS-verified Binary API read found the canary unhealthy on the older
+PR #894 configured image, with its running registry digest unverified. The
+production container was running with a tag-only configured reference, and its
+running registry digest was unverified. A separate 10:17 UTC TLS-verified REST
+healthcheck read still classified the canary check as failed /
+segmentation_fault. These reads do not identify the failing process or root
+cause, accept the candidate, or establish a production deployment.
+
+Issue #200 remains open for the independent scoped ASVS review and
+candidate-bound live-session, recovery, and rollback evidence. Issue #927
+remains open for canary healthcheck remediation and acceptance. This document
+does not claim full ASVS conformance or deployed-device acceptance.
+
 ## Scoped ASVS control matrix
 
 This matrix covers every requirement in ASVS 5.0.0 V7 (Session Management),
@@ -1163,23 +1181,22 @@ protocol parameters on all requests and a missing or blank transport on new
 Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
 retain Engine.IO's default-polling compatibility. Regression coverage includes
 malformed handshakes, existing SID compatibility, and a subsequent valid
-handshake. The latest published image is PR #935
-(`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`); post-merge main CI, push
-analysis, both image builds/scans, source verification, rendered-browser checks,
-and stable-manifest publication/read-back passed. Digests and the manifest
-checksum are in [RELEASES.md](RELEASES.md). PR #935 has not been staged on
-RouterOS. A read-only WinBox point observation at 07:38 UTC on 2026-11-12
-marked the canary unhealthy and production healthy. A TLS-verified REST
-configuration snapshot at 07:39 UTC found the canary still on PR #894's exact
-ARM64 digest and production tag-only; neither running digest was verified. The
-default healthcheck continued to report process/fork resource exhaustion and a
-segmentation-fault marker; the failing process and cause remain unknown.
-Qualitative authenticated disconnect, automatic client reconnect, and fallback
-observations are recorded in the [live acceptance
-report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md), but no measured latency,
-RouterOS API recovery, or sustained acceptance is claimed. Issue #200 remains
-open for the remaining deployed checks and an independent scoped review. This
-document is not a complete ASVS assessment or compliance attestation.
+handshake. At the 2026-11-12 07:38 UTC checkpoint, PR #935
+(`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`) was the latest published image;
+its CI and publisher workflows passed and the digests and manifest checksum
+were recorded in [RELEASES.md](RELEASES.md). It had not been staged on RouterOS.
+A read-only WinBox point observation marked the canary unhealthy and production
+healthy. A TLS-verified REST configuration snapshot at 07:39 UTC found the
+canary on PR #894's exact ARM64 digest and production tag-only; neither running
+digest was verified. The default healthcheck reported process/fork resource
+exhaustion and a segmentation-fault marker; the failing process and cause were
+unknown. Qualitative authenticated disconnect, automatic client reconnect, and
+fallback observations are recorded in the [live acceptance
+report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md), but no measured latency, RouterOS
+API recovery, or sustained acceptance was claimed at that checkpoint. Issue
+#200 remained open for the remaining deployed checks and an independent scoped
+review. This document is not a complete ASVS assessment or compliance
+attestation.
 
 ## Independent internal source review — 2026-11-04
 
