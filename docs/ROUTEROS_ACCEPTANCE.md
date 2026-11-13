@@ -19,16 +19,15 @@ prove RouterOS compatibility. PR #971
 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image.
 Its ARM64 manifest is
 `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`.
-That registry evidence does not prove RouterOS acceptance or a running digest.
+That registry evidence does not prove RouterOS acceptance or that the candidate
+is running on RouterOS.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — PR #976 and RouterOS reads 2026-11-13 18:05–22:05 UTC
+## Current checkpoint — PR #977 and RouterOS reads 2026-11-13 22:29–22:46 UTC
 
-PR #976 merged to main at 21:47:40 UTC as
-c23abd572ebdfbb73789a606af5e1d0939def7ec. Its exact-head required checks
-passed, including Python 3.13/3.14, pre-commit, CodeQL, security and dependency
-scans, rendered browser/accessibility regression, and an ARM64 image build.
-Post-merge main CI #43513832736 and CodeQL #43513832832 passed. PR #976 is
+PR #977 merged to main at 22:29:55 UTC as
+`f5be30a62fb36e0401b26c275c59d4105b1d0bfe`. Its required checks passed.
+Post-merge main CI #43519747932 and CodeQL #43519748282 passed. PR #977 is
 documentation-only and did not publish an image. PR #971 remains the latest
 published candidate; publication does not prove RouterOS acceptance.
 
@@ -39,32 +38,27 @@ image healthcheck profile to read-only acceptance reports when image identity
 is verified; this is registry/config evidence, not a device diagnosis. No
 publisher run was triggered, so PR #971 remains the latest published image.
 
-A TLS-verified REST healthcheck classification at 18:05:54 UTC reported the
-canary healthcheck as segmentation_fault with a failed status prefix. No
-per-container override was present; the default profile matched the reviewed
-legacy timeout/wget readiness shape. A separate TLS-verified, read-only
-Binary API snapshot at 18:07:43 UTC reported the canary not healthy with a
-digest-pinned
-configured reference matching PR #894; production was healthy with a tag-only
-configured reference. At that time, neither running OCI manifest identity was
-verified.
+A TLS-verified, read-only Binary API point read at 22:44:17 UTC verified the
+running OCI manifest identities for canary and production, but neither matched
+the latest published PR #971 candidate. The canary was unhealthy with
+healthcheck categories failed, resource unavailable, segmentation fault, and
+timeout; its configured reference was digest-pinned but not the candidate.
+Production was running with a good healthcheck category and a tag-only
+configured reference; its running manifest identity was verified but was not
+the candidate. The count-only active-session read returned zero and retained
+no session identifiers.
 
-A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
-/healthz and /readyz; readiness was ready at the PR #894 revision. The paired
-TLS-verified REST healthcheck classification at 21:31:08 UTC again reported
-segmentation_fault with a failed prefix, no per-container override, and the
-reviewed legacy default-check shape.
+A bounded direct private HTTP probe at 22:46:15 UTC returned HTTP 200 for both
+`/healthz` and `/readyz`; readiness was `ready` at the old PR #894 revision. A
+paired TLS-verified REST healthcheck classification at 22:46:31 UTC again
+reported segmentation_fault with a failed prefix, no per-container override,
+and the reviewed legacy default-check shape. The close point samples show the
+application responding while RouterOS reports a failed healthcheck; they do
+not identify the failing executable or root cause and do not constitute a
+soak.
 
-A fresh TLS-verified, read-only Binary API point read at 22:05:12 UTC verified
-the running OCI manifest identities for canary and production, but neither
-matched the latest published PR #971 candidate. The canary remained unhealthy
-with healthcheck categories failed, resource unavailable, segmentation fault,
-and timeout; its configured reference was digest-pinned but did not match the
-candidate. Production remained running with a good healthcheck category and a
-tag-only configured reference; its running manifest identity was verified but
-did not match the candidate. The count-only active-session read returned zero
-and retained no session identifiers. These are point observations only; they
-do not establish a healthy baseline, a soak, or candidate acceptance.
+These observations do not establish a healthy rollback baseline, a soak, or
+candidate acceptance.
 
 No RouterOS setting, account, container, scheduler, updater, or production
 state changed. There was no staging, restart, rollback, or deployment. Issue

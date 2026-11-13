@@ -360,7 +360,11 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
         self.assertIn(
-            "The latest dedicated REST healthcheck classification is at 21:31:08 UTC on 2026-11-13",
+            "A TLS-verified REST healthcheck classification at 22:46:31 UTC",
+            release_compact,
+        )
+        self.assertIn(
+            "A TLS-verified, read-only Binary API point read at 22:44:17 UTC verified",
             release_compact,
         )
         self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", release_compact)
@@ -435,21 +439,31 @@ class ReleaseContractTests(unittest.TestCase):
             routeros_acceptance_compact,
         )
         self.assertIn(
-            "## Current checkpoint — PR #976 and RouterOS reads 2026-11-13 18:05–22:05 UTC",
+            "## Current checkpoint — PR #977 and RouterOS reads 2026-11-13 22:29–22:46 UTC",
             routeros_acceptance,
         )
         self.assertIn(
-            "Post-merge main CI #43513832736 and CodeQL #43513832832 passed",
+            "Post-merge main CI #43519747932 and CodeQL #43519748282 passed",
             routeros_acceptance,
         )
-        self.assertIn("TLS-verified REST healthcheck classification at 21:31:08 UTC again reported", routeros_acceptance)
-        self.assertIn("A fresh TLS-verified, read-only Binary API point read at 22:05:12 UTC", routeros_acceptance)
+        self.assertIn("TLS-verified REST healthcheck classification at 22:46:31 UTC", routeros_acceptance)
+        self.assertIn("A TLS-verified, read-only Binary API point read at 22:44:17 UTC", routeros_acceptance)
+        roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+        canary_status_row = next(
+            line for line in roadmap.splitlines() if line.startswith("| Open — canary healthcheck |")
+        )
+        security_status_row = next(
+            line for line in roadmap.splitlines() if line.startswith("| Open — security assurance |")
+        )
+        self.assertIn("verified both running manifest identities; neither matches PR #971", canary_status_row)
+        self.assertNotIn("neither running digest is verified", canary_status_row.casefold())
+        self.assertIn("22:44:17 UTC count-only active VPN read returned zero", security_status_row)
         self.assertIn("running OCI manifest identities for canary and production", routeros_acceptance)
         self.assertIn("latest published PR #971 candidate", routeros_acceptance)
         self.assertIn("running manifest identity was verified but", routeros_acceptance)
-        self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", routeros_acceptance_compact)
+        self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", release_compact)
         self.assertIn(
-            'A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both',
+            'A bounded direct private HTTP probe at 22:46:15 UTC returned HTTP 200 for both',
             routeros_acceptance,
         )
         self.assertIn("registry_image_config_healthcheck_profile", routeros_acceptance)
