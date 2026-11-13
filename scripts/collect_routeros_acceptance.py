@@ -1,10 +1,11 @@
 """Collect a bounded, redacted, read-only RouterOS acceptance window.
 
-This collector uses the verified TLS Binary API and a strict allowlist of
-``print`` paths. It records aggregate resource/session measurements and only
-the running state plus immutable source revision of the two named dashboard
-containers. RouterOS credentials, identity, addresses, raw replies, and
-container configuration are never written to the output.
+The Binary API and REST readers use verified TLS and fixed print/GET allowlists.
+The report contains aggregate resource/session measurements and, for the two
+named dashboard containers, normalized lifecycle health, source revisions, and
+configured image digests. RouterOS 7.23+ healthcheck status is reduced to fixed
+categories; raw status/output and command text are never emitted. Credentials,
+router/session identity, addresses, and raw replies are also excluded.
 """
 
 from __future__ import annotations
@@ -30,9 +31,9 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routeros_binary import RouterOSBinaryConnection, RouterOSBinaryError, RouterOSReply
 if __package__ in {None, ""}:
-    from routeros_container_state import normalize_container_status
+    from routeros_container_state import healthcheck_status_categories, normalize_container_status
 else:
-    from .routeros_container_state import normalize_container_status
+    from .routeros_container_state import healthcheck_status_categories, normalize_container_status
 
 
 MAX_WINDOW_SECONDS = 86_400
@@ -53,6 +54,9 @@ PROJECT_IMAGE = re.compile(
 RESOURCE_PROPLIST = "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version"
 LEGACY_CONTAINER_PROPLIST = "name,status,remote-image"
 MODERN_CONTAINER_PROPLIST = "name,running,stopped,starting,stopping,healthy,remote-image"
+HEALTHCHECK_CONTAINER_PROPLIST = (
+    "name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image"
+)
 _ROUTEROS_VERSION = re.compile(r"^\s*(\d+)\.(\d+)(?:\.\d+)?(?=$|[^0-9])")
 SESSION_PROPLIST = ".id"
 MAX_REST_RESPONSE_BYTES = 1_048_576
@@ -80,7 +84,9 @@ def _container_proplist_for_version(version: str) -> str:
         raise ValueError("RouterOS container state format is unsupported")
     if major == 7 and minor < 20:
         return LEGACY_CONTAINER_PROPLIST
-    return MODERN_CONTAINER_PROPLIST
+    if major == 7 and minor < 23:
+        return MODERN_CONTAINER_PROPLIST
+    return HEALTHCHECK_CONTAINER_PROPLIST
 
 
 def _utc_now() -> datetime:
@@ -129,6 +135,11 @@ def _snapshot_from_records(
 
     containers = list(containers)
     result_containers: dict[str, dict[str, Any]] = {}
+    healthcheck_statuses: dict[str, list[str]] = {}
+    healthcheck_status_supported = (
+        _container_proplist_for_version(resource.get("version", ""))
+        == HEALTHCHECK_CONTAINER_PROPLIST
+    )
     for environment, expected_name in CONTAINER_NAMES.items():
         matching = [row for row in containers if row.get("name") == expected_name]
         if len(matching) != 1:
@@ -136,10 +147,17 @@ def _snapshot_from_records(
         row = matching[0]
         image_match = PROJECT_IMAGE.fullmatch(row.get("remote-image", ""))
         result_containers[environment] = {
+            # Keep raw healthcheck text out of the report while preserving the
+            # existing fail-closed lifecycle normalization for this signal.
             "healthy": normalize_container_status(dict(row)) == "running",
             "revision": image_match.group("revision") if image_match else None,
             "configured_digest": image_match.group("digest") if image_match else None,
         }
+        healthcheck_statuses[environment] = (
+            healthcheck_status_categories(row)
+            if healthcheck_status_supported
+            else ["unavailable"]
+        )
 
     return {
         "router_cpu_percent": int(cpu),
@@ -147,6 +165,7 @@ def _snapshot_from_records(
         "router_storage_used_percent": _percent(total_storage - free_storage, total_storage),
         "active_vpn_sessions": active_sessions,
         "containers": result_containers,
+        "healthcheck_status_categories": healthcheck_statuses,
     }
 
 
@@ -216,7 +235,11 @@ class RouterOSRestAcceptanceReader:
             raise ValueError("REST path is not allowlisted")
         path, fixed_proplist = REST_PATHS[path_key]
         if fixed_proplist is None:
-            if proplist not in {LEGACY_CONTAINER_PROPLIST, MODERN_CONTAINER_PROPLIST}:
+            if proplist not in {
+                LEGACY_CONTAINER_PROPLIST,
+                MODERN_CONTAINER_PROPLIST,
+                HEALTHCHECK_CONTAINER_PROPLIST,
+            }:
                 raise ValueError("REST container property list is not allowlisted")
         elif proplist is not None:
             raise ValueError("REST property override is not allowlisted")
@@ -461,6 +484,16 @@ def collect(
                     bool(successful) and digest_values[name] == {expected_digests[name]}
                 ),
             }
+            for name in container_names
+        },
+        "healthcheck_status_categories": {
+            name: sorted(
+                {
+                    category
+                    for sample in successful
+                    for category in sample["healthcheck_status_categories"][name]
+                }
+            )
             for name in container_names
         },
         "passed": not failed,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 
 STATUS_FAILURES = {"failed", "invalid", "error", "unhealthy"}
@@ -17,6 +17,41 @@ LIFECYCLE_KEYS = (
     "healthcheck-status",
     "download/extract failed",
 )
+MAX_HEALTHCHECK_STATUS_CHARS = 4096
+
+
+def healthcheck_status_categories(record: Mapping[str, Any]) -> list[str]:
+    """Return allowlisted healthcheck indicators without preserving its text."""
+
+    value = record.get("healthcheck-status")
+    if not isinstance(value, str) or not value.strip():
+        return ["unavailable"]
+    if len(value) > MAX_HEALTHCHECK_STATUS_CHARS:
+        return ["unclassified"]
+
+    text = value.casefold()
+    prefix = text.lstrip()
+    if prefix.startswith("good"):
+        return ["good"]
+
+    categories = set()
+    for marker, category in (
+        ("segmentation fault", "segmentation_fault"),
+        ("resource unavailable", "resource_unavailable"),
+        ("resource temporarily unavailable", "resource_unavailable"),
+        ("could not fork", "resource_unavailable"),
+        ("timed out", "timeout"),
+        ("timeout", "timeout"),
+        ("not found", "command_not_found"),
+    ):
+        if marker in text:
+            categories.add(category)
+
+    if prefix.startswith(("bad", "failed", "error", "unhealthy")):
+        categories.add("failed")
+    if not categories:
+        categories.add("other")
+    return sorted(categories)
 
 
 def normalize_container_status(record: dict[str, Any]) -> str:
