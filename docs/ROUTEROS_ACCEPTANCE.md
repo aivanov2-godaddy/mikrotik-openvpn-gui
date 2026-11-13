@@ -42,7 +42,12 @@ point-in-time observations.
 
 A healthcheck read at 23:44:56 UTC still classified the canary as
 failed/segmentation-fault, with no per-container command override and no
-RouterOS healthy field. Direct private `/healthz` and `/readyz` probes at
+RouterOS healthy field. A follow-up TLS-verified REST read at 00:29:50 UTC on
+2026-11-13 again classified the canary healthcheck as segmentation-fault; the
+canary lifecycle and healthy fields remained absent. The production healthy
+field was true, but its lifecycle field was absent. The same read found the
+default timeout/wget healthcheck shape unchanged. Direct private `/healthz` and
+`/readyz` probes at
 23:45:40 UTC returned HTTP 200/ready at the old PR #894 revision. This does not
 override RouterOS's failed healthcheck or prove a sustained healthy window. A
 count-only OpenVPN query around 23:46 UTC returned zero and saved no session
@@ -50,8 +55,8 @@ details; the disposable VPN client was disconnected. A bounded filtered log
 query at 00:04 UTC on 2026-11-13 returned zero matching healthcheck/fault
 records, without printing or retaining raw lines.
 
-A TLS-verified version-only REST read at 00:23:31 UTC on 2026-11-13 reported
-RouterOS 7.25.1. MikroTik's [Container manual](https://manual.mikrotik.com/docs/containers/)
+A TLS-verified REST read at 00:29:50 UTC reported RouterOS 7.25.1. MikroTik's
+[Container manual](https://manual.mikrotik.com/docs/containers/)
 states native container healthcheck support starts in RouterOS 7.23; the
 version read establishes the device version, not the healthcheck fault's cause
 or candidate compatibility. No RouterOS firmware or container setting changed.
