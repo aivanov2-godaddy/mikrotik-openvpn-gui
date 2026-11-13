@@ -59,7 +59,10 @@ version read establishes the device version, not the healthcheck fault's cause
 or candidate compatibility. No RouterOS firmware or container setting changed.
 PR #926's exec-form image healthcheck remains unvalidated on this device. The
 unhealthy canary is not a healthy rollback baseline, so the staging preflight
-continues to block before a write. See
+continues to block before a write. A live `--check-only` run at 00:38:38 UTC
+returned `preflight_blocked / baseline / canary_unhealthy` for the PR #935
+candidate; it reported that no RouterOS write may have started. This confirms
+the staging guard is active and is not a candidate test. See
 [#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927)
 for the device-bound healthcheck gate and
 [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200)
