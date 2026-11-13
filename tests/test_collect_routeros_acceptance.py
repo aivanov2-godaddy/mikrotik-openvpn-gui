@@ -12,10 +12,11 @@ from contextlib import redirect_stdout
 from urllib.parse import urlsplit, parse_qs
 from unittest.mock import Mock, patch
 
-from routeros_binary import RouterOSReply
+from routeros_binary import RouterOSBinaryConnection, RouterOSReply, decode_words, encode_sentence
 from scripts.collect_routeros_acceptance import (
     CONTAINER_NAMES,
     HEALTHCHECK_CONTAINER_PROPLIST,
+    LAYER_PROPLIST,
     LEGACY_CONTAINER_PROPLIST,
     MODERN_CONTAINER_PROPLIST,
     PARITY_TOLERANCE,
@@ -33,6 +34,37 @@ CANARY_CONFIG_DIGEST = "sha256:" + "1" * 64
 PRODUCTION_CONFIG_DIGEST = "sha256:" + "4" * 64
 CANARY_LAYERS = ["2" * 64, "3" * 64]
 PRODUCTION_LAYERS = ["5" * 64, "6" * 64]
+
+
+class RouterOSRuntimeIdentityTransportContractTests(unittest.TestCase):
+    def test_runtime_identity_collector_queries_fit_binary_client_allowlist(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.sent = b""
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent += payload
+
+            def recv(self, _size: int) -> bytes:
+                return encode_sentence(["!done", ".tag=1"])
+
+            def close(self) -> None:
+                return None
+
+        queries = (
+            ("/container/print", f".proplist={RUNTIME_IDENTITY_CONTAINER_PROPLIST}"),
+            ("/container/layers/print", f".proplist={LAYER_PROPLIST}"),
+        )
+        for path, query in queries:
+            with self.subTest(path=path):
+                connection = RouterOSBinaryConnection("router.example")
+                fake = FakeSocket()
+                connection._socket = fake  # noqa: SLF001 - assert collector/client contract
+                connection.execute(path, query=(query,))
+                self.assertEqual(
+                    decode_words(fake.sent),
+                    [path.encode(), query.encode(), b".tag=1"],
+                )
 
 
 class RouterOSAcceptanceSamplerTests(unittest.TestCase):

@@ -358,8 +358,11 @@ class RouterOSBinaryConnection:
                     "healthy",
                     "healthcheck-status",
                     "remote-image",
+                    "image-id",
+                    "layers",
                 }
             ),
+            "/container/layers/print": frozenset({"name", "type", "containers"}),
             "/interface/print": frozenset(
                 {".id", "name", "rx-byte", "tx-byte", "rx-packet", "tx-packet"}
             ),
@@ -374,7 +377,9 @@ class RouterOSBinaryConnection:
     )
     READ_ONLY_LISTEN_QUERY_FIELDS = MappingProxyType({"/ppp/active": _ACTIVE_SESSION_FIELDS})
     READ_ONLY_PRINT_PATHS = frozenset(READ_ONLY_PRINT_QUERY_FIELDS)
-    READ_ONLY_PRINT_REQUIRED_PROPLIST_PATHS = frozenset({"/system/resource/print", "/container/print"})
+    READ_ONLY_PRINT_REQUIRED_PROPLIST_PATHS = frozenset(
+        {"/system/resource/print", "/container/print", "/container/layers/print"}
+    )
     READ_ONLY_LISTEN_PATHS = frozenset(READ_ONLY_LISTEN_QUERY_FIELDS)
 
     @staticmethod
