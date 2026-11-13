@@ -22,7 +22,7 @@ image; its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC; GitHub through 14:56 UTC
+## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
@@ -51,6 +51,33 @@ executable/root cause remains unknown. These point reads do not establish a
 healthy rollback baseline, accept a candidate, or provide a soak. No RouterOS
 setting, account, container lifecycle, or production state changed; no staging,
 restart, rollback, or deployment occurred. The candidate gate remains blocked.
+
+## Previous checkpoint — PR #966 — 2026-11-13 11:29 UTC
+
+PR #966 merged documentation-only at
+`1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`; its required checks, post-merge
+main CI, and CodeQL passed. PR #965 remained the latest published image; it was
+not staged. Publication did not prove RouterOS acceptance or a running digest.
+
+The TLS-verified Binary API read at 11:03:50 UTC found the PR #894 canary
+unhealthy and production running with a tag-only configured reference; neither
+running OCI digest was verified. Direct private probes at 11:10:21 UTC returned
+HTTP 200 for canary `/healthz` and `/readyz`, with readiness `ready` at the old
+PR #894 revision. A TLS-verified REST healthcheck comparison at 11:11:50 UTC
+classified the canary as `segmentation_fault`, with no per-container override,
+the reviewed legacy default shape, and restart count 0. Production health was
+`good`. A bounded filtered RouterOS log query returned no matching fault
+records. The PR #965 `--check-only` preflight blocked at
+`baseline / canary_unhealthy` with `router_writes_may_have_started=false`. These
+observations did not identify the failing executable or cause, accept the
+candidate, or establish a healthy rollback baseline. No RouterOS state changed,
+no candidate was staged, and no production deployment was claimed.
+
+A fresh read-only WinBox container-list view at 11:28:59 UTC showed the canary
+unhealthy and production healthy. The list view did not expose their configured
+image references, revisions, or running registry digests. No RouterOS write
+was issued during that inspection. The canary fault, safe rollback baseline,
+and candidate acceptance remained unresolved.
 
 ## Previous checkpoint — PR #964 — 2026-11-13 09:13 UTC
 

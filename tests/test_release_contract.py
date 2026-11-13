@@ -424,7 +424,9 @@ class ReleaseContractTests(unittest.TestCase):
             "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published",
             " ".join(routeros_acceptance.split()),
         )
-        self.assertIn("## Current checkpoint — 2026-11-13 11:29 UTC", routeros_acceptance)
+        self.assertIn("## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC", routeros_acceptance)
+        self.assertIn("A fresh TLS-verified read-only Binary API point read at 14:28:43 UTC", routeros_acceptance)
+        self.assertIn("## Previous checkpoint — PR #966 — 2026-11-13 11:29 UTC", routeros_acceptance)
         self.assertIn("A fresh read-only WinBox container-list view at 11:28:59 UTC showed the canary", routeros_acceptance)
         self.assertIn("`router_writes_may_have_started=false`", routeros_acceptance)
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
