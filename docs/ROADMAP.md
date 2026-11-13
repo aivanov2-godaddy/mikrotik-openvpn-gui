@@ -11,24 +11,43 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — 2026-11-13 13:36 UTC; GitHub verified through
-13:47 UTC.** `main` is at
+**Fresh read-only checkpoint — RouterOS read at 2026-11-13 14:28 UTC; GitHub
+verified through 14:56 UTC.** PR #971 merged at 14:51:24 UTC as
+`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
+It fixes the narrow RouterOS Binary API client's allowlist for runtime image
+identity reads. Post-merge CodeQL #43446742646 passed; main CI #43446742822 and
+container publisher #43446742850 were still running at this checkpoint. No new
+published image digest is verified. PR #965 remains the latest verified
+published candidate. No RouterOS staging or deployment occurred.
+
+A fresh TLS-verified read-only RouterOS point read at 14:28:43 UTC reported
+RouterOS 7.25.1. Runtime manifest identity reconciliation succeeded for both
+containers, but neither running image matched PR #965. The canary was
+unhealthy; reported health categories included failed, resource unavailable,
+segmentation fault, and timeout. Production was running and its health category
+was good; its configured reference remains tag-only even though its running
+manifest identity was reconciled. Count-only active OpenVPN sessions returned
+zero. Direct canary `/healthz` and `/readyz` probes at 14:37:16 UTC returned
+HTTP 200 and readiness `ready` for the old PR #894 revision. A 14:37:49 UTC
+TLS-verified healthcheck read found no per-container override and again
+classified the RouterOS default healthcheck as a segmentation fault. These
+point observations do not identify the failing executable or root cause, prove
+a healthy rollback baseline, or accept any candidate.
+
+Issue #927 remains open. #785 is closed; installed-updater reconciliation and
+healthy-canary rollback remain follow-up gates under #205. Issues #188–#199 and
+#201–#204 are closed; #200 and epic #205 remain open. The independent #200
+assessment, candidate-bound live-client checks and soak, and separate owner
+risk decision remain outstanding. No RouterOS settings, accounts, containers,
+or production state changed; no staging, restart, rollback, updater execution,
+or production deployment occurred. Multi-tenancy remains excluded.
+
+**Superseded checkpoint — 2026-11-13 13:36 UTC; GitHub verified through
+13:47 UTC.** `main` was at
 `d8a297952933e5d70944871238458b14c21544d5` after documentation PR #969. Its
-required checks passed. Post-merge CI #43435515202 passed at 13:47 UTC, and
-CodeQL #43435515201 passed. PR #965 remains the latest published
-image; PR #969 did not publish or deploy.
-
-A fresh read-only WinBox view at about 13:36 UTC showed RouterOS 7.25.1, the
-canary unhealthy on the older PR #894 image, and production healthy with a
-tag-only configured reference. The displayed opaque `image-id` values do not
-verify an OCI manifest digest. The unhealthy canary is not a healthy rollback
-baseline. No staging, restart, rollback, or production deployment occurred.
-
-Issue #927 is open again after its acceptance criteria were rechecked at
-13:29 UTC. #785 is closed; installed-updater reconciliation and healthy-canary
-rollback remain follow-up gates under #205. Issues #200, #927, and epic #205
-remain open. The independent #200 assessment, client-bound live checks,
-candidate soak, and owner risk decision are still outstanding.
+required checks passed. Post-merge CI #43435515202 and CodeQL #43435515201
+passed. PR #965 was the latest published image; PR #969 did not publish or
+deploy.
 
 **Prior read-only checkpoint — 2026-11-13 12:21 UTC.** GitHub `main` is at
 `c880bceb97a68cf8582e069ff54e96e86359c5b6` after PR #967; PR #965 remains the
