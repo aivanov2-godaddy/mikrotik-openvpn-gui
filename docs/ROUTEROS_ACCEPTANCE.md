@@ -22,7 +22,7 @@ Its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — PR #975 and RouterOS reads 2026-11-13 18:05–18:07 UTC
+## Current checkpoint — PR #975 and RouterOS reads 2026-11-13 18:05–21:31 UTC
 
 PR #975 merged to `main` at 17:55:32 UTC as
 `741740de016852a9fb5230bead0fe5c04a0ff823`. Its required CI and CodeQL checks
@@ -44,8 +44,16 @@ the PR #894 revision. Production was reported healthy with a tag-only configured
 reference. The snapshot did not verify either running OCI manifest digest.
 Its aggregate active-session result found no active VPN sessions at that
 instant; it did not identify a particular client, so the disposable-client
-acceptance checks remain pending. No direct readiness probe was made in this
-checkpoint.
+acceptance checks remain pending.
+
+A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
+`/healthz` and `/readyz`; readiness was `ready` and matched the PR #894
+revision. A paired TLS-verified REST healthcheck classification at 21:31:08 UTC
+again reported `segmentation_fault` with a `failed` prefix, no per-container
+override, and the same reviewed legacy default-check shape. These close point
+samples show the app endpoints responding while RouterOS reports a failed
+healthcheck; they do not identify the crashing executable or prove the root
+cause, and they are not a soak.
 
 WinBox was not used for this checkpoint; these results are from TLS-verified
 REST and Binary API reads. No RouterOS setting, account, container, scheduler,

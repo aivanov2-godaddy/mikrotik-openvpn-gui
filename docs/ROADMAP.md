@@ -11,7 +11,7 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — RouterOS reads at 2026-11-13 18:05–18:07 UTC;
+**Fresh read-only checkpoint — RouterOS reads at 2026-11-13 18:05–21:31 UTC;
 GitHub verified through 18:08 UTC.** Main is at
 `741740de016852a9fb5230bead0fe5c04a0ff823` after PR #975. Its required checks
 passed; post-merge CI #43477581774 and CodeQL #43477581924 passed. PR #975 adds
@@ -30,7 +30,12 @@ identify the faulting executable.
 
 The aggregate active-session result at 18:07:43 UTC found no active VPN
 sessions. No client identity was queried, so the disposable-client checks remain
-pending. No direct readiness probe was taken in this checkpoint. WinBox was not
+pending. A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
+`/healthz` and `/readyz`, readiness `ready`, and the PR #894 revision. The
+paired 21:31:08 UTC healthcheck classification again reported
+`segmentation_fault` with the legacy default profile. The app endpoints
+responded, but the exact failing healthcheck executable/cause remains unknown;
+these points do not constitute a soak. No client identity was queried. WinBox was not
 used. No RouterOS state changed; there was no staging, restart, rollback,
 updater execution, or production deployment.
 

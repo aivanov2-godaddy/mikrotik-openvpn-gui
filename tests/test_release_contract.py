@@ -360,7 +360,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
         self.assertIn(
-            "The latest RouterOS evidence is a TLS-verified REST healthcheck classification at 18:05:54 UTC",
+            "The latest healthcheck evidence is a TLS-verified REST classification at 21:31:08 UTC",
             release_compact,
         )
         self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", release_compact)
@@ -434,15 +434,19 @@ class ReleaseContractTests(unittest.TestCase):
             " ".join(routeros_acceptance.split()),
         )
         self.assertIn(
-            "## Current checkpoint — PR #975 and RouterOS reads 2026-11-13 18:05–18:07 UTC",
+            "## Current checkpoint — PR #975 and RouterOS reads 2026-11-13 18:05–21:31 UTC",
             routeros_acceptance,
         )
         self.assertIn(
             "post-merge main CI #43477581774 and CodeQL #43477581924 also passed",
             routeros_acceptance,
         )
-        self.assertIn("A TLS-verified REST healthcheck classification at 18:05:54 UTC", routeros_acceptance)
+        self.assertIn("A paired TLS-verified REST healthcheck classification at 21:31:08 UTC", routeros_acceptance)
         self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", routeros_acceptance)
+        self.assertIn(
+            'A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both',
+            routeros_acceptance,
+        )
         self.assertIn("registry_image_config_healthcheck_profile", routeros_acceptance)
         self.assertIn("## Previous checkpoint — PR #966 — 2026-11-13 11:29 UTC", routeros_acceptance)
         self.assertIn("A fresh read-only WinBox container-list view at 11:28:59 UTC showed the canary", routeros_acceptance)

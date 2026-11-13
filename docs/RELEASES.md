@@ -28,8 +28,8 @@ main CI #43477581774 and CodeQL #43477581924 passed. No container publisher run
 was triggered; PR #971 remains the latest published image source. The formal
 release remains v2.7.0.
 
-The latest RouterOS evidence is a TLS-verified REST healthcheck classification
-at 18:05:54 UTC on 2026-11-13. It reported `segmentation_fault` with a `failed`
+The latest healthcheck evidence is a TLS-verified REST classification
+at 21:31:08 UTC on 2026-11-13. It reported `segmentation_fault` with a `failed`
 prefix, no per-container override, and the reviewed legacy readiness-check
 shape.
 
@@ -37,8 +37,14 @@ A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC reported
 the canary not healthy on a digest-pinned configured reference matching PR #894;
 production was healthy with a tag-only reference. Neither running OCI manifest
 digest was verified. The aggregate active-session result found no active
-sessions at the snapshot time; it does not identify a particular client. No
-direct readiness probe was taken.
+sessions at the snapshot time; it does not identify a particular client.
+
+A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
+`/healthz` and `/readyz`, readiness `ready`, and the PR #894 revision. The
+healthcheck classification 56 seconds later again reported
+`segmentation_fault` with the legacy default profile. These close point samples
+show the app responding while the RouterOS healthcheck fails; the exact failing
+executable/cause remains unknown, and this is not a soak.
 PR #975's fixed-label healthcheck profile is registry/config evidence for
 acceptance reports; it is not a device diagnosis. No RouterOS change, canary
 stage, restart, rollback, production deployment, or promotion occurred.
