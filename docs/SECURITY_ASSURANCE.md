@@ -1163,22 +1163,22 @@ protocol parameters on all requests and a missing or blank transport on new
 Engine.IO v4 handshakes before calling Engine.IO. Existing bound SID requests
 retain Engine.IO's default-polling compatibility. Regression coverage includes
 malformed handshakes, existing SID compatibility, and a subsequent valid
-handshake. The latest published image is PR #935
-(`3f8fc22ec3166b3074fb54f54c79d6dede256ed4`); post-merge main CI, push
+handshake. The latest published mainline image is PR #965
+(`13cae96d27ad42920ca4685116cd475eaa457408`); post-merge main CI, push
 analysis, both image builds/scans, source verification, rendered-browser checks,
-and stable-manifest publication/read-back passed. Digests and the manifest
-checksum are in [RELEASES.md](RELEASES.md). PR #935 has not been staged on
-RouterOS. A read-only WinBox point observation at 07:38 UTC on 2026-11-12
-marked the canary unhealthy and production healthy. A TLS-verified REST
-configuration snapshot at 07:39 UTC found the canary still on PR #894's exact
-ARM64 digest and production tag-only; neither running digest was verified. The
-default healthcheck continued to report process/fork resource exhaustion and a
-segmentation-fault marker; the failing process and cause remain unknown.
-Qualitative authenticated disconnect, automatic client reconnect, and fallback
-observations are recorded in the [live acceptance
-report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md), but no measured latency,
-RouterOS API recovery, or sustained acceptance is claimed. Issue #200 remains
-open for the remaining deployed checks and an independent scoped review. This
+runtime smoke tests, provenance/SBOM verification, and stable-manifest
+publication/read-back passed. Digests and the manifest checksum are in
+[RELEASES.md](RELEASES.md). PR #965 has not been staged on RouterOS. A
+TLS-verified Binary API read at 10:21 UTC on 2026-11-13 found the canary
+unhealthy on the older PR #894 configured image and production running with a
+tag-only reference; neither running registry digest was verified. A separate
+TLS-verified REST healthcheck read at 10:17 UTC still classified the canary
+check as failed / segmentation_fault. The failing process and cause remain
+unknown. Earlier qualitative authenticated disconnect, automatic client
+reconnect, and fallback observations are recorded in the [live acceptance
+report](LIVE_TELEMETRY_ACCEPTANCE_REPORT.md), but no candidate-bound measured
+latency, RouterOS API recovery, or sustained acceptance is claimed. Issue #200
+remains open for the deployed checks and an independent scoped review. This
 document is not a complete ASVS assessment or compliance attestation.
 
 ## Independent internal source review — 2026-11-04
