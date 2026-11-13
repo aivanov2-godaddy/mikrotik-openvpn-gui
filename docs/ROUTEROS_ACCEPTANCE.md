@@ -22,51 +22,15 @@ image; its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-Documentation PR #954 merged to `main` at
-`d4bd6f63c59cbbfe003533b3345beb4b3b731479` at 00:14:20 UTC on 2026-11-13.
-Its required PR checks passed; post-merge main CI #43335450320 and push
-analysis #43335450000 also passed. No image publisher run was listed for this
-documentation-only merge. PR #935 has not been staged on RouterOS. Issues
-#785, #927, and #200 remain open, and the full acceptance gates below are
-incomplete.
+Documentation PR #955 merged to `main` at `99901e58e6696085c4d480e779daf66f8b35780f` at 01:04:29 UTC on 2026-11-13. All required PR checks passed; post-merge main CI #43342084353 and Push on main #43342084093 passed. No image publisher run was listed for that documentation-only merge. PR #935 remains the latest published image, but has not been staged on RouterOS. Its ARM64 registry manifest is `sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd`; this does not prove device acceptance or a running digest. Issues #785, #927, and #200 remain open; the full acceptance gates below are incomplete.
 
-## Latest-image canary read-back — 2026-11-13
+## Latest RouterOS read-back — 2026-11-13 01:16 UTC
 
-The published PR #935 ARM64 image is still not staged. A TLS-verified
-read-only Binary API snapshot at 00:35:13 UTC on 2026-11-13 found the canary
-unhealthy on the pinned PR #894 revision and production healthy with a tag-only
-reference. Neither running registry digest was verified. The same snapshot's
-count-only active OpenVPN query returned zero; no session details were saved.
+A TLS-verified read-only REST observation at 01:16:10 UTC found the canary lifecycle `unhealthy` on the pinned PR #894 image. The default healthcheck remained failed/segmentation-fault, with no per-container command override and the reviewed timeout/wget readiness-check shape. Direct private GETs returned HTTP 200 for `/healthz` and `/readyz`; readiness was `ready` at the old PR #894 revision. Application readiness does not override RouterOS's failed healthcheck.
 
-A healthcheck read at 23:44:56 UTC still classified the canary as
-failed/segmentation-fault, with no per-container command override and no
-RouterOS healthy field. A follow-up TLS-verified REST read at 00:29:50 UTC on
-2026-11-13 again classified the canary healthcheck as segmentation-fault; the
-canary lifecycle and healthy fields remained absent. The production healthy
-field was true, but its lifecycle field was absent. The same read found the
-default timeout/wget healthcheck shape unchanged. Direct private `/healthz` and
-`/readyz` probes at
-23:45:40 UTC returned HTTP 200/ready at the old PR #894 revision. This does not
-override RouterOS's failed healthcheck or prove a sustained healthy window. A
-bounded filtered log query at 00:04 UTC on 2026-11-13 returned zero matching
-healthcheck/fault records, without printing or retaining raw lines. The
-disposable VPN client was disconnected during these checks.
+The same bounded read found production lifecycle `running` with a tag-only configured reference. Its redacted healthcheck category was `other`, so this snapshot does not establish production health. Neither running registry digest was verified. No raw image IDs, healthcheck commands/output, private addresses, or credentials were retained. A version-only read at 00:29:50 UTC reported RouterOS 7.25.1. MikroTik's [Container manual](https://manual.mikrotik.com/docs/containers/) says native healthcheck support starts in 7.23; this does not identify the fault or validate the PR #935 candidate on this device.
 
-A TLS-verified REST read at 00:29:50 UTC reported RouterOS 7.25.1. MikroTik's
-[Container manual](https://manual.mikrotik.com/docs/containers/)
-states native container healthcheck support starts in RouterOS 7.23; the
-version read establishes the device version, not the healthcheck fault's cause
-or candidate compatibility. No RouterOS firmware or container setting changed.
-PR #926's exec-form image healthcheck remains unvalidated on this device. The
-unhealthy canary is not a healthy rollback baseline, so the staging preflight
-continues to block before a write. A live `--check-only` run at 00:38:38 UTC
-returned `preflight_blocked / baseline / canary_unhealthy` for the PR #935
-candidate; it reported that no RouterOS write may have started. This confirms
-the staging guard is active and is not a candidate test. See
-[#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927)
-for the device-bound healthcheck gate and
-[#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200)
-for the separate live acceptance program. No production deployment is claimed.
+The PR #935 canary staging preflight at 00:38:38 UTC returned `preflight_blocked / baseline / canary_unhealthy` and `router_writes_may_have_started=false`. PR #935 remains unstaged because the unhealthy canary is not a healthy rollback baseline. No RouterOS setting, account, password, container, scheduler, updater, or firmware changed; there was no staging, restart, rollback, updater execution, or production deployment. See [#927](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/927) for the device-bound healthcheck gate and [#200](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/issues/200) for the separate live acceptance program. No production deployment is claimed.
 
 ## Separate updater inventory evidence — 2026-11-11
 
