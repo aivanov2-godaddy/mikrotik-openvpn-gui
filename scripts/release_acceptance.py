@@ -176,6 +176,8 @@ def evaluate(
         # public report.
         if not collection_passed or collection_failures:
             failures.append("live_collection_failed")
+        if collection.get("router_runtime_digest_verified") is not True:
+            failures.append("router_runtime_digest_unverified")
         collection_started = _timestamp(collection, "started_at")
         collection_ended = _timestamp(collection, "ended_at")
         collection_duration = (collection_ended - collection_started).total_seconds()
@@ -613,6 +615,8 @@ def evaluate(
                 and verification.get("image") == deployment["image"]
                 and verification.get("expected_digest") == deployment["digest"]
                 and verification.get("observed_digest") == deployment["digest"]
+                and verification.get("observed_digest_at_end") == deployment["digest"]
+                and verification.get("stable_through_soak") is True
                 and verification.get("verified") is True
             )
             if not verified:
@@ -675,10 +679,19 @@ def evaluate(
                 active_sessions_max = _count(raw_routeros_evidence, "active_vpn_sessions_max")
                 max_gap = _number(raw_routeros_evidence, "max_sample_gap_seconds")
                 resource_values = raw_routeros_evidence.get("resource_peaks")
+                runtime_manifest_digests = raw_routeros_evidence.get("runtime_manifest_digests")
+                expected_runtime_digests = {
+                    record["environment"]: record["digest"] for record in safe_records
+                }
                 if (
-                    raw_routeros_evidence.get("format") != "vpn-dashboard-routeros-acceptance-v4"
+                    raw_routeros_evidence.get("format") != "vpn-dashboard-routeros-acceptance-v5"
                     or raw_routeros_evidence.get("container_revisions_matched") is not True
                     or raw_routeros_evidence.get("container_configured_digests_matched") is not True
+                    or raw_routeros_evidence.get("router_runtime_digest_verified") is not True
+                    or collection.get("router_runtime_digest_verified") is not True
+                    or not isinstance(runtime_manifest_digests, dict)
+                    or set(runtime_manifest_digests) != set(ENVIRONMENTS)
+                    or runtime_manifest_digests != expected_runtime_digests
                     or rest_parity_successful != sample_count
                     or rest_parity_failed != 0
                     or active_sessions_max < active_sessions_min
@@ -706,7 +719,7 @@ def evaluate(
                 if active_sessions_max < 1:
                     failures.append("vpn_test_session_not_observed")
                 routeros_resource_evidence = {
-                    "format": "vpn-dashboard-routeros-acceptance-v4",
+                    "format": "vpn-dashboard-routeros-acceptance-v5",
                     "observation_started_at": routeros_started.isoformat(),
                     "observation_ended_at": routeros_ended.isoformat(),
                     "sample_count": sample_count,
@@ -718,6 +731,8 @@ def evaluate(
                     "resource_peaks": resource_numbers,
                     "container_revisions_matched": True,
                     "container_configured_digests_matched": True,
+                    "router_runtime_digest_verified": True,
+                    "runtime_manifest_digests": runtime_manifest_digests,
                 }
             except ValueError:
                 failures.append("routeros_resource_evidence_invalid")
@@ -731,7 +746,10 @@ def evaluate(
         "registry_digest_verification_scope": (
             "canary-and-production"
         ),
-        "router_runtime_digest_verified": False,
+        "router_runtime_digest_verified": (
+            routeros_resource_evidence is not None
+            and routeros_resource_evidence.get("router_runtime_digest_verified") is True
+        ),
         "evidence_authenticity": {
             "redis_recovery": (
                 "github-attestation-claim-verified-during-collection-not-reverified-offline"

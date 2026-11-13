@@ -11,6 +11,24 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
+**Fresh read-only checkpoint — 2026-11-13 12:21 UTC.** GitHub `main` is at
+`c880bceb97a68cf8582e069ff54e96e86359c5b6` after PR #967; PR #965 remains the
+latest published image source. A WinBox count-only OVPN query returned zero
+active sessions. The canary still reports unhealthy on the old PR #894 image;
+production reports healthy with a tag-only configured reference. This does not
+establish a healthy rollback baseline, and no candidate staging or production
+deployment is claimed. Issues #927, #200, and epic #205 remain open; #785 is
+closed, with reviewed updater staging still a follow-up gate under #205.
+
+This branch adds candidate-bound runtime-content reconciliation to the read-only
+acceptance collectors. The proof resolves and hashes the GHCR manifest and
+config, compares RouterOS `image-id` and typed ordered layers in memory, checks
+tag stability across the soak, and emits only a boolean plus manifest digest.
+The report and runbook changes are not evidence that the live canary passed.
+The feature still needs merged checks, a healthy rollback baseline, candidate
+staging and soak, the independent #200 security assessment, and a separate
+owner risk decision before any production deployment.
+
 **Verified repository and RouterOS checkpoint — 2026-11-13 11:29 UTC.** PR #966 is the current mainline tip at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`; its documentation-only changes, required checks, post-merge main CI, and CodeQL passed. PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published mainline image source. Its publisher built and scanned both architectures, attested image digests and SBOMs, smoke-tested both runtimes, and published/read back the stable manifest. The ARM64 digest is `sha256:a83094cf709db13248e372b62dd2cdecf14d41ce2b20a88fda7e533a0ccf6f0c`; the AMD64 digest and manifest checksum are in [RELEASES.md](RELEASES.md). Publication is not RouterOS acceptance or proof of a running digest.
 
 The latest RouterOS Binary API read at 11:03:50 UTC found the canary unhealthy on its older digest-pinned PR #894 image and production running with a tag-only configured reference. Neither running OCI digest was verified; neither configured image matches PR #965's candidate. At 11:10:21 UTC, direct canary `/healthz` and `/readyz` probes returned HTTP 200 and readiness `ready` for the old PR #894 revision. A TLS-verified REST comparison at 11:11:50 UTC classified the canary healthcheck as `segmentation_fault` with no per-container override, the reviewed legacy default command shape, and restart count 0; production's healthcheck was `good` with a healthy field, no override, and a different default-check shape. A bounded filtered RouterOS log read found no matching fault records. The PR #965 `--check-only` preflight blocked at `baseline / canary_unhealthy` with `router_writes_may_have_started=false`. A later read-only WinBox container-list view at 11:28:59 UTC showed the canary unhealthy and production healthy; that UI did not expose image references or digests. These point samples do not establish a healthy rollback baseline or identify the failing executable/root cause. Issue #927 remains open. No candidate was staged and no production deployment is claimed.

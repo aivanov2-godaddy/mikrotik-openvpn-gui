@@ -934,14 +934,26 @@ hours, sampling at 10,000 observations, and app-probe socket timeout at 30
 seconds; redirects are not followed. Each GHCR digest lookup runs in a child
 process with a hard wall-clock cap of the configured timeout plus a 0.5-second
 cleanup margin, so a server trickling response headers cannot hold the
-collector indefinitely. The collector checks the candidate tag/digest in a
-pre-promotion run and both tag/digest pairs post-promotion against GHCR's
-current OCI manifest; required unavailable or mismatched registry digests fail
-closed. This is not an independent read-back of RouterOS's cached
-image bytes: the current RouterOS container status exposes the configured tag,
-not its local OCI digest. The report therefore explicitly records
-`router_runtime_digest_verified: false`. Keep the output local or redact it
-before sharing.
+collector indefinitely. The collector checks each expected GHCR digest at the
+start and end of the soak; a missing or changed tag resolution fails closed.
+The separate RouterOS sampler also resolves each exact project reference
+through GHCR, hashes the manifest bytes against `Docker-Content-Digest`, selects
+the Linux image for the configured architecture, and verifies the config blob
+digest and ordered layer descriptors. It compares those values in memory with
+the RouterOS `image-id`, `layers`, and `/container/layers` read-back, excluding
+entries whose RouterOS type is `root-dir`. Only a boolean and verified registry
+manifest digest are retained; raw RouterOS IDs and replies are discarded.
+
+RouterOS does not directly report the full OCI manifest digest. MikroTik lists
+`image-id` as a string and `/container/layers` names as layer metadata, without
+specifying their cryptographic meaning or order. The config-and-layer match is
+an empirical runtime-content reconciliation, currently exercised against
+RouterOS 7.25.1. It is not a claim that `image-id` is the manifest digest. The
+collector reports `router_runtime_digest_verified: true` only after both
+environments' runtime config and ordered layers match their independently
+verified GHCR manifest, the registry digest is stable across the soak, and the
+RouterOS and app windows join successfully. Older evidence formats without
+this proof fail closed. Keep the output local or redact it before sharing.
 The app-level collector cannot independently prove router CPU/memory/storage,
 VPN event latency/freshness, event loss/ordering, API interruption/recovery,
 snapshot recovery, rollback, unauthenticated access, or secret-free logs. It
@@ -959,10 +971,15 @@ container, and active-session fields over both transports; it fails acceptance
 if either read fails or the normalized snapshots disagree. CPU readings allow
 at most a 10 percentage-point difference to account for sequential sampling;
 memory and storage percentages allow at most 1 point; active-session counts,
-container state, immutable revisions, and configured image digests must match
-exactly. The REST reader
-uses only HTTPS GET requests to `/rest/system/resource`, `/rest/container`,
-and `/rest/ppp/active`, with `.proplist` restrictions, normal certificate
+container state, immutable revisions, configured image digests, and sanitized
+runtime identity proof must match exactly. On RouterOS 7.25 and later, the
+sampler requests `image-id` and the container `layers` list, then reads typed
+layer ownership from `/container/layers`. Missing, extra, reordered, malformed,
+or unowned image layers fail closed. For a mutable production tag, it resolves
+the tag before and after the window and requires the same manifest, config, and
+layers. The REST reader uses only HTTPS GET requests to
+`/rest/system/resource`, `/rest/container`, `/rest/container/layers`, and
+`/rest/ppp/active`, with `.proplist` restrictions, normal certificate
 validation, no redirects, a 10-second timeout, and a 1 MiB response limit.
 Never enable insecure TLS or expose either API to the Internet. Use a dedicated
 read-only RouterOS account with only the `read`, `api`, and `rest-api` policies;
@@ -983,8 +1000,8 @@ environment variables, with separate masked password prompts as fallback. Set
 the REST URL as a credential-free HTTPS origin (no `/rest` suffix is required).
 The output contains CPU, memory, and storage peaks, aggregate active-session
 counts, named canary and production health, recognized immutable source
-revisions, configured digest observations, and REST-parity sample counts. It
-omits host, username, session
+revisions, configured digest observations, sanitized runtime-manifest proof,
+and REST-parity sample counts. It omits host, username, session
 identities/addresses, IDs, container paths, environment lists, mounts, full
 image strings, raw replies, and individual mismatching values. Keep the report
 private and join its values with the corresponding deployment records locally.

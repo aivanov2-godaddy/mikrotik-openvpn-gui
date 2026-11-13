@@ -74,7 +74,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     @staticmethod
     def _routeros_resource_evidence() -> dict[str, object]:
         return {
-            "format": "vpn-dashboard-routeros-acceptance-v4",
+            "format": "vpn-dashboard-routeros-acceptance-v5",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
@@ -90,6 +90,11 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             },
             "container_revisions_matched": True,
             "container_configured_digests_matched": True,
+            "router_runtime_digest_verified": True,
+            "runtime_manifest_digests": {
+                "canary": "sha256:" + "b" * 64,
+                "production": "sha256:" + "b" * 64,
+            },
         }
 
     @staticmethod
@@ -128,6 +133,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 "phase": "postpromotion",
                 "passed": True,
                 "failed_gates": [],
+                "router_runtime_digest_verified": True,
                 "started_at": "2026-10-02T10:00:00Z",
                 "ended_at": "2026-10-02T10:30:00Z",
                 "browser_origin_readiness": {
@@ -147,6 +153,8 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                         "image": image_ref(revision),
                         "expected_digest": "sha256:" + "b" * 64,
                         "observed_digest": "sha256:" + "b" * 64,
+                        "observed_digest_at_end": "sha256:" + "b" * 64,
+                        "stable_through_soak": True,
                         "verified": True,
                     }
                     for environment in ("canary", "production")
@@ -310,7 +318,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(report["deployments"][0]["digest"], "sha256:" + "b" * 64)
         self.assertNotIn("details", report["deployments"][0])
         self.assertTrue(report["registry_tag_digests_verified"])
-        self.assertFalse(report["router_runtime_digest_verified"])
+        self.assertTrue(report["router_runtime_digest_verified"])
         self.assertEqual(report["stream_acceptance"]["format"], "vpn-dashboard-stream-acceptance-v3")
         self.assertEqual(
             report["evidence_authenticity"],
@@ -344,7 +352,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_routeros_resource_evidence_is_preserved_only_when_it_matches_the_soak(self) -> None:
         evidence = deepcopy(self.evidence)
         evidence["collection"]["routeros_resource_evidence"] = {
-            "format": "vpn-dashboard-routeros-acceptance-v4",
+            "format": "vpn-dashboard-routeros-acceptance-v5",
             "observation_started_at": "2026-10-02T10:00:10Z",
             "observation_ended_at": "2026-10-02T10:30:10Z",
             "sample_count": 31,
@@ -360,6 +368,11 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             },
             "container_revisions_matched": True,
             "container_configured_digests_matched": True,
+            "router_runtime_digest_verified": True,
+            "runtime_manifest_digests": {
+                "canary": "sha256:" + "b" * 64,
+                "production": "sha256:" + "b" * 64,
+            },
         }
 
         code, report = evaluate(evidence, now=self.NOW)
@@ -368,6 +381,20 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(report["routeros_resource_evidence"]["sample_count"], 31)
         self.assertEqual(report["routeros_resource_evidence"]["rest_parity_successful_sample_count"], 31)
         self.assertEqual(report["routeros_resource_evidence"]["resource_peaks"]["router_cpu_peak_percent"], 25)
+
+        runtime_mismatch = deepcopy(evidence)
+        runtime_mismatch["collection"]["routeros_resource_evidence"]["runtime_manifest_digests"][
+            "production"
+        ] = "sha256:" + "c" * 64
+        code, report = evaluate(runtime_mismatch, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("routeros_resource_evidence_invalid", report["failed_gates"])
+
+        missing_runtime_proof = deepcopy(evidence)
+        missing_runtime_proof["collection"]["router_runtime_digest_verified"] = False
+        code, report = evaluate(missing_runtime_proof, now=self.NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("router_runtime_digest_unverified", report["failed_gates"])
 
         missing_digest_binding = deepcopy(evidence)
         del missing_digest_binding["collection"]["routeros_resource_evidence"]["container_configured_digests_matched"]
@@ -446,6 +473,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "phase": "postpromotion",
             "passed": True,
             "failed_gates": [],
+            "router_runtime_digest_verified": True,
             "started_at": "2026-10-02T10:00:00Z",
             "ended_at": "2026-10-02T10:30:00Z",
             "browser_origin_readiness": deepcopy(self.evidence["collection"]["browser_origin_readiness"]),
@@ -563,6 +591,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "image": production_image,
             "expected_digest": production_digest,
             "observed_digest": production_digest,
+            "observed_digest_at_end": production_digest,
         })
         code, report = evaluate(self.evidence, now=self.NOW)
         self.assertEqual(code, 1)
@@ -736,6 +765,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         production = self.evidence["deployments"][1]
         production["image"] = previous_image
         production["digest"] = "sha256:" + "c" * 64
+        self.evidence["collection"]["routeros_resource_evidence"]["runtime_manifest_digests"][
+            "production"
+        ] = production["digest"]
         self.evidence["collection"]["rollback_rehearsal"] = self._rollback_readbacks(
             "a" * 40, "sha256:" + "b" * 64, previous_image
         )
@@ -755,6 +787,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "image": previous_image,
             "expected_digest": production["digest"],
             "observed_digest": production["digest"],
+            "observed_digest_at_end": production["digest"],
         })
 
         code, report = evaluate(self.evidence, now=self.NOW)
@@ -788,6 +821,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         production["image"] = previous_image
         production["digest"] = previous_digest
         production["transport"] = "socketio"
+        self.evidence["collection"]["routeros_resource_evidence"]["runtime_manifest_digests"][
+            "production"
+        ] = previous_digest
         self.evidence["collection"]["rollback_rehearsal"] = self._rollback_readbacks(
             "a" * 40, "sha256:" + "b" * 64, previous_image
         )
@@ -795,6 +831,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "image": previous_image,
             "expected_digest": previous_digest,
             "observed_digest": previous_digest,
+            "observed_digest_at_end": previous_digest,
         })
 
         _, collected_projection = evaluate(self.evidence, now=self.NOW)

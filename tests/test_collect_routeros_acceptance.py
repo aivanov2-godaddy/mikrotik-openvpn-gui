@@ -19,6 +19,7 @@ from scripts.collect_routeros_acceptance import (
     LEGACY_CONTAINER_PROPLIST,
     MODERN_CONTAINER_PROPLIST,
     PARITY_TOLERANCE,
+    RUNTIME_IDENTITY_CONTAINER_PROPLIST,
     RouterOSRestAcceptanceReader,
     _container_proplist_for_version,
     _snapshot,
@@ -27,13 +28,18 @@ from scripts.collect_routeros_acceptance import (
 )
 
 CANARY_DIGEST = "sha256:" + "d" * 64
+PRODUCTION_REGISTRY_DIGEST = "sha256:" + "c" * 64
+CANARY_CONFIG_DIGEST = "sha256:" + "1" * 64
+PRODUCTION_CONFIG_DIGEST = "sha256:" + "4" * 64
+CANARY_LAYERS = ["2" * 64, "3" * 64]
+PRODUCTION_LAYERS = ["5" * 64, "6" * 64]
 
 
 class RouterOSAcceptanceSamplerTests(unittest.TestCase):
     def _fake_connection(
         self,
         *,
-        version="7.24.5 (stable)",
+        version="7.25.1 (stable)",
         lifecycle=None,
         active_sessions=1,
         session_sequence=None,
@@ -46,7 +52,10 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         try:
             container_proplist = _container_proplist_for_version(version)
             modern = container_proplist != LEGACY_CONTAINER_PROPLIST
-            supports_healthcheck_status = container_proplist == HEALTHCHECK_CONTAINER_PROPLIST
+            supports_healthcheck_status = container_proplist in {
+                HEALTHCHECK_CONTAINER_PROPLIST,
+                RUNTIME_IDENTITY_CONTAINER_PROPLIST,
+            }
         except ValueError:
             modern = True
             supports_healthcheck_status = False
@@ -78,11 +87,30 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                         **state,
                         "remote-image": image(environment),
                         "root-dir": "/must-not-leak",
+                        "image-id": (
+                            CANARY_CONFIG_DIGEST.removeprefix("sha256:")
+                            if environment == "canary"
+                            else PRODUCTION_CONFIG_DIGEST.removeprefix("sha256:")
+                        ),
+                        "layers": ",".join(
+                            (CANARY_LAYERS if environment == "canary" else PRODUCTION_LAYERS)
+                            + [f"{environment}-root"]
+                        ),
                     }
                     if supports_healthcheck_status and healthcheck_status is not None:
                         record["healthcheck-status"] = healthcheck_status
                     records.append(RouterOSReply("re", record))
                 return records + [RouterOSReply("done", {})]
+            if path == "/container/layers/print":
+                self.assertEqual(query, (".proplist=name,type,containers",))
+                return [
+                    RouterOSReply("re", {"name": digest, "type": "layer", "containers": f"{CONTAINER_NAMES[environment]}"})
+                    for environment, digests in (("canary", CANARY_LAYERS), ("production", PRODUCTION_LAYERS))
+                    for digest in digests
+                ] + [
+                    RouterOSReply("re", {"name": f"{environment}-root", "type": "root-dir", "containers": CONTAINER_NAMES[environment]})
+                    for environment in CONTAINER_NAMES
+                ] + [RouterOSReply("done", {})]
             if path == "/ppp/active/print":
                 self.assertEqual(query, (".proplist=.id",))
                 session_count = session_samples[min(session_index, len(session_samples) - 1)]
@@ -123,6 +151,12 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                     "healthy": True,
                     "revision": revision,
                     "configured_digest": canary_digest if name == "canary" else production_digest,
+                    "runtime_manifest_digest": (
+                        (canary_digest if name == "canary" else production_digest or PRODUCTION_REGISTRY_DIGEST)
+                        if (name != "canary" or canary_digest == CANARY_DIGEST)
+                        else None
+                    ),
+                    "runtime_manifest_digest_verified": name != "canary" or canary_digest == CANARY_DIGEST,
                 }
                 for name in CONTAINER_NAMES
             },
@@ -134,7 +168,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         if session_sequence:
             session_index = 0
 
-            def next_snapshot():
+            def next_snapshot(**_kwargs):
                 nonlocal session_index
                 session_count = session_sequence[min(session_index, len(session_sequence) - 1)]
                 session_index += 1
@@ -145,6 +179,30 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             reader.snapshot.return_value = snapshot
         return reader
 
+    def _fake_registry_identity(self, image, *, timeout):
+        self.assertEqual(timeout, 8)
+        if "@" in image:
+            manifest_digest = image.split("@", 1)[1]
+            is_canary = manifest_digest == CANARY_DIGEST
+        else:
+            manifest_digest = PRODUCTION_REGISTRY_DIGEST
+            is_canary = False
+        return {
+            "manifest_digest": manifest_digest,
+            "config_digest": CANARY_CONFIG_DIGEST if is_canary else PRODUCTION_CONFIG_DIGEST,
+            "layer_digests": [f"sha256:{item}" for item in (CANARY_LAYERS if is_canary else PRODUCTION_LAYERS)],
+            "os": "linux",
+            "architecture": "arm64",
+        }
+
+    def setUp(self):
+        identity_patch = patch(
+            "scripts.collect_routeros_acceptance.resolve_image_identity",
+            side_effect=self._fake_registry_identity,
+        )
+        identity_patch.start()
+        self.addCleanup(identity_patch.stop)
+
     def test_snapshot_only_returns_allowlisted_aggregate_values(self):
         report = _snapshot(self._fake_connection())
         self.assertEqual(report["router_cpu_percent"], 23)
@@ -154,8 +212,16 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertEqual(
             report["healthcheck_status_categories"]["canary"], ["unavailable"]
         )
+        self.assertFalse(report["containers"]["canary"]["runtime_manifest_digest_verified"])
+        self.assertIsNone(report["containers"]["canary"]["runtime_manifest_digest"])
         self.assertNotIn("private-user", repr(report))
         self.assertNotIn("/must-not-leak", repr(report))
+
+    def test_routeros_725_selects_runtime_identity_properties(self):
+        self.assertEqual(
+            _container_proplist_for_version("7.25.1 (stable)"),
+            RUNTIME_IDENTITY_CONTAINER_PROPLIST,
+        )
 
     def test_healthcheck_status_is_reduced_to_allowlisted_categories(self):
         raw_status = (
@@ -294,6 +360,10 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertNotIn("sensitive-healthcheck-detail", repr(report))
         self.assertNotIn("private-user", repr(report))
         self.assertTrue(all(item["healthy_for_all_successful_samples"] for item in report["containers"].values()))
+        self.assertTrue(all(item["runtime_manifest_digest_verified"] for item in report["containers"].values()))
+        self.assertEqual(report["containers"]["canary"]["runtime_manifest_digest"], CANARY_DIGEST)
+        self.assertNotIn(CANARY_CONFIG_DIGEST.removeprefix("sha256:"), repr(report))
+        self.assertNotIn(CANARY_LAYERS[0], repr(report))
         self.assertEqual(
             report["healthcheck_status_categories"],
             {"canary": ["good"], "production": ["good"]},
@@ -375,6 +445,71 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertTrue(report["passed"], report["failed_gates"])
         self.assertEqual(report["active_vpn_sessions_min"], 0)
         self.assertEqual(report["active_vpn_sessions_max"], 1)
+
+    def test_mutable_production_tag_change_during_routeros_soak_fails_closed(self):
+        calls = {}
+        changed_digest = "sha256:" + "e" * 64
+
+        def resolver(image, *, timeout):
+            identity = self._fake_registry_identity(image, timeout=timeout)
+            if "@" not in image:
+                calls[image] = calls.get(image, 0) + 1
+                if calls[image] > 1:
+                    return {**identity, "manifest_digest": changed_digest}
+            return identity
+
+        now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+        elapsed = [0.0]
+        report = collect(
+            self._fake_connection(),
+            rest_reader=self._fake_rest_reader(),
+            username="reader",
+            password="do-not-log",
+            expected_revisions={name: "a" * 40 for name in CONTAINER_NAMES},
+            expected_digests={"canary": CANARY_DIGEST, "production": None},
+            duration_seconds=1800,
+            interval_seconds=60,
+            clock=lambda: now + timedelta(seconds=elapsed[0]),
+            monotonic=lambda: elapsed[0],
+            sleep=lambda delay: elapsed.__setitem__(0, elapsed[0] + delay),
+            registry_identity_resolver=resolver,
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("container_runtime_manifest_digest_unverified", report["failed_gates"])
+        self.assertFalse(report["containers"]["production"]["runtime_manifest_digest_verified"])
+        self.assertIsNone(report["containers"]["production"]["runtime_manifest_digest"])
+
+    def test_unknown_or_unowned_runtime_layer_fails_closed(self):
+        revision = "a" * 40
+        references = {
+            "canary": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64@{CANARY_DIGEST}",
+            "production": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64",
+        }
+        identities = {name: self._fake_registry_identity(image, timeout=8) for name, image in references.items()}
+        connection = self._fake_connection()
+        original_execute = connection.execute.side_effect
+
+        def with_unknown_layer(path, **kwargs):
+            replies = original_execute(path, **kwargs)
+            if path == "/container/layers/print":
+                return replies[:-1] + [
+                    RouterOSReply(
+                        "re",
+                        {"name": "unexpected-layer", "type": "opaque", "containers": CONTAINER_NAMES["canary"]},
+                    ),
+                    replies[-1],
+                ]
+            return replies
+
+        connection.execute.side_effect = with_unknown_layer
+        snapshot = _snapshot(
+            connection,
+            runtime_identities=identities,
+            expected_image_references=references,
+        )
+        self.assertFalse(snapshot["containers"]["canary"]["runtime_manifest_digest_verified"])
+        self.assertIsNone(snapshot["containers"]["canary"]["runtime_manifest_digest"])
 
     def test_configured_digest_is_bound_throughout_window_and_rest_parity(self):
         alternate = "sha256:" + "e" * 64
@@ -561,6 +696,108 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertEqual(opener.open.call_count, 13)
         reader.close()
         self.assertEqual(reader._authorization, "")
+
+    def test_rest_runtime_identity_uses_typed_layer_rows_and_keeps_ids_private(self):
+        reader = RouterOSRestAcceptanceReader("https://router.example/rest", "reader", "secret")
+        revision = "a" * 40
+        identities = {
+            "canary": {
+                "manifest_digest": CANARY_DIGEST,
+                "config_digest": CANARY_CONFIG_DIGEST,
+                "layer_digests": [f"sha256:{value}" for value in CANARY_LAYERS],
+                "os": "linux",
+                "architecture": "arm64",
+            },
+            "production": {
+                "manifest_digest": PRODUCTION_REGISTRY_DIGEST,
+                "config_digest": PRODUCTION_CONFIG_DIGEST,
+                "layer_digests": [f"sha256:{value}" for value in PRODUCTION_LAYERS],
+                "os": "linux",
+                "architecture": "arm64",
+            },
+        }
+        references = {
+            "canary": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64@{CANARY_DIGEST}",
+            "production": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64",
+        }
+        payloads = {
+            "/rest/system/resource": [{
+                "cpu-load": "23", "total-memory": "1000", "free-memory": "600",
+                "total-hdd-space": "10000", "free-hdd-space": "7000", "uptime": "1d",
+                "version": "7.25.1 (stable)",
+            }],
+            "/rest/container": [
+                {
+                    "name": CONTAINER_NAMES[environment],
+                    "running": "true",
+                    "healthy": "true",
+                    "healthcheck-status": "good, output: ",
+                    "remote-image": references[environment],
+                    "image-id": identities[environment]["config_digest"].removeprefix("sha256:"),
+                    "layers": (CANARY_LAYERS if environment == "canary" else PRODUCTION_LAYERS)
+                    + [f"{environment}-root"],
+                }
+                for environment in CONTAINER_NAMES
+            ],
+            "/rest/container/layers": [
+                *[
+                    {
+                        "name": digest,
+                        "type": "layer",
+                        "containers": [CONTAINER_NAMES[environment]],
+                    }
+                    for environment, digests in (("canary", CANARY_LAYERS), ("production", PRODUCTION_LAYERS))
+                    for digest in digests
+                ],
+                *[
+                    {
+                        "name": f"{environment}-root",
+                        "type": "root-dir",
+                        "containers": [CONTAINER_NAMES[environment]],
+                    }
+                    for environment in CONTAINER_NAMES
+                ],
+            ],
+            "/rest/ppp/active": [{".id": "*1", "name": "private-user", "address": "10.0.0.2"}],
+        }
+        opener = Mock()
+
+        def open_request(request, *, timeout):
+            path = urlsplit(request.full_url).path
+            expected_proplists = {
+                "/rest/system/resource": "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version",
+                "/rest/container": RUNTIME_IDENTITY_CONTAINER_PROPLIST,
+                "/rest/container/layers": "name,type,containers",
+                "/rest/ppp/active": ".id",
+            }
+            self.assertEqual(parse_qs(urlsplit(request.full_url).query), {".proplist": [expected_proplists[path]]})
+            response = Mock()
+            response.status = 200
+            response.__enter__ = Mock(return_value=response)
+            response.__exit__ = Mock(return_value=False)
+            response.read.return_value = json.dumps(payloads[path]).encode()
+            return response
+
+        opener.open.side_effect = open_request
+        reader._opener = opener
+        snapshot = reader.snapshot(
+            runtime_identities=identities,
+            expected_image_references=references,
+        )
+
+        self.assertEqual(opener.open.call_count, 4)
+        self.assertTrue(all(
+            item["runtime_manifest_digest_verified"]
+            for item in snapshot["containers"].values()
+        ))
+        self.assertEqual(
+            snapshot["containers"]["canary"]["runtime_manifest_digest"],
+            CANARY_DIGEST,
+        )
+        self.assertNotIn(CANARY_CONFIG_DIGEST.removeprefix("sha256:"), repr(snapshot))
+        self.assertNotIn(CANARY_LAYERS[0], repr(snapshot))
+        self.assertNotIn("private-user", repr(snapshot))
+        reader.close()
 
     def test_parity_tolerances_are_small_and_explicit(self):
         self.assertEqual(PARITY_TOLERANCE["router_cpu_percent"], 10.0)
