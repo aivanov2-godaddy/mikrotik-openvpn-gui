@@ -25,7 +25,7 @@ before PR #971; its required
 checks, post-merge main CI #43412162052, and CodeQL #43412161625 passed. It did
 not publish a new image.
 
-The latest RouterOS evidence is a TLS-verified Binary API container snapshot at 14:28:43 UTC on 2026-11-13, before PR #971 publication. It found the canary unhealthy and production running with a tag-only configured reference; runtime manifest identity was reconciled for both, but compared only with PR #965. Direct canary GETs at 14:37:16 UTC returned HTTP 200 and readiness `ready` for the old PR #894 revision. A TLS-verified REST healthcheck read at 14:37:49 UTC classified the default canary check as `segmentation_fault`. These pre-publication observations do not identify the failing process or root cause, establish a healthy rollback baseline, verify PR #971's running digest, or accept the candidate. No post-publication RouterOS readback or production deployment is verified.
+The latest RouterOS evidence is a TLS-verified REST healthcheck/container-configuration read at 15:45:38 UTC on 2026-11-13, after PR #971 publication. It found the canary still configured to old PR #894 revision `84a3148de713abe49be0c7be8f21caa652b68dd9`, with a pinned image reference and unhealthy lifecycle; healthcheck categories included failed, resource_unavailable, segmentation_fault, and timeout. Production remained configured at revision `8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7` with a tag-only reference and reported running with health category `good`. This REST query did not verify either running registry digest. The last runtime manifest identity reconciliation was a 14:28:43 UTC Binary API read before PR #971 publication and compared against PR #965 only. Direct canary GETs at 14:37:16 UTC returned HTTP 200 and readiness `ready` for old PR #894, before publication. These point observations do not identify the failing process or root cause, establish a healthy rollback baseline, verify PR #971's running digest, or accept the candidate. PR #971 remains unstaged; no production deployment is verified.
 
 Previous RouterOS checkpoint — 2026-11-13 11:03–11:29 UTC: the TLS-verified API snapshot found the canary unhealthy on its old PR #894 configured image and production running with a tag-only reference; neither running registry digest was verified. Direct canary GETs at 11:10:21 UTC returned HTTP 200 and readiness `ready` for the old PR #894 revision. A TLS-verified REST healthcheck comparison at 11:11:50 UTC classified the canary as `segmentation_fault`; production's healthcheck status was `good` with a healthy field true. A bounded filtered log read found no matching fault records. The PR #965 `--check-only` preflight blocked at `baseline / canary_unhealthy` with `router_writes_may_have_started=false`. A read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy but did not expose image references or running digests.
 
@@ -84,11 +84,12 @@ manifest. The downloaded `routeros-release.json` asset SHA-256 is
 | AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-ec760fcfd4ed1cffa5e6ba067d997865fd27e03e-amd64` | `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992` |
 
 PR #971 fixes the narrow read allowlist used for runtime image identity
-reconciliation; it is not a numbered release or RouterOS deployment. The
-latest RouterOS read predates publication and found the canary unhealthy.
-PR #971 has not been staged, no post-publication running digest is verified,
-and no production deployment is claimed. Issue #927 remains open pending
-canary fault diagnosis and candidate-bound RouterOS acceptance.
+reconciliation; it is not a numbered release or RouterOS deployment. A
+15:45:38 UTC post-publication REST read found the canary still on old PR #894
+and unhealthy and production on a tag-only reference with a `good` healthcheck.
+That query did not verify running digests. PR #971 has not been staged, and no
+production deployment is claimed. Issue #927 remains open pending canary fault
+diagnosis and candidate-bound RouterOS acceptance.
 
 ## Previous published mainline image — PR #965 — 2026-11-13
 

@@ -1,8 +1,8 @@
 # Live telemetry acceptance status
 
-Status: PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source. Its immutable RouterOS ARM64 digest is `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`; its AMD64 digest is `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`. Publisher run #43446742850 succeeded, and the stable manifest asset SHA-256 is `sha256:344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`. Provenance and SPDX SBOM attestations were independently verified. This publication is not RouterOS deployment evidence. The latest RouterOS read was at 14:28–14:37 UTC, before publication: the canary was unhealthy on its old PR #894 image, production had a tag-only configured reference, and no post-publication running digest was read. Direct canary `/healthz` and `/readyz` returned HTTP 200 and ready at the old PR #894 revision, while RouterOS categorized its default healthcheck as `segmentation_fault`. PR #971 remains unstaged. Production deployment is not claimed.
+Status: PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source. Its immutable RouterOS ARM64 digest is `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`; its AMD64 digest is `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`. Publisher run #43446742850 succeeded, and the stable manifest asset SHA-256 is `sha256:344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`. Provenance and SPDX SBOM attestations were independently verified. This publication is not RouterOS deployment evidence. A post-publication TLS-verified REST healthcheck read at 15:45:38 UTC found the canary still configured to old PR #894 and unhealthy, with failed, `resource_unavailable`, `segmentation_fault`, and timeout categories; production remained running with a tag-only configured reference and health category `good`. That query did not verify running digests. Earlier direct canary `/healthz` and `/readyz` probes returned HTTP 200 and ready at the old PR #894 revision, before publication. PR #971 remains unstaged. Production deployment is not claimed.
 
-## Latest published candidate and RouterOS read-back — 2026-11-13 14:28–15:05 UTC
+## Latest published candidate and RouterOS read-back — 2026-11-13 14:28–15:45 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Required PR checks, post-merge
@@ -15,14 +15,19 @@ ARM64 digest is
 the AMD64 digest is
 `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`.
 
-The latest RouterOS point read at 14:28:43 UTC predates PR #971 publication.
-It found the canary unhealthy on the old PR #894 image and production running
-with a tag-only reference; those runtime identities were compared only with
-PR #965. Direct canary GETs at 14:37:16 UTC returned HTTP 200 for `/healthz`
-and `/readyz`, with readiness `ready` at the old PR #894 revision. A
-TLS-verified REST healthcheck read at 14:37:49 UTC again classified the
-RouterOS default canary healthcheck as `segmentation_fault`. The exact failing
-process and root cause remain unknown. No post-publication RouterOS readback,
+At 15:45:38 UTC, a fresh TLS-verified read-only REST healthcheck/configuration
+read found the canary still configured at old PR #894 revision
+`84a3148de713abe49be0c7be8f21caa652b68dd9`, digest-pinned but unhealthy, with
+health categories failed, `resource_unavailable`, `segmentation_fault`, and
+timeout. Production remained at old revision
+`8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7` with a tag-only configured
+reference, lifecycle `running`, and health category `good`. The REST query did
+not verify either running OCI digest. The last runtime manifest identity
+reconciliation remains the 14:28:43 UTC Binary API point read, before PR #971
+publication, which compared the configured references against PR #965 only.
+Direct canary GETs at 14:37:16 UTC returned HTTP 200 for `/healthz` and
+`/readyz`, with readiness `ready` at old PR #894; those probes also predate
+publication. The exact failing process and root cause remain unknown. No
 candidate staging, restart, rollback, or production change is verified.
 
 ## Previous RouterOS read-back — 2026-11-13 11:03–11:29 UTC

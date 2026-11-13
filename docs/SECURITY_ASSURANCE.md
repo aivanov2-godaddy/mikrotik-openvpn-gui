@@ -6,7 +6,7 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
-## Current candidate and deployed-state checkpoint — 2026-11-13 15:05 UTC
+## Current candidate and deployed-state checkpoint — 2026-11-13 15:45 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Post-merge main CI
@@ -16,15 +16,19 @@ digests, SLSA provenance, and SPDX SBOM attestations; immutable tags and
 digests are recorded in [RELEASES.md](RELEASES.md). This publication is not
 deployment or candidate-bound acceptance.
 
-The latest RouterOS read remains the 14:28:43 UTC TLS-verified Binary API
-point read, before PR #971 was published. It found the canary unhealthy on its
-older PR #894 image and production running with a tag-only configured
-reference. The subsequent 14:37:16 UTC direct canary probes returned HTTP 200
-and readiness `ready` at the old PR #894 revision; at 14:37:49 UTC REST still
-classified the default canary healthcheck as a segmentation fault. No
-post-publication RouterOS digest read, staging, or deployment is verified.
-The faulting process and root cause remain unknown, and the live candidate
-security review and owner risk decision remain open.
+The latest RouterOS read is a TLS-verified read-only REST healthcheck and
+configuration query at 15:45:38 UTC, after publication. It found the canary
+still configured at old PR #894 revision
+`84a3148de713abe49be0c7be8f21caa652b68dd9`, digest-pinned but unhealthy, with
+failed, `resource_unavailable`, `segmentation_fault`, and timeout categories.
+Production remained at old revision `8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7`
+with a tag-only reference and health category `good`. This read did not verify
+either running image digest. The last runtime manifest identity reconciliation
+remains the 14:28:43 UTC pre-publication Binary API read, compared against
+PR #965 only. Direct canary probes at 14:37:16 UTC returned HTTP 200 and
+readiness `ready` at old PR #894; they also predate publication. No staging or
+deployment is verified. The faulting process and root cause remain unknown,
+and the live candidate security review and owner risk decision remain open.
 
 ## Previous candidate and deployed-state checkpoint — 2026-11-13 11:29 UTC
 

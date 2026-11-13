@@ -22,7 +22,7 @@ Its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC; publication verified 15:05 UTC
+## Current checkpoint — RouterOS read 2026-11-13 15:45 UTC; publication verified 15:05 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
@@ -35,11 +35,22 @@ verified and published PR #971's immutable ARM64 digest
 `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`;
 the stable manifest asset SHA-256 is
 `344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`.
-The 14:28 RouterOS read predates publication and compared running images with
-PR #965 only. PR #971 has not been staged; there is no post-publication
-RouterOS running-digest read or acceptance result.
+PR #971 has not been staged and no candidate acceptance or production
+deployment is verified.
 
-A fresh TLS-verified read-only Binary API point read at 14:28:43 UTC reported
+At 15:45:38 UTC, a TLS-verified read-only REST healthcheck read found the
+canary still configured to revision
+`84a3148de713abe49be0c7be8f21caa652b68dd9` (PR #894), with a digest-pinned
+reference and unhealthy lifecycle. Its healthcheck categories were failed,
+resource_unavailable, segmentation_fault, and timeout. Production remained
+configured at revision `8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7` with a
+tag-only reference; its lifecycle was running and healthcheck category was
+`good`. This narrow REST read did not verify either running registry digest.
+The last runtime manifest identity reconciliation was the earlier 14:28
+Binary API read and predates PR #971 publication. No post-publication digest
+read, candidate staging, or production change is claimed.
+
+The previous TLS-verified read-only Binary API point read at 14:28:43 UTC reported
 RouterOS 7.25.1. Runtime manifest identity reconciliation succeeded for both
 containers, but neither running image matched PR #965, the latest candidate
 published at that time. The canary was unhealthy;
@@ -49,12 +60,13 @@ image reference remains tag-only, though its running manifest identity was
 reconciled. A count-only active-session query returned zero and retained no
 session rows or identifiers.
 
-Direct private canary `/healthz` and `/readyz` GETs at 14:37:16 UTC returned
+Earlier direct private canary `/healthz` and `/readyz` GETs at 14:37:16 UTC returned
 HTTP 200, with readiness `ready` at the old PR #894 revision. At 14:37:49 UTC,
 a TLS-verified healthcheck read found no per-container override and classified
 the RouterOS default check as a segmentation fault. The exact failing
 executable/root cause remains unknown. These point reads do not establish a
-healthy rollback baseline, accept a candidate, or provide a soak. No RouterOS
+healthy rollback baseline, accept a candidate, or provide a soak. These
+readiness probes also predate PR #971 publication. No RouterOS
 setting, account, container lifecycle, or production state changed; no staging,
 restart, rollback, or deployment occurred. The candidate gate remains blocked.
 
