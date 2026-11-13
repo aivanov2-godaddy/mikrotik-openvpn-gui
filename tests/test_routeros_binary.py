@@ -409,6 +409,12 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
             ("/container/print", ".proplist=name,status,remote-image"),
             ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,remote-image"),
             ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image"),
+            (
+                "/container/print",
+                ".proplist=name,running,stopped,starting,stopping,healthy,healthcheck-status,"
+                "remote-image,image-id,layers",
+            ),
+            ("/container/layers/print", ".proplist=name,type,containers"),
         )
         for path, proplist in allowed:
             with self.subTest(path=path, proplist=proplist):
@@ -423,6 +429,10 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
             ("/container/print", ()),
             ("/container/print", (".proplist=name,envlist",)),
             ("/container/print", (".proplist=name,remote-image", "?name=canary")),
+            ("/container/print", (".proplist=name,remote-image,source",)),
+            ("/container/layers/print", ()),
+            ("/container/layers/print", (".proplist=name,type,source",)),
+            ("/container/layers/print", (".proplist=name,type,containers", "?name=layer")),
             ("/system/resource/print", (".proplist=version,password",)),
         )
         for path, query in rejected:
