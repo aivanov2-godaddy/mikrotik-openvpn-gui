@@ -18,9 +18,16 @@ candidate-bound point samples and aggregate outcomes. Router identity, detailed
 RouterOS configuration, raw time-series telemetry, and session-level details
 remain in private operational records.
 
-The latest formal versioned release remains **v2.7.0**. The next planned version, v2.8.0, has not been tagged or published. PR #965 (13cae96d27ad42920ca4685116cd475eaa457408) remains the latest published mainline image source; publication does not change the formal version. PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`; its required checks, post-merge main CI #43412162052, and CodeQL #43412161625 passed. No publisher run followed PR #965, so the image digests and stable-manifest checksum remain those recorded below. PR #965 has not been staged on RouterOS.
+The latest formal versioned release remains **v2.7.0**. The next planned version, v2.8.0, has not been tagged or published. PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published mainline image source; publication does not change the formal version. Post-merge CodeQL #43446742646, main CI #43446742822, and publisher run #43446742850 passed. The publisher's stable manifest and immutable architecture digests are recorded below. PR #971 has not been staged on RouterOS.
 
-The latest TLS-verified API point readback is a Binary API container snapshot from 11:03:50 UTC on 2026-11-13, after PR #965 publication. It found the canary unhealthy on the old PR #894 configured image and production running with a tag-only reference; neither running registry digest was verified. Direct canary GETs at 11:10:21 UTC returned HTTP 200 and readiness `ready` for the old PR #894 revision. A TLS-verified REST healthcheck comparison at 11:11:50 UTC classified the canary as `segmentation_fault` with no per-container override, the reviewed legacy default command shape, and restart count 0; production's healthcheck status was `good` with a healthy field true. A bounded filtered log read found no matching fault records. The PR #965 `--check-only` preflight blocked at `baseline / canary_unhealthy` with `router_writes_may_have_started=false`. A later read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy, but did not expose configured image references or running digests. These observations do not identify the failing executable or root cause, establish a healthy rollback baseline, verify a running digest, or accept the published image.
+PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`
+before PR #971; its required
+checks, post-merge main CI #43412162052, and CodeQL #43412161625 passed. It did
+not publish a new image.
+
+The latest RouterOS evidence is a TLS-verified Binary API container snapshot at 14:28:43 UTC on 2026-11-13, before PR #971 publication. It found the canary unhealthy and production running with a tag-only configured reference; runtime manifest identity was reconciled for both, but compared only with PR #965. Direct canary GETs at 14:37:16 UTC returned HTTP 200 and readiness `ready` for the old PR #894 revision. A TLS-verified REST healthcheck read at 14:37:49 UTC classified the default canary check as `segmentation_fault`. These pre-publication observations do not identify the failing process or root cause, establish a healthy rollback baseline, verify PR #971's running digest, or accept the candidate. No post-publication RouterOS readback or production deployment is verified.
+
+Previous RouterOS checkpoint — 2026-11-13 11:03–11:29 UTC: the TLS-verified API snapshot found the canary unhealthy on its old PR #894 configured image and production running with a tag-only reference; neither running registry digest was verified. Direct canary GETs at 11:10:21 UTC returned HTTP 200 and readiness `ready` for the old PR #894 revision. A TLS-verified REST healthcheck comparison at 11:11:50 UTC classified the canary as `segmentation_fault`; production's healthcheck status was `good` with a healthy field true. A bounded filtered log read found no matching fault records. The PR #965 `--check-only` preflight blocked at `baseline / canary_unhealthy` with `router_writes_may_have_started=false`. A read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy but did not expose image references or running digests.
 
 PR #893
 (`c35ca40baf0132b38d60585b0252ab0ef35223b4`) updated the Python 3.15 Alpine
@@ -56,7 +63,34 @@ manifest. The manifest asset SHA-256 is
 Code scanning returned zero open alerts on 2026-10-30. Exact immutable tags
 and digests are recorded below.
 
-## Latest published mainline image — PR #965 — 2026-11-13
+## Latest published mainline image — PR #971 — 2026-11-13
+
+PR [#971](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/971)
+merged as `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Post-merge main CI run
+[#43446742822](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43446742822),
+CodeQL run
+[#43446742646](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43446742646),
+and container publisher run
+[#43446742850](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43446742850)
+passed. The publisher built and scanned both architecture images, published
+them by immutable digest, verified SLSA provenance and SPDX SBOM attestations,
+smoke-tested both published runtimes, and published/read back the stable
+manifest. The downloaded `routeros-release.json` asset SHA-256 is
+`sha256:344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`.
+
+| Platform | Immutable image tag | Registry digest |
+| --- | --- | --- |
+| RouterOS ARM64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-ec760fcfd4ed1cffa5e6ba067d997865fd27e03e-arm64` | `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d` |
+| AMD64 | `ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-ec760fcfd4ed1cffa5e6ba067d997865fd27e03e-amd64` | `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992` |
+
+PR #971 fixes the narrow read allowlist used for runtime image identity
+reconciliation; it is not a numbered release or RouterOS deployment. The
+latest RouterOS read predates publication and found the canary unhealthy.
+PR #971 has not been staged, no post-publication running digest is verified,
+and no production deployment is claimed. Issue #927 remains open pending
+canary fault diagnosis and candidate-bound RouterOS acceptance.
+
+## Previous published mainline image — PR #965 — 2026-11-13
 
 PR [#965](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/965) merged as 13cae96d27ad42920ca4685116cd475eaa457408. Post-merge main CI run [#43403760502](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43403760502), main push analysis run [#43403760080](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43403760080), and container publisher run [#43403760356](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43403760356) passed. The publisher built and scanned both architecture images, published them by immutable digest, verified provenance and SPDX SBOM attestations, smoke-tested both published runtimes, and published/read back the stable manifest. The downloaded routeros-release.json asset SHA-256 is sha256:052e6fc22da92d8ca6ac6403fef5f18e76ba093964f90e3ee1e8ea5a8fdfb271.
 
@@ -65,7 +99,7 @@ PR [#965](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/965) mer
 | RouterOS ARM64 | ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-13cae96d27ad42920ca4685116cd475eaa457408-arm64 | sha256:a83094cf709db13248e372b62dd2cdecf14d41ce2b20a88fda7e533a0ccf6f0c |
 | AMD64 | ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-13cae96d27ad42920ca4685116cd475eaa457408-amd64 | sha256:026da66f73c838847343f65338d5941b02c9143d1bce16efe542ec99954865a1 |
 
-PR #965 adds privacy-safe diagnostics; it is not a numbered release or RouterOS deployment. The image has not been staged. At the latest verified RouterOS readback, the old PR #894 canary remains unhealthy, production remains tag-only, and neither running registry digest is verified. The separate REST healthcheck read remains failed / segmentation_fault. Issue #927 remains open pending canary fault diagnosis and candidate-bound RouterOS acceptance. No production deployment is claimed.
+PR #965 added privacy-safe diagnostics; it was not a numbered release or RouterOS deployment. It was not staged. At the latest RouterOS readback available while PR #965 was the current published image, the old PR #894 canary was unhealthy, production remained tag-only, and neither running registry digest was verified. The separate REST healthcheck read classified the default canary check as `segmentation_fault`. Issue #927 remains open pending canary fault diagnosis and candidate-bound RouterOS acceptance. No production deployment was claimed.
 
 ## Previous published mainline image — PR #935 — 2026-11-12
 

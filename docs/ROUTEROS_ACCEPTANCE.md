@@ -15,28 +15,34 @@ do not repeat origin values in reports.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #965
-(`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published
-image; its ARM64 manifest is
-`sha256:a83094cf709db13248e372b62dd2cdecf14d41ce2b20a88fda7e533a0ccf6f0c`.
+prove RouterOS compatibility. PR #971
+(`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image.
+Its ARM64 manifest is
+`sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`.
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC
+## Current checkpoint — RouterOS read 2026-11-13 14:28 UTC; publication verified 15:05 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
 It adds `image-id` and `layers` to the narrow container read allowlist and
 allows `/container/layers/print` only with its explicit narrow `.proplist`.
 This fixes a local collector/client query mismatch; it does not change RouterOS
-or the application runtime. Post-merge CodeQL #43446742646 passed; main CI
-#43446742822 and container publisher #43446742850 were still in progress at
-this checkpoint. PR #965 remains the latest verified published image. No new
-published digest, staging action, or deployment is claimed.
+or the application runtime. Post-merge CodeQL #43446742646, main CI
+#43446742822, and container publisher #43446742850 passed. The publisher
+verified and published PR #971's immutable ARM64 digest
+`sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`;
+the stable manifest asset SHA-256 is
+`344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`.
+The 14:28 RouterOS read predates publication and compared running images with
+PR #965 only. PR #971 has not been staged; there is no post-publication
+RouterOS running-digest read or acceptance result.
 
 A fresh TLS-verified read-only Binary API point read at 14:28:43 UTC reported
 RouterOS 7.25.1. Runtime manifest identity reconciliation succeeded for both
-containers, but neither running image matched PR #965. The canary was unhealthy;
+containers, but neither running image matched PR #965, the latest candidate
+published at that time. The canary was unhealthy;
 health categories included failed, resource unavailable, segmentation fault,
 and timeout. Production was running with health category `good`; its configured
 image reference remains tag-only, though its running manifest identity was
