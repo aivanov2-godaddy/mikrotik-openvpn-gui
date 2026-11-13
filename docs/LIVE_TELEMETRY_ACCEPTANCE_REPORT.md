@@ -20,7 +20,7 @@ A version-only read at 00:29:50 UTC reported RouterOS 7.25.1. MikroTik's [Contai
 
 The 22:47:34 UTC updater inventory found five scripts and three schedulers: two direct name bindings, one disabled script-ID candidate, zero opaque targets, and zero exact reviewed-template matches. All five retained private source hashes matched the inventory fingerprints; the bounded review found the canary restore-verification call missing in all five. The installed updater remains disabled; marker comparison is not semantic safety approval.
 
-The PR #935 staging preflight at 00:38:38 UTC remains the latest recorded check-only result: `preflight_blocked / baseline / canary_unhealthy`, with `router_writes_may_have_started=false`. PR #935 remains unstaged because the canary is not a verified healthy rollback baseline. No staging, restart, rollback, updater execution, production deployment, or other RouterOS write occurred. Client-dependent #200 checks remain deferred; the single active-session count does not verify the disposable client's identity. The installed updater remains disabled.
+A fresh PR #935 check-only staging preflight at 01:51:16 UTC returned `preflight_blocked / baseline / canary_unhealthy`, with `router_writes_may_have_started=false`. This read-only preflight did not stage the candidate. PR #935 remains unstaged because the canary is not a verified healthy rollback baseline. No staging, restart, rollback, updater execution, production deployment, or other RouterOS write occurred. Client-dependent #200 checks remain unverified; the single active-session count does not verify the disposable client's identity. The installed updater remains disabled.
 
 ## Earlier RouterOS observations — 2026-11-12 17:19–18:02 UTC
 
