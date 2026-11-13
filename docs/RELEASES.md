@@ -20,37 +20,51 @@ remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned version, v2.8.0, has not been tagged or published. PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published mainline image source; publication does not change the formal version. Post-merge CodeQL #43446742646, main CI #43446742822, and publisher run #43446742850 passed. The publisher's stable manifest and immutable architecture digests are recorded below. PR #971 has not been staged on RouterOS.
 
-PR #975 merged documentation and acceptance-report tooling at
-`741740de016852a9fb5230bead0fe5c04a0ff823` at 17:55:32 UTC. Its required PR
-checks passed, including CodeQL, Python 3.13/3.14, pre-commit, rendered
-browser/accessibility regression, and a non-publishing ARM64 build. Post-merge
-main CI #43477581774 and CodeQL #43477581924 passed. No container publisher run
-was triggered; PR #971 remains the latest published image source. The formal
-release remains v2.7.0.
+PR #976 merged documentation-only at
+c23abd572ebdfbb73789a606af5e1d0939def7ec at 21:47:40 UTC. Its required
+checks passed, and post-merge main CI #43513832736 and CodeQL #43513832832
+passed. It did not trigger the container publisher; PR #971 remains the latest
+published image source. The formal release remains v2.7.0.
 
-The latest healthcheck evidence is a TLS-verified REST classification
-at 21:31:08 UTC on 2026-11-13. It reported `segmentation_fault` with a `failed`
-prefix, no per-container override, and the reviewed legacy readiness-check
-shape.
+PR #975 merged at 17:55:32 UTC as
+741740de016852a9fb5230bead0fe5c04a0ff823. It adds a fixed-label image
+healthcheck profile to read-only acceptance reports after identity is verified.
+The PR #894 image profile is `shell_timeout_wget_local_readyz_v1`; PR #971 is
+`exec_wget_local_readyz_v1`. These are registry/config classifications, not a
+device diagnosis. PR #975 did not trigger an image publisher.
+
+The latest dedicated REST healthcheck classification is at 21:31:08 UTC on
+2026-11-13; it reported segmentation_fault with a failed prefix, no
+per-container override, and the reviewed legacy readiness-check shape. The
+later Binary API point read at 22:05:12 UTC still found the canary unhealthy
+with failed, resource_unavailable, segmentation_fault, and timeout categories.
 
 A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC reported
-the canary not healthy on a digest-pinned configured reference matching PR #894;
-production was healthy with a tag-only reference. Neither running OCI manifest
-digest was verified. The aggregate active-session result found no active
-sessions at the snapshot time; it does not identify a particular client.
+the canary unhealthy on a digest-pinned configured reference matching PR #894;
+production was healthy with a tag-only reference. That snapshot did not verify
+either running OCI manifest identity. The aggregate active-session result
+found no active sessions at that time and did not identify a client.
 
 A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
-`/healthz` and `/readyz`, readiness `ready`, and the PR #894 revision. The
-healthcheck classification 56 seconds later again reported
-`segmentation_fault` with the legacy default profile. These close point samples
-show the app responding while the RouterOS healthcheck fails; the exact failing
-executable/cause remains unknown, and this is not a soak.
-PR #975's fixed-label healthcheck profile is registry/config evidence for
-acceptance reports; it is not a device diagnosis. No RouterOS change, canary
-stage, restart, rollback, production deployment, or promotion occurred.
-Issue #927 remains open and canary acceptance is blocked by the unhealthy
-baseline. Multi-tenancy remains out of scope.
+/healthz and /readyz at the PR #894 revision. The healthcheck classification
+56 seconds later again reported segmentation_fault with the legacy default
+profile. These close point samples show the app responding while RouterOS
+reports a failed healthcheck; they do not identify the failing executable or
+cause and do not constitute a soak.
 
+At 22:05:12 UTC, a TLS-verified, read-only Binary API point read verified the
+running OCI manifest identities for canary and production. Neither matched the
+latest published PR #971 candidate. The canary remained unhealthy; its
+configured image reference was digest-pinned but not the candidate. Production
+remained running with a good healthcheck category and a tag-only reference; its
+running identity was verified but was not the candidate. The count-only session
+read returned zero without requesting identities. No raw image reference,
+runtime identifier, session identifier, address, or credential was retained.
+This point read does not satisfy the canary soak or acceptance gates.
+
+PR #976 did not change RouterOS, stage a candidate, restart or roll back a
+container, or deploy production. Issue #927 remains open and acceptance is
+blocked by the unhealthy canary baseline. Multi-tenancy remains out of scope.
 Previous documentation checkpoint — PR #974 merged documentation-only at
 `3c54ae3e414a893bf61bd3c1913c88515da525cd` at 17:00:50 UTC. Its required
 checks, post-merge main CI #43468485879, and CodeQL #43468484486 passed. It did
