@@ -99,6 +99,8 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source",
             report,
         )
+        self.assertIn("Latest canary healthcheck point read — 2026-11-13 16:42:42 UTC", report)
+        self.assertIn("Previous canary healthcheck point read — 2026-11-13 16:26:58 UTC", report)
         self.assertIn("Latest published candidate and RouterOS read-back — 2026-11-13 14:28–15:45 UTC", report)
         self.assertIn("Previous RouterOS read-back — 2026-11-13 11:03–11:29 UTC", report)
         self.assertIn("At 11:28:59 UTC, a fresh read-only WinBox container-list view showed the", report)
