@@ -360,7 +360,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
         self.assertIn(
-            "The latest healthcheck evidence is a TLS-verified REST classification at 21:31:08 UTC",
+            "The latest dedicated REST healthcheck classification is at 21:31:08 UTC on 2026-11-13",
             release_compact,
         )
         self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", release_compact)
@@ -429,20 +429,25 @@ class ReleaseContractTests(unittest.TestCase):
             " ".join(release_record.split()),
         )
         routeros_acceptance = (ROOT / "docs/ROUTEROS_ACCEPTANCE.md").read_text(encoding="utf-8")
+        routeros_acceptance_compact = " ".join(routeros_acceptance.split())
         self.assertIn(
             "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image",
-            " ".join(routeros_acceptance.split()),
+            routeros_acceptance_compact,
         )
         self.assertIn(
-            "## Current checkpoint — PR #975 and RouterOS reads 2026-11-13 18:05–21:31 UTC",
+            "## Current checkpoint — PR #976 and RouterOS reads 2026-11-13 18:05–22:05 UTC",
             routeros_acceptance,
         )
         self.assertIn(
-            "post-merge main CI #43477581774 and CodeQL #43477581924 also passed",
+            "Post-merge main CI #43513832736 and CodeQL #43513832832 passed",
             routeros_acceptance,
         )
-        self.assertIn("A paired TLS-verified REST healthcheck classification at 21:31:08 UTC", routeros_acceptance)
-        self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", routeros_acceptance)
+        self.assertIn("TLS-verified REST healthcheck classification at 21:31:08 UTC again reported", routeros_acceptance)
+        self.assertIn("A fresh TLS-verified, read-only Binary API point read at 22:05:12 UTC", routeros_acceptance)
+        self.assertIn("running OCI manifest identities for canary and production", routeros_acceptance)
+        self.assertIn("latest published PR #971 candidate", routeros_acceptance)
+        self.assertIn("running manifest identity was verified but", routeros_acceptance)
+        self.assertIn("A separate TLS-verified, read-only Binary API snapshot at 18:07:43 UTC", routeros_acceptance_compact)
         self.assertIn(
             'A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both',
             routeros_acceptance,

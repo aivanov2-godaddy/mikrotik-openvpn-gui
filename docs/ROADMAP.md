@@ -11,33 +11,32 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — RouterOS reads at 2026-11-13 18:05–21:31 UTC;
-GitHub verified through 18:08 UTC.** Main is at
-`741740de016852a9fb5230bead0fe5c04a0ff823` after PR #975. Its required checks
-passed; post-merge CI #43477581774 and CodeQL #43477581924 passed. PR #975 adds
-a fixed-label image healthcheck profile to read-only acceptance reports when
-image identity is verified. It did not publish an image. PR #971 remains the
-latest published immutable candidate; publication is not RouterOS acceptance.
+**Fresh read-only checkpoint — RouterOS point read at 2026-11-13 22:05:12 UTC;
+GitHub verified through 22:06 UTC.** Main is at
+c23abd572ebdfbb73789a606af5e1d0939def7ec after PR #976. PR #976 updated the
+read-only acceptance and release records; its required PR checks passed.
+Post-merge main CI #43513832736 and CodeQL #43513832832 also passed. The
+documentation-only merge did not publish an image. PR #971 remains the latest
+published immutable candidate; publication is not RouterOS acceptance.
 
-A TLS-verified REST read at 18:05:54 UTC classified the canary healthcheck as
-`segmentation_fault` with a `failed` prefix. No per-container override was
-present; the image-default check matched the reviewed legacy timeout/wget
-readiness shape. A separate TLS-verified Binary API snapshot at 18:07:43 UTC
-reported the canary not healthy with a digest-pinned configured reference
-matching the PR #894 revision; production was healthy with a tag-only
-configured reference. These reads did not verify a running registry digest or
-identify the faulting executable.
+A TLS-verified, read-only Binary API point read verified the running OCI
+manifest identities for both canary and production, but neither matched PR
+#971. The canary remains unhealthy, with failed, resource unavailable,
+segmentation fault, and timeout healthcheck categories. Its configured
+reference is digest-pinned but does not match the candidate. Production is
+running with a good healthcheck category and a tag-only configured reference;
+its running manifest identity was verified but did not match the candidate. A
+count-only active-session read returned zero; no session identities were
+queried. This point observation is not a soak and does not satisfy
+client-dependent checks.
 
-The aggregate active-session result at 18:07:43 UTC found no active VPN
-sessions. No client identity was queried, so the disposable-client checks remain
-pending. A bounded direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
-`/healthz` and `/readyz`, readiness `ready`, and the PR #894 revision. The
-paired 21:31:08 UTC healthcheck classification again reported
-`segmentation_fault` with the legacy default profile. The app endpoints
-responded, but the exact failing healthcheck executable/cause remains unknown;
-these points do not constitute a soak. No client identity was queried. WinBox was not
-used. No RouterOS state changed; there was no staging, restart, rollback,
-updater execution, or production deployment.
+A direct private HTTP probe at 21:30:12 UTC returned HTTP 200 for both
+/healthz and /readyz at the old PR #894 revision. A paired TLS-verified REST
+classification at 21:31:08 UTC again reported segmentation_fault with the
+legacy default profile. These point samples do not identify the failing
+executable or root cause. No RouterOS setting, account, container, scheduler,
+updater, or production state changed; there was no staging, restart, rollback,
+or deployment.
 
 Issue #927 remains open; #200 and epic #205 remain open. #785 is closed, with
 updater reconciliation and healthy-canary rollback tracked as release gates
