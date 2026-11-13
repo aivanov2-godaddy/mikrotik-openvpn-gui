@@ -25,9 +25,17 @@ acceptance collectors. The proof resolves and hashes the GHCR manifest and
 config, compares RouterOS `image-id` and typed ordered layers in memory, checks
 tag stability across the soak, and emits only a boolean plus manifest digest.
 The report and runbook changes are not evidence that the live canary passed.
-The feature still needs merged checks, a healthy rollback baseline, candidate
-staging and soak, the independent #200 security assessment, and a separate
-owner risk decision before any production deployment.
+
+**Verified merge update — 2026-11-13 13:24 UTC.** PR #968 merged into `main` as
+`e843e6bca9fae1b62677417d0b331c5a1d94d940` after its required checks passed,
+including pre-commit, Python 3.13 and 3.14, CodeQL, Redis recovery, browser and
+accessibility regression, and the non-publishing ARM64 build. Post-merge CI and
+CodeQL for this commit were still in progress at this checkpoint. The change
+updates acceptance tooling and documentation; it did not publish a new image,
+change RouterOS state, or collect new live RouterOS evidence. The implementation
+still requires a healthy rollback baseline, candidate staging and soak, the
+independent #200 security assessment, and a separate owner risk decision before
+any production deployment.
 
 **Verified repository and RouterOS checkpoint — 2026-11-13 11:29 UTC.** PR #966 is the current mainline tip at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`; its documentation-only changes, required checks, post-merge main CI, and CodeQL passed. PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published mainline image source. Its publisher built and scanned both architectures, attested image digests and SBOMs, smoke-tested both runtimes, and published/read back the stable manifest. The ARM64 digest is `sha256:a83094cf709db13248e372b62dd2cdecf14d41ce2b20a88fda7e533a0ccf6f0c`; the AMD64 digest and manifest checksum are in [RELEASES.md](RELEASES.md). Publication is not RouterOS acceptance or proof of a running digest.
 
