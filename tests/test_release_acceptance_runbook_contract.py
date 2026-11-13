@@ -99,7 +99,8 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             "PR #965 (13cae96d27ad42920ca4685116cd475eaa457408) remains the latest published image source",
             report,
         )
-        self.assertIn("Latest RouterOS read-back — 2026-11-13 11:03–11:12 UTC", report)
+        self.assertIn("Latest RouterOS read-back — 2026-11-13 11:03–11:29 UTC", report)
+        self.assertIn("At 11:28:59 UTC, a fresh read-only WinBox container-list view showed the", report)
         self.assertIn("It classified production as `good` with its healthy field true", report)
         self.assertIn(
             "The PR #965 `--check-only` preflight blocked at `baseline / canary_unhealthy`",

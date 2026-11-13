@@ -22,7 +22,7 @@ image; its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — 2026-11-13 11:11 UTC
+## Current checkpoint — 2026-11-13 11:29 UTC
 
 PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`;
 its required checks, post-merge main CI #43412162052, and CodeQL #43412161625
@@ -43,6 +43,13 @@ preflight blocked at `baseline / canary_unhealthy` with
 failing executable or cause, accept the candidate, or establish a healthy
 rollback baseline. No RouterOS state changed, no candidate was staged, and no
 production deployment is claimed.
+
+A fresh read-only WinBox container-list view at 11:28:59 UTC showed the canary
+unhealthy and production healthy. The list view does not expose their configured
+image references, revisions, or running registry digests, so it does not replace
+the TLS-verified API readbacks above. No RouterOS write was issued during this
+inspection. The canary fault, safe rollback baseline, and candidate acceptance
+remain unresolved.
 
 ## Previous checkpoint — PR #964 — 2026-11-13 09:13 UTC
 

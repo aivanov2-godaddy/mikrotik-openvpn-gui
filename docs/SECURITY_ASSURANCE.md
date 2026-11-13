@@ -6,7 +6,7 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
-## Current candidate and deployed-state checkpoint — 2026-11-13 11:11 UTC
+## Current candidate and deployed-state checkpoint — 2026-11-13 11:29 UTC
 
 PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`;
 its required checks, post-merge CI #43412162052, and CodeQL #43412161625 passed.
@@ -24,6 +24,10 @@ healthy field true. A bounded PR #965 `--check-only` preflight blocked at the
 unhealthy canary baseline before RouterOS writes. These reads do not identify
 the failing process or root cause, accept the candidate, or establish a
 production deployment.
+
+A read-only WinBox container-list view at 11:28:59 UTC showed the canary
+unhealthy and production healthy. It did not expose image references or digests
+and does not change the candidate-bound acceptance requirements.
 
 Issue #200 remains open for the independent scoped ASVS review and
 candidate-bound live-session, recovery, and rollback evidence. Issue #927

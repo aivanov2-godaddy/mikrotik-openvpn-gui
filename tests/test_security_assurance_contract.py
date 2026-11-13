@@ -681,7 +681,8 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             "PR #965 (`13cae96d27ad42920ca4685116cd475eaa457408`) remains the latest published",
             assurance,
         )
-        self.assertIn("2026-11-13 11:11 UTC", assurance)
+        self.assertIn("2026-11-13 11:29 UTC", assurance)
+        self.assertIn("A read-only WinBox container-list view at 11:28:59 UTC", assurance)
         self.assertIn(
             "PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`",
             assurance,
