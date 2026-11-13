@@ -5,7 +5,8 @@ The canary-prepromotion phase verifies the candidate while production stays on
 its recorded prior revision. The postpromotion phase requires both environments
 on the same candidate. Network probes are read-only; SQLite restore checks use
 only private local sources and a temporary copy. The candidate digest (and,
-after promotion, the production digest) is checked against GHCR before the soak.
+after promotion, the production digest) is checked against GHCR at the start
+and end of the soak.
 """
 
 from __future__ import annotations
@@ -302,7 +303,7 @@ def _evidence_timestamp(value: Any, name: str) -> datetime:
 
 def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -> None:
     """Join a redacted RouterOS sample window to matching app-soak evidence."""
-    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v4":
+    if not isinstance(routeros, dict) or routeros.get("format") != "vpn-dashboard-routeros-acceptance-v5":
         raise ValueError("RouterOS evidence format is invalid")
     if routeros.get("passed") is not True or routeros.get("failed_gates") != []:
         raise ValueError("RouterOS evidence did not pass its acceptance gates")
@@ -325,7 +326,12 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
         or isinstance(active_sessions_min, bool) or not isinstance(active_sessions_min, int) or active_sessions_min < 0
         or isinstance(active_sessions_max, bool) or not isinstance(active_sessions_max, int)
         or active_sessions_max < active_sessions_min
-        or routeros.get("read_only_rest_paths") != ["/rest/system/resource", "/rest/container", "/rest/ppp/active"]
+        or routeros.get("read_only_api_paths") != [
+            "/system/resource/print", "/container/print", "/container/layers/print", "/ppp/active/print"
+        ]
+        or routeros.get("read_only_rest_paths") != [
+            "/rest/system/resource", "/rest/container", "/rest/container/layers", "/rest/ppp/active"
+        ]
     ):
         raise ValueError("RouterOS evidence sample coverage is incomplete")
     max_gap = routeros.get("max_sample_gap_seconds")
@@ -367,6 +373,16 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
             raise ValueError("RouterOS resource evidence is invalid or exceeds its threshold")
         resources[output_field] = float(value)
 
+    runtime_manifest_digests: dict[str, str] = {}
+    registry_rows = collection.get("registry_digest_verification")
+    if not isinstance(registry_rows, list) or len(registry_rows) != len(ENVIRONMENTS):
+        raise ValueError("registry digest verification is missing")
+    registry_by_environment = {
+        row.get("environment"): row for row in registry_rows if isinstance(row, dict)
+    }
+    if set(registry_by_environment) != set(ENVIRONMENTS):
+        raise ValueError("registry digest verification environments are invalid")
+
     for environment, record in zip(ENVIRONMENTS, deployments):
         if not isinstance(record, dict) or record.get("environment") != environment:
             raise ValueError("app deployments must be ordered canary then production")
@@ -377,6 +393,9 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
         expected_revision = image_match.group("revision")
         pinned_digest = image_match.group("reference_digest")
         expected_configured_digests = [pinned_digest] if pinned_digest is not None else []
+        expected_runtime_digest = record.get("digest")
+        runtime_digest = observed.get("runtime_manifest_digest") if isinstance(observed, dict) else None
+        registry_row = registry_by_environment[environment]
         if (
             not isinstance(observed, dict)
             or observed.get("healthy_for_all_successful_samples") is not True
@@ -384,12 +403,24 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
             or observed.get("configured_digest_matches_expected") is not True
             or observed.get("observed_configured_digests") != expected_configured_digests
             or (pinned_digest is not None and record.get("digest") != pinned_digest)
+            or observed.get("runtime_manifest_digest_verified") is not True
+            or not isinstance(expected_runtime_digest, str)
+            or DIGEST.fullmatch(expected_runtime_digest) is None
+            or runtime_digest != expected_runtime_digest
+            or registry_row.get("verified") is not True
+            or registry_row.get("expected_digest") != expected_runtime_digest
+            or registry_row.get("observed_digest") != expected_runtime_digest
+            or registry_row.get("observed_digest_at_end") != expected_runtime_digest
+            or registry_row.get("stable_through_soak") is not True
         ):
-            raise ValueError("RouterOS container health, revision, or configured digest does not match app evidence")
+            raise ValueError(
+                "RouterOS runtime identity, health, revision, or configured digest does not match app evidence"
+            )
+        runtime_manifest_digests[environment] = runtime_digest
         record.update(resources)
 
     collection["routeros_resource_evidence"] = {
-        "format": "vpn-dashboard-routeros-acceptance-v4",
+        "format": "vpn-dashboard-routeros-acceptance-v5",
         "observation_started_at": router_started.isoformat(),
         "observation_ended_at": router_ended.isoformat(),
         "sample_count": sample_count,
@@ -401,7 +432,10 @@ def attach_routeros_resource_evidence(evidence: dict[str, Any], routeros: Any) -
         "resource_peaks": resources,
         "container_revisions_matched": True,
         "container_configured_digests_matched": True,
+        "router_runtime_digest_verified": True,
+        "runtime_manifest_digests": runtime_manifest_digests,
     }
+    collection["router_runtime_digest_verified"] = True
 
 
 def _probe_url(base_url: str, path: str) -> str:
@@ -1093,6 +1127,8 @@ def collect(
             "expected_digest": expected_digest,
             "observed_digest": observed_digest if observed_digest_valid else None,
             "verified": observed_digest_valid and observed_digest == expected_digest,
+            "observed_digest_at_end": None,
+            "stable_through_soak": False,
         })
         if not observed_digest_valid:
             failed_gates.append(f"{environment}_registry_digest_unavailable")
@@ -1164,6 +1200,25 @@ def collect(
 
     ended = clock()
     ended_monotonic = monotonic()
+    for entry in registry_verification:
+        try:
+            observed_digest_at_end = registry_probe(entry["image"], timeout=timeout_seconds)
+        except Exception:
+            observed_digest_at_end = None
+        valid_end_digest = (
+            isinstance(observed_digest_at_end, str)
+            and DIGEST.fullmatch(observed_digest_at_end) is not None
+        )
+        entry["observed_digest_at_end"] = observed_digest_at_end if valid_end_digest else None
+        entry["stable_through_soak"] = (
+            entry["verified"] is True
+            and valid_end_digest
+            and observed_digest_at_end == entry["expected_digest"]
+        )
+        if not valid_end_digest:
+            failed_gates.append(f"{entry['environment']}_registry_digest_unavailable_at_window_end")
+        elif observed_digest_at_end != entry["expected_digest"]:
+            failed_gates.append(f"{entry['environment']}_registry_digest_changed_during_soak")
     certificate_lifecycle_acceptance = None
     raw_certificate_lifecycle = evidence.get("certificate_lifecycle_acceptance")
     if raw_certificate_lifecycle is None:
@@ -1496,7 +1551,7 @@ def collect(
             "duration_seconds": max(0.0, wall_duration),
             "interval_seconds": interval_seconds,
             "read_only_app_probe_paths": ["/healthz", "/readyz", "/metrics"],
-            "registry_request_methods": ["GET token", "HEAD image manifest"],
+            "registry_request_methods": ["GET token", "HEAD manifest at window start and end"],
             "image_digest_source": "GHCR Docker-Content-Digest response; candidate references are digest pinned",
             "registry_digest_verification_scope": (
                 "canary-and-production"

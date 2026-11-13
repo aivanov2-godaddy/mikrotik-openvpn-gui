@@ -256,6 +256,17 @@ class ReleaseCollectionTests(unittest.TestCase):
             "collection": {
                 "started_at": "2026-10-01T00:00:00Z",
                 "ended_at": "2026-10-01T00:30:00Z",
+                "registry_digest_verification": [
+                    {
+                        "environment": environment,
+                        "expected_digest": DIGEST,
+                        "observed_digest": DIGEST,
+                        "observed_digest_at_end": DIGEST,
+                        "stable_through_soak": True,
+                        "verified": True,
+                    }
+                    for environment in ("canary", "production")
+                ],
             },
             "deployments": [
                 {"environment": environment, "image": image_ref(revision), "digest": DIGEST}
@@ -263,7 +274,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v4",
+            "format": "vpn-dashboard-routeros-acceptance-v5",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -277,7 +288,12 @@ class ReleaseCollectionTests(unittest.TestCase):
             "rest_parity_failed_sample_count": 0,
             "active_vpn_sessions_min": 0,
             "active_vpn_sessions_max": 1,
-            "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
+            "read_only_api_paths": [
+                "/system/resource/print", "/container/print", "/container/layers/print", "/ppp/active/print"
+            ],
+            "read_only_rest_paths": [
+                "/rest/system/resource", "/rest/container", "/rest/container/layers", "/rest/ppp/active"
+            ],
             "max_sample_gap_seconds": 60,
             "router_cpu_peak_percent": 24,
             "router_memory_peak_percent": 35,
@@ -288,6 +304,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "observed_source_revisions": [revision],
                     "observed_configured_digests": [DIGEST],
                     "configured_digest_matches_expected": True,
+                    "runtime_manifest_digest": DIGEST,
+                    "runtime_manifest_digest_verified": True,
                 }
                 for environment in ("canary", "production")
             },
@@ -299,6 +317,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(app_evidence["deployments"][1]["router_memory_peak_percent"], 35.0)
         self.assertTrue(app_evidence["collection"]["routeros_resource_evidence"]["container_revisions_matched"])
         self.assertTrue(app_evidence["collection"]["routeros_resource_evidence"]["container_configured_digests_matched"])
+        self.assertTrue(app_evidence["collection"]["router_runtime_digest_verified"])
 
         # A prior production tag may still be unpinned before promotion.
         tag_only_evidence = deepcopy(app_evidence)
@@ -308,6 +327,11 @@ class ReleaseCollectionTests(unittest.TestCase):
         attach_routeros_resource_evidence(tag_only_evidence, tag_only_report)
         self.assertTrue(tag_only_evidence["collection"]["routeros_resource_evidence"]["container_configured_digests_matched"])
 
+        mismatched_runtime = deepcopy(routeros_report)
+        mismatched_runtime["containers"]["production"]["runtime_manifest_digest"] = "sha256:" + "e" * 64
+        with self.assertRaisesRegex(ValueError, "runtime identity"):
+            attach_routeros_resource_evidence(deepcopy(app_evidence), mismatched_runtime)
+
     def test_routeros_resource_evidence_rejects_window_or_revision_mismatch(self) -> None:
         from scripts.collect_release_acceptance import attach_routeros_resource_evidence
 
@@ -316,6 +340,17 @@ class ReleaseCollectionTests(unittest.TestCase):
             "collection": {
                 "started_at": "2026-10-01T00:00:00Z",
                 "ended_at": "2026-10-01T00:30:00Z",
+                "registry_digest_verification": [
+                    {
+                        "environment": environment,
+                        "expected_digest": DIGEST,
+                        "observed_digest": DIGEST,
+                        "observed_digest_at_end": DIGEST,
+                        "stable_through_soak": True,
+                        "verified": True,
+                    }
+                    for environment in ("canary", "production")
+                ],
             },
             "deployments": [
                 {"environment": environment, "image": image_ref(revision), "digest": DIGEST}
@@ -323,7 +358,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             ],
         }
         routeros_report = {
-            "format": "vpn-dashboard-routeros-acceptance-v4",
+            "format": "vpn-dashboard-routeros-acceptance-v5",
             "passed": True,
             "failed_gates": [],
             "credentials_or_raw_router_data_written": False,
@@ -337,7 +372,12 @@ class ReleaseCollectionTests(unittest.TestCase):
             "rest_parity_failed_sample_count": 0,
             "active_vpn_sessions_min": 0,
             "active_vpn_sessions_max": 1,
-            "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
+            "read_only_api_paths": [
+                "/system/resource/print", "/container/print", "/container/layers/print", "/ppp/active/print"
+            ],
+            "read_only_rest_paths": [
+                "/rest/system/resource", "/rest/container", "/rest/container/layers", "/rest/ppp/active"
+            ],
             "max_sample_gap_seconds": 60,
             "router_cpu_peak_percent": 24,
             "router_memory_peak_percent": 35,
@@ -348,6 +388,8 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "observed_source_revisions": [revision],
                     "observed_configured_digests": [DIGEST],
                     "configured_digest_matches_expected": True,
+                    "runtime_manifest_digest": DIGEST,
+                    "runtime_manifest_digest_verified": True,
                 }
                 for environment in ("canary", "production")
             },
@@ -673,6 +715,15 @@ class ReleaseCollectionTests(unittest.TestCase):
         self.assertEqual(parsed["vpn_dashboard_process_start_time_seconds"], 1790928000.5)
         self.assertEqual(parsed["vpn_dashboard_telemetry_supervisor_status_healthy"], 1)
 
+    @staticmethod
+    def _registry_probe_result(image, *, timeout, resolved, sequence, counts):
+        del timeout
+        if sequence is None:
+            return resolved.get(image)
+        index = counts.get(image, 0)
+        counts[image] = index + 1
+        return sequence[min(index, len(sequence) - 1)] if sequence else None
+
     def run_collection(
         self,
         *,
@@ -709,6 +760,7 @@ class ReleaseCollectionTests(unittest.TestCase):
         production_revision: str | None = None,
         production_observed_revision: str | None = None,
         registry_digests: dict[str, str | None] | None = None,
+        registry_digest_sequence: list[str | None] | None = None,
         clear_prior_production_runtime_evidence: bool = False,
         omit_prior_production_digest: bool = False,
         include_certificate_lifecycle_report: bool = True,
@@ -760,6 +812,7 @@ class ReleaseCollectionTests(unittest.TestCase):
             source["deployments"][0]["image"]: source["deployments"][0]["digest"],
             source["deployments"][1]["image"]: source["deployments"][1]["digest"],
         }
+        registry_observation_counts: dict[str, int] = {}
         if preclaim_redis:
             for deployment in source["deployments"]:
                 deployment["redis_publish_verified"] = True
@@ -921,7 +974,13 @@ class ReleaseCollectionTests(unittest.TestCase):
                 duration_seconds=1800,
                 interval_seconds=60,
                 probe=probe,
-                registry_probe=lambda image, *, timeout: resolved_registry_digests.get(image),
+                registry_probe=lambda image, *, timeout: self._registry_probe_result(
+                    image,
+                    timeout=timeout,
+                    resolved=resolved_registry_digests,
+                    sequence=registry_digest_sequence,
+                    counts=registry_observation_counts,
+                ),
                 clock=time.clock,
                 sleep=time.sleep,
                 monotonic=time.monotonic,
@@ -1658,7 +1717,7 @@ class ReleaseCollectionTests(unittest.TestCase):
                 from scripts.collect_release_acceptance import attach_routeros_resource_evidence
 
                 routeros_report = {
-                    "format": "vpn-dashboard-routeros-acceptance-v4",
+                    "format": "vpn-dashboard-routeros-acceptance-v5",
                     "passed": True,
                     "failed_gates": [],
                     "credentials_or_raw_router_data_written": False,
@@ -1672,7 +1731,12 @@ class ReleaseCollectionTests(unittest.TestCase):
                     "rest_parity_failed_sample_count": 0,
                     "active_vpn_sessions_min": 0,
                     "active_vpn_sessions_max": 1,
-                    "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
+                    "read_only_api_paths": [
+                        "/system/resource/print", "/container/print", "/container/layers/print", "/ppp/active/print"
+                    ],
+                    "read_only_rest_paths": [
+                        "/rest/system/resource", "/rest/container", "/rest/container/layers", "/rest/ppp/active"
+                    ],
                     "max_sample_gap_seconds": 60,
                     "router_cpu_peak_percent": 20,
                     "router_memory_peak_percent": 25,
@@ -1683,12 +1747,16 @@ class ReleaseCollectionTests(unittest.TestCase):
                             "observed_source_revisions": [REVISION],
                             "observed_configured_digests": [DIGEST],
                             "configured_digest_matches_expected": True,
+                            "runtime_manifest_digest": DIGEST,
+                            "runtime_manifest_digest_verified": True,
                         },
                         "production": {
                             "healthy_for_all_successful_samples": True,
                             "observed_source_revisions": ["c" * 40],
                             "observed_configured_digests": [PRIOR_DIGEST],
                             "configured_digest_matches_expected": True,
+                            "runtime_manifest_digest": PRIOR_DIGEST,
+                            "runtime_manifest_digest_verified": True,
                         },
                     },
                 }
@@ -1725,6 +1793,19 @@ class ReleaseCollectionTests(unittest.TestCase):
         )
         self.assertEqual(unavailable, 1)
         self.assertIn("canary_registry_digest_unavailable", unavailable_report["failed_gates"])
+
+    def test_registry_tag_change_during_soak_fails_closed(self) -> None:
+        changed = "sha256:" + "e" * 64
+        code, report, _ = self.run_collection(
+            registry_digest_sequence=[DIGEST, DIGEST, changed, changed],
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("canary_registry_digest_changed_during_soak", report["failed_gates"])
+        self.assertIn("production_registry_digest_changed_during_soak", report["failed_gates"])
+        self.assertTrue(all(
+            not item["stable_through_soak"]
+            for item in report["evidence"]["collection"]["registry_digest_verification"]
+        ))
 
     def test_pre_promotion_fails_closed_when_prior_production_digest_is_unavailable(self) -> None:
         with self.assertRaisesRegex(ValueError, "production digest must be a sha256 OCI digest"):

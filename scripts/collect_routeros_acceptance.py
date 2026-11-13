@@ -4,8 +4,10 @@ The Binary API and REST readers use verified TLS and fixed print/GET allowlists.
 The report contains aggregate resource/session measurements and, for the two
 named dashboard containers, normalized lifecycle health, source revisions, and
 configured image digests. RouterOS 7.23+ healthcheck status is reduced to fixed
-categories; raw status/output and command text are never emitted. Credentials,
-router/session identity, addresses, and raw replies are also excluded.
+categories. On versions exposing container image identity, its config and
+ordered layer descriptors are reconciled in memory with GHCR; only a boolean
+and verified manifest digest are reported. Raw status/output, command text,
+credentials, router/session identity, addresses, and raw replies are excluded.
 """
 
 from __future__ import annotations
@@ -34,6 +36,10 @@ if __package__ in {None, ""}:
     from routeros_container_state import healthcheck_status_categories, normalize_container_status
 else:
     from .routeros_container_state import healthcheck_status_categories, normalize_container_status
+    from .oci_registry_identity import resolve_image_identity, runtime_identity_matches
+
+if __package__ in {None, ""}:
+    from oci_registry_identity import resolve_image_identity, runtime_identity_matches
 
 
 MAX_WINDOW_SECONDS = 86_400
@@ -45,7 +51,7 @@ MAX_CPU_PERCENT = 80
 MAX_MEMORY_PERCENT = 90
 MAX_STORAGE_PERCENT = 90
 CONTAINER_NAMES = {"canary": "vpn-dashboard-canary", "production": "vpn-dashboard-production"}
-FORMAT = "vpn-dashboard-routeros-acceptance-v4"
+FORMAT = "vpn-dashboard-routeros-acceptance-v5"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 PROJECT_IMAGE = re.compile(
     r"^(?:ghcr\.io/)?aivanov2-godaddy/mikrotik-openvpn-gui:"
@@ -57,6 +63,10 @@ MODERN_CONTAINER_PROPLIST = "name,running,stopped,starting,stopping,healthy,remo
 HEALTHCHECK_CONTAINER_PROPLIST = (
     "name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image"
 )
+RUNTIME_IDENTITY_CONTAINER_PROPLIST = (
+    "name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image,image-id,layers"
+)
+LAYER_PROPLIST = "name,type,containers"
 _ROUTEROS_VERSION = re.compile(r"^\s*(\d+)\.(\d+)(?:\.\d+)?(?=$|[^0-9])")
 SESSION_PROPLIST = ".id"
 MAX_REST_RESPONSE_BYTES = 1_048_576
@@ -69,6 +79,7 @@ PARITY_TOLERANCE = {
 REST_PATHS = {
     "resource": ("system/resource", RESOURCE_PROPLIST),
     "containers": ("container", None),
+    "layers": ("container/layers", LAYER_PROPLIST),
     "sessions": ("ppp/active", SESSION_PROPLIST),
 }
 
@@ -86,6 +97,8 @@ def _container_proplist_for_version(version: str) -> str:
         return LEGACY_CONTAINER_PROPLIST
     if major == 7 and minor < 23:
         return MODERN_CONTAINER_PROPLIST
+    if major > 7 or minor >= 25:
+        return RUNTIME_IDENTITY_CONTAINER_PROPLIST
     return HEALTHCHECK_CONTAINER_PROPLIST
 
 
@@ -93,18 +106,18 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _records(replies: Iterable[RouterOSReply]) -> list[dict[str, str]]:
+def _records(replies: Iterable[RouterOSReply]) -> list[dict[str, Any]]:
     return [reply.attributes for reply in replies if reply.kind == "re" and not reply.dead]
 
 
-def _single_record(replies: Iterable[RouterOSReply]) -> dict[str, str]:
+def _single_record(replies: Iterable[RouterOSReply]) -> dict[str, Any]:
     records = _records(replies)
     if len(records) != 1:
         raise ValueError("unexpected RouterOS response shape")
     return records[0]
 
 
-def _number(values: Mapping[str, str], key: str, *, integer: bool = False) -> float:
+def _number(values: Mapping[str, Any], key: str, *, integer: bool = False) -> float:
     raw = values.get(key, "")
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw):
         raise ValueError("invalid RouterOS numeric field")
@@ -120,10 +133,73 @@ def _percent(used: float, total: float) -> float:
     return round(100.0 * used / total, 2)
 
 
+def _multi_values(value: Any) -> list[str] | None:
+    if isinstance(value, str):
+        values = [part.strip() for part in value.split(",")]
+    elif isinstance(value, list) and all(isinstance(part, str) for part in value):
+        values = [part.strip() for part in value]
+    else:
+        return None
+    if not values or any(not part for part in values) or len(values) != len(set(values)):
+        return None
+    return values
+
+
+def _runtime_layer_names(
+    container_name: str,
+    container_row: Mapping[str, Any],
+    layer_records: Iterable[Mapping[str, Any]],
+) -> list[str] | None:
+    listed_names = _multi_values(container_row.get("layers"))
+    if listed_names is None:
+        return None
+    by_name: dict[str, list[Mapping[str, Any]]] = {}
+    for record in layer_records:
+        name = record.get("name")
+        layer_type = record.get("type")
+        owners = _multi_values(record.get("containers"))
+        if (
+            not isinstance(name, str) or not name
+            or layer_type not in {"layer", "root-dir"}
+            or owners is None
+        ):
+            return None
+        by_name.setdefault(name, []).append(record)
+    runtime_names: list[str] = []
+    associated_names: set[str] = set()
+    for name in listed_names:
+        matches = by_name.get(name, [])
+        if len(matches) != 1:
+            return None
+        record = matches[0]
+        owners = _multi_values(record.get("containers"))
+        layer_type = record.get("type")
+        if owners is None or container_name not in owners:
+            return None
+        associated_names.add(name)
+        if layer_type == "layer":
+            if not re.fullmatch(r"[0-9a-f]{64}", name):
+                return None
+            runtime_names.append(name)
+        elif layer_type != "root-dir":
+            return None
+    for name, records in by_name.items():
+        if (
+            any(container_name in (_multi_values(record.get("containers")) or []) for record in records)
+            and name not in associated_names
+        ):
+            return None
+    return runtime_names if runtime_names else None
+
+
 def _snapshot_from_records(
-    resource: Mapping[str, str],
-    containers: Iterable[Mapping[str, str]],
+    resource: Mapping[str, Any],
+    containers: Iterable[Mapping[str, Any]],
     active_sessions: int,
+    *,
+    layer_records: Iterable[Mapping[str, Any]] = (),
+    runtime_identities: Mapping[str, Any] | None = None,
+    expected_image_references: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     cpu = _number(resource, "cpu-load", integer=True)
     total_memory = _number(resource, "total-memory", integer=True)
@@ -134,11 +210,14 @@ def _snapshot_from_records(
         raise ValueError("invalid RouterOS resource fields")
 
     containers = list(containers)
+    layer_records = list(layer_records)
+    runtime_identities = runtime_identities or {}
+    expected_image_references = expected_image_references or {}
     result_containers: dict[str, dict[str, Any]] = {}
     healthcheck_statuses: dict[str, list[str]] = {}
     healthcheck_status_supported = (
         _container_proplist_for_version(resource.get("version", ""))
-        == HEALTHCHECK_CONTAINER_PROPLIST
+        in {HEALTHCHECK_CONTAINER_PROPLIST, RUNTIME_IDENTITY_CONTAINER_PROPLIST}
     )
     for environment, expected_name in CONTAINER_NAMES.items():
         matching = [row for row in containers if row.get("name") == expected_name]
@@ -152,7 +231,32 @@ def _snapshot_from_records(
             "healthy": normalize_container_status(dict(row)) == "running",
             "revision": image_match.group("revision") if image_match else None,
             "configured_digest": image_match.group("digest") if image_match else None,
+            "runtime_manifest_digest": None,
+            "runtime_manifest_digest_verified": False,
         }
+        expected_reference = expected_image_references.get(environment)
+        identity = runtime_identities.get(environment)
+        runtime_layers = _runtime_layer_names(expected_name, row, layer_records)
+        configured_image = row.get("remote-image")
+        reference_matches = (
+            isinstance(expected_reference, str)
+            and isinstance(configured_image, str)
+            and configured_image.removeprefix("ghcr.io/")
+            == expected_reference.removeprefix("ghcr.io/")
+        )
+        runtime_verified = (
+            reference_matches
+            and runtime_layers is not None
+            and runtime_identity_matches(row.get("image-id"), runtime_layers, identity)
+        )
+        manifest_digest = identity.get("manifest_digest") if isinstance(identity, dict) else None
+        if not isinstance(manifest_digest, str) or DIGEST.fullmatch(manifest_digest) is None:
+            manifest_digest = None
+            runtime_verified = False
+        result_containers[environment]["runtime_manifest_digest"] = (
+            manifest_digest if runtime_verified else None
+        )
+        result_containers[environment]["runtime_manifest_digest_verified"] = bool(runtime_verified)
         healthcheck_statuses[environment] = (
             healthcheck_status_categories(row)
             if healthcheck_status_supported
@@ -169,7 +273,12 @@ def _snapshot_from_records(
     }
 
 
-def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
+def _snapshot(
+    connection: RouterOSBinaryConnection,
+    *,
+    runtime_identities: Mapping[str, Any] | None = None,
+    expected_image_references: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Read only the allowlisted aggregate fields; discard every raw reply."""
     resource = _single_record(connection.execute(
         "/system/resource/print", query=(f".proplist={RESOURCE_PROPLIST}",)
@@ -178,12 +287,23 @@ def _snapshot(connection: RouterOSBinaryConnection) -> dict[str, Any]:
     containers = _records(connection.execute(
         "/container/print", query=(f".proplist={container_proplist}",)
     ))
+    layers = (
+        _records(connection.execute("/container/layers/print", query=(f".proplist={LAYER_PROPLIST}",)))
+        if container_proplist == RUNTIME_IDENTITY_CONTAINER_PROPLIST else []
+    )
     # Read .id values only to count active sessions. IDs, usernames, addresses,
     # and other RouterOS attributes are deliberately discarded.
     active_sessions = len(_records(connection.execute(
         "/ppp/active/print", query=(f".proplist={SESSION_PROPLIST}",)
     )))
-    return _snapshot_from_records(resource, containers, active_sessions)
+    return _snapshot_from_records(
+        resource,
+        containers,
+        active_sessions,
+        layer_records=layers,
+        runtime_identities=runtime_identities,
+        expected_image_references=expected_image_references,
+    )
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -239,6 +359,7 @@ class RouterOSRestAcceptanceReader:
                 LEGACY_CONTAINER_PROPLIST,
                 MODERN_CONTAINER_PROPLIST,
                 HEALTHCHECK_CONTAINER_PROPLIST,
+                RUNTIME_IDENTITY_CONTAINER_PROPLIST,
             }:
                 raise ValueError("REST container property list is not allowlisted")
         elif proplist is not None:
@@ -261,20 +382,41 @@ class RouterOSRestAcceptanceReader:
         decoded = json.loads(body)
         if not isinstance(decoded, list) or any(
             not isinstance(record, dict)
-            or any(not isinstance(key, str) or not isinstance(value, str) for key, value in record.items())
+            or any(
+                not isinstance(key, str)
+                or not (
+                    isinstance(value, str)
+                    or (key in {"layers", "containers"} and isinstance(value, list)
+                        and all(isinstance(part, str) for part in value))
+                )
+                for key, value in record.items()
+            )
             for record in decoded
         ):
             raise ValueError("unexpected RouterOS REST response shape")
         return decoded
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(
+        self,
+        *,
+        runtime_identities: Mapping[str, Any] | None = None,
+        expected_image_references: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
         resource_records = self._get_records("resource")
         if len(resource_records) != 1:
             raise ValueError("unexpected RouterOS REST resource response shape")
         container_proplist = _container_proplist_for_version(resource_records[0].get("version", ""))
         containers = self._get_records("containers", proplist=container_proplist)
+        layers = self._get_records("layers") if container_proplist == RUNTIME_IDENTITY_CONTAINER_PROPLIST else []
         sessions = self._get_records("sessions")
-        return _snapshot_from_records(resource_records[0], containers, len(sessions))
+        return _snapshot_from_records(
+            resource_records[0],
+            containers,
+            len(sessions),
+            layer_records=layers,
+            runtime_identities=runtime_identities,
+            expected_image_references=expected_image_references,
+        )
 
     def close(self) -> None:
         self._authorization = ""
@@ -311,6 +453,8 @@ def collect(
     clock: Callable[[], datetime] = _utc_now,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    registry_identity_resolver: Callable[..., Any] | None = None,
+    registry_timeout_seconds: float = 8,
 ) -> dict[str, Any]:
     if not math.isfinite(duration_seconds) or not MIN_WINDOW_SECONDS <= duration_seconds <= MAX_WINDOW_SECONDS:
         raise ValueError("window duration must be between 1800 seconds and 24 hours")
@@ -338,6 +482,28 @@ def collect(
     ):
         raise ValueError("expected canary digest and optional production digest must be lowercase SHA-256")
 
+    if not math.isfinite(registry_timeout_seconds) or not 1 <= registry_timeout_seconds <= 30:
+        raise ValueError("registry identity timeout must be between 1 and 30 seconds")
+    if registry_identity_resolver is None:
+        registry_identity_resolver = resolve_image_identity
+
+    expected_image_references = {
+        environment: (
+            f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:"
+            f"sha-{expected_revisions[environment]}-arm64"
+            + (f"@{expected_digests[environment]}" if expected_digests[environment] else "")
+        )
+        for environment in CONTAINER_NAMES
+    }
+    runtime_identities_before: dict[str, Any] = {}
+    for environment, image in expected_image_references.items():
+        try:
+            runtime_identities_before[environment] = registry_identity_resolver(
+                image, timeout=registry_timeout_seconds
+            )
+        except Exception:
+            runtime_identities_before[environment] = None
+
     samples: list[dict[str, Any]] = []
     try:
         connection.connect(username, password)
@@ -348,8 +514,15 @@ def collect(
             at = clock()
             tick = monotonic()
             try:
-                binary_values = _snapshot(connection)
-                rest_values = rest_reader.snapshot()
+                binary_values = _snapshot(
+                    connection,
+                    runtime_identities=runtime_identities_before,
+                    expected_image_references=expected_image_references,
+                )
+                rest_values = rest_reader.snapshot(
+                    runtime_identities=runtime_identities_before,
+                    expected_image_references=expected_image_references,
+                )
                 mismatches = _snapshot_mismatches(binary_values, rest_values)
                 sample = {
                     "at": at.isoformat(), "_tick": tick, **binary_values,
@@ -369,6 +542,14 @@ def collect(
             sleep(min(interval_seconds, remaining))
         ended = clock()
         end_tick = monotonic()
+        runtime_identities_after: dict[str, Any] = {}
+        for environment, image in expected_image_references.items():
+            try:
+                runtime_identities_after[environment] = registry_identity_resolver(
+                    image, timeout=registry_timeout_seconds
+                )
+            except Exception:
+                runtime_identities_after[environment] = None
     finally:
         connection.close()
         rest_reader.close()
@@ -395,6 +576,33 @@ def collect(
     }
     digest_values = {
         name: {sample["containers"][name]["configured_digest"] for sample in successful}
+        for name in container_names
+    }
+    runtime_identity_values = {
+        name: {sample["containers"][name]["runtime_manifest_digest"] for sample in successful}
+        for name in container_names
+    }
+    runtime_identity_sample_matches = {
+        name: bool(successful) and all(
+            sample["containers"][name]["runtime_manifest_digest_verified"]
+            for sample in successful
+        )
+        for name in container_names
+    }
+    runtime_identity_stable = {
+        name: (
+            isinstance(runtime_identities_before.get(name), dict)
+            and isinstance(runtime_identities_after.get(name), dict)
+            and runtime_identities_before[name] == runtime_identities_after[name]
+            and len(runtime_identity_values[name]) == 1
+            and None not in runtime_identity_values[name]
+            and next(iter(runtime_identity_values[name]))
+            == runtime_identities_before[name].get("manifest_digest")
+        )
+        for name in container_names
+    }
+    runtime_identity_verified = {
+        name: runtime_identity_sample_matches[name] and runtime_identity_stable[name]
         for name in container_names
     }
     cpu_values = [sample["router_cpu_percent"] for sample in successful]
@@ -435,6 +643,8 @@ def collect(
         failed.append("container_configured_digest_missing_or_changed")
     if any(digest_values[name] != {expected_digests[name]} for name in container_names):
         failed.append("container_configured_digest_mismatch")
+    if not all(runtime_identity_verified.values()):
+        failed.append("container_runtime_manifest_digest_unverified")
     if max(cpu_values, default=math.inf) > MAX_CPU_PERCENT:
         failed.append("router_cpu_threshold_exceeded")
     if max(memory_values, default=math.inf) > MAX_MEMORY_PERCENT:
@@ -483,6 +693,11 @@ def collect(
                 "configured_digest_matches_expected": (
                     bool(successful) and digest_values[name] == {expected_digests[name]}
                 ),
+                "runtime_manifest_digest": (
+                    runtime_identities_before[name]["manifest_digest"]
+                    if runtime_identity_verified[name] else None
+                ),
+                "runtime_manifest_digest_verified": runtime_identity_verified[name],
             }
             for name in container_names
         },
@@ -498,8 +713,12 @@ def collect(
         },
         "passed": not failed,
         "failed_gates": sorted(set(failed)),
-        "read_only_api_paths": ["/system/resource/print", "/container/print", "/ppp/active/print"],
-        "read_only_rest_paths": ["/rest/system/resource", "/rest/container", "/rest/ppp/active"],
+        "read_only_api_paths": [
+            "/system/resource/print", "/container/print", "/container/layers/print", "/ppp/active/print"
+        ],
+        "read_only_rest_paths": [
+            "/rest/system/resource", "/rest/container", "/rest/container/layers", "/rest/ppp/active"
+        ],
         "credentials_or_raw_router_data_written": False,
     }
 
