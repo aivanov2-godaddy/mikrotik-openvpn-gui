@@ -22,9 +22,9 @@ image; its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — 2026-11-13 04:15 UTC
+## Current checkpoint — 2026-11-13 04:41 UTC
 
-Documentation PR #959 merged to main at `0b58eb52fb6a19d81455c1288ac9f9942d82057e` at 03:38:18 UTC. Post-merge CI #43360298174 and CodeQL #43360298408 passed. The latest container-publisher run remains PR #935 run #43174815700, source `3f8fc22ec3166b3074fb54f54c79d6dede256ed4`, with ARM64 manifest `sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd`. Publication is not RouterOS acceptance or proof of a running digest.
+PR #960 merged to main at `2dbd46a8c6acf4a12c12a222fd008d0334f4643a` at 04:27:39 UTC. Post-merge CI #43365671859 and CodeQL #43365671726 passed. PR #960 adds regression coverage proving an unhealthy production baseline blocks before backup verification or any RouterOS write. The latest container-publisher run remains PR #935 run #43174815700, source `3f8fc22ec3166b3074fb54f54c79d6dede256ed4`, with ARM64 manifest `sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd`; no publisher run followed #960. Publication is not RouterOS acceptance or proof of a running digest. The latest RouterOS observation remains the 03:57–04:14 UTC window below; this documentation refresh did not collect a newer router read.
 
 ## Latest RouterOS read-back — 2026-11-13 03:57–04:14 UTC
 
@@ -32,7 +32,7 @@ A TLS-verified Binary API snapshot at 03:59:05 UTC reported the canary unhealthy
 
 A TLS-verified REST healthcheck classification at 03:57:38 UTC reported failed/segmentation_fault. No per-container override was present; the default command still matched the previously reviewed legacy readiness-check shape. Lifecycle fields were absent from this narrow REST response; the separate Binary API snapshot supplies the unhealthy lifecycle result. The failing executable and cause remain unknown. Direct private GETs at 03:58:02 UTC returned HTTP 200 for `/healthz` and `/readyz`, with readiness ready at PR #894. A count-only active OpenVPN query during this refresh returned zero and requested no session identifiers or addresses; it does not identify the disposable client. These point samples do not clear RouterOS health or establish an acceptance window. No raw healthcheck command/output, private address, image ID, session identifier, or credential was retained.
 
-A fresh PR #935 `--check-only` preflight at 04:14 UTC returned `preflight_blocked / baseline / canary_unhealthy` with `router_writes_may_have_started=false`. It did not stage the candidate. The 03:59 read still finds an unhealthy canary, so it is not a verified healthy rollback baseline; staging remains blocked. No RouterOS setting, account, password, container, scheduler, updater, or firmware changed; there was no staging, restart, rollback, updater execution, or production deployment. Client-dependent #200 acceptance remains unverified. Issues #785, #927, #200, and epic #205 remain open; production deployment is not claimed.
+A PR #935 `--check-only` preflight at 04:14 UTC returned `preflight_blocked / baseline / canary_unhealthy` with `router_writes_may_have_started=false`. It did not stage the candidate. The 03:59 read still finds an unhealthy canary, so it is not a verified healthy rollback baseline; staging remains blocked. PR #960's regression test covers the distinct unhealthy production-baseline fail-closed path. No RouterOS setting, account, password, container, scheduler, updater, or firmware changed; there was no staging, restart, rollback, updater execution, or production deployment. Client-dependent #200 acceptance remains unverified. Issues #785, #927, #200, and epic #205 remain open; production deployment is not claimed.
 
 ## Latest updater source inventory and bounded review — 2026-11-13 03:35–03:45 UTC
 
