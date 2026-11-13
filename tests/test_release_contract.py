@@ -351,6 +351,7 @@ class ReleaseContractTests(unittest.TestCase):
             "\n".join(document.read_text(encoding="utf-8") for document in documents).split()
         )
         release_record = (ROOT / "docs/RELEASES.md").read_text(encoding="utf-8")
+        release_compact = " ".join(release_record.split())
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
@@ -359,13 +360,20 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
         self.assertIn(
-            "The latest RouterOS evidence is a TLS-verified read-only REST healthcheck classification at 16:42:42 UTC",
-            release_record,
+            "The latest RouterOS evidence is a TLS-verified REST healthcheck read at 16:56:12 UTC",
+            release_compact,
+        )
+        self.assertIn("A separate TLS-verified REST configuration read at 16:57:28 UTC", release_compact)
+        self.assertIn("`shell_timeout_wget_local_readyz_v1`", release_compact)
+        self.assertIn("`exec_wget_local_readyz_v1`", release_compact)
+        self.assertIn(
+            "PR #974 merged documentation-only at `3c54ae3e414a893bf61bd3c1913c88515da525cd`",
+            release_compact,
         )
         self.assertIn("A read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy", release_record)
         self.assertIn(
-            "PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`",
-            release_record,
+            "PR #966 is retained in the historical checkpoints below",
+            release_compact,
         )
         self.assertIn(
             "production's healthcheck status was `good` with a healthy field true",
@@ -425,16 +433,17 @@ class ReleaseContractTests(unittest.TestCase):
             "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image",
             " ".join(routeros_acceptance.split()),
         )
-        self.assertIn("## Current checkpoint — RouterOS healthcheck read 2026-11-13 16:42:42 UTC", routeros_acceptance)
         self.assertIn(
-            "At 16:26:58 UTC, a separate TLS-verified, read-only REST healthcheck classification still reported",
-            " ".join(routeros_acceptance.split()),
+            "## Current checkpoint — PR #974 and RouterOS reads 2026-11-13 16:56–16:57 UTC",
+            routeros_acceptance,
         )
         self.assertIn(
-            "At 16:42:42 UTC, a second TLS-verified read-only healthcheck classification",
-            " ".join(routeros_acceptance.split()),
+            "Post-merge main CI #43468485879 and CodeQL #43468484486 both passed",
+            routeros_acceptance,
         )
-        self.assertIn("At 15:45:38 UTC, a TLS-verified read-only REST healthcheck read", routeros_acceptance)
+        self.assertIn("A TLS-verified read-only REST healthcheck comparison at 16:56:12 UTC", routeros_acceptance)
+        self.assertIn("A separate TLS-verified REST configuration read at 16:57:28 UTC", routeros_acceptance)
+        self.assertIn("registry_image_config_healthcheck_profile", routeros_acceptance)
         self.assertIn("## Previous checkpoint — PR #966 — 2026-11-13 11:29 UTC", routeros_acceptance)
         self.assertIn("A fresh read-only WinBox container-list view at 11:28:59 UTC showed the canary", routeros_acceptance)
         self.assertIn("`router_writes_may_have_started=false`", routeros_acceptance)

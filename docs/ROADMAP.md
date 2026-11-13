@@ -11,70 +11,44 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — RouterOS healthcheck read at 2026-11-13
-16:42:42 UTC; GitHub verified through 16:43 UTC.** PR #971 merged at
-14:51:24 UTC as
-`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
-It fixes the narrow RouterOS Binary API client's allowlist for runtime image
-identity reads. Post-merge CodeQL #43446742646, main CI #43446742822, and
-container publisher #43446742850 passed. The publisher released a verified
-immutable ARM64 image at
-`sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`
-and AMD64 image at
-`sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`.
-The stable manifest asset SHA-256 is
-`344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`.
-Publication is not RouterOS acceptance. The latest full image-configuration
-read at 15:45:38 UTC found the canary configured to the old PR #894
-revision and unhealthy. Production remained configured by a tag and reported
-running with a `good` healthcheck. This narrow REST read did not verify either
-running registry digest; the last runtime manifest identity reconciliation
-remains the 14:28 Binary API point read, which predates PR #971 publication.
-PR #971 has not been staged, and no deployment is verified. PR #973 later
-merged documentation-only at `ff3e6904d72fb8a7f5f0258c432d90d63cad9ce6`;
-post-merge main CI #43460554370 and CodeQL #43460553975 passed.
+**Fresh read-only checkpoint — RouterOS reads at 2026-11-13 16:56–16:57 UTC;
+GitHub verified through 17:15 UTC.** Main is at
+`3c54ae3e414a893bf61bd3c1913c88515da525cd` after documentation PR #974. Its
+required checks passed; post-merge CodeQL #43468484486 and main CI #43468485879
+also passed. PR #974 did not publish an image. PR #971 remains the latest
+published immutable candidate; its verified digests and publisher evidence are
+recorded in [RELEASES.md](RELEASES.md). Publication is not RouterOS acceptance.
 
-At 16:26:58 UTC, a separate TLS-verified read-only REST healthcheck
-classification still reported the canary as `segmentation_fault`, with no
-per-container command and the previously reviewed legacy default-check shape.
-Production's healthcheck category was `good`, with its healthy field true and a
-different default-check shape. RouterOS omitted container lifecycle/running
-fields and the canary healthy field; the restart count was 0 for both
-containers. This narrow classification did not request configured image
-references, running digests, readiness, or sessions. The 15:45:38 UTC read
-remains the latest image-configuration point read; neither running digest is
-verified. The failing executable and cause remain unknown, and the canary is
-not a verified healthy rollback baseline. No RouterOS state changed.
+A TLS-verified read-only REST healthcheck comparison at 16:56:12 UTC still
+classified the canary as `segmentation_fault`. No per-container healthcheck
+override was present; its image-default profile matched the reviewed legacy
+shell/timeout/wget readiness shape, and its restart count was zero. Production
+reported health `good` and `healthy=true`; its default profile did not match
+that legacy shape. The narrow healthcheck response omitted running and
+lifecycle fields, and it did not identify the failing executable or cause.
 
-A second TLS-verified, read-only healthcheck classification at 16:42:42 UTC
-again reported `segmentation_fault`. A local privacy-preserving classifier
-found no explicit utility-prefixed fault marker and did not retain raw
-healthcheck-status text. The configured command remains absent and the default
-shape remains the previously reviewed legacy check. This does not identify a
-failing executable or cause, and it does not verify lifecycle, readiness,
-image identity, or acceptance.
+Read-only registry identity resolution verified that the old configured PR
+#894 image uses `shell_timeout_wget_local_readyz_v1` and the published PR #971
+candidate uses `exec_wget_local_readyz_v1`. This confirms the image-config
+difference only; it does not establish the RouterOS running digest or prove
+that the profile difference caused the fault.
 
-The 15:45:38 UTC TLS-verified read-only REST healthcheck/configuration read
-reported the canary lifecycle as unhealthy with categories failed,
-resource_unavailable, segmentation_fault, and timeout. Its configured image
-remains digest-pinned to revision `84a3148de713abe49be0c7be8f21caa652b68dd9`
-(PR #894), not PR #971. Production remained running at revision
-`8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7` with a tag-only reference and
-health category `good`. The REST read did not verify either running registry
-digest. The latest active-session count is still the earlier count-only read
-at 14:28 UTC, which returned zero. Direct canary `/healthz` and `/readyz`
-probes at 14:37:16 UTC returned HTTP 200 and readiness `ready` for the old
-PR #894 revision; these probes also predate publication. These point samples
-do not identify the failing process or root cause, prove a healthy rollback
-baseline, or accept PR #971.
+A separate TLS-verified REST configuration read at 16:57:28 UTC found the
+canary still configured to the old PR #894 digest-pinned image reference and
+production configured by a mutable tag. Lifecycle state was unknown in that
+response, and neither running registry digest was verified. The latest reads
+did not query active VPN sessions or direct readiness endpoints. WinBox was
+not readable in this session because Windows denied computer-control capture.
+No RouterOS setting, account, container, scheduler, updater, or production
+state changed; there was no staging, restart, rollback, updater execution, or
+production deployment.
 
-Issue #927 remains open. #785 is closed; installed-updater reconciliation and
-healthy-canary rollback remain follow-up gates under #205. Issues #188–#199 and
-#201–#204 are closed; #200 and epic #205 remain open. The independent #200
-assessment, candidate-bound live-client checks and soak, and separate owner
-risk decision remain outstanding. No RouterOS settings, accounts, containers,
-or production state changed; no staging, restart, rollback, updater execution,
-or production deployment occurred. Multi-tenancy remains excluded.
+Issue #927 remains open; #200 and epic #205 remain open. #785 is closed, with
+installed-updater reconciliation and healthy-canary rollback still tracked as
+release gates under #205. Issues #188–#199 and #201–#204 are closed. The
+independent #200 assessment, candidate-bound live-client checks and soak, and
+separate owner risk decision remain outstanding. Multi-tenancy remains
+excluded.
 
 **Superseded checkpoint — 2026-11-13 13:36 UTC; GitHub verified through
 13:47 UTC.** `main` was at

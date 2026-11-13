@@ -34,12 +34,18 @@ if __package__ in {None, ""}:
 from routeros_binary import RouterOSBinaryConnection, RouterOSBinaryError, RouterOSReply
 if __package__ in {None, ""}:
     from routeros_container_state import healthcheck_status_categories, normalize_container_status
+    from oci_registry_identity import (
+        IMAGE_HEALTHCHECK_PROFILES,
+        resolve_image_identity,
+        runtime_identity_matches,
+    )
 else:
     from .routeros_container_state import healthcheck_status_categories, normalize_container_status
-    from .oci_registry_identity import resolve_image_identity, runtime_identity_matches
-
-if __package__ in {None, ""}:
-    from oci_registry_identity import resolve_image_identity, runtime_identity_matches
+    from .oci_registry_identity import (
+        IMAGE_HEALTHCHECK_PROFILES,
+        resolve_image_identity,
+        runtime_identity_matches,
+    )
 
 
 MAX_WINDOW_SECONDS = 86_400
@@ -233,6 +239,7 @@ def _snapshot_from_records(
             "configured_digest": image_match.group("digest") if image_match else None,
             "runtime_manifest_digest": None,
             "runtime_manifest_digest_verified": False,
+            "registry_image_config_healthcheck_profile": None,
         }
         expected_reference = expected_image_references.get(environment)
         identity = runtime_identities.get(environment)
@@ -257,6 +264,17 @@ def _snapshot_from_records(
             manifest_digest if runtime_verified else None
         )
         result_containers[environment]["runtime_manifest_digest_verified"] = bool(runtime_verified)
+        image_healthcheck_profile = (
+            identity.get("image_healthcheck_profile") if isinstance(identity, dict) else None
+        )
+        if (
+            not isinstance(image_healthcheck_profile, str)
+            or image_healthcheck_profile not in IMAGE_HEALTHCHECK_PROFILES
+        ):
+            image_healthcheck_profile = None
+        result_containers[environment]["registry_image_config_healthcheck_profile"] = (
+            image_healthcheck_profile if runtime_verified else None
+        )
         healthcheck_statuses[environment] = (
             healthcheck_status_categories(row)
             if healthcheck_status_supported
@@ -605,6 +623,25 @@ def collect(
         name: runtime_identity_sample_matches[name] and runtime_identity_stable[name]
         for name in container_names
     }
+    image_healthcheck_profile_values = {
+        name: {
+            sample["containers"][name]["registry_image_config_healthcheck_profile"]
+            for sample in successful
+        }
+        for name in container_names
+    }
+    registry_image_config_healthcheck_profiles = {}
+    for name in container_names:
+        identity = runtime_identities_before.get(name)
+        profile = identity.get("image_healthcheck_profile") if isinstance(identity, dict) else None
+        registry_image_config_healthcheck_profiles[name] = (
+            profile
+            if runtime_identity_verified[name]
+            and isinstance(profile, str)
+            and profile in IMAGE_HEALTHCHECK_PROFILES
+            and image_healthcheck_profile_values[name] == {profile}
+            else None
+        )
     cpu_values = [sample["router_cpu_percent"] for sample in successful]
     memory_values = [sample["router_memory_used_percent"] for sample in successful]
     storage_values = [sample["router_storage_used_percent"] for sample in successful]
@@ -698,6 +735,9 @@ def collect(
                     if runtime_identity_verified[name] else None
                 ),
                 "runtime_manifest_digest_verified": runtime_identity_verified[name],
+                "registry_image_config_healthcheck_profile": (
+                    registry_image_config_healthcheck_profiles[name]
+                ),
             }
             for name in container_names
         },

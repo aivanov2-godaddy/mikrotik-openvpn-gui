@@ -189,6 +189,11 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                         else None
                     ),
                     "runtime_manifest_digest_verified": name != "canary" or canary_digest == CANARY_DIGEST,
+                    "registry_image_config_healthcheck_profile": (
+                        "exec_wget_local_readyz_v1"
+                        if name != "canary" or canary_digest == CANARY_DIGEST
+                        else None
+                    ),
                 }
                 for name in CONTAINER_NAMES
             },
@@ -225,6 +230,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             "layer_digests": [f"sha256:{item}" for item in (CANARY_LAYERS if is_canary else PRODUCTION_LAYERS)],
             "os": "linux",
             "architecture": "arm64",
+            "image_healthcheck_profile": "exec_wget_local_readyz_v1",
         }
 
     def setUp(self):
@@ -246,6 +252,9 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         )
         self.assertFalse(report["containers"]["canary"]["runtime_manifest_digest_verified"])
         self.assertIsNone(report["containers"]["canary"]["runtime_manifest_digest"])
+        self.assertIsNone(
+            report["containers"]["canary"]["registry_image_config_healthcheck_profile"]
+        )
         self.assertNotIn("private-user", repr(report))
         self.assertNotIn("/must-not-leak", repr(report))
 
@@ -394,6 +403,10 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertTrue(all(item["healthy_for_all_successful_samples"] for item in report["containers"].values()))
         self.assertTrue(all(item["runtime_manifest_digest_verified"] for item in report["containers"].values()))
         self.assertEqual(report["containers"]["canary"]["runtime_manifest_digest"], CANARY_DIGEST)
+        self.assertEqual(
+            report["containers"]["canary"]["registry_image_config_healthcheck_profile"],
+            "exec_wget_local_readyz_v1",
+        )
         self.assertNotIn(CANARY_CONFIG_DIGEST.removeprefix("sha256:"), repr(report))
         self.assertNotIn(CANARY_LAYERS[0], repr(report))
         self.assertEqual(
@@ -542,6 +555,32 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         )
         self.assertFalse(snapshot["containers"]["canary"]["runtime_manifest_digest_verified"])
         self.assertIsNone(snapshot["containers"]["canary"]["runtime_manifest_digest"])
+        self.assertIsNone(
+            snapshot["containers"]["canary"]["registry_image_config_healthcheck_profile"]
+        )
+
+    def test_untrusted_registry_profile_is_suppressed_even_for_verified_runtime(self):
+        revision = "a" * 40
+        references = {
+            "canary": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64@{CANARY_DIGEST}",
+            "production": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64",
+        }
+        identities = {
+            name: self._fake_registry_identity(image, timeout=8)
+            for name, image in references.items()
+        }
+        identities["canary"]["image_healthcheck_profile"] = ["untrusted"]
+
+        snapshot = _snapshot(
+            self._fake_connection(),
+            runtime_identities=identities,
+            expected_image_references=references,
+        )
+
+        self.assertTrue(snapshot["containers"]["canary"]["runtime_manifest_digest_verified"])
+        self.assertIsNone(
+            snapshot["containers"]["canary"]["registry_image_config_healthcheck_profile"]
+        )
 
     def test_configured_digest_is_bound_throughout_window_and_rest_parity(self):
         alternate = "sha256:" + "e" * 64
@@ -739,6 +778,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 "layer_digests": [f"sha256:{value}" for value in CANARY_LAYERS],
                 "os": "linux",
                 "architecture": "arm64",
+                "image_healthcheck_profile": "exec_wget_local_readyz_v1",
             },
             "production": {
                 "manifest_digest": PRODUCTION_REGISTRY_DIGEST,
@@ -746,6 +786,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 "layer_digests": [f"sha256:{value}" for value in PRODUCTION_LAYERS],
                 "os": "linux",
                 "architecture": "arm64",
+                "image_healthcheck_profile": "shell_timeout_wget_local_readyz_v1",
             },
         }
         references = {
@@ -825,6 +866,14 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertEqual(
             snapshot["containers"]["canary"]["runtime_manifest_digest"],
             CANARY_DIGEST,
+        )
+        self.assertEqual(
+            snapshot["containers"]["canary"]["registry_image_config_healthcheck_profile"],
+            "exec_wget_local_readyz_v1",
+        )
+        self.assertEqual(
+            snapshot["containers"]["production"]["registry_image_config_healthcheck_profile"],
+            "shell_timeout_wget_local_readyz_v1",
         )
         self.assertNotIn(CANARY_CONFIG_DIGEST.removeprefix("sha256:"), repr(snapshot))
         self.assertNotIn(CANARY_LAYERS[0], repr(snapshot))

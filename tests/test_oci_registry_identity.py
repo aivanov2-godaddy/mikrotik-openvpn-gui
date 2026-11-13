@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.request import Request
 
 from scripts.oci_registry_identity import (
+    IMAGE_HEALTHCHECK_PROFILES,
     _GitHubBlobRedirectHandler,
+    _image_healthcheck_profile,
+    resolve_image_identity,
     resolve_image_identity_request,
     runtime_identity_matches,
 )
@@ -15,7 +18,25 @@ from scripts.oci_registry_identity import (
 
 REVISION = "a" * 40
 IMAGE = f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{REVISION}-arm64"
-CONFIG = {"os": "linux", "architecture": "arm64", "rootfs": {"type": "layers", "diff_ids": []}}
+CONFIG = {
+    "os": "linux",
+    "architecture": "arm64",
+    "rootfs": {"type": "layers", "diff_ids": []},
+    "config": {
+        "Healthcheck": {
+            "Test": [
+                "CMD",
+                "wget",
+                "-q",
+                "-T",
+                "2",
+                "-O",
+                "/dev/null",
+                "http://127.0.0.1:8080/readyz",
+            ]
+        }
+    },
+}
 LAYER_DIGESTS = ["sha256:" + "b" * 64, "sha256:" + "c" * 64]
 
 
@@ -74,10 +95,78 @@ class OCIRegistryIdentityTests(unittest.TestCase):
                 "layer_digests": LAYER_DIGESTS,
                 "os": "linux",
                 "architecture": "arm64",
+                "image_healthcheck_profile": "exec_wget_local_readyz_v1",
             },
         )
         self.assertEqual(request.call_count, 3)
         self.assertNotIn("private-token", repr(identity))
+
+    def test_image_healthcheck_profile_is_fixed_and_never_returns_command_text(self) -> None:
+        shell_command = (
+            "timeout 2 wget -q -T 2 -O /dev/null "
+            "http://127.0.0.1:8080/readyz || exit 1"
+        )
+        cases = (
+            (
+                {"config": {"Healthcheck": {"Test": CONFIG["config"]["Healthcheck"]["Test"]}}},
+                "exec_wget_local_readyz_v1",
+            ),
+            (
+                {"config": {"Healthcheck": {"Test": ["CMD-SHELL", shell_command]}}},
+                "shell_timeout_wget_local_readyz_v1",
+            ),
+            ({}, "unavailable"),
+            ({"config": {"Healthcheck": {"Test": ["NONE"]}}}, "disabled"),
+            ({"config": {"Healthcheck": {"Test": None}}}, "unrecognized"),
+            (
+                {"config": {"Healthcheck": {"Test": ["CMD-SHELL", "echo private-detail"]}}},
+                "other",
+            ),
+        )
+
+        for document, expected in cases:
+            with self.subTest(expected=expected):
+                profile = _image_healthcheck_profile(document)
+                self.assertEqual(profile, expected)
+                self.assertIn(profile, IMAGE_HEALTHCHECK_PROFILES)
+                self.assertNotIn("private-detail", repr(profile))
+
+        self.assertEqual(
+            IMAGE_HEALTHCHECK_PROFILES,
+            frozenset(
+                {
+                    "unavailable",
+                    "disabled",
+                    "exec_wget_local_readyz_v1",
+                    "shell_timeout_wget_local_readyz_v1",
+                    "other",
+                    "unrecognized",
+                }
+            ),
+        )
+
+    def test_parent_wrapper_accepts_only_allowlisted_profile_metadata(self) -> None:
+        identity = {
+            "manifest_digest": "sha256:" + "a" * 64,
+            "config_digest": "sha256:" + "b" * 64,
+            "layer_digests": ["sha256:" + "c" * 64],
+            "os": "linux",
+            "architecture": "arm64",
+            "image_healthcheck_profile": "exec_wget_local_readyz_v1",
+        }
+        result = Mock(
+            returncode=0,
+            stdout=json.dumps(identity),
+        )
+        with patch("scripts.oci_registry_identity.subprocess.run", return_value=result):
+            self.assertEqual(resolve_image_identity(IMAGE), identity)
+
+        invalid = {**identity, "image_healthcheck_profile": "raw-command-text"}
+        for profile in ("raw-command-text", []):
+            with self.subTest(profile=profile):
+                result.stdout = json.dumps({**invalid, "image_healthcheck_profile": profile})
+                with patch("scripts.oci_registry_identity.subprocess.run", return_value=result):
+                    self.assertIsNone(resolve_image_identity(IMAGE))
 
     def test_rejects_manifest_header_that_does_not_hash_to_body(self) -> None:
         _config_body, _config_digest, manifest_body, _manifest_digest = self._responses()

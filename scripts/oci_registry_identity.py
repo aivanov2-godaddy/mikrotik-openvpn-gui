@@ -3,8 +3,8 @@
 The resolver is deliberately limited to this repository's GHCR image. It
 checks the registry's manifest digest against the returned bytes, follows an
 index only to the requested Linux architecture, verifies the config blob, and
-returns only public OCI digests and platform metadata. The parent-process
-wrapper enforces a hard wall-clock deadline.
+returns only public OCI digests, platform metadata, and fixed healthcheck
+profile labels. The parent-process wrapper enforces a hard wall-clock deadline.
 """
 
 from __future__ import annotations
@@ -34,6 +34,29 @@ MAX_TOKEN_BYTES = 65_536
 MAX_MANIFEST_BYTES = 65_536
 MAX_CONFIG_BYTES = 4_194_304
 MAX_LAYERS = 128
+IMAGE_HEALTHCHECK_PROFILES = frozenset(
+    {
+        "unavailable",
+        "disabled",
+        "exec_wget_local_readyz_v1",
+        "shell_timeout_wget_local_readyz_v1",
+        "other",
+        "unrecognized",
+    }
+)
+EXEC_WGET_READYZ_TEST = [
+    "CMD",
+    "wget",
+    "-q",
+    "-T",
+    "2",
+    "-O",
+    "/dev/null",
+    "http://127.0.0.1:8080/readyz",
+]
+SHELL_TIMEOUT_WGET_READYZ_TEST = (
+    "timeout 2 wget -q -T 2 -O /dev/null http://127.0.0.1:8080/readyz || exit 1"
+)
 SUPPORTED_MANIFEST_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
@@ -152,6 +175,36 @@ def _body_digest(payload: bytes, expected: Any) -> bool:
         and DIGEST.fullmatch(expected) is not None
         and hashlib.sha256(payload).hexdigest() == expected.removeprefix("sha256:")
     )
+
+
+def _image_healthcheck_profile(config_document: dict[str, Any]) -> str:
+    """Classify a digest-verified Docker healthcheck without returning its text."""
+    image_config = config_document.get("config")
+    if not isinstance(image_config, dict):
+        return "unavailable"
+    healthcheck = image_config.get("Healthcheck")
+    if not isinstance(healthcheck, dict):
+        # OCI reserves this Docker extension, so an absent field is unknown.
+        return "unavailable"
+    test = healthcheck.get("Test")
+    if test == ["NONE"]:
+        return "disabled"
+    if (
+        not isinstance(test, list)
+        or not test
+        or len(test) > 32
+        or any(not isinstance(item, str) or len(item) > 512 for item in test)
+    ):
+        return "unrecognized"
+    if test == EXEC_WGET_READYZ_TEST:
+        return "exec_wget_local_readyz_v1"
+    if (
+        len(test) == 2
+        and test[0] == "CMD-SHELL"
+        and " ".join(test[1].split()) == SHELL_TIMEOUT_WGET_READYZ_TEST
+    ):
+        return "shell_timeout_wget_local_readyz_v1"
+    return "other"
 
 
 def _verified_manifest(
@@ -296,6 +349,7 @@ def resolve_image_identity_request(image: str, *, timeout: float = 8.0) -> dict[
         "layer_digests": layer_digests,
         "os": "linux",
         "architecture": architecture,
+        "image_healthcheck_profile": _image_healthcheck_profile(config_document),
     }
 
 
@@ -322,7 +376,12 @@ def resolve_image_identity(image: str, *, timeout: float = 8.0) -> dict[str, Any
     except json.JSONDecodeError:
         return None
     if not isinstance(identity, dict) or set(identity) != {
-        "manifest_digest", "config_digest", "layer_digests", "os", "architecture"
+        "manifest_digest",
+        "config_digest",
+        "layer_digests",
+        "os",
+        "architecture",
+        "image_healthcheck_profile",
     }:
         return None
     if (
@@ -337,6 +396,8 @@ def resolve_image_identity(image: str, *, timeout: float = 8.0) -> dict[str, Any
         or len(set(identity["layer_digests"])) != len(identity["layer_digests"])
         or identity.get("os") != "linux"
         or identity.get("architecture") != IMAGE.fullmatch(image).group("architecture")
+        or not isinstance(identity.get("image_healthcheck_profile"), str)
+        or identity.get("image_healthcheck_profile") not in IMAGE_HEALTHCHECK_PROFILES
     ):
         return None
     return identity

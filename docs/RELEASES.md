@@ -20,12 +20,40 @@ remain in private operational records.
 
 The latest formal versioned release remains **v2.7.0**. The next planned version, v2.8.0, has not been tagged or published. PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published mainline image source; publication does not change the formal version. Post-merge CodeQL #43446742646, main CI #43446742822, and publisher run #43446742850 passed. The publisher's stable manifest and immutable architecture digests are recorded below. PR #971 has not been staged on RouterOS.
 
-PR #966 merged documentation-only at `1d765cf7bf64aaffaf30b3937dc43790c3c09b6b`
-before PR #971; its required
-checks, post-merge main CI #43412162052, and CodeQL #43412161625 passed. It did
-not publish a new image.
+PR #974 merged documentation-only at `3c54ae3e414a893bf61bd3c1913c88515da525cd`
+at 17:00:50 UTC. Its required checks, post-merge main CI #43468485879, and
+CodeQL #43468484486 passed. It did not publish a new image. PR #966 is retained
+in the historical checkpoints below.
 
-The latest RouterOS evidence is a TLS-verified read-only REST healthcheck classification at 16:42:42 UTC on 2026-11-13. It still reported canary `segmentation_fault`; a privacy-preserving classifier found no explicit utility-prefixed fault marker and did not retain raw status. The command remained absent and the default command matched the previously reviewed legacy shape. The 16:26:58 UTC comparison reported production `good` with its healthy field true. Container lifecycle/running fields and the canary healthy field were absent from that comparison; restart count was zero for both. These narrow reads did not request image references or running digests. The separate 15:45:38 UTC REST configuration read remains the latest configured-image observation: canary was on old PR #894 revision `84a3148de713abe49be0c7be8f21caa652b68dd9` with a pinned reference; production was on old revision `8c3a46df3a7e0e8b0dac9e5ed7a979aa06e855f7` with a tag-only reference. Neither read verifies a running registry digest. Direct canary GETs at 14:37:16 UTC returned HTTP 200 and readiness `ready` for old PR #894, before publication. These point observations do not identify the failing process/root cause, establish a healthy rollback baseline, verify PR #971's running digest, or accept the candidate. PR #971 remains unstaged; no production deployment is verified.
+The latest RouterOS evidence is a TLS-verified REST healthcheck read at
+16:56:12 UTC on 2026-11-13. It still classified the canary healthcheck as
+`segmentation_fault`; no per-container override was present, the default
+profile matched the reviewed legacy shell/timeout/wget shape, and restart count
+was zero. Production health was `good` with `healthy=true`, and its default
+profile did not match that legacy shape. A separate TLS-verified REST
+configuration read at 16:57:28 UTC found the canary still configured to the old
+PR #894 digest-pinned reference and production configured by a mutable tag.
+Lifecycle state was unknown in that response; neither running registry digest
+was verified. These reads did not query active VPN sessions or direct
+readiness endpoints.
+
+Read-only registry identity resolution verified the image-config healthcheck
+profile of the configured old PR #894 reference as
+`shell_timeout_wget_local_readyz_v1` and the published PR #971 candidate as
+`exec_wget_local_readyz_v1`. This compares verified public image-config data;
+it does not prove which bytes are running on RouterOS or identify the
+segmentation-fault cause. WinBox was not readable in this session because
+Windows denied computer-control capture. PR #971 remains unstaged; no
+production deployment is verified.
+
+Previous RouterOS checkpoint — healthcheck reads at 16:26:58 and 16:42:42 UTC:
+both classified the canary as `segmentation_fault`; the per-container command
+was absent and the default profile matched the reviewed legacy shape. Production
+was `good` with its healthy field true and a different default profile. The
+16:42:42 read's privacy-preserving classifier found no explicit
+utility-prefixed fault marker and retained no raw healthcheck status. These
+narrow reads omitted lifecycle/running-image identity and did not identify the
+failing executable or cause.
 
 Previous RouterOS checkpoint — 2026-11-13 11:03–11:29 UTC: the TLS-verified API snapshot found the canary unhealthy on its old PR #894 configured image and production running with a tag-only reference; neither running registry digest was verified. Direct canary GETs at 11:10:21 UTC returned HTTP 200 and readiness `ready` for the old PR #894 revision. A TLS-verified REST healthcheck comparison at 11:11:50 UTC classified the canary as `segmentation_fault`; production's healthcheck status was `good` with a healthy field true. A bounded filtered log read found no matching fault records. The PR #965 `--check-only` preflight blocked at `baseline / canary_unhealthy` with `router_writes_may_have_started=false`. A read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy but did not expose image references or running digests.
 
