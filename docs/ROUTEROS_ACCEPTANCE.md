@@ -32,13 +32,11 @@ incomplete.
 
 ## Latest-image canary read-back — 2026-11-13
 
-The published PR #935 ARM64 image is still not staged. A TLS-verified REST
-configuration read at 23:41:50 UTC on 2026-11-12 found the canary configured
-with a digest-pinned image and production configured by tag only; lifecycle
-fields were absent for both, and neither running registry digest was verified.
-An earlier Binary API point read at 22:54:53 UTC reported the canary unhealthy
-and production running with the tag-only reference. These are separate
-point-in-time observations.
+The published PR #935 ARM64 image is still not staged. A TLS-verified
+read-only Binary API snapshot at 00:35:13 UTC on 2026-11-13 found the canary
+unhealthy on the pinned PR #894 revision and production healthy with a tag-only
+reference. Neither running registry digest was verified. The same snapshot's
+count-only active OpenVPN query returned zero; no session details were saved.
 
 A healthcheck read at 23:44:56 UTC still classified the canary as
 failed/segmentation-fault, with no per-container command override and no
@@ -50,10 +48,9 @@ default timeout/wget healthcheck shape unchanged. Direct private `/healthz` and
 `/readyz` probes at
 23:45:40 UTC returned HTTP 200/ready at the old PR #894 revision. This does not
 override RouterOS's failed healthcheck or prove a sustained healthy window. A
-count-only OpenVPN query around 23:46 UTC returned zero and saved no session
-details; the disposable VPN client was disconnected. A bounded filtered log
-query at 00:04 UTC on 2026-11-13 returned zero matching healthcheck/fault
-records, without printing or retaining raw lines.
+bounded filtered log query at 00:04 UTC on 2026-11-13 returned zero matching
+healthcheck/fault records, without printing or retaining raw lines. The
+disposable VPN client was disconnected during these checks.
 
 A TLS-verified REST read at 00:29:50 UTC reported RouterOS 7.25.1. MikroTik's
 [Container manual](https://manual.mikrotik.com/docs/containers/)
