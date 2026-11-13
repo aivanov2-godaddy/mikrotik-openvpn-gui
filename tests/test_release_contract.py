@@ -982,18 +982,80 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("if ($vpnGuiImmutableUpdateLock = true)", guard)
         self.assertIn("may remain true after an interrupted\n# run", updater)
 
-    def test_manual_rollback_helper_is_immutable_and_data_safe(self) -> None:
+    def test_manual_rollback_helper_is_immutable_and_uses_one_time_exact_approval(self) -> None:
         helper = (ROOT / "scripts" / "routeros" / "rollback-last-good.rsc.example").read_text(
             encoding="utf-8"
         )
         self.assertIn("last-good-image=", helper)
+        self.assertIn("previous-good-image=", helper)
         self.assertIn(':local digestMarker "@sha256:"', helper)
-        self.assertIn(":local expectedLength ($digestStart + 64)", helper)
-        self.assertIn(':for digestIndex from=0 to=63 do={', helper)
-        self.assertIn('[:find "0123456789abcdef" $digit] = nil', helper)
+        self.assertIn(":local digestStart ($architectureEnd + [:len $digestMarker])", helper)
+        self.assertIn(':for digestIndex from=$digestStart to=([:len $value] - 1) do={', helper)
+        self.assertIn(':local hex "0123456789abcdef"', helper)
+        self.assertIn('[:find $hex [:pick $value $digestIndex ($digestIndex + 1)]] = nil', helper)
         self.assertIn("/container/update", helper)
-        self.assertIn("persistent data was not modified", helper)
+        self.assertIn(':local productionContainer "vpn-dashboard-production"\n', helper)
+        self.assertNotIn(':local productionContainer "vpn-dashboard"\n', helper)
+        self.assertIn(":global vpnGuiRollbackAuthorization", helper)
+        self.assertIn(':local requiredAuthorization ("ROLLBACK " . $image . " TO " . $restoreImage)', helper)
+        self.assertIn(':local rollbackScriptName "vpn-gui-manual-rollback"', helper)
+        self.assertIn("/system/script/find where name=$rollbackScriptName", helper)
+        self.assertIn(":if ([:jobname] != $rollbackScriptName) do={", helper)
+        self.assertIn(":local activeRollbackRuns [/system script job print count-only as-value where script=$rollbackScriptName]", helper)
+        self.assertIn(":if ($activeRollbackRuns > 1) do={", helper)
+        self.assertIn(":local readinessTransport do={", helper)
+        self.assertIn('"rollback readiness must use a private RFC1918 IPv4 address"', helper)
+        self.assertIn(":local productionInterface [/container/get $productionId interface]", helper)
+        self.assertIn(":local productionVethId [/interface/veth/find where name=$productionInterface]", helper)
+        self.assertIn("$productionReadyUrl != $expectedReadyUrl", helper)
+        self.assertLess(helper.index(":if ($activeRollbackRuns > 1) do={"), helper.index("/container/stop"))
+        self.assertLess(helper.index(":if ([:jobname] != $rollbackScriptName) do={"), helper.index("/container/stop"))
+        self.assertLess(helper.index("$productionReadyUrl != $expectedReadyUrl"), helper.index("/container/stop"))
+        confirmation_guard = ":if ($vpnGuiRollbackAuthorization != $requiredAuthorization) do={"
+        self.assertIn(confirmation_guard, helper)
+        self.assertLess(helper.index(confirmation_guard), helper.index("/container/stop"))
+        self.assertIn(":set vpnGuiRollbackAuthorization \"\"", helper)
+        self.assertLess(helper.index(":set vpnGuiRollbackAuthorization \"\""), helper.index("/container/stop"))
+        self.assertIn(":local expectedRevision [$imageRevision $image $imagePrefix]", helper)
+        self.assertIn(":local restoreRevision [$imageRevision $restoreImage $imagePrefix]", helper)
+        self.assertIn(':local journalRevision [$stateLine $state "commit="]', helper)
+        self.assertIn("$journalRevision != $expectedRevision", helper)
+        self.assertIn("$currentCanonical != $image", helper)
+        self.assertIn(":local registryImage [:pick $restoreImage 9 [:len $restoreImage]]", helper)
+        self.assertIn("/container/set $productionId remote-image=$registryImage", helper)
+        self.assertIn(":set restoredImage [/container/get $productionId remote-image]", helper)
+        self.assertIn(":local restoredCanonical [$canonicalImage $restoredImage]", helper)
+        self.assertIn("if ($restoredCanonical != $restoreImage) do={", helper)
+        self.assertIn('[:find $body $readyText] != nil', helper)
+        self.assertIn('[:find $body $expectedRevisionText] != nil', helper)
+        self.assertGreaterEqual(helper.count("on-error={ :set stepFailed true }"), 4)
+        self.assertIn("persistent data was not restored or removed", helper)
         self.assertNotIn("/file/remove", helper)
+
+    def test_manual_rollback_runbooks_match_single_router_production_target(self) -> None:
+        helper = (ROOT / "scripts" / "routeros" / "rollback-last-good.rsc.example").read_text(
+            encoding="utf-8"
+        )
+        runbook = (ROOT / "docs" / "ROLLBACK.md").read_text(encoding="utf-8")
+        automation = (ROOT / "docs" / "ROUTER_LOCAL_AUTOMATION.md").read_text(encoding="utf-8")
+        telemetry = (ROOT / "docs" / "LIVE_TELEMETRY_ROLLBACK.md").read_text(encoding="utf-8")
+
+        self.assertIn(':local productionContainer "vpn-dashboard-production"', helper)
+        self.assertNotIn(':local productionContainer "vpn-dashboard"\n', helper)
+        for document in (runbook, automation, telemetry):
+            self.assertIn("operator-reviewed", document.casefold())
+            self.assertIn("vpnGuiRollbackAuthorization", document)
+            self.assertIn("previous-good-image", document)
+            self.assertIn("opaque RouterOS `image-id`", document)
+            self.assertIn("VETH-IPv4", document)
+            self.assertIn("running oci manifest digest", " ".join(document.casefold().split()))
+        self.assertIn("overlapping jobs", runbook)
+        for document in (runbook, automation, telemetry):
+            self.assertIn("vpn-gui-manual-rollback", document)
+        self.assertIn("active-job check", automation)
+        self.assertNotIn("blue container", runbook.lower())
+        self.assertNotIn("green container", runbook.lower())
+        self.assertIn("vpn-dashboard-production", runbook)
 
     def test_router_local_backup_helper_is_private_and_rotating(self) -> None:
         helper = (ROOT / "scripts" / "routeros" / "backup-before-update.rsc.example").read_text(

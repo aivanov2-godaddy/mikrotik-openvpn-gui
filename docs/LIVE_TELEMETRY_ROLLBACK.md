@@ -1,77 +1,87 @@
-# Live telemetry full-revert runbook
+# Live telemetry rollback and fallback
 
-The live telemetry migration is designed so the existing REST/SSE telemetry
-path remains a complete fallback. This runbook returns the application to the
-last known-good behavior without touching OpenVPN CA material, certificates,
-profiles, RouterOS VPN configuration, or router-local dashboard data.
+This runbook covers application telemetry behavior on one MikroTik router. It
+must preserve authenticated access, RouterOS as the source of truth, and the
+same privacy boundary used by normal release acceptance. It does not authorize
+an unreviewed container, RouterOS, certificate, or VPN configuration change.
 
-## Fast application rollback
+## Telemetry transport fallback
 
-1. Stop promoting the candidate image. Keep the current production immutable
-   image reference recorded by the RouterOS watchdog.
-2. Set the dashboard live transport feature flag to `rest` (or remove the
-   Binary API flag if the release uses the default).
-3. Restart only the dashboard canary container and verify `/readyz`, then
-   repeat for production if the candidate was already promoted.
-4. Confirm the UI receives `/api/status` responses and the existing
-   `/api/events` stream reconnects.
-5. Leave the RouterOS scheduler/watchdog enabled; it will continue to manage
-   immutable image promotion and will not change VPN objects or data mounts.
+The application supports LIVE_TRANSPORT values rest, binary, and auto; the
+configuration defaults to rest. Use only a fallback supported by the exact
+candidate and its tested acceptance report.
 
-The current public image advertises `transport: sse` and has no Socket.IO
-server attached, so this fast path is also the normal safe state while a
-canary is being prepared.
+1. Stop further promotion if the candidate's live telemetry fails freshness,
+   authorization, reconnect, event-integrity, or REST/Binary parity checks.
+2. Keep the accepted production image reference recorded. Verify the fallback
+   behavior on the isolated canary through the normal reviewed release and
+   configuration path; do not edit a production container's environment list
+   or restart it ad hoc.
+3. If a reviewed canary test shows LIVE_TRANSPORT=rest restores the required
+   behavior, record the exact setting and candidate revision in private
+   evidence. If there is no supported way to change the setting safely, use
+   the last-good image rollback procedure instead of improvising RouterOS
+   writes.
+4. Change production only after the current promotion gates pass, or through
+   the operator-reviewed emergency rollback procedure in ROLLBACK.md.
+5. Verify that authorized clients receive current snapshots and live updates
+   without manual refresh, and that expired or revoked sessions receive no
+   telemetry. Keep live session identifiers and addresses out of reports.
+
+A telemetry transport fallback must not change OpenVPN server configuration,
+VPN users, certificates, profiles, address pools, firewall rules, or RouterOS
+REST trust material. A dashboard image restart may interrupt dashboard/API
+access; confirm the maintenance impact before a production rollback.
 
 ## Image rollback
 
-If the application image itself is unhealthy:
+For a code or image regression, follow ROLLBACK.md. The operator-reviewed
+helper selects only vpn-dashboard-production, requires a one-use global
+`vpnGuiRollbackAuthorization` naming the exact current and previous immutable ARM64 images,
+and refuses a live image that differs from the current journal entry. Save it
+as the single RouterOS system script named
+`vpn-gui-manual-rollback`; it rejects duplicate names, other script names, and
+terminal execution, while the active-job guard serializes runs.
+It derives the production container's VETH address and accepts readiness only
+at its exact private `http://<VETH-IPv4>:8080/readyz` origin. It writes
+RouterOS's registry-relative previous-good image, then checks
+remote-image read-back and readiness revision. After readiness succeeds, it
+updates the journal to record the restored image as current and clears the
+previous rollback target. A RouterOS command failure can leave production
+stopped or partially changed; inspect its state before recovery.
 
-1. Identify the previous immutable image tag from the watchdog's last-good
-   release record.
-2. Promote that exact previous tag through the existing canary-first watchdog
-   process.
-3. Wait for canary readiness and stability validation.
-4. Promote production only after the canary passes.
-5. Verify both containers report the previous image and a healthy readiness
-   response.
+The helper refuses old-format journals without `previous-good-image`. A
+reviewed promotion must first record both immutable image references. Never
+seed that target from a mutable tag, opaque RouterOS `image-id`, or a registry
+lookup that does not prove the running image.
 
-Do not use `latest`, `edge`, or another mutable tag during rollback.
+The helper does not restore or delete /data, mounts, environment lists, or VPN
+configuration. Older application startup may still write events or schema
+changes to SQLite, and an image rollback does not reverse those writes.
 
-## Optional API-SSL cleanup
-
-Only if the migration explicitly enabled a new, dedicated management API-SSL
-service and the operator chooses to remove it after rollback:
-
-1. Confirm the dashboard is using REST over the existing HTTPS endpoint.
-2. Confirm no other service or administrator depends on the new API-SSL
-   listener.
-3. Remove only the feature-specific API-SSL address/firewall/service entries
-   using a reviewed RouterOS export and maintenance window.
-4. Do not remove or modify the OpenVPN UDP service, OpenVPN server certificate,
-   OpenVPN CA, client certificates, profiles, or VPN firewall rules.
-
-If API-SSL was already used by another RouterOS service, do not remove it;
-disable only the dashboard feature flag and keep the service intact.
+The helper does not prove RouterOS healthcheck success or the running OCI
+manifest digest. Verify those through the separate release acceptance evidence;
+do not substitute an opaque RouterOS image-id or configured reference for a
+verified running digest.
 
 ## Data and certificate invariants
 
-The following must remain unchanged throughout rollback:
+Throughout a telemetry or image rollback, keep these unchanged:
 
-- `/data/dashboard.sqlite` and its router storage mount.
-- `/config/routeros-ca.crt` and the REST trust configuration.
-- The configured OpenVPN CA and server certificate.
-- Existing OpenVPN client certificates and downloaded profiles.
-- RouterOS PPP users, OpenVPN server, PPP profile, address pool, and firewall.
-- RouterOS scheduler/watchdog state, except for the immutable image reference
-  selected by the normal rollback procedure.
+- /data/dashboard.sqlite and its router storage mount;
+- /config/routeros-ca.crt and the REST trust configuration;
+- the OpenVPN CA, server certificate, client certificates, and issued profiles;
+- RouterOS PPP users, OpenVPN server, PPP profile, address pool, and firewall;
+- canary and production data separation and the RouterOS source-of-truth
+  boundary.
 
 ## Verification checklist
 
-- `/readyz` returns `ready`.
-- `/api/status` returns current users and sessions.
-- `/api/events` delivers live session snapshots.
-- Connected VPN users remain connected during transport rollback unless the
-  image rollback itself requires a planned container restart.
-- CA/profile issuance still uses the existing REST path.
-- `git diff` and the deployment audit contain no certificate/profile/data
-  changes.
+- /healthz succeeds and /readyz returns the expected source revision;
+- /api/status and telemetry snapshots show only authorized current records;
+- live events arrive without refresh and respect event-age and ordering limits;
+- logout, expiry, revocation, reconnect, and transport fallback retain the
+  authorization boundary;
+- Binary API interruptions recover through the tested REST fallback;
+- no unapproved production change, extra listener, or shared database writer
+  remains.
