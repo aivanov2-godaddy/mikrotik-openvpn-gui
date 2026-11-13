@@ -6,7 +6,7 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
-## Current candidate and deployed-state checkpoint — 2026-11-13 16:26 UTC
+## Current candidate and deployed-state checkpoint — 2026-11-13 16:42 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Post-merge main CI
@@ -20,12 +20,14 @@ PR #973 later merged documentation-only at
 `ff3e6904d72fb8a7f5f0258c432d90d63cad9ce6`; post-merge main CI #43460554370
 and CodeQL #43460553975 passed.
 
-A TLS-verified read-only REST healthcheck classification at 16:26:58 UTC still
-reported the canary as `segmentation_fault`. The custom command was absent and
-the default command matched the previously reviewed legacy shape. Production's
-healthcheck was `good` with its healthy field true. RouterOS omitted lifecycle
-and running fields and the canary healthy field; restart count was zero for
-both containers. This classification did not query image references, running
+A TLS-verified read-only REST healthcheck classification at 16:42:42 UTC still
+reported the canary as `segmentation_fault`. A sanitized classifier found no
+explicit utility-prefixed fault marker; raw status text was not retained. The
+16:26:58 UTC comparison found the custom command absent and the default command
+matched the previously reviewed legacy shape. Production's healthcheck was
+`good` with its healthy field true. RouterOS omitted lifecycle and running
+fields and the canary healthy field; restart count was zero for both
+containers. These classifications did not query image references, running
 digests, readiness, or sessions. The latest full configuration read remains
 15:45:38 UTC; it found the canary still configured at old PR #894 revision
 `84a3148de713abe49be0c7be8f21caa652b68dd9`, digest-pinned but unhealthy, with

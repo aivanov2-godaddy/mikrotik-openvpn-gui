@@ -22,7 +22,7 @@ Its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — RouterOS healthcheck read 2026-11-13 16:26:58 UTC; publication verified 15:05 UTC
+## Current checkpoint — RouterOS healthcheck read 2026-11-13 16:42:42 UTC; publication verified 15:05 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e` after all required PR checks passed.
@@ -50,6 +50,14 @@ references, running digests, readiness endpoints, or session data, so it does
 not supersede the 15:45 configuration read or verify container lifecycle,
 candidate identity, readiness, or acceptance. The faulting executable and root
 cause remain unknown. No RouterOS state changed.
+
+At 16:42:42 UTC, a second TLS-verified read-only healthcheck classification
+again reported the canary as `segmentation_fault`. A local privacy-preserving
+classifier found no explicit utility-prefixed fault marker; raw
+healthcheck-status text was not retained. The per-container command remained
+absent and the default command matched the reviewed legacy shape. This does
+not identify the failing executable or root cause and does not verify lifecycle,
+readiness, candidate identity, or acceptance. No RouterOS state changed.
 
 At 15:45:38 UTC, a TLS-verified read-only REST healthcheck read found the
 canary still configured to revision

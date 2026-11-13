@@ -359,7 +359,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
         self.assertIn(
-            "The latest RouterOS evidence is a TLS-verified read-only REST healthcheck classification at 16:26:58 UTC",
+            "The latest RouterOS evidence is a TLS-verified read-only REST healthcheck classification at 16:42:42 UTC",
             release_record,
         )
         self.assertIn("A read-only WinBox list at 11:28:59 UTC showed the canary unhealthy and production healthy", release_record)
@@ -425,9 +425,13 @@ class ReleaseContractTests(unittest.TestCase):
             "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image",
             " ".join(routeros_acceptance.split()),
         )
-        self.assertIn("## Current checkpoint — RouterOS healthcheck read 2026-11-13 16:26:58 UTC", routeros_acceptance)
+        self.assertIn("## Current checkpoint — RouterOS healthcheck read 2026-11-13 16:42:42 UTC", routeros_acceptance)
         self.assertIn(
             "At 16:26:58 UTC, a separate TLS-verified, read-only REST healthcheck classification still reported",
+            " ".join(routeros_acceptance.split()),
+        )
+        self.assertIn(
+            "At 16:42:42 UTC, a second TLS-verified read-only healthcheck classification",
             " ".join(routeros_acceptance.split()),
         )
         self.assertIn("At 15:45:38 UTC, a TLS-verified read-only REST healthcheck read", routeros_acceptance)
