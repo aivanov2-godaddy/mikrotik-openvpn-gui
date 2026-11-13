@@ -11,43 +11,34 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — RouterOS reads at 2026-11-13 16:56–16:57 UTC;
-GitHub verified through 17:15 UTC.** Main is at
-`3c54ae3e414a893bf61bd3c1913c88515da525cd` after documentation PR #974. Its
-required checks passed; post-merge CodeQL #43468484486 and main CI #43468485879
-also passed. PR #974 did not publish an image. PR #971 remains the latest
-published immutable candidate; its verified digests and publisher evidence are
-recorded in [RELEASES.md](RELEASES.md). Publication is not RouterOS acceptance.
+**Fresh read-only checkpoint — RouterOS reads at 2026-11-13 18:05–18:07 UTC;
+GitHub verified through 18:08 UTC.** Main is at
+`741740de016852a9fb5230bead0fe5c04a0ff823` after PR #975. Its required checks
+passed; post-merge CI #43477581774 and CodeQL #43477581924 passed. PR #975 adds
+a fixed-label image healthcheck profile to read-only acceptance reports when
+image identity is verified. It did not publish an image. PR #971 remains the
+latest published immutable candidate; publication is not RouterOS acceptance.
 
-A TLS-verified read-only REST healthcheck comparison at 16:56:12 UTC still
-classified the canary as `segmentation_fault`. No per-container healthcheck
-override was present; its image-default profile matched the reviewed legacy
-shell/timeout/wget readiness shape, and its restart count was zero. Production
-reported health `good` and `healthy=true`; its default profile did not match
-that legacy shape. The narrow healthcheck response omitted running and
-lifecycle fields, and it did not identify the failing executable or cause.
+A TLS-verified REST read at 18:05:54 UTC classified the canary healthcheck as
+`segmentation_fault` with a `failed` prefix. No per-container override was
+present; the image-default check matched the reviewed legacy timeout/wget
+readiness shape. A separate TLS-verified Binary API snapshot at 18:07:43 UTC
+reported the canary not healthy with a digest-pinned configured reference
+matching the PR #894 revision; production was healthy with a tag-only
+configured reference. These reads did not verify a running registry digest or
+identify the faulting executable.
 
-Read-only registry identity resolution verified that the old configured PR
-#894 image uses `shell_timeout_wget_local_readyz_v1` and the published PR #971
-candidate uses `exec_wget_local_readyz_v1`. This confirms the image-config
-difference only; it does not establish the RouterOS running digest or prove
-that the profile difference caused the fault.
-
-A separate TLS-verified REST configuration read at 16:57:28 UTC found the
-canary still configured to the old PR #894 digest-pinned image reference and
-production configured by a mutable tag. Lifecycle state was unknown in that
-response, and neither running registry digest was verified. The latest reads
-did not query active VPN sessions or direct readiness endpoints. WinBox was
-not readable in this session because Windows denied computer-control capture.
-No RouterOS setting, account, container, scheduler, updater, or production
-state changed; there was no staging, restart, rollback, updater execution, or
-production deployment.
+The aggregate active-session result at 18:07:43 UTC found no active VPN
+sessions. No client identity was queried, so the disposable-client checks remain
+pending. No direct readiness probe was taken in this checkpoint. WinBox was not
+used. No RouterOS state changed; there was no staging, restart, rollback,
+updater execution, or production deployment.
 
 Issue #927 remains open; #200 and epic #205 remain open. #785 is closed, with
-installed-updater reconciliation and healthy-canary rollback still tracked as
-release gates under #205. Issues #188–#199 and #201–#204 are closed. The
-independent #200 assessment, candidate-bound live-client checks and soak, and
-separate owner risk decision remain outstanding. Multi-tenancy remains
+updater reconciliation and healthy-canary rollback tracked as release gates
+under #205. Issues #188–#199 and #201–#204 are closed. The canary healthcheck
+fault, independent #200 assessment, candidate-bound live-client checks and soak,
+and separate owner risk decision remain outstanding. Multi-tenancy remains
 excluded.
 
 **Superseded checkpoint — 2026-11-13 13:36 UTC; GitHub verified through
