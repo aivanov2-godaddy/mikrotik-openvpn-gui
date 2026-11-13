@@ -354,8 +354,13 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #935", release_record)
+        self.assertIn("## Latest published mainline image — PR #965", release_record)
+        self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
+        self.assertIn(
+            "The latest RouterOS point readback is a TLS-verified Binary API container snapshot from 10:21 UTC",
+            release_record,
+        )
         self.assertIn("sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd", release_record)
         self.assertIn("sha256:4aec06e36796a1c6ea019fa8559d1ba11e4a2373615f68490e4f8a1fff6122b1", release_record)
         self.assertIn("sha256:6fb18fbbada53bceffad7418881c26a05e9481f2e2263eb954924fdcd5d195ae", release_record)
@@ -398,7 +403,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:ac36036b13842a7bb2ac5611705403e1165c84ac2a07115af8a192f9ccf7ba6f", release_record)
         self.assertIn("sha256:55aae2f27b0469b807c27064a339a04bbb7c938c1198f51e033440aa9f2f67f4", release_record)
         self.assertIn(
-            "PR #935 has not been staged on RouterOS",
+            "PR #965 has not been staged on RouterOS",
             " ".join(release_record.split()),
         )
         self.assertNotIn("## Latest published mainline image — PR #817", release_record)
