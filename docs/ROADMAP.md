@@ -20,7 +20,7 @@ establish a healthy rollback baseline, and no candidate staging or production
 deployment is claimed. Issues #927, #200, and epic #205 remain open; #785 is
 closed, with reviewed updater staging still a follow-up gate under #205.
 
-This branch adds candidate-bound runtime-content reconciliation to the read-only
+PR #968 adds candidate-bound runtime-content reconciliation to the read-only
 acceptance collectors. The proof resolves and hashes the GHCR manifest and
 config, compares RouterOS `image-id` and typed ordered layers in memory, checks
 tag stability across the soak, and emits only a boolean plus manifest digest.
