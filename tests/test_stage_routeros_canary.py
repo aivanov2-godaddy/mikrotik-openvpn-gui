@@ -39,7 +39,7 @@ def settings() -> CanaryStageSettings:
 
 
 class FakeRouterOS:
-    def __init__(self, *, canary_status: str = "running") -> None:
+    def __init__(self, *, canary_status: str = "running", production_status: str = "running") -> None:
         self.records = {
             "*1": {
                 ".id": "*1",
@@ -50,7 +50,7 @@ class FakeRouterOS:
             "*2": {
                 ".id": "*2",
                 "name": "vpn-dashboard-production",
-                "status": "running",
+                "status": production_status,
                 "remote-image": PRODUCTION_IMAGE,
             },
         }
@@ -109,6 +109,19 @@ class CanaryStageTests(unittest.TestCase):
         self.assertEqual(caught.exception.diagnostic.result, "preflight_blocked")
         self.assertEqual(caught.exception.diagnostic.phase, "baseline")
         self.assertEqual(caught.exception.diagnostic.code, "canary_unhealthy")
+        self.assertFalse(caught.exception.diagnostic.router_writes_may_have_started)
+        self.assertEqual(router.calls, [])
+        self.receipt_mock.assert_not_called()
+
+    def test_unhealthy_production_blocks_before_receipt_or_any_write(self) -> None:
+        router = FakeRouterOS(production_status="unhealthy")
+
+        with self.assertRaises(CanaryStageFailure) as caught:
+            stage_canary(settings(), client=router, ready_probe=lambda *_: True)
+
+        self.assertEqual(caught.exception.diagnostic.result, "preflight_blocked")
+        self.assertEqual(caught.exception.diagnostic.phase, "baseline")
+        self.assertEqual(caught.exception.diagnostic.code, "production_unhealthy")
         self.assertFalse(caught.exception.diagnostic.router_writes_may_have_started)
         self.assertEqual(router.calls, [])
         self.receipt_mock.assert_not_called()
