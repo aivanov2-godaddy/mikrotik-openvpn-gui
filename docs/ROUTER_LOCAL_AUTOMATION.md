@@ -282,13 +282,13 @@ RouterOS user record is restricted to the collection VM's source address. This
 verifies configured role and source restrictions; the collector's
 complete-print-response flag still does not establish exhaustive RouterOS
 visibility. Exact identity and address details and the report fingerprints stay
-in the operator-controlled private record. The candidate
-binding and each source remain subject to private review; do not run the
-unknown updater to learn its behavior. Issue #785 remains open until source and
-binding discrepancies are resolved, every returned target is understood, and
-any candidate staging uses the separate reviewed canary-only procedure below.
-The collection did not change RouterOS scripts, schedulers, configuration,
-containers, accounts, or VPN policy.
+in the operator-controlled private record. The candidate binding and each
+source remain subject to private review; do not run the unknown updater to learn
+its behavior. GitHub later closed issue #785 when PR #962 merged; source and
+binding discrepancies, target reconciliation, and the separate reviewed
+canary-only staging/rollback gates remain under epic #205. The collection did
+not change RouterOS scripts, schedulers, configuration, containers, accounts,
+or VPN policy.
 
 ### Comparing multiple installed copies and scheduler bindings
 

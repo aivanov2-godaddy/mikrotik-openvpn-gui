@@ -348,7 +348,17 @@ class RouterOSBinaryConnection:
                 {"cpu-load", "total-memory", "free-memory", "total-hdd-space", "free-hdd-space", "uptime", "version"}
             ),
             "/container/print": frozenset(
-                {"name", "status", "running", "stopped", "starting", "stopping", "healthy", "remote-image"}
+                {
+                    "name",
+                    "status",
+                    "running",
+                    "stopped",
+                    "starting",
+                    "stopping",
+                    "healthy",
+                    "healthcheck-status",
+                    "remote-image",
+                }
             ),
             "/interface/print": frozenset(
                 {".id", "name", "rx-byte", "tx-byte", "rx-packet", "tx-packet"}

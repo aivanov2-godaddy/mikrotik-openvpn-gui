@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 from routeros_binary import RouterOSReply
 from scripts.collect_routeros_acceptance import (
     CONTAINER_NAMES,
+    HEALTHCHECK_CONTAINER_PROPLIST,
     LEGACY_CONTAINER_PROPLIST,
     MODERN_CONTAINER_PROPLIST,
     PARITY_TOLERANCE,
@@ -38,13 +39,17 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         session_sequence=None,
         canary_digest=CANARY_DIGEST,
         production_digest=None,
+        healthcheck_status=None,
     ):
         connection = Mock()
         revision = "a" * 40
         try:
-            modern = _container_proplist_for_version(version) == MODERN_CONTAINER_PROPLIST
+            container_proplist = _container_proplist_for_version(version)
+            modern = container_proplist != LEGACY_CONTAINER_PROPLIST
+            supports_healthcheck_status = container_proplist == HEALTHCHECK_CONTAINER_PROPLIST
         except ValueError:
             modern = True
+            supports_healthcheck_status = False
         state = lifecycle if lifecycle is not None else (
             {"running": "true", "healthy": "true"} if modern else {"status": "running"}
         )
@@ -65,12 +70,19 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                     RouterOSReply("done", {}),
                 ]
             if path == "/container/print":
-                expected_proplist = MODERN_CONTAINER_PROPLIST if modern else LEGACY_CONTAINER_PROPLIST
-                self.assertEqual(query, (f".proplist={expected_proplist}",))
-                return [
-                    RouterOSReply("re", {"name": name, **state, "remote-image": image(environment), "root-dir": "/must-not-leak"})
-                    for environment, name in CONTAINER_NAMES.items()
-                ] + [RouterOSReply("done", {})]
+                self.assertEqual(query, (f".proplist={container_proplist}",))
+                records = []
+                for environment, name in CONTAINER_NAMES.items():
+                    record = {
+                        "name": name,
+                        **state,
+                        "remote-image": image(environment),
+                        "root-dir": "/must-not-leak",
+                    }
+                    if supports_healthcheck_status and healthcheck_status is not None:
+                        record["healthcheck-status"] = healthcheck_status
+                    records.append(RouterOSReply("re", record))
+                return records + [RouterOSReply("done", {})]
             if path == "/ppp/active/print":
                 self.assertEqual(query, (".proplist=.id",))
                 session_count = session_samples[min(session_index, len(session_samples) - 1)]
@@ -87,16 +99,35 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         connection.execute.side_effect = execute
         return connection
 
-    def _fake_rest_reader(self, *, mismatch=False, active_sessions=1, session_sequence=None, canary_digest=CANARY_DIGEST, production_digest=None):
+    def _fake_rest_reader(
+        self,
+        *,
+        mismatch=False,
+        active_sessions=1,
+        session_sequence=None,
+        canary_digest=CANARY_DIGEST,
+        production_digest=None,
+        healthcheck_status_categories=None,
+    ):
         reader = Mock()
         revision = "a" * 40
+        if healthcheck_status_categories is None:
+            healthcheck_status_categories = ["unavailable"]
         snapshot = {
             "router_cpu_percent": 23 if not mismatch else 99,
             "router_memory_used_percent": 40.0,
             "router_storage_used_percent": 30.0,
             "active_vpn_sessions": active_sessions,
             "containers": {
-                name: {"healthy": True, "revision": revision, "configured_digest": canary_digest if name == "canary" else production_digest}
+                name: {
+                    "healthy": True,
+                    "revision": revision,
+                    "configured_digest": canary_digest if name == "canary" else production_digest,
+                }
+                for name in CONTAINER_NAMES
+            },
+            "healthcheck_status_categories": {
+                name: list(healthcheck_status_categories)
                 for name in CONTAINER_NAMES
             },
         }
@@ -120,8 +151,98 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertEqual(report["router_memory_used_percent"], 40.0)
         self.assertEqual(report["router_storage_used_percent"], 30.0)
         self.assertEqual(report["active_vpn_sessions"], 1)
+        self.assertEqual(
+            report["healthcheck_status_categories"]["canary"], ["unavailable"]
+        )
         self.assertNotIn("private-user", repr(report))
         self.assertNotIn("/must-not-leak", repr(report))
+
+    def test_healthcheck_status_is_reduced_to_allowlisted_categories(self):
+        raw_status = (
+            "failed, output: resource temporarily unavailable; could not fork; "
+            "segmentation fault"
+        )
+        report = _snapshot(self._fake_connection(healthcheck_status=raw_status))
+        self.assertEqual(
+            report["healthcheck_status_categories"]["canary"],
+            ["failed", "resource_unavailable", "segmentation_fault"],
+        )
+        self.assertFalse(report["containers"]["canary"]["healthy"])
+        self.assertNotIn(raw_status, repr(report))
+        self.assertNotIn("could not fork", repr(report))
+
+        good = _snapshot(
+            self._fake_connection(healthcheck_status="good, output: no errors")
+        )
+        self.assertEqual(
+            good["healthcheck_status_categories"]["canary"], ["good"]
+        )
+        self.assertTrue(good["containers"]["canary"]["healthy"])
+
+        timeout = _snapshot(
+            self._fake_connection(healthcheck_status="failed, output: timed out")
+        )
+        self.assertEqual(
+            timeout["healthcheck_status_categories"]["canary"],
+            ["failed", "timeout"],
+        )
+        self.assertFalse(timeout["containers"]["canary"]["healthy"])
+
+        oversized_status = "failed, output: " + ("x" * 4096)
+        oversized = _snapshot(
+            self._fake_connection(healthcheck_status=oversized_status)
+        )
+        self.assertEqual(
+            oversized["healthcheck_status_categories"]["canary"],
+            ["unclassified"],
+        )
+        self.assertFalse(oversized["containers"]["canary"]["healthy"])
+        self.assertNotIn(oversized_status, repr(oversized))
+
+    def test_legacy_container_reply_reports_healthcheck_status_unavailable(self):
+        report = _snapshot(self._fake_connection(version="7.19.10 (stable)"))
+        self.assertEqual(
+            report["healthcheck_status_categories"]["canary"],
+            ["unavailable"],
+        )
+
+    def test_routeros_722_uses_lifecycle_fields_without_healthcheck_status(self):
+        version = "7.22.1 (stable)"
+        self.assertEqual(
+            _container_proplist_for_version(version), MODERN_CONTAINER_PROPLIST
+        )
+        report = _snapshot(
+            self._fake_connection(
+                version=version,
+                healthcheck_status="failed, output: timed out",
+            )
+        )
+        self.assertTrue(all(item["healthy"] for item in report["containers"].values()))
+        self.assertTrue(
+            all(
+                categories == ["unavailable"]
+                for categories in report["healthcheck_status_categories"].values()
+            )
+        )
+
+    def test_routeros_723_requests_healthcheck_status_as_diagnostic(self):
+        version = "7.23.0 (stable)"
+        self.assertEqual(
+            _container_proplist_for_version(version), HEALTHCHECK_CONTAINER_PROPLIST
+        )
+        report = _snapshot(
+            self._fake_connection(
+                version=version,
+                healthcheck_status="failed, output: timed out",
+            )
+        )
+        self.assertTrue(all(not item["healthy"] for item in report["containers"].values()))
+        self.assertTrue(
+            all(
+                categories == ["failed", "timeout"]
+                for categories in report["healthcheck_status_categories"].values()
+            )
+        )
 
     def test_legacy_routeros_uses_status_property(self):
         report = _snapshot(self._fake_connection(version="7.19.10 (stable)"))
@@ -147,8 +268,9 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 self.assertTrue(all(not item["healthy"] for item in report["containers"].values()))
 
     def test_collector_closes_connection_and_redacts_raw_router_data(self):
-        connection = self._fake_connection()
-        rest_reader = self._fake_rest_reader()
+        raw_healthcheck_status = "good, output: sensitive-healthcheck-detail"
+        connection = self._fake_connection(healthcheck_status=raw_healthcheck_status)
+        rest_reader = self._fake_rest_reader(healthcheck_status_categories=["failed"])
         now = datetime(2026, 10, 10, tzinfo=timezone.utc)
         elapsed = [0.0]
         report = collect(
@@ -168,8 +290,14 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         self.assertTrue(report["credentials_or_raw_router_data_written"] is False)
         self.assertNotIn("reader", repr(report))
         self.assertNotIn("do-not-log", repr(report))
+        self.assertNotIn(raw_healthcheck_status, repr(report))
+        self.assertNotIn("sensitive-healthcheck-detail", repr(report))
         self.assertNotIn("private-user", repr(report))
         self.assertTrue(all(item["healthy_for_all_successful_samples"] for item in report["containers"].values()))
+        self.assertEqual(
+            report["healthcheck_status_categories"],
+            {"canary": ["good"], "production": ["good"]},
+        )
         self.assertEqual(report["failed_gates"], [])
         connection.close.assert_called_once_with()
         rest_reader.close.assert_called_once_with()
@@ -311,7 +439,13 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 "version": "7.24.5 (stable)",
             }],
             "/rest/container": [
-                {"name": name, "running": "true", "healthy": "true", "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64"}
+                {
+                    "name": name,
+                    "running": "true",
+                    "healthy": "true",
+                    "healthcheck-status": "good, output: ",
+                    "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64",
+                }
                 for name in CONTAINER_NAMES.values()
             ],
             "/rest/ppp/active": [{".id": "*1", "name": "private-user", "address": "10.0.0.2"}],
@@ -328,11 +462,13 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             self.assertEqual(len(query), 1)
             if parsed.path == "/rest/container":
                 version = payloads["/rest/system/resource"][0]["version"]
-                expected_container_proplist = (
-                    MODERN_CONTAINER_PROPLIST
-                    if _container_proplist_for_version(version) == MODERN_CONTAINER_PROPLIST
-                    else LEGACY_CONTAINER_PROPLIST
-                )
+                expected_container_proplist = {
+                    "7.19.10 (stable)": LEGACY_CONTAINER_PROPLIST,
+                    "7.22.1 (stable)": MODERN_CONTAINER_PROPLIST,
+                    "7.23.0 (stable)": HEALTHCHECK_CONTAINER_PROPLIST,
+                    "7.24.5 (stable)": HEALTHCHECK_CONTAINER_PROPLIST,
+                }.get(version)
+                self.assertIsNotNone(expected_container_proplist)
                 expected_proplist = expected_container_proplist
             else:
                 expected_proplist = {
@@ -353,8 +489,56 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         snapshot = reader.snapshot()
         self.assertEqual(snapshot["active_vpn_sessions"], 1)
         self.assertTrue(all(item["healthy"] for item in snapshot["containers"].values()))
+        self.assertTrue(
+            all(
+                categories == ["good"]
+                for categories in snapshot["healthcheck_status_categories"].values()
+            )
+        )
         self.assertNotIn("private-user", repr(snapshot))
         self.assertEqual(opener.open.call_count, 3)
+
+        payloads["/rest/system/resource"][0]["version"] = "7.22.1 (stable)"
+        payloads["/rest/container"] = [
+            {
+                "name": name,
+                "running": "true",
+                "healthy": "true",
+                "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64",
+            }
+            for name in CONTAINER_NAMES.values()
+        ]
+        modern_snapshot = reader.snapshot()
+        self.assertTrue(all(item["healthy"] for item in modern_snapshot["containers"].values()))
+        self.assertTrue(
+            all(
+                categories == ["unavailable"]
+                for categories in modern_snapshot["healthcheck_status_categories"].values()
+            )
+        )
+        self.assertEqual(opener.open.call_count, 6)
+
+        payloads["/rest/system/resource"][0]["version"] = "7.23.0 (stable)"
+        payloads["/rest/container"] = [
+            {
+                "name": name,
+                "running": "true",
+                "healthy": "true",
+                "healthcheck-status": "failed, output: sensitive-timeout-detail",
+                "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{'a' * 40}-arm64",
+            }
+            for name in CONTAINER_NAMES.values()
+        ]
+        healthcheck_snapshot = reader.snapshot()
+        self.assertTrue(all(not item["healthy"] for item in healthcheck_snapshot["containers"].values()))
+        self.assertTrue(
+            all(
+                categories == ["failed", "timeout"]
+                for categories in healthcheck_snapshot["healthcheck_status_categories"].values()
+            )
+        )
+        self.assertNotIn("sensitive-timeout-detail", repr(healthcheck_snapshot))
+        self.assertEqual(opener.open.call_count, 9)
 
         payloads["/rest/system/resource"][0]["version"] = "7.19.10 (stable)"
         payloads["/rest/container"] = [
@@ -363,12 +547,18 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         ]
         legacy_snapshot = reader.snapshot()
         self.assertTrue(all(item["healthy"] for item in legacy_snapshot["containers"].values()))
-        self.assertEqual(opener.open.call_count, 6)
+        self.assertTrue(
+            all(
+                categories == ["unavailable"]
+                for categories in legacy_snapshot["healthcheck_status_categories"].values()
+            )
+        )
+        self.assertEqual(opener.open.call_count, 12)
 
         payloads["/rest/system/resource"][0]["version"] = "unknown"
         with self.assertRaises(ValueError):
             reader.snapshot()
-        self.assertEqual(opener.open.call_count, 7)
+        self.assertEqual(opener.open.call_count, 13)
         reader.close()
         self.assertEqual(reader._authorization, "")
 

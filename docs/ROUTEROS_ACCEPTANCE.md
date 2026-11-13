@@ -22,7 +22,34 @@ image; its ARM64 manifest is
 That registry evidence does not prove RouterOS acceptance or a running digest.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — 2026-11-13 04:41 UTC
+## Current checkpoint — 2026-11-13 09:13 UTC
+
+PR #964 merged documentation-only at `496e7e2b4d7882f507cb83da7a20af2373474034` at 08:14:16 UTC. Its required checks, post-merge main CI #43391653789, and CodeQL #43391654829 passed. No application image changed or published; PR #935 remains the latest publisher result and is not staged. Publication does not prove RouterOS acceptance or a running digest.
+
+The latest TLS-verified Binary API lifecycle read at 09:13 UTC found the old PR #894 canary unhealthy and production running with a tag-only configured reference. The canary reference is digest-pinned, production remains tag-only, and neither running OCI digest was verified. A fresh TLS-verified REST container configuration read at 09:03 UTC confirmed those configured references but omitted lifecycle fields. The initial 08:55 UTC Binary API refresh failed because the in-progress client requested `healthcheck-status` before the property was added to its path-specific allowlist; the subsequent 09:13 UTC read succeeded after that local fix. A fresh TLS-verified REST healthcheck read at 09:00 UTC still classified the canary as `failed / segmentation_fault`; no per-container command was present, the default command matched the reviewed legacy readiness-check shape, and restart count was 0. Separate direct private probes at 09:00 returned HTTP 200 for `/healthz` and `/readyz`, with readiness `ready` at old PR #894. A count-only active OpenVPN read at 09:03 UTC returned zero without retaining session details. These point samples neither clear the RouterOS failure nor establish candidate acceptance or a healthy rollback baseline. The failing executable/root cause remains unknown.
+
+The 09:03 UTC count-only active OpenVPN query returned zero without requesting session details. No current disposable-client connection is claimed; client-dependent #200 checks remain deferred. The latest bounded updater source review found five installed scripts and three scheduler records, with all five missing the reviewed canary restore-verification call; this is not approval and no updater was run. The 04:14 UTC PR #935 `--check-only` preflight blocked at `baseline / canary_unhealthy` with no writes. Keep the healthy rollback baseline guard in force.
+
+GitHub issue #785 closed when PR #962 merged. Installed updater reconciliation and healthy canary rollback acceptance remain open follow-up gates under epic #205. Issues #927, #200, and #205 remain open. No RouterOS setting, account, password, container, scheduler, updater, or production state changed; there was no staging, restart, rollback, or deployment. Multi-tenancy remains excluded.
+
+## Privacy-safe healthcheck diagnostics
+
+For RouterOS 7.23 and later, the Binary API acceptance collector requests the
+read-only `healthcheck-status` property and emits only fixed categories in the
+top-level `healthcheck_status_categories` field. RouterOS documents healthcheck
+support beginning in 7.23 and describes the status as including probe output
+([Container manual](https://manual.mikrotik.com/docs/containers/)). Raw status
+text and command text are discarded. Older supported versions report the
+category as `unavailable`.
+
+The raw status is passed through the existing lifecycle normalizer, which
+continues to classify failed healthchecks as unhealthy; raw status and command
+text are not emitted. The fixed categories are diagnostic only and are not
+independently used to determine acceptance. The combined release-acceptance
+report does not carry the categories forward. A category such as `good` does
+not replace a candidate-bound healthy interval or running-digest verification.
+
+## Previous repository checkpoint — 2026-11-13 04:41 UTC
 
 PR #960 merged to main at `2dbd46a8c6acf4a12c12a222fd008d0334f4643a` at 04:27:39 UTC. Post-merge CI #43365671859 and CodeQL #43365671726 passed. PR #960 adds regression coverage proving an unhealthy production baseline blocks before backup verification or any RouterOS write. The latest container-publisher run remains PR #935 run #43174815700, source `3f8fc22ec3166b3074fb54f54c79d6dede256ed4`, with ARM64 manifest `sha256:fd8aa26111eefae378caf95c88909264550f8c9faf3f44dc2cca18d2fd7531bd`; no publisher run followed #960. Publication is not RouterOS acceptance or proof of a running digest. The latest RouterOS observation remains the 03:57–04:14 UTC window below; this documentation refresh did not collect a newer router read.
 

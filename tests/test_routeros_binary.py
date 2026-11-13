@@ -408,6 +408,7 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
             ("/system/resource/print", ".proplist=version,cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime"),
             ("/container/print", ".proplist=name,status,remote-image"),
             ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,remote-image"),
+            ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image"),
         )
         for path, proplist in allowed:
             with self.subTest(path=path, proplist=proplist):
