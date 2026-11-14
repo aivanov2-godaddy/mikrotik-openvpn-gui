@@ -496,6 +496,13 @@ class ReleaseContractTests(unittest.TestCase):
             "A fresh TLS-verified count-only session read at 05:23:20 UTC returned zero active VPN sessions",
             security_status_row,
         )
+        self.assertIn(
+            "Fresh mainline, RouterOS runtime-identity, and direct-readiness checkpoint — 2026-11-14 05:39 UTC",
+            roadmap,
+        )
+        self.assertIn("runtime reconciliation verified the running canary manifest as PR #894", canary_status_row)
+        self.assertIn("production direct health/readiness returned status 0", roadmap)
+        self.assertIn("production is configured by a tag and is not PR #981", roadmap)
         self.assertIn("running OCI manifest identities for canary and production", routeros_acceptance)
         self.assertIn("latest published PR #971 candidate", routeros_acceptance)
         self.assertIn("running manifest identity was verified but", routeros_acceptance)
