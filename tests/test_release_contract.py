@@ -481,6 +481,11 @@ class ReleaseContractTests(unittest.TestCase):
             canary_status_row,
         )
         self.assertIn(
+            "A redacted TLS-verified classification at 05:18:22 UTC again returned failed/segmentation-fault",
+            canary_status_row,
+        )
+        self.assertIn("utility attribution remained `unattributed`", canary_status_row)
+        self.assertIn(
             "prior 00:31 UTC check-only preflight blocked at baseline / "
             "canary_unhealthy",
             canary_status_row,
