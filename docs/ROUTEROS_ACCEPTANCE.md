@@ -32,6 +32,14 @@ acceptance reader normalizes a singleton object only for the fixed
 array-only; any other unexpected response shape fails closed. The collector
 retains only its normalized aggregate snapshot, not raw RouterOS response data.
 
+## Latest updater inventory and private source review — 2026-11-14 08:45 UTC
+
+A TLS-verified read-only Binary API inventory collected five script sources and three scheduler entries. Two enabled direct name bindings resolve to one listed source; one disabled script-ID candidate resolves to another; no scheduler target was opaque. A private source export verified each source fingerprint and scheduler classification against the fresh redacted inventory; those fingerprints and classifications were unchanged from 06:34 UTC. No execution-history counters were requested.
+
+An offline comparison with the reviewed repository template found no exact source match and found the reviewed canary restore-verification function/call site missing from all five sources. A bounded local structural review found container-update and file-cleanup behavior. The template comparator reported no additional credential, private-key, destructive-operation, or fetch/download marker counts relative to its reference; this lexical comparison does not establish that the scripts are safe or contain no secrets. The raw source, hashes, names, and scheduler event text remain in the private operator-controlled record and are intentionally omitted here.
+
+No updater was executed during this read. Keep the installed updater out of use until the source/binding review and a reviewed canary restore path are complete. This collection did not refresh container health, running image identity, VPN sessions, or production readiness; see the latest runtime checkpoint in `ROADMAP.md`. No RouterOS setting, account, password, scheduler, container, or production state changed. This is source-inventory evidence, not canary acceptance or deployment evidence.
+
 ## Current read-only checkpoint — 2026-11-14 04:03–04:12 UTC
 
 At the start of this refresh, `main` was `40fa6b1138e7aefe9a3f38caf447fccd3fc2a87b`;
