@@ -40,6 +40,58 @@ An offline comparison with the reviewed repository template found no exact sourc
 
 No updater was executed during this read. Keep the installed updater out of use until the source/binding review and a reviewed canary restore path are complete. This collection did not refresh container health, running image identity, VPN sessions, or production readiness; see the latest runtime checkpoint in `ROADMAP.md`. No RouterOS setting, account, password, scheduler, container, or production state changed. This is source-inventory evidence, not canary acceptance or deployment evidence.
 
+## Latest RouterOS point-read — 2026-11-14 09:09–09:29 UTC
+
+At 09:09:31 UTC, a TLS-verified read-only REST classification reported the
+canary healthcheck as `failed` / `segmentation_fault`. No container-specific
+override was present, and the default healthcheck matched the reviewed legacy
+readiness-check shape. The classification does not identify the faulting
+process.
+
+At 09:11:46 UTC, direct private GETs returned HTTP 200 for `/healthz` and
+`/readyz`; readiness was `ready` at the old PR #894 revision. A 09:12:12 UTC
+Binary API snapshot found the canary configured with its old PR #894
+digest-pinned image and lifecycle `unhealthy`; production remained configured
+with a tag-only image reference and lifecycle `running`. That snapshot did not
+verify running digests.
+
+A later paired TLS-verified Binary API/REST point snapshot at 09:22:14 UTC had
+matching normalized results and reconciled both running layer identities
+against GHCR manifests in memory. It verified the canary running digest as
+`sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581` and
+the production running digest as
+`sha256:bd787421bfcc6e356ca9b2b05d98ce07f69493c5eefcaef3cdfc20c2c8fcaa5c`.
+The canary remains unhealthy, with `failed`, `resource_unavailable`,
+`segmentation_fault`, and `timeout` healthcheck categories. Production remains
+healthy with a `good` healthcheck category, but its configured reference is
+still tag-only. Neither runtime is the latest published PR #981 candidate.
+
+A count-only session read in this snapshot returned zero active OpenVPN
+sessions; it retained no identifiers.
+
+These are point observations only. They are not a soak, healthy canary rollback
+baseline, candidate acceptance, or production deployment. The unhealthy
+canary blocks the guarded staging procedure. No RouterOS setting, account,
+password, container, scheduler, updater, or production state changed. Issues
+#927, #200, and epic #205 remain open; client-bound, recovery, security-review,
+and owner-risk acceptance remain outstanding.
+
+A separate count-only `/ppp/active` read at 09:18:28 UTC also returned zero
+active OpenVPN sessions and retained no session identifiers. Client-dependent
+acceptance remains deferred until a disposable test session is active.
+
+A bounded TLS-verified REST log query filtered to container topics at
+09:25:36 UTC returned zero records. The classifier retained no raw log text;
+this negative point read does not identify the fault or establish that no
+healthcheck failure occurred.
+
+At 09:29:03 UTC, separate bounded direct private production `/healthz` and
+`/readyz` GETs from this collection host returned status `0`, so application
+readiness is unverified from this host. RouterOS's separate point snapshot
+still classified production lifecycle as healthy with a `good` healthcheck.
+That lifecycle/healthcheck result does not establish application readiness or
+a usable rollback baseline.
+
 ## Previous container read-only checkpoint — 2026-11-14 04:03–04:12 UTC
 
 At the start of this refresh, `main` was `40fa6b1138e7aefe9a3f38caf447fccd3fc2a87b`;
