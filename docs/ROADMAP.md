@@ -11,6 +11,14 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
+**Fresh canary healthcheck and readiness observations — 2026-11-14 03:19 UTC.** GitHub `main` is now `433fd255c9688a934bc2664cfe5d3ffe417c5d76` after documentation-only PR #982. All PR #982 required checks passed. Post-merge main CI #43551108135 was queued and CodeQL #43551107422 was running at 03:20:20 UTC. The latest published, tested ARM64 candidate remains PR #981 at `sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b`; PR #982 did not change the image. This is not RouterOS deployment evidence.
+
+At 03:19:21 UTC, direct private GETs returned HTTP 200 for `/healthz` and `/readyz`; readiness was `ready` at the older PR #894 revision. At 03:19:48 UTC, the TLS-verified read-only RouterOS REST healthcheck classification again reported a failed segmentation fault, no per-container command override, and the reviewed default-healthcheck shape. That REST probe did not return separate lifecycle/running/healthy fields, so no container lifecycle state is inferred from it. These are point observations, not a soak or candidate acceptance. The latest full canary/production container digest reconciliation remains the 00:28 UTC read above; production digest and health are still not verified for the current candidate.
+
+MikroTik's [Container Manual](https://manual.mikrotik.com/docs/containers/) says healthcheck support was implemented starting in RouterOS 7.23 and describes exit-code based checks. The last verified RouterOS version in the prior checkpoint was 7.25.1. This means the feature is documented for that version range; it does not identify the cause of this device's segmentation-fault result.
+
+No RouterOS setting, account, container, scheduler, updater, or production state changed. No candidate was staged, restarted, rolled back, promoted, or deployed. Issues #927, #200, and epic #205 remain open. The canary health fault, independent candidate-bound security assessment, live-client checks and soak, and owner residual-risk decision remain release gates. Multi-tenancy remains excluded.
+
 **Fresh repository checkpoint — 2026-11-14 02:58 UTC.** GitHub `main` is at
 `47dc999e84a33540451ad85e1e217c7c2a89cd03` after PR #981. All required PR
 checks passed, including Python 3.13/3.14, pre-commit, CodeQL, ARM64 build, and
