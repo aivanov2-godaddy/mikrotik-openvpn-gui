@@ -407,12 +407,12 @@ class RouterOSBinaryCodecTests(unittest.TestCase):
         allowed = (
             ("/system/resource/print", ".proplist=version,cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime"),
             ("/container/print", ".proplist=name,status,remote-image"),
-            ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,remote-image"),
-            ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image"),
+            ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,download/extract failed,remote-image"),
+            ("/container/print", ".proplist=name,running,stopped,starting,stopping,healthy,healthcheck-status,download/extract failed,remote-image"),
             (
                 "/container/print",
                 ".proplist=name,running,stopped,starting,stopping,healthy,healthcheck-status,"
-                "remote-image,image-id,layers",
+                "download/extract failed,remote-image,image-id,layers",
             ),
             ("/container/layers/print", ".proplist=name,type,containers"),
         )

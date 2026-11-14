@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping
 
 
@@ -18,6 +19,46 @@ LIFECYCLE_KEYS = (
     "download/extract failed",
 )
 MAX_HEALTHCHECK_STATUS_CHARS = 4096
+
+LEGACY_CONTAINER_PROPLIST = "name,status,remote-image"
+MODERN_CONTAINER_PROPLIST = (
+    "name,running,stopped,starting,stopping,healthy,download/extract failed,remote-image"
+)
+HEALTHCHECK_CONTAINER_PROPLIST = (
+    "name,running,stopped,starting,stopping,healthy,healthcheck-status,"
+    "download/extract failed,remote-image"
+)
+RUNTIME_IDENTITY_CONTAINER_PROPLIST = (
+    "name,running,stopped,starting,stopping,healthy,healthcheck-status,"
+    "download/extract failed,remote-image,image-id,layers"
+)
+_ROUTEROS_VERSION = re.compile(r"^\s*(\d+)\.(\d+)(?:\.\d+)?(?=$|[^0-9])")
+
+
+def container_proplist_for_version(
+    version: str, *, include_runtime_identity: bool = False
+) -> str:
+    """Return lifecycle fields supported by a RouterOS release family.
+
+    Runtime identity fields are opt-in because most readers do not need image
+    layer ownership and should not request it.
+    """
+
+    match = _ROUTEROS_VERSION.match(version)
+    if not match:
+        raise ValueError("RouterOS version is missing or malformed")
+    major, minor = (int(part) for part in match.groups())
+    if major < 7:
+        raise ValueError("RouterOS container state format is unsupported")
+    if major == 7 and minor < 20:
+        return LEGACY_CONTAINER_PROPLIST
+    if major == 7 and minor < 23:
+        return MODERN_CONTAINER_PROPLIST
+    if include_runtime_identity and (major > 7 or minor >= 25):
+        return RUNTIME_IDENTITY_CONTAINER_PROPLIST
+    if major > 7 or minor >= 23:
+        return HEALTHCHECK_CONTAINER_PROPLIST
+    return MODERN_CONTAINER_PROPLIST
 
 
 def healthcheck_status_categories(record: Mapping[str, Any]) -> list[str]:

@@ -26,6 +26,8 @@ from typing import Any
 if __package__ in {None, ""}:
     from routeros_container_state import (
         STATUS_FAILURES as _STATUS_FAILURES,
+        container_proplist_for_version,
+        healthcheck_status_categories,
         has_container_lifecycle_signal as _has_lifecycle_signal,
         normalize_container_status as _status,
     )
@@ -34,6 +36,8 @@ if __package__ in {None, ""}:
 else:
     from .routeros_container_state import (
         STATUS_FAILURES as _STATUS_FAILURES,
+        container_proplist_for_version,
+        healthcheck_status_categories,
         has_container_lifecycle_signal as _has_lifecycle_signal,
         normalize_container_status as _status,
     )
@@ -42,6 +46,7 @@ else:
 
 
 _EMPTY_STOP_CONFIRMATIONS = 2
+MAX_REST_RESPONSE_BYTES = 1_048_576
 
 
 class DeploymentError(RuntimeError):
@@ -103,6 +108,7 @@ class RouterOSRest:
         self.base_url = settings.rest_url.rstrip("/")
         self.auth = (settings.username, settings.password)
         self.timeout = 20
+        self._container_proplist: str | None = None
         if settings.ca_pem:
             self.ssl_context = ssl.create_default_context(cadata=settings.ca_pem)
         else:
@@ -112,10 +118,22 @@ class RouterOSRest:
             urllib.request.HTTPSHandler(context=self.ssl_context),
         )
 
-    def request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        query: dict[str, str] | None = None,
+    ) -> Any:
         safe_path = "/" + path.lstrip("/")
+        url = self.base_url + safe_path
+        if query:
+            if method != "GET":
+                raise DeploymentError("RouterOS query parameters are limited to read-only requests")
+            url += "?" + urllib.parse.urlencode(query, safe=".,")
         request = urllib.request.Request(
-            self.base_url + safe_path,
+            url,
             data=json.dumps(body).encode("utf-8") if body is not None else None,
             headers={
                 "Authorization": "Basic "
@@ -128,13 +146,19 @@ class RouterOSRest:
         )
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
-                payload = response.read().decode("utf-8")
+                raw_payload = response.read(MAX_REST_RESPONSE_BYTES + 1)
         except urllib.error.HTTPError as error:
             status = error.code
             error.close()
             raise DeploymentError(f"RouterOS REST {method} {safe_path} failed ({status})") from None
         except (urllib.error.URLError, TimeoutError) as error:
             raise DeploymentError(f"RouterOS REST {method} {safe_path} was unreachable") from error
+        if len(raw_payload) > MAX_REST_RESPONSE_BYTES:
+            raise DeploymentError(f"RouterOS REST {method} {safe_path} exceeded the response limit")
+        try:
+            payload = raw_payload.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise DeploymentError(f"RouterOS REST {method} {safe_path} returned invalid text") from error
         if not payload:
             return []
         try:
@@ -142,23 +166,83 @@ class RouterOSRest:
         except json.JSONDecodeError as error:
             raise DeploymentError(f"RouterOS REST {method} {safe_path} returned invalid JSON") from error
 
+    def _container_fields(self) -> tuple[str, ...]:
+        if self._container_proplist is None:
+            result = self.request(
+                "GET", "/system/resource", query={".proplist": "version"}
+            )
+            if isinstance(result, dict):
+                records = [result]
+            elif isinstance(result, list) and len(result) == 1 and isinstance(result[0], dict):
+                records = result
+            else:
+                raise DeploymentError("RouterOS returned an unexpected version record")
+            version = records[0].get("version")
+            if not isinstance(version, str):
+                raise DeploymentError("RouterOS version is missing or malformed")
+            try:
+                lifecycle_fields = container_proplist_for_version(version)
+            except ValueError as error:
+                raise DeploymentError("RouterOS container state format is unsupported") from error
+            self._container_proplist = ".id," + lifecycle_fields
+        return tuple(self._container_proplist.split(","))
+
+    def _container_query(self) -> dict[str, str]:
+        return {".proplist": ",".join(self._container_fields())}
+
+    def _project_container(self, record: dict[str, Any]) -> dict[str, Any]:
+        projected = {
+            key: value
+            for key, value in record.items()
+            if key in self._container_fields()
+            and key not in {"healthcheck-status", "download/extract failed"}
+        }
+        raw_pull_failure = record.get("download/extract failed")
+        if "download/extract failed" in self._container_fields() and raw_pull_failure is not None:
+            normalized_pull_failure = str(raw_pull_failure).casefold()
+            if normalized_pull_failure in {"true", "yes", "1"}:
+                projected["download/extract failed"] = "true"
+            elif normalized_pull_failure in {"false", "no", "0"}:
+                projected["download/extract failed"] = "false"
+            else:
+                # An unrecognized value is a failure signal; never allow a
+                # malformed pull result to become a stopped/success state.
+                projected["download/extract failed"] = "true"
+        raw_healthcheck_status = record.get("healthcheck-status")
+        if "healthcheck-status" in self._container_fields() and raw_healthcheck_status is not None:
+            if isinstance(raw_healthcheck_status, str):
+                categories = healthcheck_status_categories(
+                    {"healthcheck-status": raw_healthcheck_status}
+                )
+                if categories == ["good"]:
+                    projected["healthcheck-status"] = "good"
+                elif categories != ["unavailable"]:
+                    projected["healthcheck-status"] = "failed"
+            else:
+                projected["healthcheck-status"] = "failed"
+        return projected
+
     def containers(self) -> list[dict[str, Any]]:
-        result = self.request("GET", "/container")
+        result = self.request("GET", "/container", query=self._container_query())
         if isinstance(result, dict):
-            return [result]
+            return [self._project_container(result)]
         if not isinstance(result, list):
             raise DeploymentError("RouterOS returned an unexpected container list")
-        return [item for item in result if isinstance(item, dict)]
+        if any(not isinstance(item, dict) for item in result):
+            raise DeploymentError("RouterOS returned an unexpected container list")
+        return [self._project_container(item) for item in result]
 
     def container(self, container_id: str) -> dict[str, Any]:
         encoded = urllib.parse.quote(container_id, safe="*")
-        result = self.request("GET", f"/container/{encoded}")
+        result = self.request(
+            "GET", f"/container/{encoded}", query=self._container_query()
+        )
         if isinstance(result, list):
             if len(result) != 1 or not isinstance(result[0], dict):
                 raise DeploymentError("RouterOS returned an unexpected container record")
-            return result[0]
+            return self._project_container(result[0])
         if isinstance(result, dict):
-            return result
+            return self._project_container(result)
         raise DeploymentError("RouterOS returned an unexpected container record")
 
     def patch_container(self, container_id: str, values: dict[str, Any]) -> None:

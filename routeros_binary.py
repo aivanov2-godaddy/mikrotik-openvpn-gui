@@ -357,6 +357,7 @@ class RouterOSBinaryConnection:
                     "stopping",
                     "healthy",
                     "healthcheck-status",
+                    "download/extract failed",
                     "remote-image",
                     "image-id",
                     "layers",

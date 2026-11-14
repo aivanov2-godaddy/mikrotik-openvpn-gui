@@ -38,6 +38,7 @@ PYTHON_FILES = [
     "update_routeros_app.py",
     "scripts/check-secrets.py",
     "scripts/deploy_routeros_release.py",
+    "scripts/routeros_container_state.py",
     "scripts/stage_routeros_canary.py",
     "scripts/pre_commit_checks.py",
     "scripts/telemetry_canary.py",

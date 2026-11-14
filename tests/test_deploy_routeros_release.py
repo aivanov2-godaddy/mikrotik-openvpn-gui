@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import io
+import json
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 from urllib.error import HTTPError
 
 from scripts.deploy_routeros_release import (
     DeploymentError,
     DeploymentSettings,
+    MAX_REST_RESPONSE_BYTES,
     RouterOSRest,
     _wait_for,
     _status,
@@ -124,6 +126,29 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn("failed (400)", str(raised.exception))
         self.assertNotIn(secret, str(raised.exception))
 
+    def test_routeros_rest_response_is_size_bounded(self) -> None:
+        class OversizedResponse:
+            read_limit = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self, size: int) -> bytes:
+                self.read_limit = size
+                return b"x" * size
+
+        client = RouterOSRest(settings())
+        response = OversizedResponse()
+        with patch.object(client._opener, "open", return_value=response):
+            with self.assertRaises(DeploymentError) as raised:
+                client.request("GET", "/container")
+
+        self.assertIn("exceeded the response limit", str(raised.exception))
+        self.assertEqual(response.read_limit, MAX_REST_RESPONSE_BYTES + 1)
+
     def test_deployer_credentials_are_not_forwarded_to_redirect_target(self) -> None:
         forwarded_authorization: list[str | None] = []
         target_url = ""
@@ -190,6 +215,171 @@ class DeploymentTests(unittest.TestCase):
         client.command("update", "*1")
 
         client.request.assert_called_once_with("POST", "/container/update", {"number": "*1"})
+
+    def test_container_reads_use_versioned_allowlists_and_drop_extra_fields(self) -> None:
+        paths: list[str] = []
+        raw_healthcheck_status = "good, output: private-healthcheck-output"
+        private_sentinel = "private-container-environment-sentinel"
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                paths.append(self.path)
+                if self.path.startswith("/rest/system/resource?"):
+                    records = [{"version": "7.25.1 (stable)", "extra": private_sentinel}]
+                elif self.path.startswith("/rest/container"):
+                    records = [
+                        {
+                            ".id": "*1",
+                            "name": "vpn-dashboard",
+                            "remote-image": OLD_IMAGE,
+                            "running": "true",
+                            "stopped": "false",
+                            "starting": "false",
+                            "stopping": "false",
+                            "healthy": "false",
+                            "healthcheck-status": raw_healthcheck_status,
+                            "download/extract failed": "true",
+                            "environment": [private_sentinel],
+                            "mounts": [{"source": private_sentinel}],
+                            "healthcheck-command": private_sentinel,
+                            "image-id": private_sentinel,
+                            "layers": [private_sentinel],
+                        }
+                    ]
+                else:
+                    self.send_error(404)
+                    return
+                payload = json.dumps(records).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            client = RouterOSRest(settings())
+            client.base_url = f"http://127.0.0.1:{server.server_port}/rest"
+            listed = client.containers()
+            detail = client.container("*1")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        self.assertEqual(
+            paths,
+            [
+                "/rest/system/resource?.proplist=version",
+                "/rest/container?.proplist=.id,name,running,stopped,starting,stopping,healthy,"
+                "healthcheck-status,download%2Fextract+failed,remote-image",
+                "/rest/container/*1?.proplist=.id,name,running,stopped,starting,stopping,healthy,"
+                "healthcheck-status,download%2Fextract+failed,remote-image",
+            ],
+        )
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["healthcheck-status"], "good")
+        self.assertEqual(detail["healthcheck-status"], "good")
+        self.assertEqual(listed[0]["download/extract failed"], "true")
+        self.assertEqual(detail["download/extract failed"], "true")
+        for projected in (listed[0], detail):
+            self.assertEqual(
+                set(projected),
+                {
+                    ".id",
+                    "name",
+                    "remote-image",
+                    "running",
+                    "stopped",
+                    "starting",
+                    "stopping",
+                    "healthy",
+                    "healthcheck-status",
+                    "download/extract failed",
+                },
+            )
+            self.assertNotIn(private_sentinel, repr(projected))
+            self.assertNotIn(raw_healthcheck_status, repr(projected))
+            self.assertEqual(_status(projected), "failed")
+
+    def test_container_reader_uses_supported_fields_by_routeros_version(self) -> None:
+        profiles = (
+            ("7.19.10 (stable)", ".id,name,status,remote-image"),
+            (
+                "7.20.6 (stable)",
+                ".id,name,running,stopped,starting,stopping,healthy,download/extract failed,remote-image",
+            ),
+            (
+                "7.22.1 (stable)",
+                ".id,name,running,stopped,starting,stopping,healthy,download/extract failed,remote-image",
+            ),
+            (
+                "7.24.5 (stable)",
+                ".id,name,running,stopped,starting,stopping,healthy,healthcheck-status,download/extract failed,remote-image",
+            ),
+            (
+                "7.25.1 (stable)",
+                ".id,name,running,stopped,starting,stopping,healthy,healthcheck-status,download/extract failed,remote-image",
+            ),
+        )
+        for version, expected_proplist in profiles:
+            with self.subTest(version=version):
+                client = RouterOSRest(settings())
+                client.request = Mock(side_effect=[{"version": version}, []])
+
+                self.assertEqual(client.containers(), [])
+                self.assertEqual(
+                    client.request.call_args_list,
+                    [
+                        call(
+                            "GET", "/system/resource", query={".proplist": "version"}
+                        ),
+                        call(
+                            "GET", "/container", query={".proplist": expected_proplist}
+                        ),
+                    ],
+                )
+
+    def test_unknown_routeros_version_fails_before_container_read(self) -> None:
+        client = RouterOSRest(settings())
+        client.request = Mock(return_value=[{"version": "unknown"}])
+
+        with self.assertRaises(DeploymentError):
+            client.containers()
+
+        client.request.assert_called_once_with(
+            "GET", "/system/resource", query={".proplist": "version"}
+        )
+
+    def test_malformed_pull_failure_flag_fails_closed(self) -> None:
+        client = RouterOSRest(settings())
+        client._container_proplist = (
+            ".id,name,running,stopped,starting,stopping,healthy,"
+            "healthcheck-status,download/extract failed,remote-image"
+        )
+
+        projected = client._project_container(
+            {
+                ".id": "*1",
+                "name": "vpn-dashboard",
+                "running": "false",
+                "stopped": "true",
+                "healthy": "true",
+                "healthcheck-status": "good, output: healthy",
+                "download/extract failed": "unrecognized raw value",
+                "environment": ["private"],
+            }
+        )
+
+        self.assertEqual(projected["download/extract failed"], "true")
+        self.assertEqual(_status(projected), "failed")
+        self.assertNotIn("unrecognized raw value", repr(projected))
+        self.assertNotIn("environment", projected)
 
     def test_updates_immutable_image_and_starts_container(self) -> None:
         router = FakeRouterOS()
