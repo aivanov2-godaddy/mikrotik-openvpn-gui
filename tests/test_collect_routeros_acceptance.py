@@ -78,6 +78,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         canary_digest=CANARY_DIGEST,
         production_digest=None,
         healthcheck_status=None,
+        download_failure=None,
     ):
         connection = Mock()
         revision = "a" * 40
@@ -131,6 +132,8 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                     }
                     if supports_healthcheck_status and healthcheck_status is not None:
                         record["healthcheck-status"] = healthcheck_status
+                    if download_failure is not None:
+                        record["download/extract failed"] = download_failure
                     records.append(RouterOSReply("re", record))
                 return records + [RouterOSReply("done", {})]
             if path == "/container/layers/print":
@@ -305,6 +308,18 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
         )
         self.assertFalse(oversized["containers"]["canary"]["healthy"])
         self.assertNotIn(oversized_status, repr(oversized))
+
+    def test_download_failure_flag_overrides_stale_healthy_probe(self):
+        raw_failure = "true"
+        report = _snapshot(
+            self._fake_connection(
+                healthcheck_status="good, output: stale healthy probe",
+                download_failure=raw_failure,
+            )
+        )
+        self.assertEqual(report["healthcheck_status_categories"]["canary"], ["good"])
+        self.assertFalse(report["containers"]["canary"]["healthy"])
+        self.assertNotIn("download/extract failed", repr(report))
 
     def test_legacy_container_reply_reports_healthcheck_status_unavailable(self):
         report = _snapshot(self._fake_connection(version="7.19.10 (stable)"))
@@ -670,6 +685,7 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
                 version = payloads["/rest/system/resource"][0]["version"]
                 expected_container_proplist = {
                     "7.19.10 (stable)": LEGACY_CONTAINER_PROPLIST,
+                    "7.20.6 (stable)": MODERN_CONTAINER_PROPLIST,
                     "7.22.1 (stable)": MODERN_CONTAINER_PROPLIST,
                     "7.23.0 (stable)": HEALTHCHECK_CONTAINER_PROPLIST,
                     "7.24.5 (stable)": HEALTHCHECK_CONTAINER_PROPLIST,

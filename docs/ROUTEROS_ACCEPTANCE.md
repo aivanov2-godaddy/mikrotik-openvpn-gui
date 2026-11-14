@@ -1179,6 +1179,26 @@ flags, or unhealthy signals fail closed; a transition flag is never treated as
 stopped. The collector never retries a failed property query with a broader
 record dump.
 
+The deployment and canary-staging REST client also reads only `version` from
+`/system/resource`, then requests `.id`, `name`, `remote-image`, and the
+version-supported lifecycle fields from `/container` and its selected record.
+It does not request environment lists, mounts, healthcheck commands, output,
+`image-id`, or layer ownership. Returned container records are projected to
+that field allowlist before callers receive them, and healthcheck status is
+reduced to `good` or `failed`; the download/extract failure indicator is
+normalized to a boolean so it remains a hard failure even with a stale healthy
+probe. Reads are capped at 1 MiB and missing, malformed, or unsupported version
+responses fail before the container list is queried.
+The 7.20+ profile uses the download/extract failure indicator. Its earliest
+verified sample in this repository's compatibility evidence is RouterOS
+7.20.6; this is an observed support floor, not a claim about the property's
+introduction version. A RouterOS community report records the `F` flag on
+7.20.6, and the current MikroTik Container manual lists the flag. RouterOS
+versions before 7.20 continue to use the legacy `status` profile without this
+property.
+These read filters reduce data exposed to the local deploy process; they do not
+authorize deployment or satisfy canary acceptance.
+
 The sampler accepts Binary API and REST credentials only from process
 environment variables, with separate masked password prompts as fallback. Set
 the REST URL as a credential-free HTTPS origin (no `/rest` suffix is required).

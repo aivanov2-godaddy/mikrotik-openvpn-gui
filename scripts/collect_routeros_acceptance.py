@@ -33,14 +33,30 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routeros_binary import RouterOSBinaryConnection, RouterOSBinaryError, RouterOSReply
 if __package__ in {None, ""}:
-    from routeros_container_state import healthcheck_status_categories, normalize_container_status
+    from routeros_container_state import (
+        HEALTHCHECK_CONTAINER_PROPLIST,
+        LEGACY_CONTAINER_PROPLIST,
+        MODERN_CONTAINER_PROPLIST,
+        RUNTIME_IDENTITY_CONTAINER_PROPLIST,
+        container_proplist_for_version,
+        healthcheck_status_categories,
+        normalize_container_status,
+    )
     from oci_registry_identity import (
         IMAGE_HEALTHCHECK_PROFILES,
         resolve_image_identity,
         runtime_identity_matches,
     )
 else:
-    from .routeros_container_state import healthcheck_status_categories, normalize_container_status
+    from .routeros_container_state import (
+        HEALTHCHECK_CONTAINER_PROPLIST,
+        LEGACY_CONTAINER_PROPLIST,
+        MODERN_CONTAINER_PROPLIST,
+        RUNTIME_IDENTITY_CONTAINER_PROPLIST,
+        container_proplist_for_version,
+        healthcheck_status_categories,
+        normalize_container_status,
+    )
     from .oci_registry_identity import (
         IMAGE_HEALTHCHECK_PROFILES,
         resolve_image_identity,
@@ -64,16 +80,7 @@ PROJECT_IMAGE = re.compile(
     r"sha-(?P<revision>[0-9a-f]{40})-arm64(?:@(?P<digest>sha256:[0-9a-f]{64}))?$"
 )
 RESOURCE_PROPLIST = "cpu-load,total-memory,free-memory,total-hdd-space,free-hdd-space,uptime,version"
-LEGACY_CONTAINER_PROPLIST = "name,status,remote-image"
-MODERN_CONTAINER_PROPLIST = "name,running,stopped,starting,stopping,healthy,remote-image"
-HEALTHCHECK_CONTAINER_PROPLIST = (
-    "name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image"
-)
-RUNTIME_IDENTITY_CONTAINER_PROPLIST = (
-    "name,running,stopped,starting,stopping,healthy,healthcheck-status,remote-image,image-id,layers"
-)
 LAYER_PROPLIST = "name,type,containers"
-_ROUTEROS_VERSION = re.compile(r"^\s*(\d+)\.(\d+)(?:\.\d+)?(?=$|[^0-9])")
 SESSION_PROPLIST = ".id"
 MAX_REST_RESPONSE_BYTES = 1_048_576
 REST_TIMEOUT_SECONDS = 10
@@ -92,20 +99,7 @@ REST_PATHS = {
 
 def _container_proplist_for_version(version: str) -> str:
     """Select only properties supported by the reported RouterOS family."""
-
-    match = _ROUTEROS_VERSION.match(version)
-    if not match:
-        raise ValueError("RouterOS version is missing or malformed")
-    major, minor = (int(part) for part in match.groups())
-    if major < 7:
-        raise ValueError("RouterOS container state format is unsupported")
-    if major == 7 and minor < 20:
-        return LEGACY_CONTAINER_PROPLIST
-    if major == 7 and minor < 23:
-        return MODERN_CONTAINER_PROPLIST
-    if major > 7 or minor >= 25:
-        return RUNTIME_IDENTITY_CONTAINER_PROPLIST
-    return HEALTHCHECK_CONTAINER_PROPLIST
+    return container_proplist_for_version(version, include_runtime_identity=True)
 
 
 def _utc_now() -> datetime:
