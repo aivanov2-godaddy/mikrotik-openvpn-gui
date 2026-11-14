@@ -492,7 +492,10 @@ class ReleaseContractTests(unittest.TestCase):
         )
         self.assertIn("router_writes_may_have_started=false", canary_status_row)
         self.assertIn("neither running oci digest was verified", canary_status_row.casefold())
-        self.assertIn("latest count-only session read remains zero at 04:12 UTC", security_status_row)
+        self.assertIn(
+            "A fresh TLS-verified count-only session read at 05:23:20 UTC returned zero active VPN sessions",
+            security_status_row,
+        )
         self.assertIn("running OCI manifest identities for canary and production", routeros_acceptance)
         self.assertIn("latest published PR #971 candidate", routeros_acceptance)
         self.assertIn("running manifest identity was verified but", routeros_acceptance)
