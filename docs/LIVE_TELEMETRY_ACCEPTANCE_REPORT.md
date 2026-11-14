@@ -1,8 +1,29 @@
 # Live telemetry acceptance status
 
-Status: PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source. Its immutable RouterOS ARM64 digest is `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`; its AMD64 digest is `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`. Publisher run #43446742850 succeeded, and the stable manifest asset SHA-256 is `sha256:344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`. Provenance and SPDX SBOM attestations were independently verified. This publication is not RouterOS deployment evidence. A 16:26:58 UTC TLS-verified read-only REST healthcheck classification still reports the canary category `segmentation_fault`; production reports `good` with its healthy field true. RouterOS omitted lifecycle/running fields and the canary healthy field in that response. It did not query image references, running digests, readiness, or sessions. The separate 15:45:38 UTC post-publication configuration read found the canary on old PR #894 and production tag-only, without verifying running digests. Earlier direct canary `/healthz` and `/readyz` probes returned HTTP 200 and ready at the old PR #894 revision, before publication. PR #971 remains unstaged. Production deployment is not claimed.
+## Current candidate and RouterOS point read-back — 2026-11-14 04:03–04:12 UTC
 
-## Latest canary healthcheck point read — 2026-11-13 16:42:42 UTC
+PR #981 (`47dc999e84a33540451ad85e1e217c7c2a89cd03`) is the latest published
+image source. Publisher run #43547973327 passed and published the immutable
+RouterOS ARM64 digest
+`sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b`.
+The downloaded stable manifest's SHA-256 matched the GitHub release asset
+digest. This is publication evidence, not RouterOS acceptance or deployment.
+
+At 04:03 UTC, direct private canary GETs to `/healthz` and `/readyz` returned
+HTTP 200; readiness was `ready` at the older PR #894 revision. A TLS-verified
+read-only healthcheck classification at 04:03:31 UTC included failed,
+`resource_unavailable`, `segmentation_fault`, and timeout categories. At
+04:12:26 UTC, the acceptance reader produced a normalized point snapshot: the
+canary remained unhealthy on its older digest-pinned PR #894 configuration;
+production was healthy with a good healthcheck category and a tag-only
+reference; neither running image digest was verified. A count-only VPN read
+found zero active sessions. No candidate was staged, restarted, promoted, or
+deployed. These observations do not establish a healthy rollback baseline, a
+soak, or candidate acceptance.
+
+Historical status recorded on 2026-11-13 at 16:42 UTC: PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source. Its immutable RouterOS ARM64 digest is `sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`; its AMD64 digest is `sha256:d348019c1290e1baa23d35dcad254e290e285fd729241f67a9aa0d4d7ec81992`. Publisher run #43446742850 succeeded, and the stable manifest asset SHA-256 is `sha256:344b7778eb32b9d4c89cecaaa5a0cb532b4c13dec7a426fa0f12bb432fc0c976`. Provenance and SPDX SBOM attestations were independently verified. This publication is not RouterOS deployment evidence. A 16:26:58 UTC TLS-verified read-only REST healthcheck classification still reports the canary category `segmentation_fault`; production reports `good` with its healthy field true. RouterOS omitted lifecycle/running fields and the canary healthy field in that response. It did not query image references, running digests, readiness, or sessions. The separate 15:45:38 UTC post-publication configuration read found the canary on old PR #894 and production tag-only, without verifying running digests. Earlier direct canary `/healthz` and `/readyz` probes returned HTTP 200 and ready at the old PR #894 revision, before publication. PR #971 remains unstaged. Production deployment is not claimed.
+
+## Previous canary healthcheck point read — 2026-11-13 16:42:42 UTC
 
 A second TLS-verified, read-only RouterOS REST classification still reported
 the canary `segmentation_fault`. A local privacy-preserving classifier found
@@ -25,7 +46,7 @@ or VPN sessions. It does not identify the failing executable or root cause,
 clear the canary gate, or verify candidate acceptance. No RouterOS state
 changed.
 
-## Latest published candidate and RouterOS read-back — 2026-11-13 14:28–15:45 UTC
+## Previous published candidate and RouterOS read-back — 2026-11-13 14:28–15:45 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Required PR checks, post-merge

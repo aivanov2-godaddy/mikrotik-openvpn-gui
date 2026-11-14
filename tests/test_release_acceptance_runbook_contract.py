@@ -96,12 +96,14 @@ class ReleaseAcceptanceRunbookContractTests(unittest.TestCase):
             report,
         )
         self.assertIn(
-            "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image source",
+            "PR #981 (`47dc999e84a33540451ad85e1e217c7c2a89cd03`) is the latest published image source",
             report,
         )
-        self.assertIn("Latest canary healthcheck point read — 2026-11-13 16:42:42 UTC", report)
+        self.assertIn("Current candidate and RouterOS point read-back — 2026-11-14 04:03–04:12 UTC", report)
+        self.assertIn("sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b", report)
+        self.assertIn("Previous canary healthcheck point read — 2026-11-13 16:42:42 UTC", report)
         self.assertIn("Previous canary healthcheck point read — 2026-11-13 16:26:58 UTC", report)
-        self.assertIn("Latest published candidate and RouterOS read-back — 2026-11-13 14:28–15:45 UTC", report)
+        self.assertIn("Previous published candidate and RouterOS read-back — 2026-11-13 14:28–15:45 UTC", report)
         self.assertIn("Previous RouterOS read-back — 2026-11-13 11:03–11:29 UTC", report)
         self.assertIn("At 11:28:59 UTC, a fresh read-only WinBox container-list view showed the", report)
         self.assertIn("It classified production as `good` with its healthy field true", report)

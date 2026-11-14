@@ -674,8 +674,16 @@ class SecurityAssuranceDocumentContractTests(unittest.TestCase):
             roadmap,
         )
         self.assertIn(
-            "## Latest published mainline image — PR #971",
+            "## Latest published mainline image — PR #981",
             releases,
+        )
+        self.assertIn(
+            "## Current candidate and deployed-state checkpoint — 2026-11-14 04:12 UTC",
+            assurance,
+        )
+        self.assertIn(
+            "PR #981 merged at 02:44:40 UTC as `47dc999e84a33540451ad85e1e217c7c2a89cd03`",
+            assurance,
         )
         self.assertIn(
             "PR #971 merged at 14:51:24 UTC as `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`",
