@@ -23,7 +23,39 @@ That registry evidence does not prove RouterOS acceptance or that the candidate
 is running on RouterOS.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — PR #978 and RouterOS reads 2026-11-13 23:50–23:52 UTC
+## Current checkpoint — PR #979 and RouterOS reads 2026-11-14 00:28–00:31 UTC
+
+PR #979 merged to main as 5722684bbb4bbd193939e47a3a9c5a048e6446e8.
+Main CI #43533141667 and CodeQL #43533139364 passed on this exact SHA. PR
+#979 did not publish an image. PR #971 remains the latest published candidate;
+publication is not RouterOS acceptance.
+
+At 00:28:16 UTC, a TLS-verified, read-only Binary API point read reconciled
+both running OCI manifest identities in memory. Neither matched PR #971. The
+canary remained unhealthy with failed, resource_unavailable,
+segmentation_fault, and timeout categories. Its configured image reference
+remained digest-pinned but did not match the candidate. Production was running
+with a good healthcheck category and a tag-only configured image reference. A
+count-only active VPN session query returned zero and retained no session
+identifiers. This is a point observation, not a soak.
+
+At 00:30:42 UTC, TLS-verified RouterOS REST reads discovered the canary's
+private VETH address in memory and bounded direct private GETs returned HTTP
+200 for /healthz and /readyz. Readiness was ready at the old PR #894 revision.
+These point observations confirm the app responds while RouterOS reports a
+failed healthcheck; they do not identify the failing executable or root cause.
+
+A separate read-only check-only staging preflight returned
+preflight_blocked / baseline / canary_unhealthy with
+router_writes_may_have_started=false. No candidate was staged and no rollback
+was attempted. No RouterOS setting, account, container, scheduler, updater, or
+production state changed. There was no restart, rollback, promotion, or
+deployment. Issue #927 remains open and the unhealthy baseline blocks staging.
+Issue #200 still lacks independent scoped assessment, candidate-bound
+live-client evidence, deployed recovery/soak, and the separate owner decision.
+Production remains undeployed.
+
+## Previous checkpoint — PR #978 and RouterOS reads 2026-11-13 23:50–23:52 UTC
 
 PR #978 merged to `main` at 23:09:29 UTC as
 `57494848e073d3dd7d0e8fced19bb122056b367d`. Main CI #43524964321 and CodeQL

@@ -439,11 +439,19 @@ class ReleaseContractTests(unittest.TestCase):
             routeros_acceptance_compact,
         )
         self.assertIn(
-            "## Current checkpoint — PR #978 and RouterOS reads 2026-11-13 23:50–23:52 UTC",
+            "## Current checkpoint — PR #979 and RouterOS reads 2026-11-14 00:28–00:31 UTC",
+            routeros_acceptance,
+        )
+        self.assertIn(
+            "## Previous checkpoint — PR #978 and RouterOS reads 2026-11-13 23:50–23:52 UTC",
             routeros_acceptance,
         )
         self.assertIn(
             "## Previous checkpoint — PR #977 and RouterOS reads 2026-11-13 22:29–22:46 UTC",
+            routeros_acceptance,
+        )
+        self.assertIn(
+            "PR #979 merged to main as 5722684bbb4bbd193939e47a3a9c5a048e6446e8.",
             routeros_acceptance,
         )
         self.assertIn(
@@ -463,9 +471,19 @@ class ReleaseContractTests(unittest.TestCase):
         security_status_row = next(
             line for line in roadmap.splitlines() if line.startswith("| Open — security assurance |")
         )
-        self.assertIn("verified both running manifest identities; neither matches PR #971", canary_status_row)
+        self.assertIn(
+            "2026-11-14 00:28:16 UTC verified both running manifest identities "
+            "in memory; neither matches PR #971",
+            canary_status_row,
+        )
+        self.assertIn(
+            "check-only preflight returned preflight_blocked / baseline / "
+            "canary_unhealthy",
+            canary_status_row,
+        )
+        self.assertIn("router_writes_may_have_started=false", canary_status_row)
         self.assertNotIn("neither running digest is verified", canary_status_row.casefold())
-        self.assertIn("22:44:17 UTC count-only active VPN read returned zero", security_status_row)
+        self.assertIn("2026-11-14 00:28:16 UTC count-only active VPN read returned zero", security_status_row)
         self.assertIn("running OCI manifest identities for canary and production", routeros_acceptance)
         self.assertIn("latest published PR #971 candidate", routeros_acceptance)
         self.assertIn("running manifest identity was verified but", routeros_acceptance)
