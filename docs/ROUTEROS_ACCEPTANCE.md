@@ -40,7 +40,7 @@ An offline comparison with the reviewed repository template found no exact sourc
 
 No updater was executed during this read. Keep the installed updater out of use until the source/binding review and a reviewed canary restore path are complete. This collection did not refresh container health, running image identity, VPN sessions, or production readiness; see the latest runtime checkpoint in `ROADMAP.md`. No RouterOS setting, account, password, scheduler, container, or production state changed. This is source-inventory evidence, not canary acceptance or deployment evidence.
 
-## Current read-only checkpoint — 2026-11-14 04:03–04:12 UTC
+## Previous container read-only checkpoint — 2026-11-14 04:03–04:12 UTC
 
 At the start of this refresh, `main` was `40fa6b1138e7aefe9a3f38caf447fccd3fc2a87b`;
 post-merge CI #43552790940 and CodeQL #43552790800 passed. PR #981 remains the
