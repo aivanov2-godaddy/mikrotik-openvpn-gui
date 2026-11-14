@@ -201,5 +201,23 @@ class SecurityAssuranceTests(unittest.TestCase):
                 )
 
 
+    def test_duplicate_record_docs_match_fail_closed_behavior(self) -> None:
+        document_path = (
+            Path(__file__).resolve().parents[1]
+            / "docs"
+            / "SECURITY_PROMOTION_EVIDENCE.md"
+        )
+        document = document_path.read_text(encoding="utf-8")
+        compact = " ".join(document.split())
+        self.assertIn(
+            "Duplicate candidate-bound records in the sampled comments are treated as ambiguous and block promotion.",
+            compact,
+        )
+        self.assertNotIn(
+            "Duplicate candidate-bound records are within the review's validity window.",
+            compact,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

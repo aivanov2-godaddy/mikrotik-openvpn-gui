@@ -68,7 +68,6 @@ The owner must accept exactly the unresolved moderate/low finding IDs; a
 rejected, incomplete, or different-digest decision blocks promotion. Both
 comments must be unedited and created within five minutes of their declared
 timestamps. The review must not be expired, and the owner decision must fall
-within the review's validity window. Duplicate candidate-bound records are
 within the review's validity window. Duplicate candidate-bound records in the
 sampled comments are treated as ambiguous and block promotion. If either record
 falls outside the sampled 100 comments, the gate fails closed for missing
