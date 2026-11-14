@@ -476,18 +476,18 @@ class ReleaseContractTests(unittest.TestCase):
             line for line in roadmap.splitlines() if line.startswith("| Open — security assurance |")
         )
         self.assertIn(
-            "latest TLS-verified acceptance snapshot at 04:12:26 UTC found the "
-            "canary unhealthy on its older PR #894 digest-pinned configuration",
+            "A TLS-verified read-only classification at 05:03:08 UTC still "
+            "reported failed, resource unavailable, segmentation fault, and timeout categories",
             canary_status_row,
         )
         self.assertIn(
-            "earlier check-only preflight at 00:31 UTC blocked at baseline / "
+            "prior 00:31 UTC check-only preflight blocked at baseline / "
             "canary_unhealthy",
             canary_status_row,
         )
         self.assertIn("router_writes_may_have_started=false", canary_status_row)
-        self.assertIn("neither running digest was verified", canary_status_row.casefold())
-        self.assertIn("count-only session read returned zero", security_status_row)
+        self.assertIn("neither running oci digest was verified", canary_status_row.casefold())
+        self.assertIn("latest count-only session read remains zero at 04:12 UTC", security_status_row)
         self.assertIn("running OCI manifest identities for canary and production", routeros_acceptance)
         self.assertIn("latest published PR #971 candidate", routeros_acceptance)
         self.assertIn("running manifest identity was verified but", routeros_acceptance)
