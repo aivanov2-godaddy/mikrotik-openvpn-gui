@@ -40,7 +40,7 @@ An offline comparison with the reviewed repository template found no exact sourc
 
 No updater was executed during this read. Keep the installed updater out of use until the source/binding review and a reviewed canary restore path are complete. This collection did not refresh container health, running image identity, VPN sessions, or production readiness; see the latest runtime checkpoint in `ROADMAP.md`. No RouterOS setting, account, password, scheduler, container, or production state changed. This is source-inventory evidence, not canary acceptance or deployment evidence.
 
-## Latest RouterOS point-read — 2026-11-14 09:09–09:12 UTC
+## Latest RouterOS point-read — 2026-11-14 09:09–09:18 UTC
 
 At 09:09:31 UTC, a TLS-verified read-only REST classification reported the
 canary healthcheck as `failed` / `segmentation_fault`. No container-specific
@@ -62,6 +62,10 @@ canary blocks the guarded staging procedure. No RouterOS setting, account,
 password, container, scheduler, updater, or production state changed. Issues
 #927, #200, and epic #205 remain open; client-bound, recovery, security-review,
 and owner-risk acceptance remain outstanding.
+
+A separate count-only `/ppp/active` read at 09:18:28 UTC returned zero active
+OpenVPN sessions and retained no session identifiers. Client-dependent
+acceptance remains deferred until a disposable test session is active.
 
 ## Previous container read-only checkpoint — 2026-11-14 04:03–04:12 UTC
 

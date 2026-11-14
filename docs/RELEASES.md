@@ -22,7 +22,7 @@ The latest formal versioned release remains **v2.7.0**. The next planned version
 
 ## Latest published mainline image — PR #981 — 2026-11-14
 
-### Latest RouterOS point-read — 2026-11-14 09:09–09:12 UTC
+### Latest RouterOS point-read — 2026-11-14 09:09–09:18 UTC
 
 PR #992 merged documentation-only at `463bdf126815ac8434fa96869da03f5e2a314a91`;
 it did not publish a new image. At 09:09:31 UTC, the TLS-verified read-only
@@ -40,6 +40,10 @@ separate point reads do not establish a healthy rollback baseline, candidate
 acceptance, or production deployment. PR #981 remains unstaged; no RouterOS
 configuration or production state changed. The unhealthy canary blocks
 candidate staging under issue #927.
+
+A count-only read at 09:18:28 UTC found zero active OpenVPN sessions and
+retained no identifiers. Client-dependent acceptance under issue #200 remains
+deferred until the disposable test client is active.
 
 PR [#981](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/981)
 merged as `47dc999e84a33540451ad85e1e217c7c2a89cd03`. Post-merge main CI run
