@@ -40,7 +40,7 @@ An offline comparison with the reviewed repository template found no exact sourc
 
 No updater was executed during this read. Keep the installed updater out of use until the source/binding review and a reviewed canary restore path are complete. This collection did not refresh container health, running image identity, VPN sessions, or production readiness; see the latest runtime checkpoint in `ROADMAP.md`. No RouterOS setting, account, password, scheduler, container, or production state changed. This is source-inventory evidence, not canary acceptance or deployment evidence.
 
-## Latest RouterOS point-read — 2026-11-14 09:09–09:25 UTC
+## Latest RouterOS point-read — 2026-11-14 09:09–09:29 UTC
 
 At 09:09:31 UTC, a TLS-verified read-only REST classification reported the
 canary healthcheck as `failed` / `segmentation_fault`. No container-specific
@@ -84,6 +84,13 @@ A bounded TLS-verified REST log query filtered to container topics at
 09:25:36 UTC returned zero records. The classifier retained no raw log text;
 this negative point read does not identify the fault or establish that no
 healthcheck failure occurred.
+
+At 09:29:03 UTC, separate bounded direct private production `/healthz` and
+`/readyz` GETs from this collection host returned status `0`, so application
+readiness is unverified from this host. RouterOS's separate point snapshot
+still classified production lifecycle as healthy with a `good` healthcheck.
+That lifecycle/healthcheck result does not establish application readiness or
+a usable rollback baseline.
 
 ## Previous container read-only checkpoint — 2026-11-14 04:03–04:12 UTC
 

@@ -9,7 +9,7 @@ remaining acceptance gates. It contains no router addresses or names,
 user/session data, private origins, credentials, or raw operational logs.
 Detailed operational records remain operator-controlled.
 
-**Latest mainline and RouterOS point-read — 2026-11-14 09:09–09:25 UTC.** PR #992 merged documentation-only at `463bdf126815ac8434fa96869da03f5e2a314a91`; post-merge main CI #43579262675 and CodeQL #43579262911 both passed (main CI completed at 09:19:16 UTC). PR #981 remains the latest published immutable image candidate (source `47dc999e84a33540451ad85e1e217c7c2a89cd03`, ARM64 digest `sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b`). PR #992 did not publish an image.
+**Latest mainline and RouterOS point-read — 2026-11-14 09:09–09:29 UTC.** PR #992 merged documentation-only at `463bdf126815ac8434fa96869da03f5e2a314a91`; post-merge main CI #43579262675 and CodeQL #43579262911 both passed (main CI completed at 09:19:16 UTC). PR #981 remains the latest published immutable image candidate (source `47dc999e84a33540451ad85e1e217c7c2a89cd03`, ARM64 digest `sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b`). PR #992 did not publish an image.
 
 At 09:09:31 UTC, a TLS-verified read-only healthcheck classification reported the canary status as `failed` / `segmentation_fault`; there was no container-specific override, and the default command matched the reviewed legacy readiness-check shape. At 09:11:46 UTC, separate bounded private GETs returned HTTP 200 for `/healthz` and `/readyz`, with readiness `ready` at the old PR #894 revision. A 09:12:12 UTC Binary API snapshot found the canary on its pinned PR #894 image and unhealthy, with production running on a tag-only reference; that snapshot did not verify running digests.
 
@@ -18,6 +18,8 @@ A later paired, TLS-verified Binary API/REST point snapshot at 09:22:14 UTC had 
 A separate count-only read at 09:18:28 UTC also found zero active OpenVPN sessions and retained no identifiers. Client-dependent acceptance is deferred until a disposable test session is active; independent work continues.
 
 A bounded TLS-verified RouterOS container-topic log query at 09:25:36 UTC returned zero records. No raw log text was retained. This empty filtered query does not explain the healthcheck failure or prove that no fault occurred.
+
+At 09:29:03 UTC, separate bounded direct private production `/healthz` and `/readyz` probes from this collection host returned status `0`. Application readiness is unverified from this host; this does not change RouterOS's healthy lifecycle and `good` healthcheck point result. Production therefore is not established as an application-ready canary rollback baseline.
 
 **Fresh mainline and updater-source checkpoint — 2026-11-14 08:45 UTC.** GitHub `main` is `85be55f02505726b81f4a51ee0298a76bb894ddd` after PR #991. Its required checks passed; post-merge main CI #43576344515 passed at 08:41:44 UTC and CodeQL #43576344517 passed. PR #991 was documentation-only. PR #981 remains the latest published immutable image candidate: source `47dc999e84a33540451ad85e1e217c7c2a89cd03`, ARM64 digest `sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b`. Publication is not RouterOS acceptance.
 

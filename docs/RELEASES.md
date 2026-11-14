@@ -22,7 +22,7 @@ The latest formal versioned release remains **v2.7.0**. The next planned version
 
 ## Latest published mainline image — PR #981 — 2026-11-14
 
-### Latest RouterOS point-read — 2026-11-14 09:09–09:25 UTC
+### Latest RouterOS point-read — 2026-11-14 09:09–09:29 UTC
 
 PR #992 merged documentation-only at `463bdf126815ac8434fa96869da03f5e2a314a91`;
 it did not publish a new image. At 09:09:31 UTC, the TLS-verified read-only
@@ -59,6 +59,12 @@ sessions and retained no identifiers. Client-dependent acceptance under issue
 A bounded TLS-verified log query filtered to container topics at 09:25:36 UTC
 returned zero records. The query retained no raw lines; this does not identify
 the healthcheck fault or establish that no failure occurred.
+
+At 09:29:03 UTC, direct private production `/healthz` and `/readyz` probes from
+this collection host returned status `0`; production application readiness is
+unverified from this host. RouterOS's point snapshot still reports its
+lifecycle healthy with a `good` healthcheck. This does not establish an
+application-ready canary rollback baseline.
 
 PR [#981](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/981)
 merged as `47dc999e84a33540451ad85e1e217c7c2a89cd03`. Post-merge main CI run
