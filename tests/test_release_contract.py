@@ -439,7 +439,15 @@ class ReleaseContractTests(unittest.TestCase):
             routeros_acceptance_compact,
         )
         self.assertIn(
-            "## Current checkpoint — PR #977 and RouterOS reads 2026-11-13 22:29–22:46 UTC",
+            "## Current checkpoint — PR #978 and RouterOS reads 2026-11-13 23:50–23:52 UTC",
+            routeros_acceptance,
+        )
+        self.assertIn(
+            "## Previous checkpoint — PR #977 and RouterOS reads 2026-11-13 22:29–22:46 UTC",
+            routeros_acceptance,
+        )
+        self.assertIn(
+            "PR #978 merged to `main` at 23:09:29 UTC as",
             routeros_acceptance,
         )
         self.assertIn(

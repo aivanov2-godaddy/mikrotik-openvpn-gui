@@ -23,7 +23,38 @@ That registry evidence does not prove RouterOS acceptance or that the candidate
 is running on RouterOS.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — PR #977 and RouterOS reads 2026-11-13 22:29–22:46 UTC
+## Current checkpoint — PR #978 and RouterOS reads 2026-11-13 23:50–23:52 UTC
+
+PR #978 merged to `main` at 23:09:29 UTC as
+`57494848e073d3dd7d0e8fced19bb122056b367d`. Main CI #43524964321 and CodeQL
+#43524964761 passed on this exact SHA. PR #978 did not publish an image. PR
+#971 remains the latest published candidate; publication is not RouterOS
+acceptance.
+
+At 23:50:31 UTC, a TLS-verified, read-only Binary API point read reconciled
+both running OCI manifest identities in memory. Neither matched PR #971. The
+canary remained unhealthy with healthcheck categories failed,
+resource_unavailable, segmentation_fault, and timeout. Its configured image
+reference remained digest-pinned but did not match the candidate. Production
+was running with a good healthcheck category and a tag-only configured image
+reference. A count-only active VPN session query returned zero and retained no
+session identifiers. This is a point observation, not a soak.
+
+At 23:52:04 UTC, TLS-verified RouterOS REST reads discovered the canary's
+private VETH address in memory and bounded direct private GETs returned HTTP
+200 for `/healthz` and `/readyz`. Readiness was `ready` at the old PR #894
+revision. These close point observations confirm the app responds while
+RouterOS reports a failed healthcheck; they do not identify the failing
+executable or root cause.
+
+No RouterOS setting, account, container, scheduler, updater, or production
+state changed. There was no candidate staging, restart, rollback, promotion, or
+deployment. Issue #927 remains open and canary acceptance is blocked by the
+unhealthy baseline. Issue #200 still lacks the independent scoped assessment,
+candidate-bound live-client evidence, and separate owner residual-risk
+decision. Production remains undeployed.
+
+## Previous checkpoint — PR #977 and RouterOS reads 2026-11-13 22:29–22:46 UTC
 
 PR #977 merged to main at 22:29:55 UTC as
 `f5be30a62fb36e0401b26c275c59d4105b1d0bfe`. Its required checks passed.
