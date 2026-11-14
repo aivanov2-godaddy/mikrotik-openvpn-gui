@@ -22,6 +22,25 @@ The latest formal versioned release remains **v2.7.0**. The next planned version
 
 ## Latest published mainline image — PR #981 — 2026-11-14
 
+### Latest RouterOS point-read — 2026-11-14 09:09–09:12 UTC
+
+PR #992 merged documentation-only at `463bdf126815ac8434fa96869da03f5e2a314a91`;
+it did not publish a new image. At 09:09:31 UTC, the TLS-verified read-only
+RouterOS healthcheck classifier still reported `failed` / `segmentation_fault`
+for the canary. There was no per-container override, and the default command
+matched the reviewed legacy readiness-check shape. At 09:11:46 UTC, separate
+bounded direct canary `/healthz` and `/readyz` GETs returned HTTP 200 and
+readiness `ready` at the old PR #894 revision.
+
+A 09:12:12 UTC TLS-verified Binary API snapshot found the canary still on its
+old PR #894 digest-pinned configuration and `unhealthy`; production remained
+on its old tag-only configured reference and `running`. Neither running OCI
+manifest digest was verified. Neither container is running PR #981. These
+separate point reads do not establish a healthy rollback baseline, candidate
+acceptance, or production deployment. PR #981 remains unstaged; no RouterOS
+configuration or production state changed. The unhealthy canary blocks
+candidate staging under issue #927.
+
 PR [#981](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/981)
 merged as `47dc999e84a33540451ad85e1e217c7c2a89cd03`. Post-merge main CI run
 [#43547973343](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/actions/runs/43547973343),

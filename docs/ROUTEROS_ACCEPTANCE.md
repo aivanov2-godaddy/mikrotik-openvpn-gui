@@ -40,6 +40,29 @@ An offline comparison with the reviewed repository template found no exact sourc
 
 No updater was executed during this read. Keep the installed updater out of use until the source/binding review and a reviewed canary restore path are complete. This collection did not refresh container health, running image identity, VPN sessions, or production readiness; see the latest runtime checkpoint in `ROADMAP.md`. No RouterOS setting, account, password, scheduler, container, or production state changed. This is source-inventory evidence, not canary acceptance or deployment evidence.
 
+## Latest RouterOS point-read — 2026-11-14 09:09–09:12 UTC
+
+At 09:09:31 UTC, a TLS-verified read-only REST classification reported the
+canary healthcheck as `failed` / `segmentation_fault`. No container-specific
+override was present, and the default healthcheck matched the reviewed legacy
+readiness-check shape. The classification does not identify the faulting
+process.
+
+At 09:11:46 UTC, direct private GETs returned HTTP 200 for `/healthz` and
+`/readyz`; readiness was `ready` at the old PR #894 revision. At 09:12:12 UTC,
+a separate TLS-verified Binary API read found the canary configured with its
+old PR #894 digest-pinned image and lifecycle `unhealthy`. Production remained
+configured with a tag-only image reference and lifecycle `running`. Neither
+running OCI manifest digest was verified, and neither container runs the
+latest published PR #981 candidate.
+
+These are point observations only. They are not a soak, healthy rollback
+baseline, candidate acceptance, or production deployment. The unhealthy
+canary blocks the guarded staging procedure. No RouterOS setting, account,
+password, container, scheduler, updater, or production state changed. Issues
+#927, #200, and epic #205 remain open; client-bound, recovery, security-review,
+and owner-risk acceptance remain outstanding.
+
 ## Previous container read-only checkpoint — 2026-11-14 04:03–04:12 UTC
 
 At the start of this refresh, `main` was `40fa6b1138e7aefe9a3f38caf447fccd3fc2a87b`;
