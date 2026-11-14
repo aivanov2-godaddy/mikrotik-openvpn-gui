@@ -22,7 +22,7 @@ The latest formal versioned release remains **v2.7.0**. The next planned version
 
 ## Latest published mainline image — PR #981 — 2026-11-14
 
-### Latest RouterOS point-read — 2026-11-14 09:09–09:18 UTC
+### Latest RouterOS point-read — 2026-11-14 09:09–09:22 UTC
 
 PR #992 merged documentation-only at `463bdf126815ac8434fa96869da03f5e2a314a91`;
 it did not publish a new image. At 09:09:31 UTC, the TLS-verified read-only
@@ -34,16 +34,27 @@ readiness `ready` at the old PR #894 revision.
 
 A 09:12:12 UTC TLS-verified Binary API snapshot found the canary still on its
 old PR #894 digest-pinned configuration and `unhealthy`; production remained
-on its old tag-only configured reference and `running`. Neither running OCI
-manifest digest was verified. Neither container is running PR #981. These
-separate point reads do not establish a healthy rollback baseline, candidate
-acceptance, or production deployment. PR #981 remains unstaged; no RouterOS
-configuration or production state changed. The unhealthy canary blocks
-candidate staging under issue #927.
+on its old tag-only configured reference and `running`. That snapshot did not
+verify running digests.
 
-A count-only read at 09:18:28 UTC found zero active OpenVPN sessions and
-retained no identifiers. Client-dependent acceptance under issue #200 remains
-deferred until the disposable test client is active.
+A later paired TLS-verified Binary API/REST point snapshot at 09:22:14 UTC had
+matching normalized results and reconciled the runtime layer identities
+against GHCR manifests in memory. It verified the canary running manifest as
+`sha256:3b5f3304ded4bd0cf09855575f27a8fffa225efe4ef940a0d7e2f25734d6c581` and
+the production running manifest as
+`sha256:bd787421bfcc6e356ca9b2b05d98ce07f69493c5eefcaef3cdfc20c2c8fcaa5c`.
+The canary remains unhealthy with `failed`, `resource_unavailable`,
+`segmentation_fault`, and `timeout` healthcheck categories. Production is
+healthy with a `good` healthcheck category, while its configured reference
+remains tag-only. A count-only read found zero active OpenVPN sessions and
+retained no identifiers. Neither runtime is running PR #981. These point reads
+do not establish a healthy canary rollback baseline, candidate acceptance, or
+production deployment. PR #981 remains unstaged; no RouterOS configuration or
+production state changed. The unhealthy canary blocks staging under #927.
+
+A separate count-only read at 09:18:28 UTC also found zero active OpenVPN
+sessions and retained no identifiers. Client-dependent acceptance under issue
+#200 remains deferred until the disposable test client is active.
 
 PR [#981](https://github.com/aivanov2-godaddy/mikrotik-openvpn-gui/pull/981)
 merged as `47dc999e84a33540451ad85e1e217c7c2a89cd03`. Post-merge main CI run
