@@ -11,8 +11,37 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — RouterOS point read at 2026-11-13 22:44:17 UTC;
-paired private probes at 22:46 UTC.** GitHub `main` is
+**Fresh read-only checkpoint — RouterOS Binary API point read at 2026-11-13
+23:50:31 UTC; direct private health probes at 23:52:04 UTC.** GitHub `main` is
+`57494848e073d3dd7d0e8fced19bb122056b367d` after PR #978. Main CI
+#43524964321 and CodeQL #43524964761 passed on this exact SHA. PR #978 did not
+publish an image. PR #971 remains the latest published immutable candidate;
+publication is not RouterOS acceptance.
+
+The TLS-verified, read-only point read reconciled both running OCI manifest
+identities in memory. Neither matched PR #971. The canary remains unhealthy;
+its categories are failed, resource unavailable, segmentation fault, and
+timeout. Its configured image remains digest-pinned but is not the candidate.
+Production remains running with a good healthcheck category and a tag-only
+configured image reference. The count-only active VPN session result was zero;
+no session identities were queried. This is a point observation, not a soak.
+
+At 23:52:04 UTC, direct private GETs returned HTTP 200 for `/healthz` and
+`/readyz`; readiness was `ready` at the old PR #894 revision. These close
+samples confirm that the application endpoint responds while RouterOS reports
+a failed healthcheck, but do not identify the failing executable or root cause.
+No RouterOS setting, account, container, scheduler, updater, or production state
+changed. No candidate was staged, restarted, rolled back, promoted, or deployed.
+
+Issue #927 remains open; #200 and epic #205 remain open. #785 is closed, with
+updater reconciliation and healthy-canary rollback tracked as release gates
+under #205. Issues #188–#199 and #201–#204 are closed. The canary fault,
+independent #200 assessment, candidate-bound live-client checks and soak, and
+separate owner risk decision remain outstanding. Multi-tenancy remains
+excluded.
+
+**Previous checkpoint — RouterOS point read at 2026-11-13 22:44:17 UTC;
+paired private probes at 22:46 UTC.** GitHub `main` was
 f5be30a62fb36e0401b26c275c59d4105b1d0bfe after PR #977. Its required checks,
 post-merge main CI #43519747932, and CodeQL #43519748282 passed. PR #977 is
 documentation-only and did not publish an image. PR #971 remains the latest
