@@ -392,6 +392,11 @@ class RouterOSRestAcceptanceReader:
         if len(body) > MAX_REST_RESPONSE_BYTES:
             raise ValueError("RouterOS REST response exceeded the size limit")
         decoded = json.loads(body)
+        # RouterOS returns /system/resource as one object, while table-style
+        # REST endpoints return arrays. Normalize only this fixed singleton
+        # path; keep every table endpoint list-only and fail closed otherwise.
+        if path_key == "resource" and isinstance(decoded, dict):
+            decoded = [decoded]
         if not isinstance(decoded, list) or any(
             not isinstance(record, dict)
             or any(
