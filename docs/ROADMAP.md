@@ -11,38 +11,41 @@ Detailed operational records remain operator-controlled.
 
 ## Current project snapshot
 
-**Fresh read-only checkpoint — RouterOS Binary API point read at 2026-11-14 00:28:16 UTC; direct private health probes at 00:30:42 UTC.** GitHub main is
-5722684bbb4bbd193939e47a3a9c5a048e6446e8 after PR #979. Main CI
-#43533141667 and CodeQL #43533139364 passed on this exact SHA. PR #979 did
-not publish an image. PR #971 remains the latest published immutable candidate;
-publication is not RouterOS acceptance.
+**Fresh repository checkpoint — 2026-11-14 02:58 UTC.** GitHub `main` is at
+`47dc999e84a33540451ad85e1e217c7c2a89cd03` after PR #981. All required PR
+checks passed, including Python 3.13/3.14, pre-commit, CodeQL, ARM64 build, and
+browser/accessibility regression. Main CI #43547973343 and CodeQL #43547973560
+passed on this commit. Container publisher #43547973327 completed successfully,
+including scans, architecture-specific image publication, attestations, and
+runtime smoke tests. The `routeros-stable` manifest read-back matches this exact
+commit and identifies the ARM64 image as
+`ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-47dc999e84a33540451ad85e1e217c7c2a89cd03-arm64@sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b`.
+This is published, tested candidate evidence; it is not RouterOS staging or
+production deployment. PR #981 changed RouterOS release-state read
+minimization only and did not change router state.
 
-The TLS-verified point read reconciled both running OCI manifest identities in
-memory. Neither matched PR #971. The canary remains unhealthy with failed,
-resource unavailable, segmentation fault, and timeout categories. Its configured
-image remains digest-pinned but is not the candidate. Production remains running
-with a good healthcheck category and a tag-only configured image reference. The
-count-only active VPN session result was zero; no session identities were
-queried. This is a point observation, not a soak.
+The latest container-state point read recorded in this roadmap was at
+2026-11-14 00:28:16 UTC. It found a canary that was unhealthy and not running
+the published candidate, while production was running with a tag-only configured
+reference and was not verified as running that candidate. Direct health probes
+at 00:30:42 UTC returned HTTP 200 for `/healthz` and `/readyz`; readiness matched
+the older PR #894 revision. These samples are point observations, not a soak or
+candidate acceptance. A count-only active-session read at 02:11 UTC found one
+active OpenVPN session; no identity was queried. A read-only property-acceptance
+probe at 02:15 UTC confirmed that the current RouterOS accepted the narrowly
+requested download/extract failure field. It did not change the router.
 
-At 00:30:42 UTC, direct private GETs returned HTTP 200 for /healthz and /readyz;
-readiness was ready at the old PR #894 revision. These point samples confirm
-that the application endpoint responds while RouterOS reports a failed
-healthcheck, but do not identify the failing executable or root cause.
-
-A later read-only check-only staging preflight returned
-preflight_blocked / baseline / canary_unhealthy with
-router_writes_may_have_started=false. It did not stage a candidate or attempt a
-rollback. No RouterOS setting, account, container, scheduler, updater, or
-production state changed. No candidate was staged, restarted, rolled back,
-promoted, or deployed.
+No fresh canary/production container health and running-digest reconciliation
+was made after the 00:28 point read. No candidate was staged, restarted, rolled
+back, promoted, or deployed. Production running digest and health are not
+verified for the current main commit.
 
 Issue #927 remains open; #200 and epic #205 remain open. #785 is closed, with
 updater reconciliation and healthy-canary rollback tracked as release gates
-under #205. Issues #188–#199 and #201–#204 are closed. The canary fault,
-independent #200 assessment, candidate-bound live-client checks and soak, and
-separate owner risk decision remain outstanding. Multi-tenancy remains
-excluded.
+under #205. Issues #188–#199 and #201–#204 are closed. Outstanding gates include
+the canary health fault, candidate-bound independent ASVS review, live-client
+checks and soak, and the separate owner residual-risk decision. Multi-tenancy
+remains excluded.
 
 **Previous checkpoint — RouterOS Binary API point read at 2026-11-13
 23:50:31 UTC; direct private health probes at 23:52:04 UTC.** GitHub `main` is
