@@ -40,7 +40,37 @@ An offline comparison with the reviewed repository template found no exact sourc
 
 No updater was executed during this read. Keep the installed updater out of use until the source/binding review and a reviewed canary restore path are complete. This collection did not refresh container health, running image identity, VPN sessions, or production readiness; see the latest runtime checkpoint in `ROADMAP.md`. No RouterOS setting, account, password, scheduler, container, or production state changed. This is source-inventory evidence, not canary acceptance or deployment evidence.
 
-## Latest RouterOS point-read — 2026-11-14 09:09–09:29 UTC
+## Latest RouterOS runtime identity and readiness read — 2026-11-14 10:08–10:10 UTC
+
+At 10:08:52 UTC, a TLS-verified read-only REST/OCI reconciliation matched the
+RouterOS running-layer identities for both dashboard containers to GHCR
+manifests. The canary remains on the older PR #894 image and RouterOS reports
+its lifecycle unhealthy. The verified image healthcheck profile is the legacy
+shell/timeout/wget readiness probe. Production's running manifest identity is
+verified and RouterOS reports it healthy with a good healthcheck, but its
+configured image reference is tag-only. Neither container is running PR #981.
+The count-only active OpenVPN read returned zero and retained no identifiers.
+
+The latest published candidate remains PR #981, source
+47dc999e84a33540451ad85e1e217c7c2a89cd03, ARM64 digest
+sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b.
+Its current registry image-config profile is exec-form wget, but RouterOS
+behavior for this candidate is not established.
+
+At 10:10:37 UTC, direct private /healthz and /readyz probes for the canary
+returned HTTP 200 and ready at the old PR #894 revision. Equivalent direct
+production probes from this collection host returned no HTTP status; app
+readiness from this host remains unverified. These are point observations, not
+a soak, rollback rehearsal, candidate acceptance, or production deployment.
+They do not identify the failing healthcheck process or prove a root cause.
+
+PR #981 remains unstaged. Keep the guarded staging check closed until the
+documented canary backup, rollback, production-unchanged, and review safeguards
+can be met. Issues #927, #200, and epic #205 remain open. No RouterOS state,
+account, password, scheduler, container, or production setting changed.
+Multi-tenancy remains excluded.
+
+## Previous RouterOS point-read — 2026-11-14 09:09–09:29 UTC
 
 At 09:09:31 UTC, a TLS-verified read-only REST classification reported the
 canary healthcheck as `failed` / `segmentation_fault`. No container-specific
