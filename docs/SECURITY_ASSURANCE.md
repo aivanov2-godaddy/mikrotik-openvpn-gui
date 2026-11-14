@@ -6,7 +6,32 @@ a security certification, penetration test, or a claim that every OWASP ASVS
 requirement is met. The mapping below uses OWASP ASVS 5.0.0 requirement IDs;
 only the named implementation paths and tests are in scope.
 
-## Current candidate and deployed-state checkpoint — 2026-11-13 16:42 UTC
+## Current candidate and deployed-state checkpoint — 2026-11-14 04:12 UTC
+
+PR #981 merged at 02:44:40 UTC as
+`47dc999e84a33540451ad85e1e217c7c2a89cd03`. Post-merge main CI
+#43547973343, CodeQL #43547973560, and publisher #43547973327 passed. The
+publisher verified immutable ARM64 and AMD64 digests and their provenance and
+SBOM attestations. The exact current candidate is documented in
+[`RELEASES.md`](RELEASES.md); publication is not deployment or candidate
+acceptance.
+
+At 04:12:26 UTC, a TLS-verified read-only RouterOS snapshot found the canary
+unhealthy on its older PR #894 digest-pinned configuration and production
+healthy with a good healthcheck category on a tag-only reference. Neither
+running image digest was verified. A count-only session query returned zero.
+Direct private canary probes at 04:03 UTC returned HTTP 200 and readiness
+`ready` at the old PR #894 revision; they do not clear the healthcheck fault.
+The canary remains unhealthy, so no candidate was staged or deployed.
+
+The issue #200 review verifier sampled the latest 100 comments and found no
+marker-bearing candidate-bound independent ASVS review or owner accepted-risk
+decision for PR #981. The scoped source matrix below is repository-level
+evidence only; it is not the independent candidate review required by #200.
+Issue #200 remains open. This document does not claim full ASVS conformance or
+deployed-device acceptance.
+
+## Previous candidate and deployed-state checkpoint — 2026-11-13 16:42 UTC
 
 PR #971 merged at 14:51:24 UTC as
 `ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`. Post-merge main CI

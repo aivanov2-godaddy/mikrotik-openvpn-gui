@@ -650,6 +650,60 @@ class RouterOSAcceptanceSamplerTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 RouterOSRestAcceptanceReader(url, "reader", "secret")
 
+    def test_rest_reader_normalizes_singleton_resource_object_only(self):
+        reader = RouterOSRestAcceptanceReader("https://router.example/rest", "reader", "secret")
+        revision = "a" * 40
+        payloads = {
+            "/rest/system/resource": {
+                "cpu-load": "23", "total-memory": "1000", "free-memory": "600",
+                "total-hdd-space": "10000", "free-hdd-space": "7000", "uptime": "1d",
+                "version": "7.24.5 (stable)",
+            },
+            "/rest/container": [
+                {
+                    "name": name,
+                    "running": "true",
+                    "healthy": "true",
+                    "healthcheck-status": "good, output: ",
+                    "remote-image": f"ghcr.io/aivanov2-godaddy/mikrotik-openvpn-gui:sha-{revision}-arm64",
+                }
+                for name in CONTAINER_NAMES.values()
+            ],
+            "/rest/ppp/active": [{".id": "*1", "name": "private-user", "address": "10.0.0.2"}],
+        }
+
+        def open_request(request, *, timeout):
+            self.assertEqual(timeout, 10)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(request.get_header("Authorization"), "Basic cmVhZGVyOnNlY3JldA==")
+            parsed = urlsplit(request.full_url)
+            self.assertEqual(parsed.scheme, "https")
+            self.assertIn(parsed.path, payloads)
+            response = Mock()
+            response.status = 200
+            response.__enter__ = Mock(return_value=response)
+            response.__exit__ = Mock(return_value=False)
+            response.read.return_value = json.dumps(payloads[parsed.path]).encode()
+            return response
+
+        opener = Mock()
+        opener.open.side_effect = open_request
+        reader._opener = opener
+        snapshot = reader.snapshot()
+        self.assertEqual(snapshot["router_cpu_percent"], 23)
+        self.assertEqual(snapshot["active_vpn_sessions"], 1)
+        self.assertTrue(all(item["healthy"] for item in snapshot["containers"].values()))
+        self.assertNotIn("private-user", repr(snapshot))
+        self.assertEqual(opener.open.call_count, 3)
+
+        # The singleton-object exception is intentionally scoped to resource;
+        # table endpoints still reject an unexpected object response.
+        payloads["/rest/container"] = payloads["/rest/container"][0]
+        with self.assertRaisesRegex(ValueError, "unexpected RouterOS REST response shape"):
+            reader.snapshot()
+        self.assertEqual(opener.open.call_count, 5)
+        reader.close()
+
     def test_rest_reader_uses_only_bounded_allowlisted_gets(self):
         reader = RouterOSRestAcceptanceReader("https://router.example/rest", "reader", "secret")
         opener = Mock()

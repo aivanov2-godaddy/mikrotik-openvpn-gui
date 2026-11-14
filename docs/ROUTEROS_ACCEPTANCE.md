@@ -15,15 +15,48 @@ do not repeat origin values in reports.
 ## Scope and prerequisites
 
 Compatibility claims are evidence-scoped. CI image build/runtime smoke does not
-prove RouterOS compatibility. PR #971
-(`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image.
+prove RouterOS compatibility. PR #981
+(`47dc999e84a33540451ad85e1e217c7c2a89cd03`) is the latest published image.
 Its ARM64 manifest is
-`sha256:a9aa9ab634151ce4c4c3b30ee8ef4bac3c41504ea936cc540a5e8cd1df24112d`.
-That registry evidence does not prove RouterOS acceptance or that the candidate
-is running on RouterOS.
+`sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b`.
+Publisher run #43547973327 passed. That registry evidence does not prove
+RouterOS acceptance or that the candidate is running on RouterOS.
 See [`RELEASES.md`](RELEASES.md) for immutable tags and digests.
 
-## Current checkpoint — PR #979 and RouterOS reads 2026-11-14 00:28–00:31 UTC
+## REST response-shape note
+
+A live TLS-verified read found `/rest/system/resource` returned one JSON object,
+while the container and active-session endpoints returned table rows. The
+acceptance reader normalizes a singleton object only for the fixed
+`system/resource` path. Container, layer, and session endpoints remain
+array-only; any other unexpected response shape fails closed. The collector
+retains only its normalized aggregate snapshot, not raw RouterOS response data.
+
+## Current read-only checkpoint — 2026-11-14 04:03–04:12 UTC
+
+At the start of this refresh, `main` was `40fa6b1138e7aefe9a3f38caf447fccd3fc2a87b`;
+post-merge CI #43552790940 and CodeQL #43552790800 passed. PR #981 remains the
+latest published immutable candidate. The canary is still configured to its
+older PR #894 digest-pinned image, and production remains tag-configured. Neither
+running OCI digest is verified.
+
+At 04:03 UTC, direct private `/healthz` and `/readyz` GETs returned HTTP 200;
+readiness was `ready` at the configured PR #894 revision. A separate TLS-verified
+healthcheck classification included failed, resource unavailable, segmentation
+fault, and timeout categories. The default healthcheck matched the previously
+reviewed shape and there was no per-container override. At 04:12:26 UTC, the
+patched read-only REST acceptance reader successfully collected a normalized
+point snapshot: canary unhealthy, production healthy with a good healthcheck
+category, zero active VPN sessions, and neither running digest verified. These
+observations are not a soak or candidate acceptance.
+
+The canary health fault and unhealthy rollback baseline still block staging.
+Issue #200 also lacks the independent candidate-bound ASVS review, owner risk
+decision, and live-client evidence. No RouterOS setting, account, container,
+scheduler, updater, or production state changed. No staging, restart, rollback,
+promotion, or deployment occurred.
+
+## Historical checkpoint — PR #979 and RouterOS reads 2026-11-14 00:28–00:31 UTC
 
 PR #979 merged to main as 5722684bbb4bbd193939e47a3a9c5a048e6446e8.
 Main CI #43533141667 and CodeQL #43533139364 passed on this exact SHA. PR

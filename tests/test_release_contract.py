@@ -355,7 +355,11 @@ class ReleaseContractTests(unittest.TestCase):
         installation = (ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         security_assurance = (ROOT / "docs/SECURITY_ASSURANCE.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Latest published mainline image — PR #971", release_record)
+        self.assertIn("## Latest published mainline image — PR #981", release_record)
+        self.assertIn("## Previous published mainline image — PR #971", release_record)
+        self.assertIn("sha256:89827c2b8a0c9177ca4588890376f136c5789cda787519a13e4a991fed510b6b", release_record)
+        self.assertIn("sha256:d054f394d715ecd622da1d959ea98a8da46bf6de0360d4cf9d8048f16ba02b9d", release_record)
+        self.assertIn("sha256:c6cfbcbdee041444ebda0d6c1ec91282af52560be728685833062caf3b196712", release_record)
         self.assertIn("## Previous published mainline image — PR #965", release_record)
         self.assertIn("## Previous published mainline image — PR #935", release_record)
         self.assertIn("## Previous published mainline image — PR #926", release_record)
@@ -429,17 +433,17 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("sha256:ac36036b13842a7bb2ac5611705403e1165c84ac2a07115af8a192f9ccf7ba6f", release_record)
         self.assertIn("sha256:55aae2f27b0469b807c27064a339a04bbb7c938c1198f51e033440aa9f2f67f4", release_record)
         self.assertIn(
-            "PR #971 has not been staged on RouterOS",
+            "PR #981 has not been staged on RouterOS",
             " ".join(release_record.split()),
         )
         routeros_acceptance = (ROOT / "docs/ROUTEROS_ACCEPTANCE.md").read_text(encoding="utf-8")
         routeros_acceptance_compact = " ".join(routeros_acceptance.split())
         self.assertIn(
-            "PR #971 (`ec760fcfd4ed1cffa5e6ba067d997865fd27e03e`) is the latest published image",
+            "PR #981 (`47dc999e84a33540451ad85e1e217c7c2a89cd03`) is the latest published image",
             routeros_acceptance_compact,
         )
         self.assertIn(
-            "## Current checkpoint — PR #979 and RouterOS reads 2026-11-14 00:28–00:31 UTC",
+            "## Historical checkpoint — PR #979 and RouterOS reads 2026-11-14 00:28–00:31 UTC",
             routeros_acceptance,
         )
         self.assertIn(
@@ -472,18 +476,18 @@ class ReleaseContractTests(unittest.TestCase):
             line for line in roadmap.splitlines() if line.startswith("| Open — security assurance |")
         )
         self.assertIn(
-            "2026-11-14 00:28:16 UTC verified both running manifest identities "
-            "in memory; neither matches PR #971",
+            "latest TLS-verified acceptance snapshot at 04:12:26 UTC found the "
+            "canary unhealthy on its older PR #894 digest-pinned configuration",
             canary_status_row,
         )
         self.assertIn(
-            "check-only preflight returned preflight_blocked / baseline / "
+            "earlier check-only preflight at 00:31 UTC blocked at baseline / "
             "canary_unhealthy",
             canary_status_row,
         )
         self.assertIn("router_writes_may_have_started=false", canary_status_row)
-        self.assertNotIn("neither running digest is verified", canary_status_row.casefold())
-        self.assertIn("2026-11-14 00:28:16 UTC count-only active VPN read returned zero", security_status_row)
+        self.assertIn("neither running digest was verified", canary_status_row.casefold())
+        self.assertIn("count-only session read returned zero", security_status_row)
         self.assertIn("running OCI manifest identities for canary and production", routeros_acceptance)
         self.assertIn("latest published PR #971 candidate", routeros_acceptance)
         self.assertIn("running manifest identity was verified but", routeros_acceptance)
